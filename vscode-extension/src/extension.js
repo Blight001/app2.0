@@ -33,6 +33,9 @@ async function activate(context) {
   activeProxyController = proxyController;
   logService.info('AI Free Tools VS Code 插件已激活');
 
+  // 与软件端对齐：激活后自动验证已保存卡密 + 按设置自动开启网络魔法（不阻塞激活）
+  sidebarProvider.bootstrap().catch(() => {});
+
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, sidebarProvider, {
       webviewOptions: {

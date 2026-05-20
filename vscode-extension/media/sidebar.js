@@ -456,8 +456,13 @@
       $('expire-time').textContent = validation.expire_at || runtimeConfig.expire_at || '已验证';
       $('usage-times').textContent = formatUsageText({ validation, licenseUsage: validation });
       applyRuntimeConfig(runtimeConfig);
-      syncLicenseControls();
+    } else {
+      state.validated = false;
+      if ($('expire-time')) $('expire-time').textContent = '未验证';
+      if ($('usage-times')) $('usage-times').textContent = '未验证';
     }
+    syncLicenseControls();
+    refreshConnectionStatus();
   }
 
   async function openWithButton(button, channel) {

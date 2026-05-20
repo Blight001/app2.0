@@ -153,6 +153,30 @@ class SidebarProvider {
     }
   }
 
+  // 激活时与软件端对齐：自动验证已保存卡密，并按设置自动开启网络魔法。
+  async bootstrap() {
+    const creds = this.licenseService.getCredentials();
+    const savedKey = String(creds.key || '').trim();
+    if (savedKey) {
+      try {
+        const result = await this.validateKey({ key: savedKey, deviceId: creds.deviceId });
+        if (result?.ok) this.logService?.info?.('已自动验证保存的卡密', { source: 'license' });
+        else this.logService?.warn?.(`自动验证未通过：${result?.message || 'unknown'}`, { source: 'license' });
+      } catch (error) {
+        this.logService?.warn?.(`自动验证异常：${error?.message || error}`, { source: 'license' });
+      }
+    }
+    const autoStart = this.context.globalState.get('networkMagicAutoStart', false) === true;
+    if (autoStart && this.licenseService.getCredentials().validated) {
+      this.logService?.info?.('按设置自动开启网络魔法', { source: 'clash' });
+      try {
+        await this.startClashMini();
+      } catch (error) {
+        this.logService?.warn?.(`自动开启网络魔法失败：${error?.message || error}`, { source: 'clash' });
+      }
+    }
+  }
+
   async validateKey(payload = {}) {
     const result = await this.licenseService.validateKey({
       key: payload.key,
@@ -289,6 +313,8 @@ class SidebarProvider {
       return { ok: false, message: error?.message || String(error) };
     }
     if (!result.ok) return { ok: false, message: result.message || '解绑失败' };
+    await this.licenseService.clearValidation();
+    this.postEvent('license-credentials-updated', this.licenseService.getCredentials());
     this.logService?.success?.(`设备解绑成功：${result.message}`, { source: 'license' });
     return { ok: true, message: result.message || '解绑成功', data: result.data };
   }

@@ -50,6 +50,11 @@ class LicenseService {
     return this.state.runtimeConfig || {};
   }
 
+  async clearValidation() {
+    this.state = { ...this.state, validated: false, validation: {} };
+    await this.persist();
+  }
+
   getTargetUrl(fallback) {
     return String(this.state.runtimeConfig?.targetUrl || fallback || '').trim();
   }
