@@ -1,0 +1,474 @@
+@import url("./modules/layout.css");
+@import url("./modules/buttons.css");
+@import url("./modules/license.css");
+@import url("./modules/switches.css");
+@import url("./modules/account.css");
+@import url("./modules/vpn.css");
+@import url("./modules/overlays.css");
+@import url("./modules/theme-dark.css");
+body.vscode-extension-sidebar {
+  margin: 0;
+  background: var(--vscode-sideBar-background, #0b1018);
+  color: var(--vscode-sideBar-foreground, #e5e7eb);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.vscode-extension-sidebar .side-panel {
+  min-height: 100vh;
+}
+
+.vscode-extension-sidebar .container {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+}
+
+.vscode-extension-sidebar .main-button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.vscode-config-panel {
+  margin: 12px 0;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 6px;
+  padding: 8px;
+  background: rgba(15, 23, 42, 0.58);
+}
+
+.vscode-config-panel summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: #dbeafe;
+}
+
+.vscode-config-panel textarea {
+  width: 100%;
+  min-height: 140px;
+  box-sizing: border-box;
+  margin: 8px 0;
+  resize: vertical;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 4px;
+  background: rgba(2, 6, 23, 0.85);
+  color: #e5e7eb;
+  font-family: var(--vscode-editor-font-family, Consolas, monospace);
+  font-size: 11px;
+  line-height: 1.45;
+  padding: 8px;
+}
+
+.vscode-extension-sidebar,
+.vscode-extension-sidebar * {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.vscode-extension-sidebar .main-wrapper,
+.vscode-extension-sidebar .panel,
+.vscode-extension-sidebar .side-panel {
+  width: 100%;
+  overflow-x: hidden;
+}
+
+.vscode-extension-sidebar .panel,
+.vscode-extension-sidebar .side-panel {
+  position: static;
+  height: auto;
+  min-height: 100vh;
+  visibility: visible;
+  opacity: 1;
+  padding: 4px;
+}
+
+.vscode-extension-sidebar .container {
+  padding: 0;
+  overflow-x: hidden;
+}
+
+.vscode-extension-sidebar .info-group,
+.vscode-extension-sidebar .announcement-bar,
+.vscode-extension-sidebar .vscode-config-panel {
+  margin: 0 0 8px;
+  padding: 8px;
+  border-radius: 5px;
+}
+
+.vscode-extension-sidebar .form-group {
+  margin-bottom: 8px;
+  gap: 6px;
+}
+
+.vscode-extension-sidebar .form-group label {
+  width: 44px;
+  font-size: 12px;
+}
+
+.vscode-extension-sidebar .form-group input[type='text'],
+.vscode-extension-sidebar .form-group button {
+  min-width: 0;
+}
+
+.vscode-extension-sidebar .key-input-shell {
+  gap: 6px;
+}
+
+.vscode-extension-sidebar .key-input-shell button,
+.vscode-extension-sidebar .form-group button {
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.vscode-extension-sidebar .license-summary-line {
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.vscode-extension-sidebar .license-summary-item:last-child {
+  margin-left: 0;
+}
+
+.vscode-extension-sidebar .account-launch-row,
+.vscode-extension-sidebar .launch-shortcuts-row,
+.vscode-extension-sidebar .vpn-buttons-container,
+.vscode-extension-sidebar .vpn-node-selector-row {
+  gap: 6px;
+  margin-bottom: 8px;
+  min-width: 0;
+}
+
+.vscode-extension-sidebar .account-history-shell {
+  position: relative;
+  flex: 0 0 92px;
+  min-width: 0;
+}
+
+.vscode-extension-sidebar #account-history-toggle-btn {
+  width: 100%;
+}
+
+.vscode-extension-sidebar .account-popup-panel {
+  width: min(320px, calc(100vw - 16px));
+  right: 0;
+}
+
+.vscode-extension-sidebar .launch-shortcuts-row {
+  flex-wrap: wrap;
+}
+
+.vscode-extension-sidebar .launch-shortcuts-row .main-button {
+  flex: 1 1 92px;
+  width: auto;
+  min-width: 0;
+}
+
+.vscode-extension-sidebar .account-launch-row #open-dream-page-btn,
+.vscode-extension-sidebar .vpn-buttons-container .main-button {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+}
+
+.vscode-extension-sidebar .footer a,
+.vscode-extension-sidebar #tutorial-link {
+  color: #999;
+  text-decoration: none;
+  margin-right: 15px;
+  cursor: pointer;
+}
+
+.vscode-extension-sidebar .footer a:hover,
+.vscode-extension-sidebar #tutorial-link:hover {
+  color: var(--vscode-textLink-foreground, #3794ff);
+  text-decoration: underline;
+}
+
+.vscode-extension-sidebar .main-button,
+.vscode-extension-sidebar .vpn-node-selector-btn {
+  min-height: 34px;
+  padding: 7px 8px;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.vscode-extension-sidebar .vpn-node-selector-btn {
+  min-width: 0;
+  gap: 4px;
+}
+
+.vscode-extension-sidebar .vpn-node-selector-label,
+.vscode-extension-sidebar .vpn-node-selector-toggle-text {
+  min-width: 0;
+  font-size: 12px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.vscode-extension-sidebar .vpn-node-selector-panel {
+  left: 0;
+  right: 0;
+  padding: 8px;
+  border-radius: 6px;
+}
+
+.vscode-extension-sidebar .vpn-node-selector-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  overflow-x: hidden;
+  padding-right: 0;
+}
+
+.vscode-extension-sidebar .vpn-node-option {
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 7px;
+  gap: 4px;
+}
+
+.vscode-extension-sidebar .vpn-node-option-name {
+  font-size: 12px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.vscode-extension-sidebar .vpn-node-option-meta {
+  font-size: 11px;
+}
+
+.vscode-extension-sidebar .footer {
+  position: static;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.vscode-extension-sidebar .footer-left,
+.vscode-extension-sidebar .footer-center,
+.vscode-extension-sidebar .footer-right {
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 6px;
+}
+
+.vscode-extension-sidebar .announcement-header {
+  gap: 6px;
+}
+
+.vscode-extension-sidebar .announcement-header-actions {
+  flex: 0 0 auto;
+}
+
+.vscode-extension-sidebar .theme-toggle-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.85);
+  color: #fde68a;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.vscode-extension-sidebar .theme-toggle-btn:hover {
+  border-color: rgba(96, 165, 250, 0.7);
+}
+
+.vscode-extension-sidebar .announcement-title,
+.vscode-extension-sidebar .announcement-content,
+.vscode-extension-sidebar .status-indicator,
+.vscode-extension-sidebar #app-version {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.vscode-extension-sidebar .debug-console {
+  margin-top: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 6px;
+  background: rgba(2, 6, 23, 0.78);
+  overflow: hidden;
+}
+
+.vscode-extension-sidebar .debug-console summary {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: #dbeafe;
+  font-size: 12px;
+  font-weight: 700;
+  list-style: none;
+}
+
+.vscode-extension-sidebar .debug-console summary::-webkit-details-marker {
+  display: none;
+}
+
+.vscode-extension-sidebar .debug-console summary::before {
+  content: '▾';
+  color: #93c5fd;
+  font-size: 11px;
+}
+
+.vscode-extension-sidebar .debug-console:not([open]) summary::before {
+  content: '▸';
+}
+
+.vscode-extension-sidebar #debug-console-clear-btn {
+  flex: 0 0 auto;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.85);
+  color: #cbd5e1;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 7px;
+  cursor: pointer;
+}
+
+.vscode-extension-sidebar #debug-console-clear-btn:hover {
+  color: #fff;
+  border-color: rgba(96, 165, 250, 0.7);
+}
+
+.vscode-extension-sidebar .debug-console-lines {
+  max-height: 180px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px 8px 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+  font-family: var(--vscode-editor-font-family, Consolas, monospace);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.vscode-extension-sidebar .debug-console-line {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 6px;
+  padding: 2px 0;
+  color: #cbd5e1;
+}
+
+.vscode-extension-sidebar .debug-console-time {
+  color: #64748b;
+}
+
+.vscode-extension-sidebar .debug-console-level {
+  font-weight: 800;
+}
+
+.vscode-extension-sidebar .debug-console-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.vscode-extension-sidebar .debug-console-line.is-debug .debug-console-level {
+  color: #94a3b8;
+}
+
+.vscode-extension-sidebar .debug-console-line.is-info .debug-console-level {
+  color: #60a5fa;
+}
+
+.vscode-extension-sidebar .debug-console-line.is-success .debug-console-level {
+  color: #22c55e;
+}
+
+.vscode-extension-sidebar .debug-console-line.is-warn .debug-console-level {
+  color: #f59e0b;
+}
+
+.vscode-extension-sidebar .debug-console-line.is-error .debug-console-level {
+  color: #ef4444;
+}
+
+.vscode-extension-sidebar .plugin-switch input[aria-disabled='true'] + .plugin-switch-slider {
+  cursor: help;
+  opacity: 0.45;
+}
+
+.vscode-extension-sidebar.theme-light {
+  background: var(--vscode-sideBar-background, #f7f9fc);
+  color: var(--vscode-sideBar-foreground, #1f2937);
+}
+
+.vscode-extension-sidebar.theme-light .side-panel {
+  background: #f7f9fc;
+  color: #1f2937;
+}
+
+.vscode-extension-sidebar.theme-light .info-group,
+.vscode-extension-sidebar.theme-light .announcement-bar,
+.vscode-extension-sidebar.theme-light .vscode-config-panel,
+.vscode-extension-sidebar.theme-light .debug-console {
+  background: #ffffff;
+  border-color: rgba(148, 163, 184, 0.55);
+}
+
+.vscode-extension-sidebar.theme-light .announcement-header,
+.vscode-extension-sidebar.theme-light .debug-console summary,
+.vscode-extension-sidebar.theme-light .account-bucket-summary {
+  background: #eef4ff;
+  color: #1f2937;
+}
+
+.vscode-extension-sidebar.theme-light .form-group label,
+.vscode-extension-sidebar.theme-light .announcement-content p,
+.vscode-extension-sidebar.theme-light .account-meta,
+.vscode-extension-sidebar.theme-light .account-empty,
+.vscode-extension-sidebar.theme-light .footer,
+.vscode-extension-sidebar.theme-light .footer a {
+  color: #64748b;
+}
+
+.vscode-extension-sidebar.theme-light .form-group input[type='text'],
+.vscode-extension-sidebar.theme-light .vscode-config-panel textarea,
+.vscode-extension-sidebar.theme-light #debug-console-clear-btn,
+.vscode-extension-sidebar.theme-light .theme-toggle-btn {
+  background: #ffffff;
+  border-color: rgba(100, 116, 139, 0.42);
+  color: #1f2937;
+}
+
+.vscode-extension-sidebar.theme-light .account-popup-panel {
+  background: #ffffff;
+  border-color: rgba(100, 116, 139, 0.35);
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.18);
+}
+
+.vscode-extension-sidebar.theme-light .account-item,
+.vscode-extension-sidebar.theme-light .account-bucket {
+  background: #f8fafc;
+  border-color: rgba(148, 163, 184, 0.55);
+}
+
+.vscode-extension-sidebar.theme-light .account-name,
+.vscode-extension-sidebar.theme-light .announcement-title,
+.vscode-extension-sidebar.theme-light .debug-console-line {
+  color: #1f2937;
+}
+
+@media (max-width: 260px) {
+  .vscode-extension-sidebar .launch-shortcuts-row,
+  .vscode-extension-sidebar .vpn-node-selector-row,
+  .vscode-extension-sidebar .key-input-shell {
+    flex-direction: column;
+  }
+
+  .vscode-extension-sidebar .launch-shortcuts-row .main-button,
+  .vscode-extension-sidebar .vpn-node-selector-btn,
+  .vscode-extension-sidebar .account-history-shell,
+  .vscode-extension-sidebar .key-input-shell button {
+    width: 100%;
+  }
+}

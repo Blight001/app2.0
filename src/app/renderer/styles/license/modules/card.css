@@ -1,0 +1,55 @@
+.license-card {
+  position: relative;
+  width: min(980px, 100%);
+  padding: 34px;
+  border-radius: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: linear-gradient(180deg, rgba(5, 7, 9, 0.99), rgba(3, 4, 6, 0.99));
+  box-shadow: none;
+  backdrop-filter: blur(10px);
+  background-clip: padding-box;
+  overflow: visible;
+  isolation: isolate;
+}
+
+.license-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.02), transparent 42%, rgba(107, 231, 191, 0.03)),
+    radial-gradient(circle at 50% 0%, rgba(92, 154, 255, 0.035), transparent 35%);
+  pointer-events: none;
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(160, 120, 255, 0.24);
+  background: rgba(160, 120, 255, 0.08);
+  color: #d8cbff;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.license-title {
+  margin-top: 18px;
+  font-size: clamp(32px, 4vw, 52px);
+  line-height: 1.04;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.license-subtitle {
+  margin-top: 14px;
+  max-width: 760px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.75;
+  white-space: normal;
+}

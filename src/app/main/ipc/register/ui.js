@@ -1,0 +1,613 @@
+const path = require('path');
+const { ipcMain, BrowserWindow, screen } = require('electron');
+const {
+  getClashMiniStatus,
+  getClashMiniProxyEndpoint,
+  getClashMiniRuntimeRoot,
+} = require('./clash-mini-core');
+
+// 监听/绑定：registerUiIPC的具体业务逻辑。
+function registerUiIPC(ctx) {
+  const { ui, getAppConsoleHistory, app, isDevMode: ctxIsDevMode } = ctx;
+  const isDevMode = !!(
+    ctxIsDevMode === true
+    || (app && app.isPackaged === false)
+    || (process.env.NODE_ENV && /^(dev|development)$/i.test(String(process.env.NODE_ENV || '')))
+  );
+  const PROXY_MODE_LABELS = {
+    proxy: '单独走端口',
+    direct: '直连',
+  };
+  let tabProxyMenuWindow = null;
+
+  const getProxyModeLabel = (mode) => PROXY_MODE_LABELS[String(mode || '').trim()] || String(mode || '').trim() || '未知模式';
+
+  const normalizeTabBrowserProxyMode = (value) => {
+    const mode = String(value || '').trim().toLowerCase();
+    if (mode === 'proxy' || mode === 'direct' || mode === 'inherit') {
+      return mode;
+    }
+    return 'inherit';
+  };
+
+  const resolveEffectiveBrowserProxyMode = (rawMode) => {
+    const currentMode = normalizeTabBrowserProxyMode(rawMode);
+    if (currentMode !== 'inherit') {
+      return currentMode;
+    }
+    const clashMiniStatus = typeof getClashMiniStatus === 'function' ? getClashMiniStatus() : null;
+    const coreDir = clashMiniStatus?.coreDir || (typeof getClashMiniRuntimeRoot === 'function' ? getClashMiniRuntimeRoot() : '');
+    const endpoint = coreDir && typeof getClashMiniProxyEndpoint === 'function'
+      ? getClashMiniProxyEndpoint(coreDir)
+      : null;
+    if (endpoint && Number.isFinite(Number(endpoint.port))) {
+      return 'proxy';
+    }
+    return 'direct';
+  };
+
+  const resolveCurrentTabProxyMode = (tabId, fallbackMode = 'inherit') => {
+    try {
+      const tabs = ui && typeof ui.getTabs === 'function' ? ui.getTabs() : null;
+      if (tabs && tabId) {
+        const directTab = tabs.get(tabId);
+        if (directTab) {
+          return resolveEffectiveBrowserProxyMode(directTab.browserProxyMode);
+        }
+        for (const tab of tabs.values()) {
+          if (String(tab?.id || '').trim() === String(tabId || '').trim()) {
+            return resolveEffectiveBrowserProxyMode(tab?.browserProxyMode);
+          }
+        }
+      }
+    } catch (_) {}
+    return normalizeTabBrowserProxyMode(fallbackMode);
+  };
+
+  const closeTabProxyMenuWindow = () => {
+    if (tabProxyMenuWindow && !tabProxyMenuWindow.isDestroyed()) {
+      try { tabProxyMenuWindow.close(); } catch (_) {}
+    }
+    tabProxyMenuWindow = null;
+  };
+
+  const buildTabProxyMenuHtml = (tabId, currentMode = 'inherit') => `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .menu {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px;
+      min-width: 236px;
+      box-sizing: border-box;
+      background: rgba(17, 20, 28, 0.98);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      border-radius: 10px;
+      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.34);
+      backdrop-filter: blur(10px);
+    }
+    .title {
+      color: #f2f4f8;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.3;
+      margin: 0 0 2px 0;
+    }
+    .hint {
+      color: rgba(230, 232, 238, 0.78);
+      font-size: 12px;
+      line-height: 1.35;
+      margin: 0 0 2px 0;
+    }
+    button {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: #e6e8ee;
+      font-size: 12px;
+      line-height: 1.2;
+      padding: 10px 12px;
+      border-radius: 8px;
+      text-align: left;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    button:hover { background: rgba(77, 163, 255, 0.18); }
+    button:active { background: rgba(77, 163, 255, 0.28); }
+    button.selected {
+      background: rgba(77, 163, 255, 0.18);
+      color: #ffffff;
+      box-shadow: inset 0 0 0 1px rgba(77, 163, 255, 0.34);
+    }
+    button:not(.selected) {
+      color: rgba(230, 232, 238, 0.82);
+    }
+    .status {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .status.visible {
+      display: flex;
+    }
+    .status-text {
+      color: #f2f4f8;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .error {
+      display: none;
+      color: #ffb4b4;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .error.visible {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="menu">
+    <div class="title">切换代理</div>
+    <div class="hint">选择当前标签页的代理方式。</div>
+    <button id="proxy-btn" type="button">代理：单独走端口</button>
+    <button id="direct-btn" type="button">代理：直连</button>
+    <div id="status" class="status" aria-live="polite">
+      <div id="status-text" class="status-text"></div>
+    </div>
+    <div id="error" class="error"></div>
+  </div>
+  <script>
+    const tabId = ${JSON.stringify(String(tabId || ''))};
+    const currentMode = ${JSON.stringify(normalizeTabBrowserProxyMode(currentMode))};
+    const api = window.electronAPI;
+    const proxyBtn = document.getElementById('proxy-btn');
+    const directBtn = document.getElementById('direct-btn');
+    const statusEl = document.getElementById('status');
+    const statusTextEl = document.getElementById('status-text');
+    const errorEl = document.getElementById('error');
+
+    const applyCurrentMode = (mode) => {
+      const nextMode = mode === 'direct' ? 'direct' : mode === 'proxy' ? 'proxy' : 'inherit';
+      proxyBtn.classList.toggle('selected', nextMode === 'proxy');
+      directBtn.classList.toggle('selected', nextMode === 'direct');
+      proxyBtn.setAttribute('aria-pressed', nextMode === 'proxy' ? 'true' : 'false');
+      directBtn.setAttribute('aria-pressed', nextMode === 'direct' ? 'true' : 'false');
+      if (nextMode === 'inherit') {
+        statusTextEl.textContent = '当前标签页代理：继承';
+      } else {
+        statusTextEl.textContent = '当前标签页代理：' + (nextMode === 'proxy' ? '单独走端口' : '直连');
+      }
+      statusEl.classList.add('visible');
+    };
+
+    const setLoading = (loading) => {
+      proxyBtn.disabled = loading;
+      directBtn.disabled = loading;
+    };
+
+    const showError = (message) => {
+      errorEl.textContent = message || '切换代理失败';
+      errorEl.classList.add('visible');
+    };
+
+    const showClickFeedback = (modeLabel) => {
+      statusTextEl.textContent = '已点击：' + modeLabel + '，正在切换代理...';
+      statusEl.classList.add('visible');
+      setLoading(true);
+    };
+
+    const invoke = async (mode) => {
+      try {
+        errorEl.classList.remove('visible');
+        errorEl.textContent = '';
+        showClickFeedback(mode === 'proxy' ? '代理：单独走端口' : '代理：直连');
+        if (!api || typeof api.invoke !== 'function') {
+          throw new Error('当前窗口不可用');
+        }
+        const resp = await api.invoke('set-tab-browser-proxy-mode', { tabId, mode });
+        if (!resp || resp.ok !== true) {
+          throw new Error((resp && (resp.message || resp.error)) || '切换代理失败');
+        }
+        statusTextEl.textContent = '代理已切换为「' + (mode === 'proxy' ? '单独走端口' : '直连') + '」，正在刷新当前标签页...';
+        const refreshResp = await api.invoke('refresh-tab', tabId);
+        if (!refreshResp || refreshResp.ok !== true) {
+          throw new Error((refreshResp && (refreshResp.message || refreshResp.error)) || '刷新失败');
+        }
+        window.close();
+      } catch (error) {
+        setLoading(false);
+        showError(error && (error.message || String(error)));
+      }
+    };
+
+    document.getElementById('proxy-btn').addEventListener('click', () => invoke('proxy'));
+    document.getElementById('direct-btn').addEventListener('click', () => invoke('direct'));
+    window.addEventListener('blur', () => window.close());
+    applyCurrentMode(currentMode);
+  </script>
+</body>
+</html>`;
+
+  const openTabProxyMenuWindow = ({ tabId, x = 0, y = 0, parentWindow = null, browserProxyMode = 'inherit' } = {}) => {
+    if (!isDevMode) {
+      return false;
+    }
+    try {
+      closeTabProxyMenuWindow();
+      const parent = parentWindow && !parentWindow.isDestroyed() ? parentWindow : null;
+      if (!parent) return false;
+
+      const currentMode = resolveCurrentTabProxyMode(tabId, browserProxyMode);
+
+      const popupWidth = 236;
+      const popupHeight = 214;
+      const parentBounds = typeof parent.getBounds === 'function' ? parent.getBounds() : { x: 0, y: 0, width: popupWidth, height: popupHeight };
+      const display = screen.getDisplayNearestPoint
+        ? screen.getDisplayNearestPoint({ x: parentBounds.x + Number(x || 0), y: parentBounds.y + Number(y || 0) })
+        : screen.getPrimaryDisplay();
+      const workArea = display && display.workArea ? display.workArea : { x: 0, y: 0, width: 1920, height: 1080 };
+      const anchorX = parentBounds.x + Number(x || 0);
+      const anchorY = parentBounds.y + Number(y || 0);
+      const left = Math.min(Math.max(anchorX - 12, workArea.x + 8), workArea.x + workArea.width - popupWidth - 8);
+      const top = Math.min(Math.max(anchorY + 8, workArea.y + 8), workArea.y + workArea.height - popupHeight - 8);
+
+      tabProxyMenuWindow = new BrowserWindow({
+        x: Math.round(left),
+        y: Math.round(top),
+        width: popupWidth,
+        height: popupHeight,
+        frame: false,
+        resizable: false,
+        movable: false,
+        maximizable: false,
+        minimizable: false,
+        skipTaskbar: true,
+        show: false,
+        alwaysOnTop: true,
+        backgroundColor: '#11141c',
+        transparent: true,
+        parent,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: false,
+          devTools: false,
+          preload: path.join(__dirname, '../../preload.js'),
+        },
+      });
+
+      tabProxyMenuWindow.on('closed', () => {
+        tabProxyMenuWindow = null;
+      });
+      tabProxyMenuWindow.on('blur', () => closeTabProxyMenuWindow());
+
+      tabProxyMenuWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildTabProxyMenuHtml(tabId, currentMode))}`);
+      tabProxyMenuWindow.once('ready-to-show', () => {
+        try { tabProxyMenuWindow.show(); } catch (_) {}
+      });
+      return true;
+    } catch (error) {
+      console.warn('[UI] 打开代理菜单窗口失败:', error?.message || error);
+      closeTabProxyMenuWindow();
+      return false;
+    }
+  };
+
+  async function setTabProxyModeAndPromptRefresh(tabId, mode) {
+    const normalizedMode = String(mode || '').trim().toLowerCase();
+    if (!['proxy', 'direct'].includes(normalizedMode)) {
+      return { ok: false, message: '当前菜单不支持该代理模式' };
+    }
+
+    if (!ui || typeof ui.setTabBrowserProxyMode !== 'function') {
+      return { ok: false, message: '标签代理模式功能不可用' };
+    }
+
+    console.log('[UI] 开始切换标签代理模式', { tabId, mode: normalizedMode });
+    const result = await ui.setTabBrowserProxyMode(tabId, normalizedMode);
+    if (!result || result.ok !== true) {
+      console.warn('[UI] 切换标签代理模式失败', { tabId, mode: normalizedMode, result });
+      return result || { ok: false, message: '切换代理模式失败' };
+    }
+    return {
+      ...result,
+      refreshed: false,
+      refreshPromptShown: false,
+    };
+  }
+// 处理：isOpenCutTab的具体业务逻辑。
+  const isOpenCutTab = (tab = {}) => {
+    const partition = String(tab?.partition || '').trim();
+    if (partition === 'persist:opencut' || partition === 'opencut') {
+      return true;
+    }
+    const currentUrl = String(tab?.view?.webContents?.getURL?.() || '').trim().toLowerCase();
+    return currentUrl.startsWith('https://www.opencut.app/projects')
+      || currentUrl.startsWith('https://opencut.app/projects')
+      || currentUrl.startsWith('http://www.opencut.app/projects')
+      || currentUrl.startsWith('http://opencut.app/projects');
+  };
+// 处理：isToonflowTab的具体业务逻辑。
+  const isToonflowTab = (tab = {}) => {
+    const partition = String(tab?.partition || '').trim();
+    if (partition === 'persist:toonflow' || partition === 'toonflow') {
+      return true;
+    }
+    const currentUrl = String(tab?.view?.webContents?.getURL?.() || '').trim().toLowerCase();
+    return currentUrl.startsWith('http://localhost:10588/')
+      || currentUrl.startsWith('http://127.0.0.1:10588/')
+      || currentUrl.startsWith('https://localhost:10588/')
+      || currentUrl.startsWith('https://127.0.0.1:10588/');
+  };
+// 获取/读取/解析：resolveTabTitle的具体业务逻辑。
+  const resolveTabTitle = (tab = {}) => {
+    const fixedTitle = String(tab?.fixedTitle || tab?.tabTitle || '').trim();
+    if (fixedTitle) {
+      return fixedTitle;
+    }
+    if (isOpenCutTab(tab)) {
+      return '视频剪辑';
+    }
+    if (isToonflowTab(tab)) {
+      return 'Toonflow';
+    }
+    return String(tab?.view?.webContents?.getTitle ? tab.view.webContents.getTitle() : '').trim();
+  };
+
+  ipcMain.on('add-tab', (_e, url) => ui.addTab(url));
+  ipcMain.on('switch-tab', (_e, tabId) => ui.switchTab(tabId));
+  ipcMain.on('close-tab', (_e, tabId) => { void ui.closeTab(tabId); });
+
+  ipcMain.handle('set-tab-browser-proxy-mode', async (_e, payload = {}) => {
+    try {
+      if (!isDevMode) {
+        return { ok: false, disabled: true, message: '正式版未启用标签代理切换菜单' };
+      }
+      const tabId = String(payload?.tabId || '').trim();
+      const mode = String(payload?.mode || 'inherit').trim();
+      if (!tabId) {
+        return { ok: false, message: '缺少标签 ID' };
+      }
+      return await setTabProxyModeAndPromptRefresh(tabId, mode, _e.sender);
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle('show-tab-context-menu', async (_e, payload = {}) => {
+    try {
+      if (!isDevMode) {
+        return { ok: true, disabled: true };
+      }
+      const tabId = String(payload?.tabId || '').trim();
+      if (!tabId) {
+        return { ok: false, message: '缺少标签 ID' };
+      }
+      const x = Number(payload?.x ?? 0);
+      const y = Number(payload?.y ?? 0);
+      const opened = openTabProxyMenuWindow({
+        tabId,
+        x,
+        y,
+        browserProxyMode: payload?.browserProxyMode,
+        parentWindow: BrowserWindow.fromWebContents(_e.sender),
+      });
+      return opened ? { ok: true } : { ok: false, message: '打开代理菜单失败' };
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle('get-tabs-state', async () => {
+    try {
+      const tabs = ui.getTabs && typeof ui.getTabs === 'function' ? ui.getTabs() : new Map();
+      const activeTabId = ui.getActiveTabId && typeof ui.getActiveTabId === 'function'
+        ? ui.getActiveTabId()
+        : null;
+      const tabData = Array.from(tabs.values()).map((tab) => ({
+        id: tab.id,
+        title: resolveTabTitle(tab),
+        isActive: tab.id === activeTabId,
+        accountId: String(tab.accountId || '').trim(),
+        browserProxyMode: String(tab.browserProxyMode || 'inherit').trim(),
+      }));
+      return { ok: true, tabs: tabData };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error), tabs: [] };
+    }
+  });
+
+  ipcMain.handle('refresh-tab', async (_e, tabId) => {
+    try {
+      if (!ui.refreshTab) {
+        return { ok: false, message: '刷新功能不可用' };
+      }
+      return ui.refreshTab(tabId);
+    } catch (error) {
+      console.warn('[IPC] 刷新标签失败:', error?.message || error);
+      return { ok: false, message: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.on('reorder-tab', (_e, payload = {}) => {
+    try {
+      ui.reorderTab && ui.reorderTab(payload.tabId, payload.targetTabId, payload.position);
+    } catch (error) {
+      console.warn('[IPC] 重排标签失败:', error?.message || error);
+    }
+  });
+  ipcMain.on('toggle-sidebar', () => ui.toggleSidebar());
+  ipcMain.on('ensure-sidebar-visible', () => ui.ensureSidebarVisible && ui.ensureSidebarVisible());
+
+  ipcMain.handle('open-active-web-console', async () => {
+    try {
+      const wc = ui.getActiveWC && ui.getActiveWC();
+      if (!wc || (wc.isDestroyed && wc.isDestroyed())) {
+        return { ok: false, message: '当前没有可查看控制台的网页' };
+      }
+
+      if (typeof wc.isDevToolsOpened === 'function' && wc.isDevToolsOpened()) {
+        try {
+          if (wc.devToolsWebContents && typeof wc.devToolsWebContents.focus === 'function') {
+            wc.devToolsWebContents.focus();
+          }
+        } catch (_) {}
+        return { ok: true, opened: true, alreadyOpen: true };
+      }
+
+      wc.openDevTools({ mode: 'detach' });
+      return { ok: true, opened: true, alreadyOpen: false };
+    } catch (e) {
+      return { ok: false, message: e?.message || String(e) };
+    }
+  });
+
+  ipcMain.handle('get-app-console-history', async () => {
+    try {
+      const history = typeof getAppConsoleHistory === 'function' ? getAppConsoleHistory() : [];
+      return { ok: true, history: Array.isArray(history) ? history : [] };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error), history: [] };
+    }
+  });
+
+  ipcMain.on('reveal-cookie-import', () => {
+    try {
+      console.log('[IPC] 收到 Cookie 导入解锁请求');
+      if (ui && ui.sendToSide) {
+        ui.sendToSide('cookie-import-unlock');
+      }
+      if (ui && typeof ui.ensureSidebarVisible === 'function') {
+        ui.ensureSidebarVisible();
+      }
+    } catch (e) {
+      console.error('[IPC] 处理 Cookie 导入解锁请求失败:', e?.message || e);
+    }
+  });
+
+  ipcMain.handle('open-registration-web-page', async () => {
+    try {
+      console.log('[IPC] 收到打开注册器网页请求');
+      if (ui && typeof ui.openRegistrationWebPage === 'function') {
+        const result = await ui.openRegistrationWebPage();
+        return result || { ok: true };
+      }
+      return { ok: false, message: '注册器打开功能不可用' };
+    } catch (e) {
+      console.error('[IPC] 处理打开注册器网页请求失败:', e?.message || e);
+      return { ok: false, error: e?.message || String(e) };
+    }
+  });
+
+  ipcMain.handle('open-opencut-page', async () => {
+    try {
+      if (ui && typeof ui.openOpenCutPage === 'function') {
+        return await ui.openOpenCutPage();
+      }
+      return { ok: false, message: 'OpenCut 打开功能不可用' };
+    } catch (e) {
+      return { ok: false, message: e?.message || String(e) };
+    }
+  });
+
+  ipcMain.handle('open-ai-canvas-pro-page', async () => {
+    try {
+      if (ui && typeof ui.openAiCanvasProPage === 'function') {
+        return await ui.openAiCanvasProPage();
+      }
+      return { ok: false, message: '无限画布打开功能不可用' };
+    } catch (e) {
+      return { ok: false, message: e?.message || String(e) };
+    }
+  });
+
+  ipcMain.handle('is-ai-canvas-pro-installed', async () => {
+    try {
+      if (ui && typeof ui.isAiCanvasProInstalled === 'function') {
+        return { ok: true, installed: !!ui.isAiCanvasProInstalled() };
+      }
+      return { ok: false, installed: false, message: '无限画布拓展状态检查不可用' };
+    } catch (e) {
+      return { ok: false, installed: false, message: e?.message || String(e) };
+    }
+  });
+
+  ipcMain.handle('open-toonflow-page', async () => {
+    try {
+      if (ui && typeof ui.openToonflowPage === 'function') {
+        return await ui.openToonflowPage();
+      }
+      return { ok: false, message: 'Toonflow 打开功能不可用' };
+    } catch (e) {
+      return { ok: false, message: e?.message || String(e) };
+    }
+  });
+
+  ipcMain.on('set-zoom', (_e, zoomFactor) => ui.setZoom(zoomFactor));
+  ipcMain.on('refresh-active-tab-to-url', (_e, url) => ui.refreshActiveTabToUrl(url));
+  ipcMain.on('refresh-active-tab', () => ui.refreshActiveTab());
+
+  ipcMain.handle('back-to-license-window', async () => {
+    try {
+      if (ui && typeof ui.backToLicenseWindow === 'function') {
+        return await ui.backToLicenseWindow();
+      }
+      return { ok: false, message: '回退验证界面功能不可用' };
+    } catch (e) {
+      return { ok: false, message: e?.message || String(e) };
+    }
+  });
+
+  ipcMain.on('smart-refresh-active-tab', async () => {
+    try {
+      const wc = ui.getActiveWC && ui.getActiveWC();
+      if (!wc || (wc.isDestroyed && wc.isDestroyed())) return;
+// 处理：url的具体业务逻辑。
+      const url = (wc.getURL && wc.getURL()) || '';
+      if (typeof url === 'string' && url.startsWith('https://dreamina.capcut.com/ai-tool/')) {
+        const targetUrl = typeof ctx.getDreamTargetUrl === 'function' ? ctx.getDreamTargetUrl() : ctx.DREAM_TARGET_URL;
+        console.log('[智能刷新] 检测到Dreamina页面，刷新到统一入口:', targetUrl);
+        ui.refreshActiveTabToUrl(targetUrl);
+      } else {
+        console.log('[智能刷新] 普通页面刷新，当前URL:', url);
+        ui.refreshActiveTab();
+      }
+    } catch (_) {}
+  });
+
+  ipcMain.on('open-extension-popup', () => {
+    try { ui.openExtensionPopup && ui.openExtensionPopup(); } catch (_) {}
+  });
+  ipcMain.on('open-extension-options', () => {
+    try { ui.openExtensionOptions && ui.openExtensionOptions(); } catch (_) {}
+  });
+
+  ipcMain.handle('force-remove-watermark', async () => {
+    try {
+      const ok = await (ui.forceRemoveWatermark && ui.forceRemoveWatermark());
+      return { ok: !!ok };
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) };
+    }
+  });
+
+  ipcMain.on('open-tutorial', (event, url) => {
+    ui.addTab(url, {
+      browserProxyMode: 'direct',
+    });
+  });
+}
+
+module.exports = { registerUiIPC };

@@ -1,0 +1,705 @@
+const { app, BrowserWindow, BrowserView, dialog, globalShortcut, ipcMain, Menu, shell, clipboard } = require('electron');
+const fs = require('fs');
+const path = require('path');
+const { createAppState } = require('./runtime/app-state');
+const { createLicenseCache } = require('./runtime/license-cache');
+const { createUiBridge } = require('./composition/create-ui-bridge');
+const { acquireSingleInstance, applyWindowsAppUserModelId } = require('./composition/startup-guards');
+const { createAppUpdater } = require('./services/app-updater');
+
+let runtimeLicenseCache = null;
+
+// 启动/打开/显示：startRegistrationBridge的具体业务逻辑。
+function startRegistrationBridge() {
+  try {
+    console.warn('[Registration] 启动注册器桥接主进程');
+    require(require('path').join(__dirname, '../../assets/extensions/registration/src/main.js'));
+  } catch (error) {
+    console.error('[Registration] 启动注册器桥接失败:', error?.message || error);
+    try { app.exit(1); } catch (_) {}
+  }
+}
+
+// 获取/读取/解析：readRegistrationRuntimeConfigFromDisk的具体业务逻辑。
+async function readRegistrationRuntimeConfigFromDisk() {
+  const candidates = [
+    path.join(app.getPath('userData'), 'resource', 'config.json'),
+    path.join(process.cwd(), 'resource', 'config.json'),
+    path.join(process.resourcesPath || '', 'resource', 'config.json'),
+  ].filter(Boolean);
+
+  for (const configPath of candidates) {
+    try {
+      if (!configPath || !fs.existsSync(configPath)) {
+        continue;
+      }
+      const raw = await fs.promises.readFile(configPath, 'utf8');
+      const parsed = JSON.parse(raw || '{}');
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_) {}
+  }
+
+  return {};
+}
+
+// 同步/连接：syncRegistrationRuntimeBrowserSettingsToMainApp的具体业务逻辑。
+async function syncRegistrationRuntimeBrowserSettingsToMainApp() {
+  try {
+    const runtimeConfig = await readRegistrationRuntimeConfigFromDisk();
+    const browserSettings = runtimeConfig && typeof runtimeConfig === 'object'
+      ? (runtimeConfig.browserSettings && typeof runtimeConfig.browserSettings === 'object'
+          ? runtimeConfig.browserSettings
+          : runtimeConfig.browser_settings && typeof runtimeConfig.browser_settings === 'object'
+            ? runtimeConfig.browser_settings
+            : {})
+      : {};
+
+    if (runtimeLicenseCache && typeof runtimeLicenseCache.setRuntimeConfig === 'function') {
+      runtimeLicenseCache.setRuntimeConfig({
+        browserSettings,
+      });
+    }
+
+    return browserSettings;
+  } catch (error) {
+    console.warn('[启动] 同步 registration 运行态浏览器设置失败:', error?.message || error);
+    return {};
+  }
+}
+
+// 启动/打开/显示：startMainApp的具体业务逻辑。
+function startMainApp() {
+  applyWindowsAppUserModelId();
+
+// 内部模块（拆分后的小单元）
+const { postJson, getJson, httpGetUniversal } = require('./lib/http');
+const { createLogger } = require('./utils/logger');
+const { DREAM_TARGET_URL, setDreamTargetUrl, getDreamTargetUrl, setRuntimeTcpConfig, setRuntimeServerBase, getCoreDir, getStorePath, initializeCoreDirectory, getServerBase, getSideUrl, getTcpConfig, getRegistrationTcpConfigPath } = require('./config');
+const {
+  createAuthCookie,
+  extractValidationState,
+  getValidationFailureMessage,
+} = require('./lib/auth-cookie');
+const { registerIPC } = require('./ipc/register');
+const { createTcpClient, initializeTcpConnection, normalizeValidationRuntimeConfig } = require('./lib/tcp-client');
+const { getHardwareFingerprint } = require('./utils/hardware-js');
+const accountStorage = require('./lib/account-storage');
+const { stopClashMiniProcess } = require('./ipc/register/clash-mini-core');
+
+// 功能模块
+const { initDownloadPrefs, downloadOrSaveMedia } = require('./utils/download');
+const { setRemoveWatermarkEnabled, ensureRemoveWmCoreLoaded, injectRemoveWatermarkCore, forceRemoveWatermark, EXT_DIR, EXT_CORE_PATH, attachContextMenu, clearInjectionRecord, shortcutManager } = require('./utils/removeWatermark');
+const { injectZoomWheelListener } = require('./utils/zoom');
+const { checkDesktopShortcutAndPrompt } = require('./utils/shortcut');
+const { resolveAppIconPath } = require('./utils/app-icon');
+const { initializeAccountCleanup } = require('./utils/accountCleanup');
+const { startRegistrationApp, stopRegistrationApp } = require('./registration-launcher');
+const { startAiCanvasProServer, stopAiCanvasProServer, resolveAiCanvasProExePath, isAiCanvasProInstalled } = require('./ai-canvas-pro-launcher');
+const { startToonflowServer, stopToonflowServer, waitForToonflowPort } = require('./toonflow-launcher');
+const { createBrowserPartitionCleaner } = require('./services/browser-partitions');
+const { registerAppLifecycle } = require('./services/app-lifecycle');
+const { createAppShell } = require('./services/app-shell');
+const { createServerResolver } = require('./services/server-resolver');
+const { createTabManager } = require('./services/tab-manager');
+const { createLicenseStore } = require('./services/license-store');
+const { createTabHelpers } = require('./services/tab-helpers');
+const { createRuntimeHelpers } = require('./services/runtime-helpers');
+const { buildTabBrowserPreferences, configureTabBrowserView, resolveTabBrowserProfile, applyTabBrowserProxy } = require('./utils/browser-disguise');
+
+// 放宽证书（避免部分环境下自签/中间证书导致的验证失败）
+app.commandLine.appendSwitch('ignore-certificate-errors');
+
+// ---- 单例应用 ----
+acquireSingleInstance({
+  onSecondInstance: () => {
+    const targetWin = appRuntime.getMainWindow() || appRuntime.getLicenseWindow();
+    if (targetWin) {
+      if (targetWin.isMinimized()) targetWin.restore();
+      targetWin.focus();
+    }
+  },
+});
+
+// ---- 全局状态 ----
+const appRuntime = createAppState({
+  setRemoveWatermarkEnabled,
+});
+  const licenseCache = createLicenseCache();
+  runtimeLicenseCache = licenseCache;
+  if (typeof accountStorage.setLicenseCache === 'function') {
+    accountStorage.setLicenseCache(licenseCache);
+  }
+const tabs = appRuntime.tabs;
+const APP_DISPLAY_NAME = 'AI-FREE';
+const FIXED_ICON_RELATIVE_PATH = 'src/assets/seedance2.0.ico';
+global.__APP_SESSION_ID__ = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+
+let addTab;
+let switchTab;
+let closeTab;
+let reorderTab;
+let setTabAccountId;
+let setTabBrowserProxyMode;
+let setZoom;
+let refreshActiveTabToUrl;
+let refreshActiveTab;
+let refreshTab;
+let openExtensionPopup;
+let openExtensionOptions;
+
+// 每个会话(session) -> 扩展ID 映射，用于后续打开 popup/options
+const extIdBySession = new WeakMap();
+
+const browserPartitionCleaner = createBrowserPartitionCleaner({
+  app,
+  fs,
+  path,
+  BrowserWindow,
+  getTabs: () => tabs,
+  getMainWindow: appRuntime.getMainWindow,
+  getSideView: appRuntime.getSideView,
+  getLicenseWindow: appRuntime.getLicenseWindow,
+  getActiveTabId: appRuntime.getActiveTabId,
+  getExtPopupWin: appRuntime.getExtPopupWin,
+  logger: console,
+  licenseCache,
+});
+
+const cleanupBrowserSessionData = browserPartitionCleaner.cleanupBrowserSessionData;
+const purgeBrowserSessionData = browserPartitionCleaner.purgeBrowserSessionData;
+const cleanupAllBrowserSessionData = browserPartitionCleaner.cleanupAllBrowserSessionData;
+const cleanupBrowserPartitionsRootDir = browserPartitionCleaner.cleanupBrowserPartitionsRootDir;
+
+// 应用状态（统一通过 state 对象管理，便于注入到 IPC）
+const state = {
+  // 当用户选择"使用自定义代理"时置为 true，后续不再为网页强制挂本地端口代理
+  manualProxyPreferred: false,
+  pluginSettings: appRuntime.getPluginSettings(),
+};
+
+// 设置/更新/持久化：applyPluginSettings的具体业务逻辑。
+function applyPluginSettings(partial = {}) {
+  state.pluginSettings = appRuntime.applyPluginSettings(partial);
+}
+
+// 常量与认证（将在应用就绪时创建）
+let auth;
+// 日志封装（侧栏转发通过 sideView.webContents）
+const logger = createLogger({ getSideWebContents: () => (appRuntime.getSideView() && appRuntime.getSideView().webContents) || null });
+const isDevMode = !!(
+  (app && app.isPackaged === false)
+  || (
+    process.env.NODE_ENV
+    && /^(dev|development)$/i.test(String(process.env.NODE_ENV || ''))
+  )
+);
+const { sendToSide, getAppConsoleHistory } = createUiBridge({
+  getSideView: appRuntime.getSideView,
+  getControlPanelWindow: appRuntime.getControlPanelWindow,
+  getConsoleWindow: appRuntime.getConsoleWindow,
+});
+const appUpdater = createAppUpdater({
+  app,
+  fs,
+  path,
+  logger: console,
+  getMainWindow: appRuntime.getMainWindow,
+  sendToSide,
+  appName: APP_DISPLAY_NAME,
+  isDevMode,
+});
+
+const licenseStore = createLicenseStore({
+  fs,
+  path,
+  getStorePath,
+  getLatestAllowedPlatforms: appRuntime.getLatestAllowedPlatforms,
+  licenseCache,
+  logger: console,
+});
+
+const serverResolver = createServerResolver({
+  fs,
+  path,
+  postJson,
+  getServerBase,
+  extractValidationState,
+  getValidationFailureMessage,
+  readStoreConfigSafe: () => readStoreConfigSafe(),
+  writeStoreConfigSafe: (store) => writeStoreConfigSafe(store),
+  licenseCache,
+  setRuntimeTcpConfig,
+  setRuntimeServerBase,
+  getRegistrationTcpConfigPath,
+  getCurrentPlatformLabel: () => getCurrentPlatformLabel(),
+  logger: console,
+});
+
+const tabHelpers = createTabHelpers({
+  logger: console,
+  getTabs: () => tabs,
+  getMainWindow: appRuntime.getMainWindow,
+  getSideView: appRuntime.getSideView,
+  getActiveTabId: appRuntime.getActiveTabId,
+  getIsSidebarVisible: appRuntime.getIsSidebarVisible,
+  setIsSidebarVisible: appRuntime.setIsSidebarVisible,
+  sendToSide,
+});
+
+const runtimeHelpers = createRuntimeHelpers({
+  app,
+  fs,
+  path,
+  logger: console,
+  getHardwareFingerprint,
+});
+
+const {
+  readStoreConfigSafe,
+  writeStoreConfigSafe,
+  getCurrentPlatformLabel,
+  readLicenseRecordsSafe,
+  writeLicenseRecordsSafe,
+  appendLicenseRecord,
+  updateLicenseRecordPlatform,
+} = licenseStore;
+
+const {
+  updateTabs,
+  getActiveWC,
+  toggleSidebar,
+} = tabHelpers;
+
+const {
+  loadTranslateExtension,
+  computeDeviceId,
+} = runtimeHelpers;
+
+// 处理/分发：handleServerShutdownCommand的具体业务逻辑。
+async function handleServerShutdownCommand(messageData) {
+  const type = messageData && (messageData.type || messageData.command || messageData.action);
+  const messageType = messageData && (
+    messageData.message_type
+    || messageData.messageType
+    || messageData.data?.message_type
+    || messageData.data?.messageType
+    || messageData.announcement?.message_type
+    || messageData.announcement?.messageType
+    || messageData.payload?.message_type
+    || messageData.payload?.messageType
+  );
+  const messageText = String(
+    messageData?.message
+    || messageData?.content
+    || messageData?.data?.message
+    || messageData?.data?.content
+    || messageData?.announcement?.message
+    || messageData?.announcement?.content
+    || ''
+  );
+  const shouldShutdown = type === 'shutdown'
+    || type === 'close_app'
+    || type === 'shutdown_app'
+    || type === 'force_close'
+    || (type === 'announcement' && (
+      messageType === 'shutdown'
+      || messageText.includes('软件暂时无法使用')
+      || messageText.includes('停止使用')
+      || messageText.includes('停用')
+    ));
+
+  if (!shouldShutdown) return false;
+
+  if (appRuntime.getIsServerShutdownInProgress()) return true;
+  appRuntime.setIsServerShutdownInProgress(true);
+  try {
+    console.warn('[Shutdown] 收到停用指令，正在返回首页', {
+      type,
+      messageType,
+      messageText: messageText.slice(0, 80)
+    });
+    const result = await backToLicenseWindow();
+    if (!result || result.ok !== true) {
+      console.warn('[Shutdown] 返回首页失败:', result && (result.message || result.error) ? (result.message || result.error) : 'unknown');
+    }
+  } catch (e) {
+    console.warn('[Shutdown] 处理停用指令失败:', e?.message || e);
+  }
+
+  setTimeout(() => {
+    appRuntime.setIsServerShutdownInProgress(false);
+  }, 1500);
+  return true;
+}
+
+// 处理/分发：handleServerPushMessage的具体业务逻辑。
+async function handleServerPushMessage(messageData) {
+  try {
+    const updateHandled = await appUpdater.handleServerUpdateCommand(messageData);
+    if (updateHandled) return true;
+  } catch (e) {
+    console.warn('[更新] 处理更新消息失败:', e?.message || e);
+  }
+
+  return handleServerShutdownCommand(messageData);
+}
+
+let platformRefreshInFlight = false;
+let runtimeTutorialUrlOpened = false;
+
+// 停止/关闭/清理：resetRuntimeTutorialUrlState的具体业务逻辑。
+function resetRuntimeTutorialUrlState() {
+  runtimeTutorialUrlOpened = false;
+}
+
+// 渲染/刷新：refreshAllowedPlatformsAndNotify的具体业务逻辑。
+async function refreshAllowedPlatformsAndNotify() {
+  if (platformRefreshInFlight) return;
+  platformRefreshInFlight = true;
+  try {
+    const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
+      ? licenseCache.getRuntimeConfig()
+      : {};
+    const normalized = normalizeValidationRuntimeConfig(runtimeConfig);
+    const allowedPlatforms = Array.isArray(normalized.allowedPlatforms) ? normalized.allowedPlatforms : [];
+    const platformName = String(normalized.platformName || allowedPlatforms[0] || '').trim();
+    const targetUrl = String(normalized.targetUrl || '').trim();
+    const tutorialUrl = String(normalized.tutorialUrl || '').trim();
+    if (!platformName && allowedPlatforms.length === 0 && !targetUrl && !tutorialUrl) {
+      return;
+    }
+    appRuntime.setLatestAllowedPlatforms(allowedPlatforms);
+    try {
+      if (licenseCache && typeof licenseCache.setRuntimeConfig === 'function') {
+        licenseCache.setRuntimeConfig({
+          allowedPlatforms,
+          platformName,
+        });
+      }
+    } catch (e) {
+      console.warn('[启动] 保存平台列表失败:', e?.message || e);
+    }
+    if (targetUrl) {
+      try {
+        setDreamTargetUrl(targetUrl);
+        sendToSide('target-url-updated', { targetUrl });
+      } catch (e) {
+        console.warn('[启动] 同步目标地址失败:', e?.message || e);
+      }
+    }
+    if (tutorialUrl) {
+      try {
+        sendToSide('tutorial-url-updated', { tutorialUrl });
+        if (!runtimeTutorialUrlOpened) {
+          if (typeof addTab === 'function') {
+            const openedTabId = await addTab(tutorialUrl, {
+              browserProxyMode: 'direct',
+              browserSettings: {
+                region: 'cn',
+                locale: 'zh-CN',
+                acceptLanguage: 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+              },
+            });
+            if (openedTabId) {
+              runtimeTutorialUrlOpened = true;
+            } else {
+              console.warn('[启动] 教程页未能打开，稍后将重试:', tutorialUrl);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[启动] 打开教程地址失败:', e?.message || e);
+      }
+    }
+    sendToSide('platform-name-updated', { platformName, allowedPlatforms });
+    try {
+      const currentKey = String(licenseCache?.getCredentials?.().key || '').trim();
+      if (currentKey && typeof updateLicenseRecordPlatform === 'function') {
+        const recordUpdate = updateLicenseRecordPlatform({
+          keyValue: currentKey,
+          platformName,
+        });
+        if (recordUpdate) {
+          const licenseWindow = appRuntime.getLicenseWindow();
+          if (licenseWindow && !licenseWindow.isDestroyed()) {
+            licenseWindow.webContents.send('license-records-updated', {
+              keyValue: currentKey,
+              platformName,
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[启动] 回填卡密平台失败:', e?.message || e);
+    }
+    console.log('[启动] 平台名称已刷新并通知侧边栏:', platformName);
+  } catch (e) {
+    console.warn('[启动] 刷新平台名称失败:', e?.message || e);
+  } finally {
+    platformRefreshInFlight = false;
+  }
+}
+
+const appShellDeps = {
+  app,
+  fs,
+  path,
+  BrowserWindow,
+  BrowserView,
+  dialog,
+  Menu,
+  logger: console,
+  FIXED_ICON_RELATIVE_PATH,
+  resolveAppIconPath,
+  APP_DISPLAY_NAME,
+  EXT_DIR,
+  EXT_CORE_PATH,
+  state,
+  createAuthCookie,
+  createTcpClient,
+  initializeTcpConnection,
+  loadTranslateExtension,
+  attachContextMenu,
+  initDownloadPrefs,
+  injectRemoveWatermarkCore,
+  ensureRemoveWmCoreLoaded,
+  injectZoomWheelListener,
+  checkDesktopShortcutAndPrompt,
+  initializeAccountCleanup,
+  handleServerShutdownCommand,
+  handleServerUpdateCommand: appUpdater.handleServerUpdateCommand,
+  handleServerPushMessage,
+  refreshAllowedPlatformsAndNotify,
+  resetRuntimeTutorialUrlState,
+  registerIPC,
+  startRegistrationApp,
+  stopRegistrationApp,
+  startAiCanvasProServer,
+  stopAiCanvasProServer,
+  resolveAiCanvasProExePath,
+  isAiCanvasProInstalled,
+  ensureAiCanvasProPackageInstalled: appUpdater.ensureAiCanvasProPackageInstalled,
+  startToonflowServer,
+  stopToonflowServer,
+  waitForToonflowPort,
+  stopClashMiniProcess,
+  getStorePath,
+  getServerBase,
+  getTcpConfig,
+  getDreamTargetUrl,
+  setDreamTargetUrl,
+  DREAM_TARGET_URL,
+  getCurrentPlatformLabel,
+  readStoreConfigSafe,
+  writeStoreConfigSafe,
+  appendLicenseRecord,
+  applyPluginSettings,
+  computeDeviceId,
+  getAuth: () => auth,
+  setAuth: (next) => { auth = next; },
+  getAddTab: () => addTab,
+  getSwitchTab: () => switchTab,
+  getCloseTab: () => closeTab,
+  getReorderTab: () => reorderTab,
+  getSetTabBrowserProxyMode: () => setTabBrowserProxyMode,
+  getSetZoom: () => setZoom,
+  getRefreshActiveTabToUrl: () => refreshActiveTabToUrl,
+  getRefreshActiveTab: () => refreshActiveTab,
+  getRefreshTab: () => refreshTab,
+  getOpenExtensionPopup: () => openExtensionPopup,
+  getOpenExtensionOptions: () => openExtensionOptions,
+  getForceRemoveWatermark: () => forceRemoveWatermark,
+  updateTabs,
+  getActiveWC,
+  toggleSidebar,
+  sendToSide,
+  startAppUpdate: appUpdater.startAppUpdate,
+  cleanupUpdateStorageRoot: appUpdater.cleanupUpdateStorageRoot,
+  getAppVersion: () => app.getVersion(),
+  getTabs: () => tabs,
+  getMainWindow: appRuntime.getMainWindow,
+  setMainWindow: appRuntime.setMainWindow,
+  getSideView: appRuntime.getSideView,
+  setSideView: appRuntime.setSideView,
+  getControlPanelWindow: appRuntime.getControlPanelWindow,
+  setControlPanelWindow: appRuntime.setControlPanelWindow,
+  getConsoleWindow: appRuntime.getConsoleWindow,
+  setConsoleWindow: appRuntime.setConsoleWindow,
+  getLicenseWindow: appRuntime.getLicenseWindow,
+  setLicenseWindow: appRuntime.setLicenseWindow,
+  getActiveTabId: appRuntime.getActiveTabId,
+  setActiveTabId: appRuntime.setActiveTabId,
+  getExtPopupWin: appRuntime.getExtPopupWin,
+  setExtPopupWin: appRuntime.setExtPopupWin,
+  getIsSidebarVisible: appRuntime.getIsSidebarVisible,
+  setIsSidebarVisible: appRuntime.setIsSidebarVisible,
+  getIsMainBootstrapped: appRuntime.getIsMainBootstrapped,
+  setIsMainBootstrapped: appRuntime.setIsMainBootstrapped,
+  getIsSwitchingToLicense: appRuntime.getIsSwitchingToLicense,
+  setIsSwitchingToLicense: appRuntime.setIsSwitchingToLicense,
+  getRegistrationWebTabId: appRuntime.getRegistrationWebTabId,
+  setRegistrationWebTabId: appRuntime.setRegistrationWebTabId,
+  getRegistrationWebPageOpening: appRuntime.getRegistrationWebPageOpening,
+  setRegistrationWebPageOpening: appRuntime.setRegistrationWebPageOpening,
+  getLatestAllowedPlatforms: appRuntime.getLatestAllowedPlatforms,
+  setLatestAllowedPlatforms: appRuntime.setLatestAllowedPlatforms,
+  licenseCache,
+  getGlobalTcpClient: appRuntime.getGlobalTcpClient,
+  setGlobalTcpClient: appRuntime.setGlobalTcpClient,
+  cleanupBrowserSessionData,
+  purgeBrowserSessionData,
+  cleanupAllBrowserSessionData,
+  cleanupBrowserPartitionsRootDir,
+  accountStorage,
+  shortcutManager,
+  extIdBySession,
+  clearInjectionRecord,
+  getAppConsoleHistory,
+  statePluginGetter: () => state.pluginSettings,
+  getDreamTargetUrl,
+  getSideUrl,
+  setRuntimeTcpConfig,
+  setRuntimeServerBase,
+  httpGetUniversal,
+  syncRegistrationRuntimeBrowserSettingsToMainApp,
+  postJson,
+  getJson,
+  downloadOrSaveMedia,
+  dialog,
+  forceRemoveWatermark,
+  refreshActiveTabToUrl,
+  refreshActiveTab,
+  refreshTab,
+  reorderTab,
+  setZoom,
+  openExtensionPopup,
+  openExtensionOptions,
+  closeTab,
+  loadTranslateExtension,
+  createDevConsoleWindow: () => appShell.createDevConsoleWindow?.(),
+  isDevMode,
+};
+const appShell = createAppShell(appShellDeps);
+
+const {
+  createLicenseWindow,
+  backToLicenseWindow,
+  bootstrapMainApp,
+  createMainWindow,
+  revealMainWindow,
+  ensureRegistrationWebBackend,
+  openRegistrationWebPage,
+  openAiCanvasProPage,
+  openToonflowPage,
+  resetMainRuntimeForRelicense,
+} = appShell;
+
+const tabManager = createTabManager({
+  BrowserWindow,
+  BrowserView,
+  path,
+  fs,
+  logger: console,
+  state,
+  EXT_DIR,
+  injectRemoveWatermarkCore,
+  injectZoomWheelListener,
+  clearInjectionRecord,
+  attachContextMenu,
+  downloadOrSaveMedia,
+  loadTranslateExtension,
+  cleanupBrowserSessionData,
+  getStorePath,
+  getTabs: () => tabs,
+  getMainWindow: appRuntime.getMainWindow,
+  setMainWindow: appRuntime.setMainWindow,
+  getSideView: appRuntime.getSideView,
+  setSideView: appRuntime.setSideView,
+  getActiveTabId: appRuntime.getActiveTabId,
+  setActiveTabId: appRuntime.setActiveTabId,
+  getIsSidebarVisible: appRuntime.getIsSidebarVisible,
+  setIsSidebarVisible: appRuntime.setIsSidebarVisible,
+  getExtPopupWin: appRuntime.getExtPopupWin,
+  setExtPopupWin: appRuntime.setExtPopupWin,
+  getRegistrationWebTabId: appRuntime.getRegistrationWebTabId,
+  setRegistrationWebTabId: appRuntime.setRegistrationWebTabId,
+    getSetTabAccountId: () => setTabAccountId,
+    getSetTabBrowserProxyMode: () => setTabBrowserProxyMode,
+    getAuth: () => auth,
+    licenseCache,
+    sendToSide,
+    updateTabs,
+    computeDeviceId,
+    httpGetUniversal,
+    applyTabBrowserProxy,
+    buildTabBrowserPreferences,
+    configureTabBrowserView,
+    resolveTabBrowserProfile,
+    extIdBySession,
+  });
+
+({
+  addTab,
+  applyClashMiniBrowserProxy,
+  switchTab,
+  closeTab,
+  reorderTab,
+  setTabAccountId,
+  setTabBrowserProxyMode,
+  setZoom,
+  refreshActiveTabToUrl,
+  refreshActiveTab,
+  refreshTab,
+  openExtensionPopup,
+  openExtensionOptions,
+} = tabManager);
+
+appShellDeps.applyClashMiniBrowserProxy = applyClashMiniBrowserProxy;
+
+//////////////////////////////////////////////////////////////////////////////////////////启动逻辑
+registerAppLifecycle({
+  app,
+  ipcMain,
+  fs,
+  getStorePath,
+  initializeCoreDirectory,
+  getCurrentPlatformLabel,
+  readStoreConfigSafe,
+  writeStoreConfigSafe,
+  writeLicenseRecordsSafe,
+  readLicenseRecordsSafe,
+  computeDeviceId,
+  licenseCache,
+  bootstrapMainApp,
+  createLicenseWindow,
+  ensureRegistrationWebBackend,
+  sendToSide,
+  openAiCanvasProPage,
+  openToonflowPage,
+  cleanupAllBrowserSessionData,
+  cleanupBrowserPartitionsRootDir,
+  stopRegistrationApp,
+  startAiCanvasProServer,
+  stopAiCanvasProServer,
+  startToonflowServer,
+  stopToonflowServer,
+  waitForToonflowPort,
+  shortcutManager,
+  resolveServerConfigForKey: serverResolver.resolveServerConfigForKey,
+  applyResolvedConfigToStore: serverResolver.applyResolvedConfigToStore,
+  getGlobalTcpClient: appRuntime.getGlobalTcpClient,
+  isSwitchingToLicense: appRuntime.getIsSwitchingToLicense,
+  isMainBootstrapped: appRuntime.getIsMainBootstrapped,
+  getLicenseWindow: appRuntime.getLicenseWindow,
+  BrowserWindow,
+  createMainWindow,
+  createDevConsoleWindow: appShell.createDevConsoleWindow,
+  isDevMode,
+  logger: console,
+});
+}
+
+module.exports = {
+  startMainApp,
+  startRegistrationBridge,
+};

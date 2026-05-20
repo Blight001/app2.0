@@ -1,0 +1,63 @@
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.input-shell {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  z-index: 5;
+}
+
+input {
+  flex: 1 1 auto;
+  height: 48px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(160, 120, 255, 0.14);
+  background:
+    linear-gradient(180deg, rgba(6, 12, 9, 0.94), rgba(3, 8, 7, 0.94));
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+input::placeholder {
+  color: #6d8094;
+}
+
+input:focus {
+  border-color: rgba(92, 154, 255, 0.76);
+  box-shadow: 0 0 0 3px rgba(92, 154, 255, 0.14);
+  transform: translateY(-1px);
+}
+
+.primary-btn {
+  flex: 0 0 160px;
+  height: 46px;
+  border-radius: 14px;
+  border: none;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+  background: linear-gradient(135deg, #a978ff, #5c9aff);
+  color: #f4f7ff;
+  box-shadow: 0 12px 28px rgba(92, 154, 255, 0.18), inset 0 1px 0 rgba(255,255,255,0.20);
+}
+
+.primary-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 34px rgba(92, 154, 255, 0.22), 0 0 0 1px rgba(160, 120, 255, 0.18);
+}
+
+.primary-btn:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}

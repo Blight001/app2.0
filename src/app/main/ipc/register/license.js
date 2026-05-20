@@ -1,0 +1,972 @@
+const { ipcMain } = require('electron');
+const accountStorage = require('../../lib/account-storage');
+const { getStorePath, getServerBase } = require('../../config');
+const {
+  getValidationFailureMessage,
+  isValidationSuccess,
+} = require('../../lib/auth-cookie');
+const {
+  buildUnboundCredentialRecord,
+  normalizeLicenseBinding,
+  persistSavedLicenseKeySafe,
+  readStoreConfigSafe,
+  sanitizeUserFacingMessage,
+  writeStoreConfigSafe,
+} = require('./store-utils');
+const { initializeAccountCleanup, updateAccountRecycleTimer } = require('../../utils/accountCleanup');
+
+// 监听/绑定：registerLicenseIPC的具体业务逻辑。
+function registerLicenseIPC(ctx) {
+  const {
+    tcp,
+    auth,
+    ui,
+    state,
+    licenseCache,
+    setRuntimeTcpConfig = () => {},
+    setRuntimeServerBase = () => {},
+    appendLicenseRecord,
+    refreshAllowedPlatformsAndNotify,
+    DREAM_TARGET_URL,
+    getDreamTargetUrl,
+  } = ctx;
+
+// 获取/读取/解析：resolveDreamTargetUrl的具体业务逻辑。
+  const resolveDreamTargetUrl = () => {
+    try {
+      if (typeof getDreamTargetUrl === 'function') {
+        const value = getDreamTargetUrl();
+        if (value && typeof value === 'string') return value;
+      }
+    } catch (_) {}
+    return DREAM_TARGET_URL;
+  };
+
+// 获取/读取/解析：resolveDreamWindowTitle的具体业务逻辑。
+  const resolveDreamWindowTitle = (fallback = '') => {
+    try {
+      const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
+        ? licenseCache.getRuntimeConfig()
+        : {};
+      const candidates = [
+        runtimeConfig.platformName,
+        Array.isArray(runtimeConfig.allowedPlatforms) ? runtimeConfig.allowedPlatforms[0] : '',
+        fallback,
+      ];
+      for (const item of candidates) {
+        const text = String(item || '').trim();
+        if (text) return text;
+      }
+    } catch (_) {}
+    return String(fallback || '').trim();
+  };
+
+// 获取/读取/解析：findDreamAccountRecord的具体业务逻辑。
+  const findDreamAccountRecord = (accountId = '', key = '') => {
+    try {
+      const normalizedAccountId = String(accountId || '').trim();
+      const normalizedKey = String(key || '').trim();
+      if (normalizedAccountId) {
+        const accountResult = accountStorage.getAccount(normalizedAccountId);
+        if (accountResult && accountResult.ok && accountResult.account) {
+          return accountResult.account;
+        }
+      }
+
+      if (normalizedKey) {
+        const accountSummaries = Array.isArray(accountStorage.getAllAccounts?.())
+          ? accountStorage.getAllAccounts()
+          : [];
+        for (const summary of accountSummaries) {
+          const accountId = String(summary?.id || '').trim();
+          if (!accountId) continue;
+          const accountResult = accountStorage.getAccount(accountId);
+          if (!accountResult || accountResult.ok !== true || !accountResult.account) continue;
+          const account = accountResult.account;
+          if (String(account.key || '').trim() === normalizedKey) {
+            return account;
+          }
+        }
+      }
+
+      return null;
+    } catch (_) {
+      return null;
+    }
+  };
+
+// 处理：isPermanentDreamAccount的具体业务逻辑。
+  const isPermanentDreamAccount = (accountId = '', key = '') => {
+    try {
+      const account = findDreamAccountRecord(accountId, key);
+      if (!account) return false;
+
+      const storageType = String(account.storageType || '').trim();
+      if (storageType === 'custom' || account.cleanupProtected === true) {
+        return true;
+      }
+
+      const currentAccountType = String(
+        account.currentAccountType
+        || account.current_account_type
+        || account.accountType
+        || account.account_type
+        || ''
+      ).trim();
+      if (currentAccountType === 'one_time') {
+        return true;
+      }
+
+      const currentAccountTypeLabel = String(
+        account.currentAccountTypeLabel
+        || account.current_account_type_label
+        || account.accountTypeLabel
+        || account.account_type_label
+        || ''
+      ).trim();
+      return currentAccountTypeLabel.includes('永久') || currentAccountTypeLabel.includes('长久');
+    } catch (_) {
+      return false;
+    }
+  };
+
+// 处理：isUsageExhaustedFetchError的具体业务逻辑。
+  const isUsageExhaustedFetchError = (error) => {
+    const message = String(error?.message || error?.error || '').trim();
+    const errorCode = String(error?.errorCode || '').trim();
+    if (errorCode === 'ACCOUNT_FETCH_FAILED' && message) {
+      return /次数.*用尽|使用次数已用尽|卡密使用次数已用尽/.test(message);
+    }
+    return /次数.*用尽|使用次数已用尽|卡密使用次数已用尽/.test(message);
+  };
+
+// 获取/读取/解析：resolveHistoricalDreamAccount的具体业务逻辑。
+  const resolveHistoricalDreamAccount = (preferredKey = '', preferredAccountId = '', requirePermanent = false) => {
+    try {
+      const snapshot = licenseCache && typeof licenseCache.getSnapshot === 'function'
+        ? licenseCache.getSnapshot()
+        : {};
+      const targetPlatform = String(
+        snapshot.platformName
+        || snapshot.platform
+        || snapshot.currentPlatform
+        || snapshot.currentPlatformName
+        || ''
+      ).trim().toLowerCase();
+      const normalizedPreferredKey = String(preferredKey || '').trim();
+      const normalizedPreferredAccountId = String(preferredAccountId || '').trim();
+      const accountSummaries = Array.isArray(accountStorage.getAllAccounts?.())
+        ? accountStorage.getAllAccounts()
+        : [];
+      const candidates = [];
+
+      for (const summary of accountSummaries) {
+        const accountId = String(summary?.id || '').trim();
+        if (!accountId) continue;
+
+        const accountResult = accountStorage.getAccount(accountId);
+        if (!accountResult || accountResult.ok !== true || !accountResult.account) {
+          continue;
+        }
+
+        const account = accountResult.account;
+        if (normalizedPreferredAccountId && accountId !== normalizedPreferredAccountId) {
+          continue;
+        }
+        const accountKey = String(account.key || '').trim();
+        if (normalizedPreferredKey && accountKey && accountKey !== normalizedPreferredKey) {
+          continue;
+        }
+        if (requirePermanent) {
+          const storageType = String(
+            account.storageType
+            || account.storage_type
+            || ''
+          ).trim();
+          if (storageType === 'custom' || account.cleanupProtected === true) {
+            // 视为永久账号
+          } else {
+            const accountType = String(
+              account.currentAccountType
+              || account.current_account_type
+              || account.accountType
+              || account.account_type
+              || ''
+            ).trim();
+            const accountTypeLabel = String(
+              account.currentAccountTypeLabel
+              || account.current_account_type_label
+              || account.accountTypeLabel
+              || account.account_type_label
+              || ''
+            ).trim();
+            const isPermanent = accountType === 'one_time'
+              || accountTypeLabel.includes('永久')
+              || accountTypeLabel.includes('长久');
+            if (!isPermanent) {
+              continue;
+            }
+          }
+        }
+
+        if (targetPlatform) {
+          const accountPlatform = String(
+            account.platform
+            || account.currentPlatform
+            || summary.platform
+            || summary.currentPlatform
+            || ''
+          ).trim().toLowerCase();
+          if (accountPlatform && accountPlatform !== targetPlatform) {
+            continue;
+          }
+        }
+
+        const hasCookies = Array.isArray(account.cookies) && account.cookies.length > 0;
+        const hasBrowserStorage = Array.isArray(account.browserStorage) && account.browserStorage.length > 0;
+        if (!hasCookies && !hasBrowserStorage) {
+          continue;
+        }
+
+        candidates.push(account);
+      }
+
+      candidates.sort((a, b) => {
+        const aTime = Date.parse(String(a.lastUsedAt || '')) || 0;
+        const bTime = Date.parse(String(b.lastUsedAt || '')) || 0;
+        if (aTime !== bTime) return bTime - aTime;
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      });
+
+      return candidates[0] || null;
+    } catch (error) {
+      console.warn('[open-dream-page] 读取历史账号失败:', error?.message || error);
+      return null;
+    }
+  };
+
+// 获取/读取/解析：findOpenDreamTab的具体业务逻辑。
+  const findOpenDreamTab = (accountId = '') => {
+    try {
+      const tabs = ui && typeof ui.getTabs === 'function' ? ui.getTabs() : new Map();
+      const normalizedAccountId = String(accountId || '').trim();
+      const expectedPartition = normalizedAccountId ? `tab-${String(normalizedAccountId).replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')}` : '';
+      const expectedPersistentPartition = expectedPartition ? `persist:${expectedPartition}` : '';
+
+      for (const tab of tabs.values()) {
+        const tabAccountId = String(tab?.accountId || '').trim();
+        const tabPartition = String(tab?.partition || '').trim();
+        if (normalizedAccountId && tabAccountId === normalizedAccountId) {
+          return tab;
+        }
+        if (expectedPartition && (tabPartition === expectedPartition || tabPartition === expectedPersistentPartition)) {
+          return tab;
+        }
+      }
+    } catch (_) {}
+    return null;
+  };
+
+// 处理：importServerFetchedDreamAccount的具体业务逻辑。
+  const importServerFetchedDreamAccount = async ({
+    key,
+    deviceId,
+    fetchedAccountId,
+    fetchResult,
+    fetchedCookies,
+    fetchedBrowserStorage,
+    targetUrl,
+  }) => {
+    const browserStoragePayload = Array.isArray(fetchedBrowserStorage) ? fetchedBrowserStorage : [];
+    console.log('[open-dream-page] 未命中历史账号，导入服务器返回的账号信息到历史记录:', fetchedAccountId);
+
+    const saveResult = accountStorage.addAccount({
+      key,
+      deviceId,
+      cookies: Array.isArray(fetchedCookies) ? fetchedCookies : [],
+      browserStorage: browserStoragePayload.length > 0 ? browserStoragePayload : undefined,
+      accountId: fetchedAccountId,
+      accountName: fetchedAccountId,
+      account: fetchedAccountId,
+      platform: fetchResult?.platform,
+      currentPlatform: fetchResult?.currentPlatform,
+      currentUrl: fetchResult?.currentUrl || targetUrl,
+      currentAccountType: fetchResult?.currentAccountType,
+      currentAccountTypeLabel: fetchResult?.currentAccountTypeLabel,
+      current_account_type: fetchResult?.currentAccountType,
+      current_account_type_label: fetchResult?.currentAccountTypeLabel,
+      serverRecycleTime: fetchResult?.serverRecycleTime,
+      serverRecycleTimeTs: fetchResult?.serverRecycleTimeTs,
+      serverRecycleTimeIso: fetchResult?.serverRecycleTimeIso,
+      server_recycle_time: fetchResult?.serverRecycleTime,
+      ai_account_expiry_time: fetchResult?.serverRecycleTime,
+      aiAccountExpiryTime: fetchResult?.serverRecycleTime,
+    });
+
+    if (!saveResult.ok || !saveResult.account) {
+      throw new Error(saveResult.error || '账号保存失败');
+    }
+
+    const savedAccountId = String(saveResult.account.id || '').trim();
+    const savedAccountResult = savedAccountId ? accountStorage.getAccount(savedAccountId) : null;
+    const importAccount = savedAccountResult && savedAccountResult.ok && savedAccountResult.account
+      ? savedAccountResult.account
+      : saveResult.account;
+
+    return {
+      account: importAccount,
+      accountId: String(importAccount.id || savedAccountId || fetchedAccountId || '').trim(),
+      cookies: Array.isArray(importAccount.cookies) ? importAccount.cookies : Array.isArray(fetchedCookies) ? fetchedCookies : [],
+      browserStorage: Array.isArray(importAccount.browserStorage) ? importAccount.browserStorage : browserStoragePayload,
+    };
+  };
+
+// 启动/打开/显示：openAiCanvasProPage的具体业务逻辑。
+  const openAiCanvasProPage = async () => {
+    try {
+      if (ui && typeof ui.openAiCanvasProPage === 'function') {
+        return await ui.openAiCanvasProPage();
+      }
+      if (ui && typeof ui.getTabs === 'function' && typeof ui.addTab === 'function') {
+        const targetUrl = 'http://127.0.0.1:8777/';
+        const tabs = ui.getTabs();
+        for (const tab of tabs.values()) {
+          try {
+            const currentUrl = String(tab?.view?.webContents?.getURL?.() || '').trim().toLowerCase();
+            if (String(tab?.partition || '') === 'persist:ai-canvas-pro'
+              || currentUrl.startsWith('http://127.0.0.1:8777/')
+              || currentUrl.startsWith('https://127.0.0.1:8777/')
+              || currentUrl.startsWith('http://localhost:8777/')
+              || currentUrl.startsWith('https://localhost:8777/')) {
+              if (typeof ui.switchTab === 'function' && tab?.id) {
+                ui.switchTab(tab.id);
+              }
+              return { ok: true, tabId: tab?.id || null, targetUrl, alreadyOpen: true };
+            }
+          } catch (_) {}
+        }
+        const tabId = await ui.addTab(targetUrl, {
+          partition: 'persist:ai-canvas-pro',
+          browserSettings: {
+            locale: 'zh-CN',
+            acceptLanguage: 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+          },
+        });
+        return { ok: true, tabId, targetUrl, alreadyOpen: false };
+      }
+      return { ok: false, message: '标签页功能不可用' };
+    } catch (error) {
+      console.warn('[验证] 打开 AI-CanvasPro 页面失败:', error?.message || error);
+      return { ok: false, message: error?.message || String(error) };
+    }
+  };
+
+  const resolveRuntimeConnectionConfig = (source = {}) => {
+    const runtimeConfig = typeof source === 'object' && source !== null
+      ? source
+      : {};
+    const runtimeServerBase = String(
+      runtimeConfig.serverBase
+      || runtimeConfig.server_base
+      || runtimeConfig.address_HTTP
+      || runtimeConfig.addressHttp
+      || runtimeConfig.address_http
+      || runtimeConfig.address
+      || ''
+    ).trim();
+    const runtimeTcpAddress = String(
+      runtimeConfig.address_TCP
+      || runtimeConfig.addressTcp
+      || runtimeConfig.address_tcp
+      || ''
+    ).trim();
+
+    let tcpHost = '';
+    let tcpPort = 0;
+    if (runtimeTcpAddress) {
+      try {
+        const parsedUrl = new URL(runtimeTcpAddress.includes('://') ? runtimeTcpAddress : `tcp://${runtimeTcpAddress}`);
+        tcpHost = String(parsedUrl.hostname || '').trim();
+        tcpPort = Number.parseInt(parsedUrl.port, 10) || 0;
+      } catch (_) {
+        const stripped = runtimeTcpAddress.replace(/^tcp:\/\//i, '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+        const [hostPart, portPart] = stripped.split(':');
+        tcpHost = String(hostPart || '').trim();
+        tcpPort = Number.parseInt(portPart, 10) || 0;
+      }
+    }
+
+    return {
+      serverBase: runtimeServerBase,
+      tcp: (tcpHost && Number.isFinite(tcpPort) && tcpPort > 0)
+        ? { host: tcpHost, port: tcpPort }
+        : null,
+    };
+  };
+
+  ipcMain.handle('validate-key', async (_event, { key, device_id, manualProxyPreferred }) => {
+    try {
+      const isHttpCompatMode = !!(tcp && (tcp.httpFallbackActive || String(tcp.transportMode || '').toLowerCase() === 'http'));
+      console.log(`[验证] 开始验证卡密，使用${isHttpCompatMode ? 'HTTP兼容模式' : 'TCP连接'}`);
+      console.log('[验证] 请求参数:', { key: key?.substring(0, 5) + '***', device_id });
+
+      if (!tcp) {
+        return { ok: false, status: 0, error: 'TCP客户端不可用' };
+      }
+
+      const r = await tcp.validateKey(key, device_id);
+      const transportMode = String(r?.transportMode || (tcp?.httpFallbackActive ? 'http' : 'tcp')).toLowerCase();
+      const transportLabel = transportMode === 'http' ? 'HTTP兼容模式响应摘要' : 'TCP服务器响应摘要';
+      if (transportMode === 'http') {
+        console.warn('[验证] TCP握手失败，已降级到HTTP兼容模式:', r?.transportFallbackReason || '未提供原因');
+        if (r?.requestUrl) {
+          console.log(`[验证] HTTP请求地址: ${r.requestMethod || 'GET'} ${r.requestUrl}`);
+        }
+      }
+      console.log(`[验证] ${transportLabel}:`, {
+        ok: r?.ok === true,
+        valid: r?.valid === true,
+        state: r?.state || r?.status || '',
+        expire_at: r?.expire_at || '',
+        days_left: r?.days_left ?? null,
+        account_type: r?.account_type || r?.accountType || '',
+        transport_mode: transportMode,
+        request_url: r?.requestUrl || '',
+      });
+
+      const isValid = Object.prototype.hasOwnProperty.call(r || {}, 'valid')
+        ? r?.valid === true
+        : isValidationSuccess(r);
+
+      if (isValid) {
+        try {
+          const { normalizeValidationRuntimeConfig } = require('../../lib/tcp-client');
+          const runtimeConfig = normalizeValidationRuntimeConfig(r);
+          const runtimeConnection = resolveRuntimeConnectionConfig(runtimeConfig);
+
+          if (licenseCache && typeof licenseCache.setRuntimeConfig === 'function') {
+            const nextRuntimeConfig = {};
+            if (String(runtimeConfig.platformName || '').trim()) {
+              nextRuntimeConfig.platformName = runtimeConfig.platformName;
+            }
+            if (Array.isArray(runtimeConfig.allowedPlatforms) && runtimeConfig.allowedPlatforms.length > 0) {
+              nextRuntimeConfig.allowedPlatforms = runtimeConfig.allowedPlatforms;
+            }
+            if (String(runtimeConfig.targetUrl || '').trim()) {
+              nextRuntimeConfig.targetUrl = runtimeConfig.targetUrl;
+            }
+            if (String(runtimeConfig.tutorialUrl || '').trim()) {
+              nextRuntimeConfig.tutorialUrl = runtimeConfig.tutorialUrl;
+            }
+            if (String(runtimeConnection.serverBase || '').trim()) {
+              nextRuntimeConfig.serverBase = runtimeConnection.serverBase;
+            }
+            if (Object.keys(nextRuntimeConfig).length > 0) {
+              licenseCache.setRuntimeConfig(nextRuntimeConfig);
+            }
+          }
+          if (typeof setRuntimeServerBase === 'function' && runtimeConnection.serverBase) {
+            setRuntimeServerBase(runtimeConnection.serverBase);
+          }
+          if (typeof setRuntimeTcpConfig === 'function') {
+            if (runtimeConnection.tcp) {
+              setRuntimeTcpConfig({
+                host: runtimeConnection.tcp.host,
+                port: runtimeConnection.tcp.port,
+                transport: {
+                  preferred: 'tls',
+                  allowHttpFallback: true,
+                  allowPlainFallback: false,
+                  tls: {
+                    enabled: true,
+                    rejectUnauthorized: false,
+                  },
+                },
+              });
+            } else {
+              setRuntimeTcpConfig(null);
+            }
+          }
+          const bindingInfo = normalizeLicenseBinding(r);
+          if (licenseCache && typeof licenseCache.setValidationState === 'function') {
+            licenseCache.setValidationState({
+              key,
+              deviceId: device_id,
+              validated: true,
+              bound: true,
+              licenseValidated: true,
+              result: r,
+              canSelfUnbind: bindingInfo.canSelfUnbind,
+              remainingUnbindTimes: bindingInfo.remainingUnbindTimes,
+              maxUnbindTimes: bindingInfo.maxUnbindTimes,
+              usedUnbindTimes: bindingInfo.usedUnbindTimes,
+              deviceBindCount: bindingInfo.deviceBindCount,
+              maxDeviceCount: bindingInfo.maxDeviceCount,
+              deviceBindingStatus: bindingInfo.deviceBindingStatus,
+              deviceBindingSummary: bindingInfo.deviceBindingSummary,
+              maxUsageTimes: bindingInfo.maxUsageTimes ?? r.max_usage_times ?? r.maxUsageTimes ?? null,
+              usedUsageTimes: bindingInfo.usedUsageTimes ?? r.used_usage_times ?? r.usedUsageTimes ?? null,
+              remainingUsageTimes: bindingInfo.remainingUsageTimes ?? r.remaining_usage_times ?? r.remainingUsageTimes ?? null,
+              licenseUsage: r,
+              accountType: r.accountType || r.account_type || '',
+              accountTypeLabel: r.accountTypeLabel || r.account_type_label || '',
+              currentAccountType: r.currentAccountType || r.current_account_type || '',
+              currentAccountTypeLabel: r.currentAccountTypeLabel || r.current_account_type_label || '',
+              message: r.message || r.msg || '',
+            });
+          }
+          console.log('[验证] 卡密状态已写入运行时缓存');
+          try {
+            if (typeof initializeAccountCleanup === 'function') {
+              initializeAccountCleanup(accountStorage, {
+                sendToSide: ui && typeof ui.sendToSide === 'function' ? ui.sendToSide : null,
+              });
+            }
+          } catch (cleanupErr) {
+            console.warn('[验证] 刷新账号回收定时器失败:', cleanupErr?.message || cleanupErr);
+          }
+          try {
+            if (auth && typeof auth.saveLicenseUsageSnapshot === 'function') {
+              const savedUsage = auth.saveLicenseUsageSnapshot({
+                key,
+                deviceId: device_id,
+                source: r,
+              });
+              if (savedUsage) {
+                console.log('[验证] 本地试用次数已同步:', savedUsage);
+              }
+            }
+          } catch (usageErr) {
+            console.warn('[验证] 保存本地试用次数失败:', usageErr?.message || usageErr);
+          }
+
+          try {
+            if (typeof appendLicenseRecord === 'function') {
+              appendLicenseRecord({
+                key,
+                status: 'success',
+                platformName: String(r.platformName || r.platform || r.currentPlatformName || '').trim(),
+              });
+            }
+          } catch (recordErr) {
+            console.warn('[验证] 写入卡密历史失败:', recordErr?.message || recordErr);
+          }
+
+          try {
+            persistSavedLicenseKeySafe({
+              readStoreConfigSafe,
+              writeStoreConfigSafe,
+              licenseCache,
+            }, key, device_id);
+          } catch (persistErr) {
+            console.warn('[验证] 保存最近使用卡密失败:', persistErr?.message || persistErr);
+          }
+
+          try {
+            if (typeof refreshAllowedPlatformsAndNotify === 'function') {
+              await refreshAllowedPlatformsAndNotify();
+            }
+          } catch (refreshErr) {
+            console.warn('[验证] 刷新平台名称失败:', refreshErr?.message || refreshErr);
+          }
+        } catch (e) {
+          console.warn('[验证] 保存凭证过程出错:', e?.message || e);
+        }
+      }
+      if (!isValid) {
+        return {
+          ok: false,
+          status: 200,
+          error: getValidationFailureMessage(r, '卡密验证失败'),
+          result: r,
+        };
+      }
+
+      let mergedResult = r;
+      try {
+        if (auth && typeof auth.getStoredLicenseUsage === 'function') {
+          const localUsage = auth.getStoredLicenseUsage(key, device_id);
+          if (localUsage) {
+            mergedResult = {
+              ...r,
+              ...localUsage,
+            };
+          }
+        }
+      } catch (usageErr) {
+        console.warn('[验证] 读取本地试用次数失败:', usageErr?.message || usageErr);
+      }
+
+      try {
+        if (manualProxyPreferred) {
+          try { state.manualProxyPreferred = true; } catch (_) {}
+          console.log('[验证] 用户已开启自定义代理模式，跳过内置代理自动启动');
+          return { ok: true, status: 200, result: mergedResult, started: false, reason: 'manual_proxy_preferred' };
+        }
+
+        return { ok: true, status: 200, result: mergedResult, started: false, reason: 'proxy_removed' };
+      } catch (e) {
+        console.error('[验证] 处理失败:', e?.message || e);
+        return { ok: true, status: 200, result: mergedResult, started: false, error: e?.message };
+      }
+    } catch (e) {
+      console.error('[验证] 验证过程出错:', e.message);
+      console.error('[验证] 错误堆栈:', e.stack);
+      return { ok: false, status: 0, error: e.message };
+    }
+  });
+
+  ipcMain.handle('unbind-device', async (_event, { key, device_id, deviceId }) => {
+    try {
+      const normalizedKey = String(key || '').trim();
+      const normalizedDeviceId = String(device_id || deviceId || '').trim();
+      if (!normalizedKey) {
+        return { ok: false, message: '缺少卡密' };
+      }
+      if (!normalizedDeviceId) {
+        return { ok: false, message: '缺少设备号' };
+      }
+
+      console.log('[解绑] 开始解绑设备:', {
+        key: normalizedKey.substring(0, 5) + '***',
+        deviceId: normalizedDeviceId.substring(0, 8) + '***',
+      });
+
+      let response = null;
+      if (tcp && typeof tcp.unbindDevice === 'function') {
+        response = await tcp.unbindDevice(normalizedKey, normalizedDeviceId);
+      } else if (ctx.http && typeof ctx.http.postJson === 'function') {
+        const serverBase = getServerBase();
+        if (!serverBase) {
+          throw new Error('服务器地址未配置');
+        }
+        const url = serverBase.replace(/\/+$/, '') + '/api/unbind_device';
+        const httpResp = await ctx.http.postJson(url, {
+          key: normalizedKey,
+          device_id: normalizedDeviceId,
+          deviceId: normalizedDeviceId,
+        });
+        const body = httpResp.body && typeof httpResp.body === 'object' ? httpResp.body : {};
+        response = { ok: httpResp.ok, status: httpResp.status, ...body };
+      } else {
+        throw new Error('解绑客户端不可用');
+      }
+
+      console.log('[解绑] 服务器响应:', response);
+
+      if (!response?.ok) {
+        return response || { ok: false, message: '解绑失败' };
+      }
+
+      try {
+        if (licenseCache && typeof licenseCache.setUnboundState === 'function') {
+          licenseCache.setUnboundState({
+            key: normalizedKey,
+            deviceId: normalizedDeviceId,
+          });
+        }
+      } catch (storeErr) {
+        console.warn('[解绑] 更新本地凭证状态失败:', storeErr?.message || storeErr);
+      }
+
+      return response;
+    } catch (e) {
+      console.error('[解绑] 解绑过程出错:', e?.message || e);
+      return { ok: false, message: e?.message || '解绑失败' };
+    }
+  });
+
+  ipcMain.handle('open-dream-page', async (_event, payload = {}) => {
+    try {
+      let {
+        key,
+        deviceId,
+        accountId,
+        serverPushedData,
+      } = payload || {};
+
+      key = String(key || '').trim();
+      deviceId = String(deviceId || '').trim();
+      accountId = String(accountId || '').trim();
+
+      let historicalAccount = null;
+      let launchAccountId = accountId;
+      let launchAccount = null;
+      let launchCookies = [];
+      let launchBrowserStorage = [];
+      const sourceAccountIsPermanent = isPermanentDreamAccount(accountId, key);
+
+      if (!key) throw new Error('缺少卡密');
+
+      const targetUrl = resolveDreamTargetUrl();
+      const platformName = resolveDreamWindowTitle(
+        serverPushedData?.platform_name
+        || serverPushedData?.platformName
+        || serverPushedData?.platform
+        || ''
+      );
+      console.log('[网页打开] 正在打开链接:', targetUrl);
+      if (platformName) {
+        console.log('[网页打开] 使用固定窗口名称:', platformName);
+      }
+      console.log('[网页打开] 使用卡密:', key.substring(0, 8) + '***');
+      console.log('[网页打开] 使用设备ID:', deviceId);
+
+      let fetchResult = null;
+      let fetchedAccountId = '';
+      let fetchedCookies = [];
+      let fetchedBrowserStorage = [];
+
+      try {
+        fetchResult = await auth.fetchCookieFromServerForDream(key, deviceId);
+        fetchedCookies = Array.isArray(fetchResult.cookies) ? fetchResult.cookies : [];
+        fetchedBrowserStorage = Array.isArray(fetchResult.browserStorage) ? fetchResult.browserStorage : [];
+        fetchedAccountId = String(
+          fetchResult.account
+          || fetchResult.accountName
+          || fetchResult.username
+          || fetchResult.data?.account
+          || fetchResult.result?.account
+          || ''
+        ).trim();
+        console.log('[open-dream-page] 获取到cookies:', Array.isArray(fetchedCookies) ? `数组长度${fetchedCookies.length}` : typeof fetchedCookies);
+        console.log('[open-dream-page] 服务器返回的账号:', fetchedAccountId);
+
+        if (!fetchedAccountId) {
+          throw new Error('服务器未返回账号ID，无法判断历史账号');
+        }
+      } catch (fetchErr) {
+        if (sourceAccountIsPermanent && isUsageExhaustedFetchError(fetchErr)) {
+          historicalAccount = resolveHistoricalDreamAccount(key, accountId, true);
+          if (!historicalAccount) {
+            const error = new Error('本地无账号');
+            error.businessError = true;
+            error.errorCode = 'ACCOUNT_EMPTY';
+            throw error;
+          }
+
+          launchAccountId = String(historicalAccount.id || launchAccountId || '').trim();
+          key = historicalAccount.key || key;
+          deviceId = historicalAccount.deviceId || deviceId;
+          launchAccount = historicalAccount;
+          launchCookies = Array.isArray(historicalAccount.cookies) ? historicalAccount.cookies : [];
+          launchBrowserStorage = Array.isArray(historicalAccount.browserStorage) ? historicalAccount.browserStorage : [];
+          console.log('[open-dream-page] 永久账号服务器次数已用尽，直接改用本地历史账号:', launchAccountId);
+        } else {
+          throw fetchErr;
+        }
+      }
+
+      if (!launchAccount) {
+        historicalAccount = resolveHistoricalDreamAccount(key, fetchedAccountId || accountId, sourceAccountIsPermanent);
+        if (historicalAccount) {
+          launchAccount = historicalAccount;
+          launchAccountId = String(historicalAccount.id || launchAccountId || fetchedAccountId || '').trim();
+          launchCookies = Array.isArray(historicalAccount.cookies) ? historicalAccount.cookies : [];
+          launchBrowserStorage = Array.isArray(historicalAccount.browserStorage) ? historicalAccount.browserStorage : [];
+          console.log('[open-dream-page] 命中历史账号记录:', launchAccountId);
+        }
+      }
+
+      const activeTab = launchAccountId ? findOpenDreamTab(launchAccountId) : null;
+      if (activeTab && activeTab.id) {
+        console.log('[open-dream-page] 历史账号页面已打开，直接切换标签页:', launchAccountId);
+        if (typeof ui.switchTab === 'function') {
+          try { ui.switchTab(activeTab.id); } catch (_) {}
+        }
+        if (launchAccountId) {
+          accountStorage.updateLastUsedTime(launchAccountId);
+          try { ui.sendToSide('account-list-updated', {}); } catch (_) {}
+        }
+        return { ok: true, tabId: activeTab.id, alreadyOpen: true, accountId: launchAccountId };
+      }
+
+      if (!launchAccount) {
+        const importedAccount = await importServerFetchedDreamAccount({
+          key,
+          deviceId,
+          fetchedAccountId,
+          fetchResult,
+          fetchedCookies,
+          fetchedBrowserStorage,
+          targetUrl,
+        });
+        launchAccount = importedAccount.account;
+        launchAccountId = String(importedAccount.accountId || launchAccountId || fetchedAccountId || '').trim();
+        launchCookies = Array.isArray(importedAccount.cookies) ? importedAccount.cookies : fetchedCookies;
+        launchBrowserStorage = Array.isArray(importedAccount.browserStorage) ? importedAccount.browserStorage : fetchedBrowserStorage;
+
+        console.log('[open-dream-page] 账号保存成功并改从历史账号启动:', launchAccountId);
+        updateAccountRecycleTimer(accountStorage, launchAccount, {
+          sendToSide: ui && typeof ui.sendToSide === 'function' ? ui.sendToSide : null,
+        });
+        try { ui.sendToSide('account-list-updated', {}); } catch (_) {}
+      } else {
+        console.log('[open-dream-page] 使用历史账号启动:', launchAccount.id);
+        accountStorage.updateLastUsedTime(launchAccount.id);
+        try { ui.sendToSide('account-list-updated', {}); } catch (_) {}
+      }
+
+      if (!launchAccountId) {
+        throw new Error('缺少可用账号ID');
+      }
+      if (
+        !launchAccount
+        || (
+          (!Array.isArray(launchCookies) || launchCookies.length === 0)
+          && (!Array.isArray(launchBrowserStorage) || launchBrowserStorage.length === 0)
+        )
+      ) {
+        throw new Error('本地无账号');
+      }
+
+      const tabId = await ui.addTab(targetUrl, {
+        accountId: launchAccountId,
+        fixedTitle: platformName,
+        tabTitle: platformName,
+      });
+      const wc = ui.getActiveWC();
+
+      const syncDreamTitle = () => {
+        try {
+          if (!wc || wc.isDestroyed()) return;
+          if (platformName) {
+            wc.setTitle(platformName);
+          }
+        } catch (_) {}
+      };
+
+      await (async () => {
+        let injectionDone = false;
+        try {
+          const cookies = launchCookies;
+          const browserStorage = launchBrowserStorage;
+
+          if (!wc) throw new Error('webContents 不可用');
+          const hasCookiesToInject = Array.isArray(cookies) && cookies.length > 0;
+          const hasBrowserStorageToInject = Array.isArray(browserStorage) && browserStorage.length > 0;
+          const sessionHasCookies = auth && typeof auth.hasSessionCookies === 'function'
+            ? await auth.hasSessionCookies(wc.session)
+            : false;
+
+          if (hasCookiesToInject || hasBrowserStorageToInject) {
+            console.log('[open-dream-page] 正在导入服务器/历史账号信息到当前会话:', {
+              hasCookiesToInject,
+              hasBrowserStorageToInject,
+              sessionHasCookies,
+            });
+            await auth.setCookiesToSession(wc.session, cookies);
+            if (hasBrowserStorageToInject) {
+              auth.applyBrowserStorageToPage(wc, browserStorage);
+            }
+          } else if (sessionHasCookies) {
+            console.log('[open-dream-page] 当前会话已存在 cookies，但没有可导入的账号数据，继续复用会话');
+          }
+
+          syncDreamTitle();
+          if (hasCookiesToInject || hasBrowserStorageToInject || !sessionHasCookies) {
+            wc.loadURL(targetUrl);
+          }
+          injectionDone = true;
+        } catch (e) {
+// 处理：errMsg的具体业务逻辑。
+          const errMsg = (e?.message || String(e));
+          console.error('[open-dream-page] 发生错误:', errMsg);
+          const isBusinessError = !!(e && (e.businessError || e.noHttpFallback || e.errorCode));
+          if (!injectionDone) {
+            if (isBusinessError) {
+              const accountFetchFailure = e?.errorCode === 'ACCOUNT_FETCH_FAILED' || e?.errorCode === 'ACCOUNT_EMPTY';
+              try {
+                ui.sendToSide && ui.sendToSide('server-message', {
+                  message: accountFetchFailure ? sanitizeUserFacingMessage(errMsg, '账号分配失败') : String(errMsg),
+                  title: accountFetchFailure ? '账号分配失败' : '卡密验证失败',
+                  type: 'error',
+                });
+              } catch (_) {}
+              try { ui.closeTab(tabId); } catch (_) {}
+              return;
+            }
+
+            try {
+              ui.sendToSide && ui.sendToSide('server-message', {
+                message: '网页加载遇到问题，正在尝试刷新...\n\n' + String(errMsg),
+                title: '网页加载异常',
+                type: 'warning',
+              });
+              console.log('[open-dream-page] 初始加载失败，尝试重新加载URL:', targetUrl);
+              syncDreamTitle();
+              if (wc && !wc.isDestroyed()) {
+                wc.loadURL(targetUrl).catch((reloadErr) => {
+                  console.warn('[open-dream-page] 重试加载仍失败:', reloadErr);
+                });
+              }
+            } catch (_) {}
+          }
+          return;
+        }
+      })();
+
+      return { ok: true, tabId };
+    } catch (e) {
+      return { ok: false, message: e?.message || String(e) };
+    }
+  });
+
+  ipcMain.handle('refresh-subscription-url', async () => {
+    try {
+      console.log('[刷新] 开始重新获取订阅链接...');
+
+      if (!tcp) {
+        return { ok: false, error: 'TCP客户端不可用' };
+      }
+
+      let configResponse = null;
+      try {
+        const lastAccountResult = accountStorage.getLastUsedAccount();
+        if (!lastAccountResult.ok || !lastAccountResult.account) {
+          return { ok: false, error: '没有找到有效的账号信息，请先验证卡密' };
+        }
+        const { key, deviceId } = lastAccountResult.account;
+        configResponse = await tcp.getClientConfig(key, deviceId);
+      } catch (e) {
+        console.warn('[刷新] 获取配置失败:', e?.message || e);
+        return { ok: false, error: '获取配置失败: ' + (e?.message || e) };
+      }
+
+      if (configResponse && configResponse.ok && configResponse.proxy_subscription_url) {
+        const newSubscriptionUrl = configResponse.proxy_subscription_url;
+        console.log('[刷新] 已更新订阅地址到内存中');
+        return { ok: true, subscriptionUrl: newSubscriptionUrl };
+      }
+
+      console.warn('[刷新] 获取配置失败或响应格式不正确:', configResponse);
+      return { ok: false, error: '获取配置失败或响应格式不正确' };
+    } catch (e) {
+      console.error('[刷新] 刷新订阅链接异常:', e.message);
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('get-connection-status', async () => {
+    try {
+      if (tcp && tcp.connected) {
+        const lastStatus = tcp.lastKnownStatus;
+        if (lastStatus === 'maintenance') {
+          return { status: 'disconnected', message: '服务器维护中，请稍后再试' };
+        }
+        return { status: 'connected', message: '网络状态良好' };
+      }
+      if (tcp && tcp.httpFallbackActive) {
+        return { status: 'http', message: '网络兼容模式' };
+      }
+      if (tcp && tcp.lastKnownStatus === 'maintenance') {
+        return { status: 'disconnected', message: '服务器维护中，请稍后再试' };
+      }
+      return { status: 'disconnected', message: '服务器已断开' };
+    } catch (e) {
+      return { status: 'disconnected', message: '服务器连接状态未知' };
+    }
+  });
+}
+
+module.exports = { registerLicenseIPC };

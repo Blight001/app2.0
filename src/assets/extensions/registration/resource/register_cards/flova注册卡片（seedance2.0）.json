@@ -1,0 +1,49 @@
+{
+  "name": "flova注册卡片（seedance2.0）",
+  "website": "https://www.flova.ai/zh-CN",
+  "description": "包含满血的seedance2.0，需要手动切换邀请模式",
+  "email": "",
+  "password": "",
+  "points": 0,
+  "random": {
+    "email": {
+      "length": 8,
+      "type": "lowercase"
+    },
+    "password": {
+      "length": 12,
+      "type": "mixed"
+    }
+  },
+  "steps": [
+    {
+      "name": "访问flova页面",
+      "type": "navigate",
+      "url": "https://www.flova.ai/zh-CN",
+      "wait": 3,
+      "timeout": 60000
+    },
+    {
+      "type": "click",
+      "name": "点击Claim your credits按钮",
+      "by": "css_selector",
+      "selector": "div:has-text('免费开始')",
+      "timeout": 20000
+    }
+    
+  ],
+  "popups": [],
+  "upload_server_url": "",
+  "upload_card_key": "",
+  "min_cookie_size_bytes": 8192,
+  "upload_target_score_scope": "all",
+  "upload_target_score_types": [],
+  "upload_target_score_type": "",
+  "upload": {
+    "server_url": "",
+    "card_key": "",
+    "target_score_scope": "all",
+    "target_score_types": [],
+    "target_score_type": ""
+  }
+}

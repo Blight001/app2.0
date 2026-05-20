@@ -1,0 +1,127 @@
+.suggest-panel {
+  position: absolute;
+  z-index: 200;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 172px;
+  max-height: 280px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 16px;
+  border: 1px solid rgba(160, 120, 255, 0.16);
+  background:
+    linear-gradient(180deg, rgba(7, 8, 14, 0.98), rgba(4, 5, 9, 0.98)),
+    radial-gradient(circle at 8% 0%, rgba(160, 120, 255, 0.08), transparent 28%);
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(14px);
+}
+
+.suggest-panel.hidden {
+  display: none;
+}
+
+.suggest-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.suggest-panel::-webkit-scrollbar-thumb {
+  background: rgba(92, 154, 255, 0.24);
+  border-radius: 999px;
+}
+
+.suggest-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 12px 12px 14px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+}
+
+.suggest-item:hover {
+  background: rgba(92, 154, 255, 0.08);
+  border-color: rgba(160, 120, 255, 0.18);
+  transform: translateY(-1px);
+}
+
+.suggest-item-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.suggest-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.suggest-key {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f4ebff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggest-time,
+.suggest-platform,
+.suggest-sep {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.suggest-time,
+.suggest-platform {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggest-sep {
+  opacity: 0.55;
+}
+
+.suggest-delete {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 122, 144, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 122, 144, 0.08);
+  color: #ffd9e0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.suggest-delete:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 122, 144, 0.16);
+  border-color: rgba(255, 122, 144, 0.45);
+  color: #fff;
+}
+
+.suggest-delete:active {
+  transform: translateY(0);
+}
+
+.suggest-empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}

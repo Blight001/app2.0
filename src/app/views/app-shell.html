@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' http: https:; object-src 'none'; base-uri 'self'">
+  <title>AI-Free-Tools</title>
+  <link rel="stylesheet" href="../renderer/styles/app-shell/app-shell.css" />
+</head>
+<body>
+  <div id="app-container">
+    <div id="tab-bar">
+      <button id="back-to-license-btn" class="shell-action-btn shell-action-back" type="button">首页</button>
+      <div class="tabs" id="tabs-container">
+        <!-- Tabs will be dynamically inserted here -->
+      </div>
+      <div id="add-tab-btn" title="单击切换侧栏，双击打开网页控制台">⚙️</div>
+    </div>
+    <div id="content-area"></div>
+  </div>
+  <script src="../renderer/controllers/shared/controller-utils.js"></script>
+  <script src="../renderer/controllers/pages/app-shell/tabs.js"></script>
+</body>
+</html>

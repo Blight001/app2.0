@@ -1,0 +1,10 @@
+{
+    "tcp_server_url": "tcp://127.0.0.1:58113",
+    "registration_server_url": "tcp://127.0.0.1:58113",
+    "tcp_host": "127.0.0.1",
+    "registration_server_host": "127.0.0.1",
+    "tcp_port": 58113,
+    "registration_server_port": 58113,
+    "server_url": "http://127.0.0.1:58111",
+    "serverUrl": "http://127.0.0.1:58111"
+}

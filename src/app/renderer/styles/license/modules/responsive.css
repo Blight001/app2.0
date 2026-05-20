@@ -1,0 +1,64 @@
+@media (max-width: 640px) {
+  html, body {
+    overflow: auto;
+  }
+
+  .license-wrap {
+    align-items: flex-start;
+    padding: 16px;
+  }
+
+  .license-card {
+    padding: 24px 18px;
+    border-radius: 24px;
+  }
+
+  .input-shell {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .primary-btn {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  .repair-panel {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .repair-btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .suggest-panel {
+    right: 0;
+  }
+
+  .suggest-item {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .suggest-delete {
+    align-self: flex-end;
+  }
+
+  .license-subtitle {
+    white-space: normal;
+  }
+
+  .delete-modal-card {
+    width: 100%;
+  }
+
+  .delete-modal-actions {
+    flex-direction: column-reverse;
+  }
+
+  .delete-modal-btn {
+    width: 100%;
+  }
+}

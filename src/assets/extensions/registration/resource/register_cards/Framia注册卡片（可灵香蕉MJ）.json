@@ -1,0 +1,117 @@
+{
+  "name": "Framia注册卡片（可灵香蕉MJ）",
+  "website": "https://framia.pro/invite/9FLBDLQF",
+  "description": "香蕉和MJ的账号自动注册，使用标准步骤流程",
+  "email": "",
+  "password": "",
+  "points": 0,
+  "random": {
+    "email": {
+      "length": 8,
+      "type": "lowercase"
+    },
+    "password": {
+      "length": 15,
+      "type": "strong"
+    }
+  },
+  "steps": [
+    {
+      "type": "navigate",
+      "name": "访问framia页面",
+      "url": "https://framia.pro/",
+      "timeout": 60000
+    },
+    {
+      "type": "click",
+      "name": "选择注册",
+      "by": "css_selector",
+      "selector": "div:has-text('Start Free')",
+      "timeout": 10000
+    },
+    {
+      "type": "click",
+      "name": "选择注册",
+      "by": "css_selector",
+      "selector": "div:has-text('Sign up')",
+      "timeout": 10000
+    },
+    {
+      "name": "输入邮箱",
+      "type": "type",
+      "by": "css_selector",
+      "selector": "input#email",
+      "text": "{account}@heysure.top",
+      "timeout": 20000,
+      "wait": 1
+    },
+    {
+      "name": "点击继续按钮",
+      "type": "click",
+      "by": "css_selector",
+      "selector": "button[data-action-button-primary='true']",
+      "wait": 3
+    },
+    {
+      "name": "开始等待邮箱验证码",
+      "type": "wait_verification_code",
+      "email": "{email}",
+      "timeout": 300,
+      "max_retries": 2,
+      "retry_count": 0
+    },
+    {
+      "name": "填写验证码",
+      "type": "type",
+      "by": "css_selector",
+      "selector": "input#code",
+      "text": "{code}",
+      "timeout": 60000,
+      "wait": 2
+    },
+    {
+      "name": "点击继续按钮",
+      "type": "click",
+      "by": "css_selector",
+      "selector": "button[type='submit'][name='action'][value='default'][data-action-button-primary='true']",
+      "wait": 3
+    },
+    {
+      "name": "输入密码",
+      "type": "type",
+      "by": "css_selector",
+      "selector": "input#password",
+      "text": "{password}",
+      "timeout": 20000,
+      "wait": 1
+    },
+    {
+      "name": "点击继续按钮",
+      "type": "click",
+      "by": "css_selector",
+      "selector": "button[data-action-button-primary='true']",
+      "wait": 3
+    },
+    {
+      "type": "wait",
+      "name": "等待加载",
+      "seconds": 5
+    }
+  ],
+  "popups": [],
+  "upload_server_url": "",
+  "upload_card_key": "",
+  "registration_auto_upload": true,
+  "min_cookie_size_bytes": 15000,
+  "upload_target_score_scope": "all",
+  "upload_target_score_types": [],
+  "upload_target_score_type": "",
+  "upload": {
+    "server_url": "",
+    "card_key": "",
+    "registration_auto_upload": true,
+    "target_score_scope": "all",
+    "target_score_types": [],
+    "target_score_type": ""
+  }
+}

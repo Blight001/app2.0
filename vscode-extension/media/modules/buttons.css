@@ -1,0 +1,95 @@
+.btn-gray {
+  background-color: #ccc;
+  color: #333;
+}
+
+.btn-blue {
+  background-color: #409eff;
+  color: white;
+}
+
+.main-button {
+  width: 100%;
+  padding: 12px;
+  font-size: 16px;
+  font-weight: 700;
+  text-align: center;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  margin-bottom: 10px;
+  transition: all 0.3s;
+}
+
+.btn-large-blue { background-color: #409eff; color: white; }
+.btn-large-orange { background-color: #e6a23c; color: white; }
+.btn-large-green { background-color: #67C23A; color: white; }
+.btn-large-purple { background-color: #8A2BE2; color: white; }
+.btn-large-teal { background-color: #20B2AA; color: white; }
+.btn-large-yellow { background-color: #ffec99; color: #8a6d3b; }
+
+.launch-shortcuts-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.launch-shortcuts-row .main-button {
+  flex: 1;
+  width: 0;
+  margin-bottom: 0;
+}
+
+.account-launch-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+  margin-bottom: 10px;
+}
+
+.account-launch-row .main-button {
+  margin-bottom: 0;
+}
+
+.account-launch-row #open-dream-page-btn {
+  flex: 1.65;
+  width: 0;
+}
+
+.account-history-shell {
+  position: relative;
+  flex: 0.645;
+  min-width: 105px;
+  z-index: 40;
+}
+
+.account-history-toggle-btn {
+  width: 0;
+  min-width: 100%;
+  white-space: nowrap;
+  background: linear-gradient(135deg, #0b4ea2 0%, #163d8f 55%, #0d2f6f 100%);
+  color: #f4f8ff;
+  box-shadow: 0 10px 24px rgba(10, 34, 86, 0.18);
+  border: 1px solid rgba(122, 165, 255, 0.18);
+}
+
+.account-history-toggle-btn:hover:not(:disabled):not([aria-disabled='true']) {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.account-history-toggle-btn.is-disabled,
+.account-history-toggle-btn[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: linear-gradient(135deg, #20457f 0%, #17335f 100%);
+  color: #d9e4f7;
+  box-shadow: none;
+}
+
+.main-button:disabled {
+  background-color: #ccc !important;
+  color: #999 !important;
+  cursor: not-allowed !important;
+  opacity: 0.6;
+}

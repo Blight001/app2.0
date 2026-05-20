@@ -1,0 +1,1 @@
+require('./entry/start-app');

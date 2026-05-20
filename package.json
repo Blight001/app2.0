@@ -1,0 +1,145 @@
+{
+  "name": "ai-free",
+  "version": "2.5.8",
+  "private": true,
+  "description": "Assistant to help creators use AI more conveniently",
+  "main": "src/app/main/main.js",
+  "workspaces": [
+    "src/assets/extensions/Toonflow-app"
+  ],
+  "overrides": {
+    "@rmp135/sql-ts": {
+      "better-sqlite3": "^12.8.0"
+    }
+  },
+  "scripts": {
+    "prestart": "node scripts/set-side-url.js --mode=remote && node scripts/ensure-registration-bridge.js",
+    "start": "node scripts/run-electron.js .",
+    "prestart:dev": "node scripts/set-side-url.js --mode=remote && node scripts/ensure-registration-bridge.js",
+    "predev": "node scripts/set-side-url.js --mode=remote && node scripts/ensure-registration-bridge.js",
+    "start:dev": "node scripts/run-electron.js .",
+    "prebuild": "node scripts/set-side-url.js --mode=remote && node scripts/ensure-registration-bridge.js",
+    "prebuild:win": "node scripts/set-side-url.js --mode=remote && node scripts/ensure-registration-bridge.js",
+    "prebuild:portable": "node scripts/set-side-url.js --mode=remote && node scripts/ensure-registration-bridge.js",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:portable": "electron-builder --win portable"
+  },
+  "keywords": [],
+  "author": "HeySure",
+  "license": "ISC",
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^40.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "axios": "^1.13.2",
+    "better-sqlite3": "^12.9.0",
+    "express": "^4.18.2",
+    "extract-zip": "^2.0.1",
+    "fs-extra": "^11.1.1",
+    "imap-simple": "^5.1.0",
+    "js-yaml": "^4.1.1",
+    "multer": "^1.4.5-lts.1",
+    "mysql": "^2.18.1",
+    "mysql2": "^3.22.3",
+    "node-machine-id": "^1.1.12",
+    "nodemailer": "^6.9.7",
+    "oracledb": "^6.10.0",
+    "pg": "^8.20.0",
+    "pg-query-stream": "^4.14.0",
+    "playwright": "^1.40.0",
+    "sharp": "^0.34.5",
+    "sqlite3": "^6.0.1",
+    "tar": "^7.4.3",
+    "tedious": "^19.2.1",
+    "vm2": "^3.10.5",
+    "yaml": "^2.6.0"
+  },
+  "build": {
+    "appId": "com.ai-free.app",
+    "productName": "AI-FREE",
+    "directories": {
+      "output": "appbuild"
+    },
+    "files": [
+      "src/**/*",
+      "!src/DEV_MAP.md",
+      "!src/assets/extensions/clash-mini/core/**/*",
+      "!src/assets/extensions/AI-CanvasPro/**/*",
+      "!src/assets/extensions/remove_watermark/**/*.map",
+      "!src/assets/extensions/remove_watermark/**/*.LICENSE.txt",
+      "!src/assets/extensions/remove_watermark/remove_watermark.crx",
+      "assets/**/*",
+      "!assets/extensions/remove_watermark/**/*.map",
+      "!assets/extensions/remove_watermark/**/*.LICENSE.txt",
+      "!assets/extensions/remove_watermark/remove_watermark.crx",
+      "config/platforms-config.json",
+      "package.json",
+      "package-lock.json",
+      "src/assets/extensions/registration/**/*",
+      "!src/assets/extensions/registration/dist/**",
+      "!src/assets/extensions/registration/appbuild/**",
+      "!src/assets/extensions/registration/logs/**",
+      "!src/assets/extensions/registration/backup/**",
+      "!src/assets/extensions/registration/*.log"
+    ],
+    "extraResources": [
+      {
+        "from": "src/assets/extensions/clash-mini/core",
+        "to": "resource/extensions/clash-mini/core"
+      },
+      {
+        "from": "src/assets/extensions/Toonflow-app",
+        "to": "resource/extensions/Toonflow-app"
+      },
+      {
+        "from": "src/assets/seedance2.0.ico",
+        "to": "resource/seedance2.0.ico"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "src/assets/seedance2.0.ico",
+      "signtoolOptions": {
+        "signingHashAlgorithms": [
+          "sha256"
+        ],
+        "timeStampServer": "http://timestamp.digicert.com"
+      }
+    },
+    "asar": {
+      "smartUnpack": true
+    },
+    "afterPack": "scripts/windows/after-pack-win-icon.js",
+    "asarUnpack": [
+      "src/assets/extensions/transform/**",
+      "src/assets/extensions/registration/**"
+    ],
+    "compression": "maximum",
+    "electronLanguages": [
+      "zh-CN"
+    ],
+    "npmRebuild": false,
+    "nodeGypRebuild": false,
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh",
+      "installerIcon": "src/assets/seedance2.0.ico",
+      "uninstallerIcon": "src/assets/seedance2.0.ico",
+      "installerHeaderIcon": "src/assets/seedance2.0.ico"
+    },
+    "icon": "src/assets/seedance2.0.ico"
+  },
+  "icon": "src/assets/seedance2.0.ico"
+}

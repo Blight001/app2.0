@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: http: https:; font-src 'self' data:; connect-src 'self' http: https:; frame-src http: https:; child-src http: https:; object-src 'none'; base-uri 'self'">
+  <title>控制页</title>
+  <script>
+    (function initThemeClass() {
+      try {
+        if (localStorage.getItem('ai-free.control-panel.theme') === 'light') {
+          document.documentElement.classList.add('theme-light');
+        }
+      } catch (_) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="./client/styles/control-panel.css" />
+  <link rel="stylesheet" href="./client/app/side/styles/side-panel/side.css" />
+</head>
+<body>
+  <div class="control-shell">
+    <section class="preview-card" aria-label="远程网页预览">
+      <div class="preview-card-header">
+        <div class="preview-title-wrap">
+          <div class="preview-title">远程网页预览</div>
+          <div class="preview-subtitle">加载你的控制网址，下面的面板继续沿用当前侧边栏布局与功能。</div>
+        </div>
+        <div class="preview-header-actions">
+          <button id="remote-reload-btn" class="preview-action-btn" type="button">刷新预览</button>
+        </div>
+      </div>
+      <div class="preview-toolbar">
+        <input id="remote-url-input" type="url" placeholder="https://your-domain.example/control">
+        <button id="load-remote-url-btn" class="preview-load-btn" type="button">加载网页</button>
+      </div>
+      <div class="preview-meta">
+        <span id="preview-status" class="preview-status">未加载</span>
+        <span class="preview-hint">远程页面只负责展示，按钮控制由本地 Electron 桥接执行。</span>
+      </div>
+      <iframe id="remote-preview-frame" class="remote-preview-frame" title="远程网页预览" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe>
+    </section>
+
+    <div class="main-wrapper">
+      <div id="side-panel" class="side-panel panel active">
+        <div class="container">
+          <div class="info-group">
+            
+
+            <div class="form-group device-id-row">
+              <label for="device-id">设备号:</label>
+              <input type="text" id="device-id" value="" readonly>
+
+            </div>
+              
+            <div class="form-group key-row">
+              <label for="key-input">卡密:</label>
+              <div class="key-input-shell">
+                <input type="text" id="key-input" value="" placeholder="请输入您的卡密" maxlength="30">
+                <button id="validate-key-btn" class="btn-blue">验证</button>
+              </div>
+            </div>
+            <div class="info-line license-summary-line">
+              <div class="license-summary-item">
+                <span>有效期: </span>
+                <span id="expire-time">未验证</span>
+              </div>
+              <div class="license-summary-item">
+                <span>剩余: </span>
+                <span id="usage-times">未验证</span>
+              </div>
+            </div>
+          </div>
+
+
+
+          <div class="account-launch-row">
+            <button id="open-dream-page-btn" class="main-button btn-large-blue requires-license" disabled>一键启动 即梦AI (可多开)</button>
+            <div class="account-history-shell">
+              <button id="account-history-toggle-btn" class="main-button btn-large-blue requires-license">历史记录</button>
+              <div id="account-panel" class="account-popup-panel" hidden>
+                <div class="info-group account-popup-panel-body">
+                  <div class="account-list" id="account-list">
+                    <div class="account-empty" id="account-empty">暂无保存的账号</div>
+                  </div>
+                  <div id="cookie-import-section" class="cookie-import-section" hidden>
+                    <button id="cookie-import-btn" class="main-button btn-large-teal cookie-import-btn" type="button" data-loading-text="导入中...">导入账号</button>
+                    <button id="open-registration-web-btn" class="main-button btn-large-purple registration-web-btn" type="button" hidden>打开注册器</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="launch-shortcuts-row">
+            <button id="open-opencut-page-btn" class="main-button btn-large-green requires-license" data-loading-text="打开中...">视频剪辑</button>
+            <button id="open-ai-canvas-pro-page-btn" class="main-button btn-large-green requires-license" data-loading-text="打开中...">无限画布</button>
+            <button id="open-toonflow-page-btn" class="main-button btn-large-green requires-license" data-loading-text="打开中..." disabled>自动分镜</button>
+          </div>
+
+          <div class="vpn-buttons-container">
+            <button id="VPN-switch" class="main-button btn-large-purple VPN-btn" disabled>关闭网络魔法</button>
+          </div>
+
+
+          <div class="vpn-node-selector-shell">
+            <div class="vpn-node-selector-row">
+              <button id="test-min-latency-btn" class="main-button btn-large-purple VPN-btn vpn-node-selector-btn vpn-node-selector-btn-primary" disabled>
+                <span class="vpn-node-selector-btn-main">
+                  <span class="vpn-node-selector-label">选择最佳路线</span>
+                </span>
+              </button>
+              <button id="vpn-node-selector-toggle-btn" class="main-button btn-large-purple vpn-node-selector-btn vpn-node-selector-btn-toggle" disabled aria-expanded="false" type="button">
+                <span class="vpn-node-selector-toggle-text">选择路线</span>
+              </button>
+            </div>
+            <div id="vpn-node-selector-panel" class="vpn-node-selector-panel" hidden>
+              <div class="vpn-node-selector-panel-head">
+                <span class="vpn-node-selector-panel-title">切换节点</span>
+                <span id="vpn-node-selector-group" class="vpn-node-selector-panel-subtitle">节点选择</span>
+              </div>
+              <div id="vpn-node-selector-grid" class="vpn-node-selector-grid"></div>
+            </div>
+          </div>
+
+          <button id="start-clash-mini-btn" class="main-button btn-large-teal" data-loading-text="启动中..." hidden>启动 Clash Mini</button>
+          
+          <div class="plugin-switch-group">
+            <div class="plugin-switch-row">
+              <span class="plugin-switch-label">去水印插件  (右键视频图片直接下载)</span>
+              <label class="plugin-switch">
+                <input type="checkbox" id="remove-watermark-switch" />
+                <span class="plugin-switch-slider"></span>
+              </label>
+            </div>
+            <div class="plugin-switch-row">
+              <span class="plugin-switch-label">翻译插件  (点击网页右侧粉色按钮翻译)</span>
+              <label class="plugin-switch">
+                <input type="checkbox" id="translate-ext-switch" />
+                <span class="plugin-switch-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 公告栏 -->
+          <div class="announcement-bar" id="announcement-bar">
+            <div class="announcement-header">
+              <div class="announcement-title-wrap">
+                <span id="announcement-icon" class="announcement-icon">📢</span>
+                <span id="announcement-title" class="announcement-title">公告</span>
+              </div>
+              <div class="announcement-header-actions">
+                <div id="update-widget" class="update-widget" hidden>
+                  <div class="update-widget-ring" id="update-widget-ring" style="--update-progress: 0%;">
+                    <div class="update-widget-ring-fill"></div>
+                    <span id="update-widget-percent" class="update-widget-percent">0%</span>
+                  </div>
+                  <div class="update-widget-text-wrap">
+                    <div id="update-widget-label" class="update-widget-label">更新中</div>
+                    <div id="update-widget-text" class="update-widget-text">准备更新...</div>
+                  </div>
+                </div>
+                <button id="theme-toggle-btn" class="theme-toggle-btn" type="button" aria-pressed="false" aria-label="切换主题" title="切换到白色模式">
+                  <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="12" cy="12" r="4.2"></circle>
+                    <path d="M12 1.8v3.1M12 19.1v3.1M4.6 4.6l2.2 2.2M17.2 17.2l2.2 2.2M1.8 12h3.1M19.1 12h3.1M4.6 19.4l2.2-2.2M17.2 6.8l2.2-2.2"></path>
+                  </svg>
+                <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M20.4 14.2A8.5 8.5 0 0 1 9.8 3.6a9 9 0 1 0 10.6 10.6Z"></path>
+                    <path d="M18.8 5.2l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4-1.4-.5 1.4-.5.5-1.4Z"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="announcement-content" id="announcement-content">
+              <p>欢迎使用AI无限积分工具，最新功能已上线！</p>
+            </div>
+          </div>
+
+          <div class="footer">
+            <div class="footer-left">
+              <a id="tutorial-link" target="_blank" rel="noopener noreferrer">使用教程</a>
+            </div>
+            <div class="footer-center">
+              <span id="connection-status" class="status-indicator status-connecting"><span class="status-dot"></span>服务器连接中...</span>
+            </div>
+            <div class="footer-right">
+              <span id="app-version">v2.5.1</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 自定义粘贴菜单（针对 key-input） -->
+  <div id="key-paste-menu" class="context-menu" role="menu" aria-hidden="true">
+    <button id="key-paste-btn" type="button" role="menuitem">粘贴</button>
+  </div>
+
+  <script src="./client/scripts/config.js"></script>
+  <script src="./client/scripts/control-panel.js"></script>
+
+  <script src="./client/app/side/controllers/pages/side-panel/tabs.js"></script>
+
+  <!-- 针对 key-input 的左/右键弹出粘贴菜单逻辑 -->
+  <script src="./client/app/side/controllers/pages/side-panel/context-menu.js"></script>
+
+  <!-- 共享控制器工具 -->
+  <script src="./client/app/side/controllers/shared/controller-utils.js"></script>
+
+  <!-- 消息弹窗模块 -->
+  <script src="./client/app/side/controllers/shared/message-modal.js"></script>
+
+  <script src="./client/app/side/controllers/pages/side-panel/modules/shared.js"></script>
+  <script src="./client/app/side/controllers/pages/side-panel/modules/feature-toggles.js"></script>
+  <script src="./client/app/side/controllers/pages/side-panel/modules/connection-sync.js"></script>
+  <script src="./client/app/side/controllers/pages/side-panel/modules/entry-links.js"></script>
+  <script src="./client/app/side/controllers/pages/side-panel/modules/region.js"></script>
+  <script src="./client/app/side/controllers/pages/side-panel/modules/vpn.js"></script>
+  <script src="./client/app/side/controllers/pages/side-panel/modules/license.js"></script>
+  <script src="./client/app/side/controllers/pages/side-panel/modules/account.js"></script>
+  <script src="./client/app/side/controllers/pages/side-panel/modules/announcements.js"></script>
+  <script src="./client/app/side/controllers/pages/side-panel/modules/init-core.js"></script>
+  <script src="./client/app/side/controllers/pages/side-panel/modules/init-bindings.js"></script>
+  <script src="./client/app/side/controllers/pages/side-panel/modules/init-runtime.js"></script>
+  <script src="./client/app/side/controllers/pages/side-panel/modules/bootstrap.js"></script>
+  <script src="./client/app/side/controllers/pages/side-panel/index.js"></script>
+  <script src="./client/app/side/controllers/pages/side-panel/dream-opener.js"></script>
+</body>
+</html>

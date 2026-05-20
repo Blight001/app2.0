@@ -1,0 +1,70 @@
+{
+  "name": "heysure-vpn-mini",
+  "version": "0.1.0",
+  "private": true,
+  "description": "基于 Electron + Mihomo(Clash 内核) 的轻量代理客户端，支持主动导入配置、本地控制接口、模式切换和系统代理控制。",
+  "main": "src/main_clash.js",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron .",
+    "build": "electron-builder --win nsis",
+    "postinstall": "echo postinstall"
+  },
+  "build": {
+    "appId": "com.heysure.vpn",
+    "icon": "assets/logo.ico",
+    "productName": "HeySure VPN",
+    "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "dist"
+    },
+    "asarUnpack": [
+      "core/**"
+    ],
+    "extraResources": [
+      { "from": "core", "to": "core" }
+    ],
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json",
+      "core/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.utilities"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "requestedExecutionLevel": "asInvoker",
+      "sign": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "HeySure VPN",
+      "runAfterFinish": true
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "extract-zip": "^2.0.1",
+    "tar": "^7.4.3",
+    "yaml": "^2.6.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  }
+}

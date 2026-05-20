@@ -1,0 +1,69 @@
+:root {
+  --shell-bg: #0f1115;
+  --shell-panel: #151a24;
+  --shell-panel-2: #1b2130;
+  --shell-border: #2a3242;
+  --shell-text: #e6e8ee;
+  --shell-muted: #9aa3b2;
+  --shell-accent: #4da3ff;
+}
+
+body, html {
+  background-color: var(--shell-bg);
+  color: var(--shell-text);
+}
+
+#tab-bar {
+  background-color: var(--shell-panel);
+  border-bottom: 1px solid var(--shell-border);
+}
+
+.shell-action-back {
+  color: #d9c28a;
+  border-color: rgba(217, 194, 138, 0.22);
+}
+
+.shell-action-back:hover {
+  background: rgba(217, 194, 138, 0.08);
+  border-color: rgba(217, 194, 138, 0.30);
+}
+
+.tabs {
+  scrollbar-color: #3a4150 var(--shell-panel);
+}
+
+.tabs::-webkit-scrollbar-track {
+  background: var(--shell-panel);
+}
+
+.tabs::-webkit-scrollbar-thumb {
+  background-color: #3a4150;
+}
+
+.tab {
+  background-color: rgba(77, 163, 255, 0.14);
+  border-color: rgba(77, 163, 255, 0.24);
+  color: #8bbcff;
+}
+
+.tab.active {
+  background-color: rgba(65, 184, 98, 0.16);
+  border-color: rgba(65, 184, 98, 0.28);
+  color: #b9efc8;
+}
+
+.tab-close {
+  color: var(--shell-muted);
+}
+
+#add-tab-btn {
+  background-color: var(--shell-accent);
+}
+
+#add-tab-btn:hover {
+  background-color: #2f7fe6;
+}
+
+#content-area {
+  background: var(--shell-bg);
+}

@@ -1,0 +1,65 @@
+.plugin-switch-group {
+  background: transparent;
+  padding: 0;
+  margin: 14px 0 18px;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plugin-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 2px;
+}
+
+.plugin-switch-label {
+  color: inherit;
+  font-size: 13px;
+}
+
+.plugin-switch {
+  position: relative;
+  display: inline-block;
+  width: 42px;
+  height: 24px;
+}
+
+.plugin-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.plugin-switch-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: #c7d3e0;
+  transition: 0.2s;
+  border-radius: 24px;
+}
+
+.plugin-switch-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  top: 3px;
+  background-color: #fff;
+  transition: 0.2s;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.plugin-switch input:checked + .plugin-switch-slider {
+  background-color: #409eff;
+}
+
+.plugin-switch input:checked + .plugin-switch-slider:before {
+  transform: translateX(18px);
+}

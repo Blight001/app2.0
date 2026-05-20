@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HeySure VPN</title>
+  <link rel="stylesheet" href="style_clash.css">
+</head>
+<body>
+<!-- Using native window frame / controls, custom title-bar removed -->
+<div class="container">
+  <div class="grid">
+    <div class="card">
+      <div class="row" id="nodes-card">
+        <label>节点列表</label>
+        <div class="actions" style="justify-content: flex-start; align-items: center; gap: 8px; flex-wrap: nowrap;">
+          <select id="manual-node-select" style="flex: 1; min-width: 0;"></select>
+        </div>
+      </div>
+
+      <div class="row actions" style="gap:8px; align-items:center; flex-wrap:nowrap;">
+          <button id="btn-import-config" class="ghost" style="flex-shrink:0; white-space:nowrap;">导入配置</button>
+          <button id="btn-refresh-provider" class="warn" style="flex-shrink: 0; white-space: nowrap;">重载配置</button>
+          <button id="btn-test-delay" class="primary" style="flex-shrink:0; white-space:nowrap;">选择最佳魔法路线</button>
+      </div>
+
+      <!-- 在界面内保留一个简洁的日志输出区域，供 ui.log 使用（可折叠） -->
+      <div class="row" style="margin-top:12px;">
+        <label>运行日志</label>
+        <pre id="status" class="status" style="height:120px; overflow:auto; white-space:pre-wrap; background:transparent; color:#e6eef6; border-radius:6px; padding:8px; margin:0;"></pre>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+  <script type="module" src="renderer_clash.js"></script>
+</body>
+</html>
