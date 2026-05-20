@@ -1,7 +1,7 @@
 const vscode = require('vscode');
-const { SidebarProvider } = require('./sidebarProvider');
-const { PanelManager } = require('./panelManager');
-const { ClashMiniService } = require('./clashMiniService');
+const { SidebarProvider } = require('./providers/sidebarProvider');
+const { PanelManager } = require('./providers/panelManager');
+const { ClashMiniService } = require('./services/clashMiniService');
 const { LicenseService } = require('./services/licenseService');
 const { LogService } = require('./services/logService');
 const { AccountStore } = require('./services/accountStore');

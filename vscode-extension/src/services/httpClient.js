@@ -320,6 +320,22 @@ async function validateKeyOnServer(serverBase, { key, deviceId, device_id: devic
   };
 }
 
+async function unbindDeviceOnServer(serverBase, { key, deviceId, device_id: deviceIdSnake } = {}, timeoutMs = 15000) {
+  const resp = await postJson(buildServerUrl(serverBase, '/api/unbind_device'), {
+    key,
+    device_id: deviceIdSnake || deviceId,
+    deviceId: deviceIdSnake || deviceId,
+  }, timeoutMs);
+  const body = resp && resp.body && typeof resp.body === 'object' ? resp.body : {};
+  return {
+    response: resp,
+    ok: resp.ok && body.ok !== false && body.success !== false,
+    message: body.message || body.msg || (resp.ok ? '解绑成功' : '解绑失败'),
+    data: body.data && typeof body.data === 'object' ? body.data : body,
+    raw: body,
+  };
+}
+
 async function fetchServerCookie(serverBase, { key, deviceId, device_id: deviceIdSnake, platform } = {}, options = {}) {
   const fallbackUrl = String(options.fallbackUrl || options.targetUrl || '').trim();
   const resp = await postJson(buildServerUrl(serverBase, '/api/fetch_cookie'), {
@@ -402,6 +418,7 @@ module.exports = {
   requestJson,
   httpGetUniversal,
   validateKeyOnServer,
+  unbindDeviceOnServer,
   fetchServerCookie,
   getClientConfig,
   fetchSubscriptionContent,

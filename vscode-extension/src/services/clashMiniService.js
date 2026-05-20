@@ -3,8 +3,8 @@ const http = require('http');
 const path = require('path');
 const { spawn } = require('child_process');
 const YAML = require('yaml');
-const httpClient = require('./services/httpClient');
-const { normalizeDirectClashRuntimeConfig } = require('./services/clashConfig');
+const httpClient = require('./httpClient');
+const { normalizeDirectClashRuntimeConfig } = require('./clashConfig');
 
 const CLASH_MINI_DIR_NAME = 'clash-mini';
 
@@ -616,6 +616,19 @@ class ClashMiniService {
       return { ok: false, error: '服务器未返回可用的 Clash 配置' };
     }
     return this.applyServerConfig(content);
+  }
+
+  // 重新从服务器拉取线路配置；若正在运行则重启以应用新配置
+  async refresh(params = {}) {
+    const applied = await this.fetchAndApplyConfig(params);
+    if (!applied.ok) return applied;
+    if (this.isRunning()) {
+      this.log('info', '线路配置已更新，正在重启 Clash Mini...');
+      await this.stop();
+      return this.start(params);
+    }
+    this.log('info', '线路配置已更新（Clash Mini 未运行）');
+    return { ok: true, refreshed: true, configPath: applied.configPath, ...this.getStatus() };
   }
 
   dispose() {

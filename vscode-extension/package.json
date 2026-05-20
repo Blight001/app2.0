@@ -115,7 +115,7 @@
     }
   },
   "scripts": {
-    "check": "node -c src/extension.js && node -c src/sidebarProvider.js && node -c src/panelManager.js && node -c src/clashMiniService.js && node -c src/services/httpClient.js && node -c src/services/serverResolver.js && node -c src/services/licenseService.js && node -c src/services/logService.js"
+    "check": "node -c src/extension.js && node -c src/providers/sidebarProvider.js && node -c src/providers/panelManager.js && node -c src/services/clashMiniService.js && node -c src/services/clashConfig.js && node -c src/services/httpClient.js && node -c src/services/serverResolver.js && node -c src/services/licenseService.js && node -c src/services/accountStore.js && node -c src/services/proxyController.js && node -c src/services/logService.js"
   },
   "dependencies": {
     "yaml": "^2.6.0"

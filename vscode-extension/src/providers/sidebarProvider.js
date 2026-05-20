@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const vscode = require('vscode');
-const httpClient = require('./services/httpClient');
+const httpClient = require('../services/httpClient');
 
 function getNonce() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -106,9 +106,15 @@ class SidebarProvider {
       case 'get-tutorial-url':
         return this.licenseService.getTutorialUrl(this.getConfigUrl('tutorialUrl'));
       case 'get-connection-status':
-        return { ok: true, status: 'connected', message: 'VS Code 插件模式' };
+        return this.getConnectionStatus();
       case 'validate-key':
         return this.validateKey(payload);
+      case 'unbind-device':
+        return this.unbindDevice();
+      case 'refresh-subscription-url':
+        return this.refreshLine();
+      case 'delete-account-record':
+        return this.deleteAccountRecord(payload?.id);
       case 'open-dream-page':
         return this.openDreamPage();
       case 'open-opencut-page':
@@ -254,6 +260,56 @@ class SidebarProvider {
     });
     this.postEvent('clash-mini-status', this.clashMini.getStatus());
     return result;
+  }
+
+  getConnectionStatus() {
+    const creds = this.licenseService.getCredentials();
+    const clashRunning = this.clashMini?.isRunning?.() === true;
+    if (!creds.validated) {
+      return { ok: true, status: 'disconnected', message: '未验证卡密' };
+    }
+    if (clashRunning) {
+      return { ok: true, status: 'connected', message: '网络魔法运行中' };
+    }
+    return { ok: true, status: 'connected', message: '卡密有效' };
+  }
+
+  // 设备解绑：调用 /api/unbind_device，成功后清空已保存卡密验证态
+  async unbindDevice() {
+    const creds = this.licenseService.getCredentials();
+    const key = String(creds.key || '').trim();
+    const deviceId = String(creds.deviceId || this.licenseService.getDeviceId() || '').trim();
+    if (!key) return { ok: false, message: '请先输入并验证卡密' };
+    const serverBase = this.licenseService.getServerBase();
+    if (!serverBase) return { ok: false, message: '未获取到服务器地址，请先验证卡密' };
+    let result;
+    try {
+      result = await httpClient.unbindDeviceOnServer(serverBase, { key, deviceId });
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error) };
+    }
+    if (!result.ok) return { ok: false, message: result.message || '解绑失败' };
+    this.logService?.success?.(`设备解绑成功：${result.message}`, { source: 'license' });
+    return { ok: true, message: result.message || '解绑成功', data: result.data };
+  }
+
+  // 重新从服务器拉取线路配置（等价软件端 refresh-subscription-url）
+  async refreshLine() {
+    const creds = this.licenseService.getCredentials();
+    if (!creds.validated) return { ok: false, message: '请先验证卡密' };
+    const result = await this.clashMini.refresh({
+      key: creds.key,
+      deviceId: creds.deviceId,
+      serverBase: this.licenseService.getServerBase(),
+    });
+    this.postEvent('clash-mini-status', this.clashMini.getStatus());
+    return result;
+  }
+
+  async deleteAccountRecord(id) {
+    const removed = await this.accountStore?.remove?.(id);
+    this.postEvent('account-list-updated', { records: this.accountStore?.list?.() || [] });
+    return { ok: true, removed: removed === true };
   }
 
   async stopClashMini() {

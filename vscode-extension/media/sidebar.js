@@ -227,7 +227,7 @@
       const metaParts = [];
       if (record?.platform) metaParts.push(String(record.platform));
       if (record?.currentAccountTypeLabel) metaParts.push(String(record.currentAccountTypeLabel));
-      if (record?.serverRecycleTime) metaParts.push(`回收 ${escapeHtml(String(record.serverRecycleTime))}`);
+      if (record?.serverRecycleTime) metaParts.push(`回收 ${String(record.serverRecycleTime)}`);
       if (record?.lastUsedAt) metaParts.push(formatRecordTime(record.lastUsedAt));
       const item = document.createElement('div');
       item.className = 'account-item active';
@@ -237,7 +237,10 @@
           <div class="account-name">${escapeHtml(account)}</div>
           <div class="account-meta">${metaParts.map(escapeHtml).join(' · ')}</div>
         </div>
-        <div class="account-actions"><button class="btn-switch" type="button">使用卡密</button></div>
+        <div class="account-actions">
+          <button class="btn-switch" type="button">使用卡密</button>
+          <button class="btn-delete" type="button" title="删除该账号记录">删除</button>
+        </div>
       `;
       const useRecord = () => {
         const key = String(record?.key || '').trim();
@@ -245,6 +248,19 @@
         setAccountPanelOpen(false);
         showMessage(key ? `已填入账号 ${account} 对应的卡密` : `账号 ${account}`, 'success');
       };
+      item.querySelector('.btn-switch')?.addEventListener('click', (event) => {
+        event.stopPropagation();
+        useRecord();
+      });
+      item.querySelector('.btn-delete')?.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        try {
+          await invoke('delete-account-record', { id: record.id });
+          showMessage(`已删除账号记录：${account}`, 'success');
+        } catch (error) {
+          showMessage(error.message || String(error), 'error');
+        }
+      });
       item.addEventListener('click', useRecord);
       item.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -381,6 +397,7 @@
       $('usage-times').textContent = formatUsageText(result);
       applyRuntimeConfig(result.runtimeConfig);
       syncLicenseControls();
+      refreshConnectionStatus();
       showMessage(result.message || '验证完成', 'success');
     } catch (error) {
       state.validated = false;
@@ -473,6 +490,7 @@
     } finally {
       setBusy(btn, false);
       syncLicenseControls();
+      refreshConnectionStatus();
     }
   }
 
@@ -511,9 +529,52 @@
     }
   }
 
+  async function unbindDevice() {
+    const btn = $('unbind-device-btn');
+    setBusy(btn, true, '解绑中...');
+    try {
+      const result = await invoke('unbind-device');
+      if (!result || result.ok !== true) throw new Error(result?.message || result?.error || '解绑失败');
+      showMessage(result.message || '解绑成功', 'success');
+    } catch (error) {
+      showMessage(error.message || String(error), 'error');
+    } finally {
+      setBusy(btn, false);
+      syncLicenseControls();
+    }
+  }
+
+  async function refreshLine() {
+    const btn = $('refresh-line-btn');
+    setBusy(btn, true, '刷新中...');
+    try {
+      const result = await invoke('refresh-subscription-url');
+      if (!result || result.ok !== true) throw new Error(result?.error || result?.message || '刷新线路失败');
+      applyClashStatus(result);
+      showMessage('线路配置已刷新', 'success');
+    } catch (error) {
+      showMessage(error.message || String(error), 'error');
+    } finally {
+      setBusy(btn, false);
+      syncLicenseControls();
+    }
+  }
+
+  async function refreshConnectionStatus() {
+    try {
+      const s = await invoke('get-connection-status');
+      const cls = s?.status === 'connected'
+        ? 'status-connected'
+        : (s?.status === 'http' ? 'status-connecting' : 'status-disconnected');
+      setConnection(s?.message || 'VS Code 插件模式', cls);
+    } catch (_) {}
+  }
+
   function bind() {
     initTheme();
     $('validate-key-btn')?.addEventListener('click', validateKey);
+    $('unbind-device-btn')?.addEventListener('click', unbindDevice);
+    $('refresh-line-btn')?.addEventListener('click', refreshLine);
     $('open-dream-page-btn')?.addEventListener('click', (event) => openWithButton(event.currentTarget, 'open-dream-page'));
     $('account-history-toggle-btn')?.addEventListener('click', () => {
       const panel = $('account-panel');
@@ -606,6 +667,7 @@
       renderAccountRecords(accountsResp?.records || []);
       renderConsoleHistory(consoleResp?.entries || []);
       applyClashStatus(status);
+      refreshConnectionStatus();
       const savedKey = $('key-input')?.value?.trim() || '';
       if (savedKey && !state.validated) {
         setTimeout(() => validateKey().catch(() => {}), 300);
