@@ -338,6 +338,64 @@ async function fetchServerCookie(serverBase, { key, deviceId, device_id: deviceI
   };
 }
 
+function resolveSubscriptionUrl(value, serverBase = '') {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(raw)) return raw;
+  const base = String(serverBase || '').trim();
+  if (!base) return raw;
+  try {
+    return new URL(raw, base.endsWith('/') ? base : `${base}/`).toString();
+  } catch (_) {
+    return raw;
+  }
+}
+
+// 拉取机场订阅链接的原始内容（可能是 base64 或 yaml 文本）。
+async function fetchSubscriptionContent(url, serverBase = '', timeoutMs = 15000) {
+  const targetUrl = resolveSubscriptionUrl(url, serverBase);
+  if (!targetUrl) return '';
+  const resp = await httpGetUniversal(targetUrl, timeoutMs);
+  if (!resp || resp.ok !== true) {
+    throw new Error(`订阅链接请求失败: ${resp?.status || 'unknown'}`);
+  }
+  if (resp.body && typeof resp.body === 'object') {
+    const fields = [resp.body.config, resp.body.data, resp.body.content, resp.body.yaml_content];
+    for (const field of fields) {
+      if (typeof field === 'string' && field.trim()) return field.trim();
+    }
+  }
+  return String(resp.raw || '').trim();
+}
+
+// 从客户端 HTTP 服务获取 Clash 配置（对应软件端 tcp.getClientConfig 的 HTTP 等价物）。
+async function getClientConfig(serverBase, { key, deviceId, device_id: deviceIdSnake } = {}, timeoutMs = 15000) {
+  const resp = await postJson(buildServerUrl(serverBase, '/api/client/config'), {
+    key,
+    device_id: deviceIdSnake || deviceId,
+  }, timeoutMs);
+  const body = resp && resp.body && typeof resp.body === 'object' ? resp.body : {};
+  const directContent = String(
+    body.profiles_yaml_content
+    || body.yaml_content
+    || body.content
+    || body.configContent
+    || body.red_yaml_content
+    || ''
+  ).trim();
+  return {
+    response: resp,
+    ok: resp.ok && body.ok !== false,
+    content: directContent,
+    proxySubscriptionUrl: String(body.proxy_subscription_url || body.proxySubscriptionUrl || '').trim(),
+    accountType: body.account_type || body.accountType || '',
+    accountTypeLabel: body.account_type_label || body.accountTypeLabel || '',
+    expire_at: body.expire_at || body.expireAt || '',
+    days_left: body.days_left ?? body.daysLeft ?? null,
+    raw: body,
+  };
+}
+
 module.exports = {
   getJson,
   postJson,
@@ -345,6 +403,9 @@ module.exports = {
   httpGetUniversal,
   validateKeyOnServer,
   fetchServerCookie,
+  getClientConfig,
+  fetchSubscriptionContent,
+  resolveSubscriptionUrl,
   normalizeValidationResult,
   normalizeLicenseUsage,
   normalizeCookieFetchResult,

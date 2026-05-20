@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const vscode = require('vscode');
+const httpClient = require('./services/httpClient');
 
 function getNonce() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -19,6 +20,7 @@ class SidebarProvider {
     this.panelManager = deps.panelManager;
     this.clashMini = deps.clashMini;
     this.licenseService = deps.licenseService;
+    this.accountStore = deps.accountStore;
     this.logService = deps.logService;
     this.getConfigUrl = deps.getConfigUrl;
     this.view = null;
@@ -46,6 +48,7 @@ class SidebarProvider {
       this.postEvent('app-version', this.context.extension.packageJSON.version);
       this.postEvent('update-device-id', this.licenseService.getDeviceId());
       this.postEvent('license-credentials-updated', this.licenseService.getCredentials());
+      this.postEvent('account-list-updated', { records: this.accountStore?.list?.() || [] });
       this.postEvent('debug-console-history', this.logService?.getEntries?.() || []);
     }, 0);
   }
@@ -130,8 +133,10 @@ class SidebarProvider {
         return this.clashMini.testMinLatency(payload);
       case 'switch-clash-mini-proxy':
         return this.clashMini.switchProxy(payload);
-      case 'save-clash-config':
-        return this.clashMini.saveConfig(payload?.content || payload?.configContent || payload?.clashConfig || '');
+      case 'get-account-records':
+        return { ok: true, records: this.accountStore?.list?.() || [] };
+      case 'fetch-account':
+        return this.fetchAccount();
       case 'get-network-magic-auto-start-enabled':
         return { ok: true, enabled: this.context.globalState.get('networkMagicAutoStart', false) === true };
       case 'set-network-magic-auto-start-enabled':
@@ -153,11 +158,62 @@ class SidebarProvider {
       if (runtimeConfig.targetUrl) this.postEvent('target-url-updated', { targetUrl: runtimeConfig.targetUrl });
       if (runtimeConfig.tutorialUrl) this.postEvent('tutorial-url-updated', { tutorialUrl: runtimeConfig.tutorialUrl });
       if (runtimeConfig.platformName) this.postEvent('platform-name-updated', { platformName: runtimeConfig.platformName });
+      this.postEvent('runtime-config-updated', {
+        platformName: runtimeConfig.platformName || '',
+        accountTypeLabel: this.licenseService.getAccountTypeLabel(),
+        tutorialUrl: runtimeConfig.tutorialUrl || '',
+        targetUrl: runtimeConfig.targetUrl || '',
+        serverBase: runtimeConfig.serverBase || '',
+        expire_at: runtimeConfig.expire_at || result.expire_at || '',
+        days_left: runtimeConfig.days_left ?? result.days_left ?? null,
+        maxUsageTimes: runtimeConfig.maxUsageTimes ?? null,
+        usedUsageTimes: runtimeConfig.usedUsageTimes ?? null,
+        remainingUsageTimes: runtimeConfig.remainingUsageTimes ?? result.remaining_usage_times ?? null,
+      });
     }
     return result;
   }
 
+  // 从服务器获取账号（/api/fetch_cookie），写入历史记录并通知侧边栏。
+  // 注意：VS Code 无法给第三方站点注入 cookie，本期仅获取+记录+展示，免登录注入后续单独攻关。
+  async fetchAccount() {
+    const creds = this.licenseService.getCredentials();
+    if (!creds.validated) return { ok: false, message: '请先验证卡密' };
+    const serverBase = this.licenseService.getServerBase();
+    if (!serverBase) return { ok: false, message: '未获取到服务器地址' };
+    const platform = this.licenseService.getPlatformName();
+    const targetUrl = this.licenseService.getTargetUrl(this.getConfigUrl('dreamUrl'));
+    let result;
+    try {
+      ({ result } = await httpClient.fetchServerCookie(serverBase, {
+        key: creds.key,
+        deviceId: creds.deviceId,
+        platform,
+      }, { targetUrl }));
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error) };
+    }
+    if (!result || result.ok !== true) {
+      return { ok: false, message: result?.message || '账号获取失败' };
+    }
+    const record = await this.accountStore?.addOrUpdate?.({
+      account: result.account,
+      platform: result.platform || platform,
+      key: creds.key,
+      deviceId: creds.deviceId,
+      currentAccountType: result.currentAccountType,
+      currentAccountTypeLabel: result.currentAccountTypeLabel,
+      serverRecycleTime: result.serverRecycleTime,
+      cookieCount: Array.isArray(result.cookies) ? result.cookies.length : 0,
+    });
+    this.postEvent('account-list-updated', { records: this.accountStore?.list?.() || [] });
+    // TODO(cookie 注入): 后续在此把 result.cookies / result.browserStorage 注入到目标站会话实现免登录。
+    return { ok: true, account: result.account, record, cookieCount: Array.isArray(result.cookies) ? result.cookies.length : 0 };
+  }
+
   async openDreamPage() {
+    // 打开前从服务器获取账号并记录历史（免登录注入后续跟进）
+    await this.fetchAccount().catch(() => {});
     return this.openConfiguredUrl('dream', '即梦 AI', 'dreamUrl');
   }
 
@@ -190,7 +246,12 @@ class SidebarProvider {
   }
 
   async startClashMini() {
-    const result = await this.clashMini.start();
+    const creds = this.licenseService.getCredentials();
+    const result = await this.clashMini.start({
+      key: creds.key,
+      deviceId: creds.deviceId,
+      serverBase: this.licenseService.getServerBase(),
+    });
     this.postEvent('clash-mini-status', this.clashMini.getStatus());
     return result;
   }

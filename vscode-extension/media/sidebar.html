@@ -24,6 +24,16 @@
         </div>
         <div class="info-line license-summary-line">
           <div class="license-summary-item">
+            <span>平台: </span>
+            <span id="platform-name">未验证</span>
+          </div>
+          <div class="license-summary-item">
+            <span>类型: </span>
+            <span id="account-type">未验证</span>
+          </div>
+        </div>
+        <div class="info-line license-summary-line">
+          <div class="license-summary-item">
             <span>有效期: </span>
             <span id="expire-time">未验证</span>
           </div>
@@ -43,9 +53,8 @@
               <div class="account-list" id="account-list">
                 <div class="account-empty" id="account-empty">暂无保存的账号</div>
               </div>
-              <div id="cookie-import-section" class="cookie-import-section" hidden>
-                <button id="cookie-import-btn" class="main-button btn-large-teal cookie-import-btn" type="button" data-loading-text="导入中...">导入账号</button>
-                <button id="open-registration-web-btn" class="main-button btn-large-purple registration-web-btn" type="button" hidden>打开注册器</button>
+              <div id="cookie-import-section" class="cookie-import-section">
+                <button id="fetch-account-btn" class="main-button btn-large-teal cookie-import-btn" type="button" data-loading-text="获取中...">从服务器获取账号</button>
               </div>
             </div>
           </div>
@@ -81,13 +90,6 @@
         </div>
       </div>
 
-      <details class="vscode-config-panel">
-        <summary>导入 Clash 配置</summary>
-        <textarea id="clash-config-input" spellcheck="false" placeholder="粘贴 Clash YAML 配置，包含 proxies / proxy-groups / rules 等字段"></textarea>
-        <button id="save-clash-config-btn" class="main-button btn-large-teal" type="button">保存配置</button>
-      </details>
-
-      <button id="start-clash-mini-btn" class="main-button btn-large-teal" data-loading-text="启动中..." hidden>启动 Clash Mini</button>
 
       <div class="plugin-switch-group" aria-label="浏览器插件开关">
         <div class="plugin-switch-row">

@@ -3,6 +3,8 @@ const http = require('http');
 const path = require('path');
 const { spawn } = require('child_process');
 const YAML = require('yaml');
+const httpClient = require('./services/httpClient');
+const { normalizeDirectClashRuntimeConfig } = require('./services/clashConfig');
 
 const CLASH_MINI_DIR_NAME = 'clash-mini';
 
@@ -155,6 +157,7 @@ class ClashMiniService {
   constructor(context, deps = {}) {
     this.context = context;
     this.logService = deps.logService || null;
+    this.proxyController = deps.proxyController || null;
     this.processRef = null;
     this.pid = null;
     this.coreDir = '';
@@ -243,7 +246,7 @@ class ClashMiniService {
       fs.writeFileSync(runtimeConfigPath, YAML.stringify(profilesConfig), 'utf8');
       return { ok: true, configPath: runtimeConfigPath };
     }
-    return { ok: false, error: '未找到可启动的 Clash 运行配置，请先导入 Clash YAML 配置', configPath: runtimeConfigPath };
+    return { ok: false, error: '未找到可启动的 Clash 运行配置，请先验证卡密后开启网络魔法以从服务器获取配置', configPath: runtimeConfigPath };
   }
 
   getProxyEndpoint(coreDir) {
@@ -322,10 +325,25 @@ class ClashMiniService {
     };
   }
 
-  async start() {
+  // 开启/关闭 VS Code 全局 http.proxy，使内置浏览器走本地混合端口
+  async applyBrowserProxy(enable) {
+    if (!this.proxyController) return { ok: false, error: 'proxyController 不可用' };
+    if (enable) {
+      const coreDir = this.coreDir || this.getRuntimeRoot();
+      const { port } = this.getProxyEndpoint(coreDir);
+      const result = await this.proxyController.enable(port);
+      this.proxyAppliedByApp = result.ok === true;
+      return result;
+    }
+    const result = await this.proxyController.disable();
+    this.proxyAppliedByApp = false;
+    return result;
+  }
+
+  async start(params = {}) {
     if (this.isRunning()) {
-      this.proxyAppliedByApp = true;
-      this.log('info', 'Clash Mini 已在运行，VS Code 插件已记录本地代理端口可用');
+      await this.applyBrowserProxy(true).catch(() => {});
+      this.log('info', 'Clash Mini 已在运行，已确保 VS Code 走本地代理端口');
       return { ok: true, alreadyRunning: true, ...this.getStatus() };
     }
 
@@ -334,6 +352,20 @@ class ClashMiniService {
       this.log('error', prep.error || '准备 Clash Mini 运行目录失败');
       return prep;
     }
+
+    // 优先从服务器获取配置；失败时若已有本地 config.yaml 则降级使用
+    if (params.key && params.serverBase) {
+      const applied = await this.fetchAndApplyConfig(params);
+      if (!applied.ok) {
+        const fallback = this.ensureRuntimeConfig(prep.runtimeDir);
+        if (!fallback.ok) {
+          this.log('error', applied.error || '从服务器获取 Clash 配置失败');
+          return applied;
+        }
+        this.log('warn', `${applied.error}；改用已存在的本地配置`);
+      }
+    }
+
     const configResult = this.ensureRuntimeConfig(prep.runtimeDir);
     if (!configResult.ok) {
       this.log('error', configResult.error);
@@ -352,7 +384,6 @@ class ClashMiniService {
     });
     this.processRef = child;
     this.pid = child.pid || null;
-    this.proxyAppliedByApp = true;
 
     child.stdout?.on('data', (data) => {
       const text = String(data || '').trim();
@@ -365,24 +396,26 @@ class ClashMiniService {
     child.on('close', (code, signal) => {
       this.processRef = null;
       this.pid = null;
-      this.proxyAppliedByApp = false;
+      this.applyBrowserProxy(false).catch(() => {});
       this.log(code === 0 ? 'info' : 'warn', `Clash Mini 进程已退出，退出码: ${code}${signal ? `, 信号: ${signal}` : ''}`);
     });
     child.on('error', (error) => {
       this.processRef = null;
       this.pid = null;
-      this.proxyAppliedByApp = false;
+      this.applyBrowserProxy(false).catch(() => {});
       this.log('error', `Clash Mini 启动失败: ${error?.message || error}`);
     });
 
-    this.log('info', `Clash Mini 已启动，PID: ${this.pid || 'unknown'}，本地混合端口可用`);
+    const proxyResult = await this.applyBrowserProxy(true).catch(() => ({ ok: false }));
+    const proxyNote = proxyResult.ok ? `，VS Code 已走本地代理 ${proxyResult.proxyUrl}` : '，但设置 VS Code 代理失败';
+    this.log('info', `Clash Mini 已启动，PID: ${this.pid || 'unknown'}${proxyNote}`);
     return { ok: true, started: true, ...this.getStatus() };
   }
 
   async stop() {
     const child = this.processRef;
     if (!child || !this.isRunning()) {
-      this.proxyAppliedByApp = false;
+      await this.applyBrowserProxy(false).catch(() => {});
       return { ok: true, stopped: false, ...this.getStatus() };
     }
     const pid = this.pid;
@@ -399,8 +432,8 @@ class ClashMiniService {
     }
     this.processRef = null;
     this.pid = null;
-    this.proxyAppliedByApp = false;
-    this.log('info', 'Clash Mini 已停止');
+    await this.applyBrowserProxy(false).catch(() => {});
+    this.log('info', 'Clash Mini 已停止，已还原 VS Code 代理设置');
     return { ok: true, stopped: true, ...this.getStatus() };
   }
 
@@ -540,26 +573,49 @@ class ClashMiniService {
     return { ok: true, running: true, groupName, current: nodeName, name: nodeName };
   }
 
-  saveConfig(rawContent) {
+  // 把服务器返回的配置（直配 YAML / base64 / vmess 订阅）规范化后写入 config.yaml
+  applyServerConfig(rawContent) {
     const prep = this.prepareRuntimeDir();
     if (!prep.ok) return prep;
-    const text = String(rawContent || '').trim();
-    if (!text) return { ok: false, error: '配置内容为空' };
-    let parsed = null;
-    try { parsed = YAML.parse(text); } catch (error) {
-      return { ok: false, error: `Clash YAML 解析失败: ${error?.message || error}` };
-    }
-    if (!looksLikeRuntimeClashConfig(parsed)) {
-      return { ok: false, error: '配置内容不像 Clash 运行配置' };
-    }
-    const next = { ...parsed };
-    if (!String(next['external-controller'] || next.external_controller || '').trim()) {
-      next['external-controller'] = '127.0.0.1:9090';
+    const normalized = normalizeDirectClashRuntimeConfig(rawContent);
+    if (!normalized.ok) {
+      return { ok: false, error: normalized.error || 'Clash 配置解析失败' };
     }
     const configPath = path.join(prep.runtimeDir, 'config.yaml');
-    fs.writeFileSync(configPath, YAML.stringify(next), 'utf8');
+    // 写入前清理旧的运行配置，避免残留
+    for (const stale of ['config.yaml', 'self.yaml', 'profiles.yaml']) {
+      try { fs.rmSync(path.join(prep.runtimeDir, stale), { force: true }); } catch (_) {}
+    }
+    fs.writeFileSync(configPath, normalized.content, 'utf8');
     this.configPath = configPath;
+    this.log('info', `已从服务器配置生成 Clash 运行配置：${configPath}`);
     return { ok: true, configPath };
+  }
+
+  // 从客户端 HTTP 服务获取 Clash 配置：直配内容优先，空则回退到订阅链接拉取
+  async fetchAndApplyConfig({ key, deviceId, serverBase } = {}) {
+    if (!serverBase) return { ok: false, error: '缺少服务器地址，无法获取 Clash 配置' };
+    if (!key) return { ok: false, error: '缺少卡密，无法获取 Clash 配置' };
+    this.log('info', '正在从服务器获取 Clash 配置...');
+    let config;
+    try {
+      config = await httpClient.getClientConfig(serverBase, { key, deviceId });
+    } catch (error) {
+      return { ok: false, error: `获取 Clash 配置失败: ${error?.message || error}` };
+    }
+    let content = String(config.content || '').trim();
+    if (!content && config.proxySubscriptionUrl) {
+      try {
+        this.log('info', `直配内容为空，尝试订阅链接：${config.proxySubscriptionUrl}`);
+        content = await httpClient.fetchSubscriptionContent(config.proxySubscriptionUrl, serverBase);
+      } catch (error) {
+        return { ok: false, error: `订阅链接获取失败: ${error?.message || error}` };
+      }
+    }
+    if (!content) {
+      return { ok: false, error: '服务器未返回可用的 Clash 配置' };
+    }
+    return this.applyServerConfig(content);
   }
 
   dispose() {

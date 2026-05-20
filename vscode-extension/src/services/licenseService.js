@@ -1,26 +1,8 @@
 const vscode = require('vscode');
-const { postJson } = require('./httpClient');
+const { validateKeyOnServer } = require('./httpClient');
 const { ServerResolver } = require('./serverResolver');
 
 const STATE_KEY = 'aiFreeTools.licenseState';
-
-function normalizeValidationResult(source = {}) {
-  const body = source && typeof source === 'object' ? source : {};
-  const valid = Object.prototype.hasOwnProperty.call(body, 'valid')
-    ? body.valid === true
-    : (body.ok === true || body.success === true || String(body.state || body.status || '').toLowerCase() === 'active');
-  return {
-    ok: valid,
-    valid,
-    message: body.message || body.msg || (valid ? '卡密有效' : '卡密验证失败'),
-    expire_at: body.expire_at || body.expireAt || body.expiryDate || body.expiry_date || '',
-    days_left: body.days_left ?? body.daysLeft ?? null,
-    remaining_usage_times: body.remaining_usage_times ?? body.remainingUsageTimes ?? body.remaining_uses ?? body.remainingUses ?? null,
-    max_usage_times: body.max_usage_times ?? body.maxUsageTimes ?? null,
-    used_usage_times: body.used_usage_times ?? body.usedUsageTimes ?? null,
-    raw: body,
-  };
-}
 
 class LicenseService {
   constructor(context, deps = {}) {
@@ -80,6 +62,16 @@ class LicenseService {
     return String(this.state.runtimeConfig?.platformName || 'VS Code').trim();
   }
 
+  getServerBase() {
+    const rc = this.state.runtimeConfig || {};
+    return String(rc.serverBase || rc.clientHttpBase || rc.address_HTTP || '').trim();
+  }
+
+  getAccountTypeLabel() {
+    const rc = this.state.runtimeConfig || {};
+    return String(rc.currentAccountTypeLabel || rc.accountTypeLabel || rc.currentAccountType || rc.accountType || '').trim();
+  }
+
   rememberRecord(key, status = 'success') {
     const value = String(key || '').trim();
     if (!value) return;
@@ -125,17 +117,12 @@ class LicenseService {
     if (runtimeConfig.serverBase) {
       const validateUrl = `${runtimeConfig.serverBase.replace(/\/+$/, '')}/api/validate_key`;
       this.logService?.info?.(`开始客户端二次验证：${validateUrl}`, { source: 'license', url: validateUrl, clientHttpBase: runtimeConfig.clientHttpBase || runtimeConfig.serverBase });
-      const resp = await postJson(validateUrl, {
+      const { response, validation } = await validateKeyOnServer(runtimeConfig.serverBase, {
         key: normalizedKey,
-        device_id: normalizedDeviceId,
+        deviceId: normalizedDeviceId,
       }, 12000);
-      this.logService?.info?.(`客户端二次验证响应状态：HTTP ${resp?.status || 0}`, { source: 'license', url: validateUrl, status: resp?.status || 0 });
-      const body = resp && resp.body && typeof resp.body === 'object' ? resp.body : {};
-      secondValidation = normalizeValidationResult({
-        ok: resp.ok,
-        status: resp.status,
-        ...body,
-      });
+      this.logService?.info?.(`客户端二次验证响应状态：HTTP ${response?.status || 0}`, { source: 'license', url: validateUrl, status: response?.status || 0 });
+      secondValidation = validation;
       secondValidation.requestUrl = validateUrl;
       if (!secondValidation.ok) {
         this.logService?.warn?.(`客户端二次验证失败：${secondValidation.message || 'unknown'}`, { source: 'license', url: validateUrl });
@@ -152,6 +139,25 @@ class LicenseService {
         return { ok: false, message: secondValidation.message || '客户端二次验证失败', validation: secondValidation };
       }
     }
+
+    // 用二次验证 + 卡状态搜索结果补全运行时配置：类型 / 到期 / 次数
+    const validationRaw = secondValidation.raw && typeof secondValidation.raw === 'object' ? secondValidation.raw : {};
+    const pick = (...candidates) => {
+      for (const value of candidates) {
+        const text = String(value ?? '').trim();
+        if (text) return text;
+      }
+      return '';
+    };
+    runtimeConfig.accountType = pick(secondValidation.account_type, validationRaw.account_type, validationRaw.accountType, resolved.data.account_type, resolved.data.accountType);
+    runtimeConfig.accountTypeLabel = pick(secondValidation.account_type_label, validationRaw.account_type_label, validationRaw.accountTypeLabel, resolved.data.account_type_label, resolved.data.accountTypeLabel);
+    runtimeConfig.currentAccountType = pick(secondValidation.current_account_type, validationRaw.current_account_type, validationRaw.currentAccountType, runtimeConfig.accountType);
+    runtimeConfig.currentAccountTypeLabel = pick(secondValidation.current_account_type_label, validationRaw.current_account_type_label, validationRaw.currentAccountTypeLabel, runtimeConfig.accountTypeLabel);
+    runtimeConfig.expire_at = pick(secondValidation.expire_at, resolved.data.expire_at, resolved.data.expiryDate);
+    runtimeConfig.days_left = secondValidation.days_left ?? resolved.data.days_left ?? null;
+    runtimeConfig.maxUsageTimes = secondValidation.max_usage_times ?? null;
+    runtimeConfig.usedUsageTimes = secondValidation.used_usage_times ?? null;
+    runtimeConfig.remainingUsageTimes = secondValidation.remaining_usage_times ?? null;
 
     this.state = {
       ...this.state,

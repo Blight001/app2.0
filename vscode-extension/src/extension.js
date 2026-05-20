@@ -4,23 +4,33 @@ const { PanelManager } = require('./panelManager');
 const { ClashMiniService } = require('./clashMiniService');
 const { LicenseService } = require('./services/licenseService');
 const { LogService } = require('./services/logService');
+const { AccountStore } = require('./services/accountStore');
+const { ProxyController } = require('./services/proxyController');
 
 function getConfigUrl(key) {
   return vscode.workspace.getConfiguration('aiFreeTools').get(key);
 }
 
+let activeClashMini = null;
+let activeProxyController = null;
+
 async function activate(context) {
   const logService = new LogService();
   const panelManager = new PanelManager(context, { logService });
-  const clashMini = new ClashMiniService(context, { logService });
+  const proxyController = new ProxyController(context, { logService });
+  const clashMini = new ClashMiniService(context, { logService, proxyController });
   const licenseService = new LicenseService(context, { logService });
+  const accountStore = new AccountStore(context);
   const sidebarProvider = new SidebarProvider(context, {
     panelManager,
     clashMini,
     licenseService,
+    accountStore,
     logService,
     getConfigUrl,
   });
+  activeClashMini = clashMini;
+  activeProxyController = proxyController;
   logService.info('AI Free Tools VS Code 插件已激活');
 
   context.subscriptions.push(
@@ -45,7 +55,14 @@ async function activate(context) {
   );
 }
 
-function deactivate() {}
+async function deactivate() {
+  try {
+    if (activeClashMini) await activeClashMini.stop();
+  } catch (_) {}
+  try {
+    if (activeProxyController) await activeProxyController.disable();
+  } catch (_) {}
+}
 
 module.exports = {
   activate,
