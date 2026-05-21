@@ -202,6 +202,15 @@
   color: #fff;
 }
 
+.account-actions .btn-delete {
+  background: rgba(248, 113, 113, 0.16);
+  color: #f87171;
+}
+
+.account-actions .btn-delete:hover {
+  background: rgba(248, 113, 113, 0.28);
+}
+
 .account-empty {
   text-align: center;
   color: #a7b1c7;

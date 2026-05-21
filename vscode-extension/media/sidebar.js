@@ -215,31 +215,52 @@
     bucket.open = true;
     bucket.innerHTML = `
       <summary class="account-bucket-summary">
-        <span class="account-bucket-title">卡密记录</span>
+        <span class="account-bucket-title">账号记录</span>
         <span class="account-bucket-summary-meta"><span class="account-bucket-meta">${state.records.length} 条</span></span>
       </summary>
       <div class="account-bucket-content"></div>
     `;
     const content = bucket.querySelector('.account-bucket-content');
     for (const record of state.records) {
-      const key = String(record?.keyValue || record?.key || record?.id || '').trim();
-      if (!key) continue;
-      const status = String(record?.status || '').trim();
+      const account = String(record?.account || '').trim();
+      if (!account) continue;
+      const metaParts = [];
+      if (record?.platform) metaParts.push(String(record.platform));
+      if (record?.currentAccountTypeLabel) metaParts.push(String(record.currentAccountTypeLabel));
+      if (record?.serverRecycleTime) metaParts.push(`回收 ${String(record.serverRecycleTime)}`);
+      if (record?.lastUsedAt) metaParts.push(formatRecordTime(record.lastUsedAt));
       const item = document.createElement('div');
-      item.className = `account-item${status === 'success' ? ' active' : ''}`;
+      item.className = 'account-item active';
       item.tabIndex = 0;
       item.innerHTML = `
         <div class="account-info">
-          <div class="account-name">${escapeHtml(key)}</div>
-          <div class="account-meta">${escapeHtml(status === 'success' ? '验证成功' : '验证失败')}${record?.updatedAt ? ` · ${escapeHtml(formatRecordTime(record.updatedAt))}` : ''}</div>
+          <div class="account-name">${escapeHtml(account)}</div>
+          <div class="account-meta">${metaParts.map(escapeHtml).join(' · ')}</div>
         </div>
-        <div class="account-actions"><button class="btn-switch" type="button">使用</button></div>
+        <div class="account-actions">
+          <button class="btn-switch" type="button">使用卡密</button>
+          <button class="btn-delete" type="button" title="删除该账号记录">删除</button>
+        </div>
       `;
       const useRecord = () => {
-        if ($('key-input')) $('key-input').value = key;
+        const key = String(record?.key || '').trim();
+        if (key && $('key-input')) $('key-input').value = key;
         setAccountPanelOpen(false);
-        showMessage('已填入历史卡密', 'success');
+        showMessage(key ? `已填入账号 ${account} 对应的卡密` : `账号 ${account}`, 'success');
       };
+      item.querySelector('.btn-switch')?.addEventListener('click', (event) => {
+        event.stopPropagation();
+        useRecord();
+      });
+      item.querySelector('.btn-delete')?.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        try {
+          await invoke('delete-account-record', { id: record.id });
+          showMessage(`已删除账号记录：${account}`, 'success');
+        } catch (error) {
+          showMessage(error.message || String(error), 'error');
+        }
+      });
       item.addEventListener('click', useRecord);
       item.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -280,7 +301,7 @@
     syncVpnButtons();
     if (enabled) {
       loadProxyOptions(false).catch(() => {});
-      showMessage(`网络魔法已开启，PID: ${status.pid || 'unknown'}。VS Code Webview 会使用本地可用代理端口，不迁移 Electron 标签页级代理。`, 'success');
+      showMessage(`网络魔法已开启，PID: ${status.pid || 'unknown'}。VS Code 已切换到本地端口代理，内置浏览器打开的站点将走代理。`, 'success');
     }
   }
 
@@ -374,7 +395,9 @@
       state.validated = true;
       $('expire-time').textContent = result.expire_at || result.validation?.expire_at || result.resolved?.expiryDate || '已验证';
       $('usage-times').textContent = formatUsageText(result);
+      applyRuntimeConfig(result.runtimeConfig);
       syncLicenseControls();
+      refreshConnectionStatus();
       showMessage(result.message || '验证完成', 'success');
     } catch (error) {
       state.validated = false;
@@ -403,6 +426,24 @@
     return '已验证';
   }
 
+  function applyRuntimeConfig(config) {
+    if (!config || typeof config !== 'object') return;
+    const platform = String(config.platformName || '').trim();
+    const typeLabel = String(config.accountTypeLabel || config.currentAccountTypeLabel || '').trim();
+    if ($('platform-name')) $('platform-name').textContent = platform || '—';
+    if ($('account-type')) $('account-type').textContent = typeLabel || '—';
+    const expire = String(config.expire_at || '').trim();
+    if (expire && $('expire-time')) $('expire-time').textContent = expire;
+    const remaining = config.remainingUsageTimes;
+    const max = config.maxUsageTimes;
+    if (remaining !== null && remaining !== undefined && $('usage-times')) {
+      $('usage-times').textContent = (max !== null && max !== undefined) ? `${remaining}/${max}` : String(remaining);
+    } else if ((config.days_left ?? null) !== null && $('usage-times')) {
+      $('usage-times').textContent = `剩余 ${config.days_left} 天`;
+    }
+    if (config.tutorialUrl && $('tutorial-link')) $('tutorial-link').dataset.url = config.tutorialUrl;
+  }
+
   function applySavedCredentials(credentials = {}) {
     const key = String(credentials.key || '').trim();
     const deviceId = String(credentials.deviceId || credentials.device_id || '').trim();
@@ -411,11 +452,17 @@
     if (credentials.validated === true || credentials.licenseValidated === true) {
       state.validated = true;
       const validation = credentials.validation || {};
-      $('expire-time').textContent = validation.expire_at || credentials.runtimeConfig?.expiryDate || '已验证';
+      const runtimeConfig = credentials.runtimeConfig || {};
+      $('expire-time').textContent = validation.expire_at || runtimeConfig.expire_at || '已验证';
       $('usage-times').textContent = formatUsageText({ validation, licenseUsage: validation });
-      syncLicenseControls();
+      applyRuntimeConfig(runtimeConfig);
+    } else {
+      state.validated = false;
+      if ($('expire-time')) $('expire-time').textContent = '未验证';
+      if ($('usage-times')) $('usage-times').textContent = '未验证';
     }
-    renderAccountRecords(credentials.records || []);
+    syncLicenseControls();
+    refreshConnectionStatus();
   }
 
   async function openWithButton(button, channel) {
@@ -448,6 +495,7 @@
     } finally {
       setBusy(btn, false);
       syncLicenseControls();
+      refreshConnectionStatus();
     }
   }
 
@@ -472,14 +520,13 @@
     }
   }
 
-  async function saveClashConfig() {
-    const btn = $('save-clash-config-btn');
-    const content = $('clash-config-input')?.value || '';
-    setBusy(btn, true, '保存中...');
+  async function fetchAccount() {
+    const btn = $('fetch-account-btn');
+    setBusy(btn, true, '获取中...');
     try {
-      const result = await invoke('save-clash-config', { content });
-      if (!result || result.ok !== true) throw new Error(result?.error || result?.message || '保存配置失败');
-      showMessage(`Clash 配置已保存：${result.configPath}`, 'success');
+      const result = await invoke('fetch-account');
+      if (!result || result.ok !== true) throw new Error(result?.message || result?.error || '账号获取失败');
+      showMessage(`已获取账号：${result.account || '未知账号'}（Cookie ${result.cookieCount || 0} 项）`, 'success');
     } catch (error) {
       showMessage(error.message || String(error), 'error');
     } finally {
@@ -487,9 +534,52 @@
     }
   }
 
+  async function unbindDevice() {
+    const btn = $('unbind-device-btn');
+    setBusy(btn, true, '解绑中...');
+    try {
+      const result = await invoke('unbind-device');
+      if (!result || result.ok !== true) throw new Error(result?.message || result?.error || '解绑失败');
+      showMessage(result.message || '解绑成功', 'success');
+    } catch (error) {
+      showMessage(error.message || String(error), 'error');
+    } finally {
+      setBusy(btn, false);
+      syncLicenseControls();
+    }
+  }
+
+  async function refreshLine() {
+    const btn = $('refresh-line-btn');
+    setBusy(btn, true, '刷新中...');
+    try {
+      const result = await invoke('refresh-subscription-url');
+      if (!result || result.ok !== true) throw new Error(result?.error || result?.message || '刷新线路失败');
+      applyClashStatus(result);
+      showMessage('线路配置已刷新', 'success');
+    } catch (error) {
+      showMessage(error.message || String(error), 'error');
+    } finally {
+      setBusy(btn, false);
+      syncLicenseControls();
+    }
+  }
+
+  async function refreshConnectionStatus() {
+    try {
+      const s = await invoke('get-connection-status');
+      const cls = s?.status === 'connected'
+        ? 'status-connected'
+        : (s?.status === 'http' ? 'status-connecting' : 'status-disconnected');
+      setConnection(s?.message || 'VS Code 插件模式', cls);
+    } catch (_) {}
+  }
+
   function bind() {
     initTheme();
     $('validate-key-btn')?.addEventListener('click', validateKey);
+    $('unbind-device-btn')?.addEventListener('click', unbindDevice);
+    $('refresh-line-btn')?.addEventListener('click', refreshLine);
     $('open-dream-page-btn')?.addEventListener('click', (event) => openWithButton(event.currentTarget, 'open-dream-page'));
     $('account-history-toggle-btn')?.addEventListener('click', () => {
       const panel = $('account-panel');
@@ -518,7 +608,7 @@
       }
       setNodeSelectorOpen(shouldOpen);
     });
-    $('save-clash-config-btn')?.addEventListener('click', saveClashConfig);
+    $('fetch-account-btn')?.addEventListener('click', fetchAccount);
     $('theme-toggle-btn')?.addEventListener('click', () => {
       applyTheme(state.theme === 'light' ? 'dark' : 'light');
     });
@@ -555,6 +645,10 @@
       if ($('device-id')) $('device-id').value = deviceId || '';
     });
     window.electronAPI.on('license-credentials-updated', applySavedCredentials);
+    window.electronAPI.on('runtime-config-updated', applyRuntimeConfig);
+    window.electronAPI.on('account-list-updated', (payload) => {
+      renderAccountRecords(payload?.records || []);
+    });
     window.electronAPI.on('debug-console-line', appendConsoleLine);
     window.electronAPI.on('debug-console-history', renderConsoleHistory);
   }
@@ -564,18 +658,21 @@
     syncLicenseControls();
     setConnection('VS Code 插件模式', 'status-connected');
     try {
-      const [deviceId, version, status, credentialsResp, consoleResp] = await Promise.all([
+      const [deviceId, version, status, credentialsResp, consoleResp, accountsResp] = await Promise.all([
         invoke('license-get-device-id'),
         invoke('get-app-version'),
         invoke('get-clash-mini-status'),
         invoke('get-user-credentials'),
         invoke('get-debug-console-history'),
+        invoke('get-account-records'),
       ]);
       if ($('device-id')) $('device-id').value = deviceId || '';
       if ($('app-version')) $('app-version').textContent = `v${version}`;
       applySavedCredentials(credentialsResp?.credentials || {});
+      renderAccountRecords(accountsResp?.records || []);
       renderConsoleHistory(consoleResp?.entries || []);
       applyClashStatus(status);
+      refreshConnectionStatus();
       const savedKey = $('key-input')?.value?.trim() || '';
       if (savedKey && !state.validated) {
         setTimeout(() => validateKey().catch(() => {}), 300);

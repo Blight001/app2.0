@@ -57,19 +57,26 @@ code --install-extension ai-free-tools-vscode-0.1.0.vsix
 ## Scope
 
 - Provides a VS Code Activity Bar container and sidebar Webview View.
-- Opens launch targets in VS Code Webview Panels.
-- Keeps Clash Mini start, stop, node list, node switching, and latency testing.
-- Validates license keys in the sidebar. The extension first queries the same card-status search endpoint used by the desktop app, then performs a second validation against the resolved server `/api/validate_key`.
-- Remembers the latest key and validation state in VS Code global extension storage.
+- Opens launch targets in VS Code Simple Browser / Webview Panels.
+- Validates license keys (card-status search + resolved server `/api/validate_key`) and surfaces runtime config: platform, account type, tutorial URL, target URL, expiry, and remaining usage.
+- Device unbind via `/api/unbind_device`.
+- Account history stores the accounts returned by the server `/api/fetch_cookie`, shown in the sidebar with delete support.
+- Magic network (Clash): fetches the Clash config from the server `/api/client/config` (direct YAML or base64 / vmess subscription), starts `verge-mihomo`, and points VS Code's global `http.proxy` at the local mixed port so the built-in browser routes through it. Includes node list, node switching, latency testing, and line refresh. Manual config import is removed.
+- Remembers the latest key, validation state, and account records in VS Code global extension storage.
 - Shows a colored debug console at the bottom of the sidebar for extension-host logs and runtime diagnostics.
+- Account auto-login (cookie injection) is not yet implemented — VS Code cannot inject cookies into a third-party site shown in the built-in browser; `fetchAccount` records the account and leaves a `TODO` hook for a future external-Edge + CDP approach.
 - Does not migrate Electron auto-update, BrowserView tab management, injected browser extensions, desktop shortcuts, tray, or Electron window behavior.
 
 ## Source Layout
 
-- `src/extension.js` wires VS Code activation and commands.
-- `src/sidebarProvider.js` owns Webview View message routing only.
-- `src/panelManager.js` opens URLs through VS Code Simple Browser with a Webview fallback.
-- `src/services/licenseService.js` stores credentials and coordinates key validation.
+- `src/extension.js` wires VS Code activation, commands, and service composition; restores `http.proxy` and stops Clash on deactivate.
+- `src/providers/sidebarProvider.js` owns Webview View message routing.
+- `src/providers/panelManager.js` opens URLs through VS Code Simple Browser with a Webview fallback.
+- `src/services/clashMiniService.js` manages the `verge-mihomo` process, fetches/applies server config, and toggles the browser proxy.
+- `src/services/clashConfig.js` normalizes server Clash config (direct YAML / base64 / vmess subscription) into a runnable `config.yaml`.
+- `src/services/proxyController.js` sets and restores VS Code's global `http.proxy`.
+- `src/services/licenseService.js` stores credentials, coordinates key validation, and exposes runtime config.
+- `src/services/accountStore.js` persists server-returned account records for the history list.
 - `src/services/serverResolver.js` reads `config/platforms-config.json` and resolves the validation server.
-- `src/services/httpClient.js` contains small HTTP helpers used by services.
+- `src/services/httpClient.js` contains HTTP helpers (validate key, fetch cookie, client config, subscription, unbind device).
 - `src/services/logService.js` keeps bounded debug entries and streams them to the sidebar console.
