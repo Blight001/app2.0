@@ -2,7 +2,7 @@
 
 AI-FREE is an Electron desktop shell for AI workflow tools. It focuses on platform configuration, startup orchestration, browser extension integration, and the registration bridge used by the bundled extension workspace.
 
-Current package version: `2.5.7`
+Current package version: `2.5.8`
 
 ## What It Does
 
@@ -16,16 +16,18 @@ Current package version: `2.5.7`
 
 ```text
 ├── config/                  # Runtime and platform configuration
+├── control-panel/           # Local control-panel web UI and static server
 ├── docs/                    # API, architecture, and usage notes
 ├── scripts/                 # Startup and packaging helpers
 │   └── windows/             # Windows batch/build helpers
 ├── src/
 │   ├── app/
 │   │   ├── main/            # Main-process code
-│   │   ├── renderer/        # Renderer/UI code
-│   │   └── views/           # HTML shells
+│   │   ├── renderer/        # Renderer/UI controllers and styles
+│   │   └── views/           # HTML shells (app-shell, license)
 │   └── assets/
 │       └── extensions/      # Bundled extensions and tools
+├── vscode-extension/        # Standalone VS Code sidebar wrapper
 ├── package.json             # App metadata, scripts, and Electron Builder config
 └── README_zh-CN.md          # Chinese README
 ```
@@ -37,9 +39,10 @@ Current package version: `2.5.7`
 - `src/app/main/services/`: shell, lifecycle, tabs, and runtime services
 - `src/app/main/ipc/`: IPC registration and handlers
 - `src/app/views/`: app shell and license pages
-- `src/app/side/`: standalone side panel page, controllers, and styles
-- `src/assets/extensions/`: bundled extensions such as `remove_watermark`, `clash-mini`, `AI-CanvasPro`, `transform`, and `Toonflow-app`
+- `src/app/renderer/`: renderer controllers and styles
+- `src/assets/extensions/`: bundled extensions: `remove_watermark`, `clash-mini`, `transform`, `Toonflow-app`, and `registration`
 - `scripts/run-electron.js`: Electron launch wrapper
+- `scripts/set-side-url.js`: sets the side-panel URL (local or remote) before launch/build
 - `scripts/ensure-registration-bridge.js`: syncs the registration bridge workspace before launch/build
 
 ## Requirements
@@ -54,7 +57,7 @@ npm install
 npm start
 ```
 
-`npm start` runs the Electron app through `scripts/run-electron.js`. The `prestart` hook also prepares the registration bridge before launch.
+`npm start` runs the Electron app through `scripts/run-electron.js`. The `prestart` hook first runs `scripts/set-side-url.js` to set the side-panel URL and `scripts/ensure-registration-bridge.js` to prepare the registration bridge before launch.
 
 For a dev-style launch, use:
 
@@ -102,6 +105,11 @@ If you prefer batch files, use the helpers in `scripts/windows/`:
 - `v-debug-http.bat`: launch with HTTP debug defaults
 - `build.bat`: build from Windows
 - `backup.bat`: create a backup snapshot
+
+## Related Components
+
+- `control-panel/`: local control-panel web UI and its static server (served at `/control-panel/`)
+- `vscode-extension/`: standalone VS Code sidebar wrapper for the AI Free Tools control panel
 
 ## Documentation
 
