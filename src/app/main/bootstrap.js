@@ -213,8 +213,7 @@ const {
   computeDeviceId,
 } = runtimeHelpers;
 
-// TCP 通信已移除：服务器→客户端的推送（含远程停用指令）不再存在。
-// 公告改由客户端轮询 /api/user_announcement 获取。
+// 注意：服务器→客户端的 TCP 推送已移除（公告现由客户端轮询）。
 
 let platformRefreshInFlight = false;
 let runtimeTutorialUrlOpened = false;

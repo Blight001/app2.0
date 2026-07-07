@@ -1,4 +1,4 @@
-// 客户端与服务器之间仅使用 HTTP 通信（TCP 通信已移除）。
+// 客户端与服务器之间仅使用 HTTP 通信（原 TCP 通信已移除）。
 // 该类保留原有的对外方法名与导出符号，仅把底层传输改为纯 HTTP，
 // 以最小化调用点的改动。
 const { NETWORK_DIAG_CONFIG, getServerBase, setRuntimeServerBase } = require('../config');

@@ -1,6 +1,6 @@
 # AI-FREE
 
-AI-FREE is an Electron desktop shell for AI workflow tools. It focuses on platform configuration, startup orchestration, browser extension integration, and the registration bridge used by the bundled extension workspace.
+AI-FREE is an Electron desktop shell for AI workflow tools. It focuses on platform configuration, startup orchestration, browser extension integration, and bundled tools.
 
 Current package version: `2.5.7`
 
@@ -37,7 +37,7 @@ Current package version: `2.5.7`
 - `src/app/main/services/`: shell, lifecycle, tabs, and runtime services
 - `src/app/main/ipc/`: IPC registration and handlers
 - `src/app/views/`: app shell and license pages
-- `src/app/side/`: standalone side panel page, controllers, and styles
+- `src/app/sidebar/`: side panel / control UI (index.html + client scripts)
 - `src/assets/extensions/`: bundled extensions such as `remove_watermark`, `clash-mini`, `transform`
 - `scripts/run-electron.js`: Electron launch wrapper
 
@@ -54,7 +54,7 @@ npm install
 npm start
 ```
 
-`npm start` runs the Electron app through `scripts/run-electron.js`. The `prestart` hook also prepares the registration bridge before launch.
+`npm start` runs the Electron app through `scripts/run-electron.js`. The `prestart` hook sets remote side URL.
 
 For a dev-style launch, use:
 
