@@ -386,7 +386,7 @@ function createAppShell(deps = {}) {
 
     const controlPanelPath = resolveControlPanelHtmlPath();
     if (!controlPanelPath) {
-      logger.warn?.('[启动] 未找到本地 control-panel/index.html，跳过控制页窗口加载');
+      logger.warn?.('[启动] 未找到本地 src/app/sidebar/index.html，跳过控制页窗口加载');
       try {
         panelWindow.close();
       } catch (_) {}
@@ -829,7 +829,7 @@ function createAppShell(deps = {}) {
         loadSidebarRemoteFallback(`本地侧边栏加载失败: ${error?.message || error}`);
       });
     } else {
-      loadSidebarRemoteFallback(forceRemoteSidebar ? 'SIDEBAR_MODE=remote' : '未找到本地 control-panel/index.html');
+      loadSidebarRemoteFallback(forceRemoteSidebar ? 'SIDEBAR_MODE=remote' : '未找到本地 src/app/sidebar/index.html');
     }
     sideView.webContents.on('did-finish-load', async () => {
       const id = await computeDeviceId();
