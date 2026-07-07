@@ -4,23 +4,21 @@
   "private": true,
   "description": "Assistant to help creators use AI more conveniently",
   "main": "src/app/main/main.js",
-  "workspaces": [
-    "src/assets/extensions/Toonflow-app"
-  ],
+  "workspaces": [],
   "overrides": {
     "@rmp135/sql-ts": {
       "better-sqlite3": "^12.8.0"
     }
   },
   "scripts": {
-    "prestart": "node scripts/set-side-url.js --mode=remote && node scripts/ensure-registration-bridge.js",
+    "prestart": "node scripts/set-side-url.js --mode=remote",
     "start": "node scripts/run-electron.js .",
-    "prestart:dev": "node scripts/set-side-url.js --mode=remote && node scripts/ensure-registration-bridge.js",
-    "predev": "node scripts/set-side-url.js --mode=remote && node scripts/ensure-registration-bridge.js",
+    "prestart:dev": "node scripts/set-side-url.js --mode=remote",
+    "predev": "node scripts/set-side-url.js --mode=remote",
     "start:dev": "node scripts/run-electron.js .",
-    "prebuild": "node scripts/set-side-url.js --mode=remote && node scripts/ensure-registration-bridge.js",
-    "prebuild:win": "node scripts/set-side-url.js --mode=remote && node scripts/ensure-registration-bridge.js",
-    "prebuild:portable": "node scripts/set-side-url.js --mode=remote && node scripts/ensure-registration-bridge.js",
+    "prebuild": "node scripts/set-side-url.js --mode=remote",
+    "prebuild:win": "node scripts/set-side-url.js --mode=remote",
+    "prebuild:portable": "node scripts/set-side-url.js --mode=remote",
     "build": "electron-builder",
     "build:win": "electron-builder --win",
     "build:portable": "electron-builder --win portable"
@@ -68,7 +66,6 @@
       "src/**/*",
       "!src/DEV_MAP.md",
       "!src/assets/extensions/clash-mini/core/**/*",
-      "!src/assets/extensions/AI-CanvasPro/**/*",
       "!src/assets/extensions/remove_watermark/**/*.map",
       "!src/assets/extensions/remove_watermark/**/*.LICENSE.txt",
       "!src/assets/extensions/remove_watermark/remove_watermark.crx",
@@ -78,22 +75,12 @@
       "!assets/extensions/remove_watermark/remove_watermark.crx",
       "config/platforms-config.json",
       "package.json",
-      "package-lock.json",
-      "src/assets/extensions/registration/**/*",
-      "!src/assets/extensions/registration/dist/**",
-      "!src/assets/extensions/registration/appbuild/**",
-      "!src/assets/extensions/registration/logs/**",
-      "!src/assets/extensions/registration/backup/**",
-      "!src/assets/extensions/registration/*.log"
+      "package-lock.json"
     ],
     "extraResources": [
       {
         "from": "src/assets/extensions/clash-mini/core",
         "to": "resource/extensions/clash-mini/core"
-      },
-      {
-        "from": "src/assets/extensions/Toonflow-app",
-        "to": "resource/extensions/Toonflow-app"
       },
       {
         "from": "src/assets/seedance2.0.ico",
@@ -122,8 +109,7 @@
     },
     "afterPack": "scripts/windows/after-pack-win-icon.js",
     "asarUnpack": [
-      "src/assets/extensions/transform/**",
-      "src/assets/extensions/registration/**"
+      "src/assets/extensions/transform/**"
     ],
     "compression": "maximum",
     "electronLanguages": [
