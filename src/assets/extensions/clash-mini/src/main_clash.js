@@ -2,7 +2,7 @@ console.log('========================================');
 console.log('HeySure VPN 正在启动...');
 console.log('========================================');
 
-const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 global.app = app;
 const path = require('path');
 const fs = require('fs');
@@ -10,7 +10,7 @@ const http = require('http');
 const { spawn } = require('child_process');
 const axios = require('axios');
 const YAML = require('yaml');
-// tray/background functionality removed
+// tray/background functionality removed (Tray/nativeImage imports cleaned)
 
 // Backend Manager - 后端进程管理
 let goBackendProcess = null;

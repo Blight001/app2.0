@@ -164,8 +164,6 @@ function createServerResolver(deps = {}) {
     }
   }
 
-// (registration launcher removed) tcp url builder removed
-
 // 处理：isCardExpiredByDate的具体业务逻辑。
   function isCardExpiredByDate(value) {
     const raw = String(value || '').trim();

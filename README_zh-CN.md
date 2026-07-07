@@ -1,6 +1,6 @@
 # AI-FREE
 
-AI-FREE 是一个基于 Electron 的桌面工具外壳，主要用于 AI 工作流相关应用的启动编排、平台配置、浏览器扩展集成，以及随应用一起提供的注册器桥接工作区。
+AI-FREE 是一个基于 Electron 的桌面工具外壳，主要用于 AI 工作流相关应用的启动编排、平台配置和浏览器扩展集成。
 
 当前版本：`2.5.7`
 
@@ -53,7 +53,7 @@ npm install
 npm start
 ```
 
-`npm start` 会通过 `scripts/run-electron.js` 启动 Electron。启动前的 `prestart` 钩子还会先准备注册器桥接工作区。
+`npm start` 会通过 `scripts/run-electron.js` 启动 Electron。启动前的 `prestart` 钩子会设置远程侧边栏地址。
 
 如果你想用开发态方式启动，可以执行：
 
