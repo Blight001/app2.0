@@ -1,3 +1,5 @@
+const { createAnnouncementPoller } = require('../lib/announcement-poller');
+
 // 创建/初始化：createAppShell的具体业务逻辑。
 function createAppShell(deps = {}) {
   const {
@@ -19,7 +21,6 @@ function createAppShell(deps = {}) {
     auth,
     createAuthCookie,
     createTcpClient,
-    initializeTcpConnection,
     loadTranslateExtension,
     attachContextMenu,
     initDownloadPrefs,
@@ -28,9 +29,6 @@ function createAppShell(deps = {}) {
     injectZoomWheelListener,
     checkDesktopShortcutAndPrompt,
     initializeAccountCleanup,
-    handleServerShutdownCommand,
-    handleServerUpdateCommand,
-    handleServerPushMessage,
     refreshAllowedPlatformsAndNotify,
     resetRuntimeTutorialUrlState,
     registerIPC,
@@ -112,6 +110,7 @@ function createAppShell(deps = {}) {
   } = deps;
 
   let controlPanelWindow = null;
+  let announcementPoller = null;
 
 // 获取/读取/解析：resolveMainWindow的具体业务逻辑。
   const resolveMainWindow = () => (typeof getMainWindow === 'function' ? getMainWindow() : null);
@@ -145,11 +144,12 @@ function createAppShell(deps = {}) {
     || String(process.env.CONTROL_PANEL_ONLY || '').trim().toLowerCase() === 'true'
   );
 // 获取/读取/解析：resolveControlPanelHtmlPath的具体业务逻辑。
+// 侧边栏页面现内置于 src/app/sidebar/（随 src/** 一起打包），不再依赖顶层 control-panel 目录/端口服务。
   const resolveControlPanelHtmlPath = () => {
     const candidates = [
-      path.join(process.cwd(), 'control-panel', 'index.html'),
-      path.join(app.getAppPath ? app.getAppPath() : '', 'control-panel', 'index.html'),
-      path.join(__dirname, '../../../../control-panel/index.html'),
+      path.join(__dirname, '../../sidebar/index.html'),
+      path.join(app.getAppPath ? app.getAppPath() : '', 'src', 'app', 'sidebar', 'index.html'),
+      path.join(process.cwd(), 'src', 'app', 'sidebar', 'index.html'),
     ].filter(Boolean);
 
     for (const candidate of candidates) {
@@ -665,8 +665,8 @@ function createAppShell(deps = {}) {
     void (async () => {
       let runtimeUrlRefreshInFlight = false;
 
-// 渲染/刷新：refreshRuntimeUrlsFromTcp的具体业务逻辑。
-      const refreshRuntimeUrlsFromTcp = async () => {
+// 渲染/刷新：刷新平台名称与运行时 URL 配置（改为 HTTP，不再依赖 TCP 连接事件）。
+      const refreshRuntimeUrls = async () => {
         if (runtimeUrlRefreshInFlight) {
           return;
         }
@@ -681,81 +681,44 @@ function createAppShell(deps = {}) {
       };
 
       try {
-// 监听/绑定：onConnectionStatusChange的具体业务逻辑。
-        const onConnectionStatusChange = (status, message) => {
-          sendToSide('connection-status', { status, message });
-          if (status === 'connected' || status === 'http') {
-            refreshAllowedPlatformsAndNotify().catch(() => {});
-            refreshRuntimeUrlsFromTcp().catch((e) => {
-              logger.warn?.('[启动] 连接恢复后刷新URL配置失败:', e?.message || e);
-            });
+        // 账号回收定时器：卡密已验证时启动。
+        try {
+          const validationSnapshot = licenseCache && typeof licenseCache.getSnapshot === 'function'
+            ? licenseCache.getSnapshot()
+            : null;
+          if (typeof initializeAccountCleanup === 'function' && validationSnapshot && validationSnapshot.validated === true) {
+            initializeAccountCleanup(accountStorage, { sendToSide });
           }
-        };
-// 监听/绑定：onServerMessage的具体业务逻辑。
-        const onServerMessage = (messageData) => {
-          try {
-            logger.warn?.('[TCP] 收到服务器推送', {
-              type: messageData?.type,
-              message_type: messageData?.message_type,
-              messageType: messageData?.messageType,
-              keys: messageData && typeof messageData === 'object' ? Object.keys(messageData) : [],
-            });
-            const pushHandler = typeof handleServerPushMessage === 'function'
-              ? handleServerPushMessage
-              : async (payload) => {
-                  const updateHandled = typeof handleServerUpdateCommand === 'function'
-                    ? await handleServerUpdateCommand(payload)
-                    : false;
-                  if (updateHandled) return true;
-                  return handleServerShutdownCommand(payload);
-                };
-            pushHandler(messageData).then((handled) => {
-              if (!handled) sendToSide('server-message', messageData);
-            }).catch(() => {
-              sendToSide('server-message', messageData);
-            });
-          } catch (_) {}
-        };
+        } catch (e) {
+          logger.warn?.('[启动] 刷新账号回收定时器失败:', e?.message || e);
+        }
 
-        const connectionSuccess = await initializeTcpConnection(onConnectionStatusChange, onServerMessage);
-        const tcpClient = createTcpClient();
-        const isHttpCompatMode = !!(tcpClient && (tcpClient.httpFallbackActive || String(tcpClient.transportMode || '').toLowerCase() === 'http'));
+        // 启动时刷新一次平台/URL 配置（HTTP）。
+        try {
+          await refreshRuntimeUrls();
+        } catch (e) {
+          logger.warn?.('[启动] 获取URL配置失败:', e?.message || e);
+        }
 
-        if (!connectionSuccess && !isHttpCompatMode) {
-          const isMaintenance = tcpClient && tcpClient.lastKnownStatus === 'maintenance';
-          if (isMaintenance) {
-            sendToSide('connection-status', { status: 'disconnected', message: '服务器维护中，请稍后再试' });
-          } else {
-            sendToSide('connection-status', { status: 'disconnected', message: '服务器已断开' });
+        // 启动公告轮询（替代原 TCP 推送公告）。
+        try {
+          if (!announcementPoller) {
+            announcementPoller = createAnnouncementPoller({
+              getJson: deps.getJson,
+              getServerBase,
+              sendToSide,
+              logger,
+            });
           }
-        } else {
-          sendToSide('connection-status', {
-            status: isHttpCompatMode ? 'http' : 'connected',
-            message: isHttpCompatMode ? '网络兼容模式' : '网络状态良好',
-          });
-          try {
-            const validationSnapshot = licenseCache && typeof licenseCache.getSnapshot === 'function'
-              ? licenseCache.getSnapshot()
-              : null;
-            if (typeof initializeAccountCleanup === 'function' && validationSnapshot && validationSnapshot.validated === true) {
-              initializeAccountCleanup(accountStorage, { sendToSide });
-            }
-          } catch (e) {
-            logger.warn?.('[启动] 刷新账号回收定时器失败:', e?.message || e);
-          }
-          try {
-            await refreshRuntimeUrlsFromTcp();
-          } catch (e) {
-            logger.warn?.('[启动] 获取URL配置失败:', e?.message || e);
-          }
+          announcementPoller.start();
+        } catch (e) {
+          logger.warn?.('[启动] 启动公告轮询失败:', e?.message || e);
         }
       } catch (e) {
-        logger.warn?.('[启动] 初始化TCP连接失败:', e?.message || e);
+        logger.warn?.('[启动] 初始化后台任务失败:', e?.message || e);
       }
-
-
     })().catch((e) => {
-      logger.warn?.('[启动] 后台TCP初始化任务失败:', e?.message || e);
+      logger.warn?.('[启动] 后台初始化任务失败:', e?.message || e);
     });
 
     ensureRemoveWmCoreLoaded().catch(() => {});
@@ -764,30 +727,6 @@ function createAppShell(deps = {}) {
     const tcpClient = resolveGlobalTcpClient();
     if (tcpClient) {
       tcpClient.mainWindow = resolveMainWindow();
-        tcpClient.onServerMessage = (messageData) => {
-          logger.warn?.('[TCP] 全局 TCP 客户端收到服务器推送', {
-            type: messageData?.type,
-            message_type: messageData?.message_type,
-            messageType: messageData?.messageType,
-            keys: messageData && typeof messageData === 'object' ? Object.keys(messageData) : [],
-          });
-          const pushHandler = typeof handleServerPushMessage === 'function'
-            ? handleServerPushMessage
-            : async (payload) => {
-              const updateHandled = typeof handleServerUpdateCommand === 'function'
-                ? await handleServerUpdateCommand(payload)
-                : false;
-              if (updateHandled) return true;
-              return handleServerShutdownCommand(payload);
-            };
-        pushHandler(messageData).then((handled) => {
-          if (!handled) {
-            sendToSide('server-message', messageData);
-          }
-        }).catch(() => {
-          sendToSide('server-message', messageData);
-        });
-      };
     }
 
   }
@@ -872,10 +811,26 @@ function createAppShell(deps = {}) {
       else logger.log?.(message);
     });
 
-    const sidebarRemoteUrl = resolveSidebarRemoteUrl();
-    sideView.webContents.loadURL(sidebarRemoteUrl).catch((error) => {
-      logger.warn?.('[启动] 远程侧边栏加载失败:', error?.message || error);
-    });
+    // 优先加载本地内置的侧边栏页面（file:// 直接嵌入，无需端口/远程服务），
+    // 仅当本地文件缺失或加载失败时才回退到远程地址，避免网络波动导致侧边栏加载不出来。
+    const loadSidebarRemoteFallback = (reason) => {
+      const sidebarRemoteUrl = resolveSidebarRemoteUrl();
+      logger.warn?.('[启动] 回退加载远程侧边栏:', reason || '', '->', sidebarRemoteUrl);
+      sideView.webContents.loadURL(sidebarRemoteUrl).catch((error) => {
+        logger.warn?.('[启动] 远程侧边栏加载失败:', error?.message || error);
+      });
+    };
+
+    const forceRemoteSidebar = String(process.env.SIDEBAR_MODE || '').trim().toLowerCase() === 'remote';
+    const sidebarLocalPath = forceRemoteSidebar ? null : resolveControlPanelHtmlPath();
+    if (sidebarLocalPath) {
+      logger.log?.('[启动] 加载本地侧边栏:', sidebarLocalPath);
+      sideView.webContents.loadFile(sidebarLocalPath).catch((error) => {
+        loadSidebarRemoteFallback(`本地侧边栏加载失败: ${error?.message || error}`);
+      });
+    } else {
+      loadSidebarRemoteFallback(forceRemoteSidebar ? 'SIDEBAR_MODE=remote' : '未找到本地 control-panel/index.html');
+    }
     sideView.webContents.on('did-finish-load', async () => {
       const id = await computeDeviceId();
       sendToSide('update-device-id', id);

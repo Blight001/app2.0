@@ -157,10 +157,14 @@
 
   applyTheme(getSavedTheme());
   bindEvents();
-  const initialUrl = resolveInitialUrl();
-  if (initialUrl) {
-    loadPreview(initialUrl, { persist: false });
-  } else {
-    setStatus('在上方输入框填入你的控制网址');
+  // 仅在显式预览模式（?preview=1）下才加载预览 iframe。
+  // 作为内嵌侧边栏时预览卡片是隐藏的，若仍自动加载 remoteUrl 会无谓地去连端口并刷错误日志。
+  if (previewMode) {
+    const initialUrl = resolveInitialUrl();
+    if (initialUrl) {
+      loadPreview(initialUrl, { persist: false });
+    } else {
+      setStatus('在上方输入框填入你的控制网址');
+    }
   }
 })();

@@ -1,3 +1,6 @@
+// 侧边栏功能可用性与运行时值同步。
+// TCP 连接状态展示已移除：功能按钮不再依赖“是否连接成功”，仅由卡密验证状态驱动。
+
 // 设置/更新/持久化：setButtonsDisabled的具体业务逻辑。
 function setButtonsDisabled(selector, disabled) {
   document.querySelectorAll(selector).forEach((button) => {
@@ -74,9 +77,11 @@ function setTargetUrl(nextTargetUrl) {
   DREAM_URL = String(nextTargetUrl || '').trim() || 'https://dreamina.capcut.com/ai-tool/home?';
 }
 
-// 设置/更新/持久化：updateButtonStatesBasedOnConnection的具体业务逻辑。
-function updateButtonStatesBasedOnConnection(connected) {
-  if (connected) {
+// 设置/更新/持久化：根据卡密验证状态刷新功能按钮可用性。
+// 参数保留以兼容既有调用点；语义为“服务可用”（HTTP 通信下恒为可用），
+// 实际是否放开功能仍取决于卡密是否已验证。
+function updateButtonStatesBasedOnConnection(available) {
+  if (available) {
     if (isLicenseValidated()) {
       applyFeatureAvailability({
         licenseRequiredDisabled: false,
@@ -113,61 +118,9 @@ function enableAllLicenseRequiredButtons() {
   syncLatencyButtonState();
 }
 
-// 设置/更新/持久化：updateConnectionStatus的具体业务逻辑。
-function updateConnectionStatus(data) {
-  try {
-    const statusEl = document.getElementById('connection-status');
-    if (!statusEl) {
-      return;
-    }
-
-    const { status, message } = data;
-    statusEl.classList.remove('status-connecting', 'status-connected', 'status-disconnected', 'status-http');
-
-    switch (status) {
-      case 'connecting':
-        statusEl.classList.add('status-connecting');
-        statusEl.innerHTML = '<span class="status-dot"></span>服务器连接中...';
-        break;
-      case 'connected':
-        statusEl.classList.add('status-connected');
-        statusEl.innerHTML = '<span class="status-dot"></span>网络状态良好';
-        updateButtonStatesBasedOnConnection(true);
-        if (window.__autoStartVpnLoading === true && window.MessageModal && typeof window.MessageModal.hideLoadingMessage === 'function') {
-          window.__autoStartVpnLoading = false;
-          window.MessageModal.hideLoadingMessage();
-        }
-        break;
-      case 'http':
-        statusEl.classList.add('status-http');
-        statusEl.innerHTML = '<span class="status-dot"></span>' + (message || '网络兼容模式');
-        updateButtonStatesBasedOnConnection(true);
-        if (window.__autoStartVpnLoading === true && window.MessageModal && typeof window.MessageModal.hideLoadingMessage === 'function') {
-          window.__autoStartVpnLoading = false;
-          window.MessageModal.hideLoadingMessage();
-        }
-        break;
-      case 'disconnected':
-        statusEl.classList.add('status-disconnected');
-        statusEl.innerHTML = '<span class="status-dot"></span>' + (message || '服务器已断开');
-        updateButtonStatesBasedOnConnection(false);
-        if (window.__autoStartVpnLoading === true && window.MessageModal && typeof window.MessageModal.hideLoadingMessage === 'function') {
-          window.__autoStartVpnLoading = false;
-          window.MessageModal.hideLoadingMessage();
-        }
-        break;
-      default:
-        statusEl.classList.add('status-disconnected');
-        statusEl.innerHTML = '<span class="status-dot"></span>' + (message || '未知状态');
-        updateButtonStatesBasedOnConnection(false);
-        if (window.__autoStartVpnLoading === true && window.MessageModal && typeof window.MessageModal.hideLoadingMessage === 'function') {
-          window.__autoStartVpnLoading = false;
-          window.MessageModal.hideLoadingMessage();
-        }
-    }
-  } catch (e) {
-    console.warn('[侧边栏] 更新TCP连接状态失败:', e);
-  }
+// 渲染/刷新：根据卡密验证状态刷新功能可用性（替代原“获取 TCP 连接状态”逻辑）。
+function refreshFeatureAvailability() {
+  updateButtonStatesBasedOnConnection(true);
 }
 
 // 渲染/刷新：refreshPlatformName的具体业务逻辑。
@@ -203,26 +156,10 @@ async function refreshTargetUrl() {
   }
 }
 
-// 设置/更新/持久化：applyConnectionState的具体业务逻辑。
-function applyConnectionState(result) {
-  if (result && result.status) {
-    updateConnectionStatus(result);
-    updateButtonStatesBasedOnConnection(result.status === 'connected' || result.status === 'http');
-  } else {
-    updateButtonStatesBasedOnConnection(false);
-  }
-}
-
-// 渲染/刷新：refreshConnectionState的具体业务逻辑。
+// 兼容旧调用名：不再查询连接状态，仅按卡密验证状态刷新功能按钮。
 async function refreshConnectionState() {
-  try {
-    const result = await window.electronAPI.invoke('get-connection-status');
-    applyConnectionState(result);
-    return result;
-  } catch (_) {
-    applyConnectionState(null);
-    return null;
-  }
+  refreshFeatureAvailability();
+  return null;
 }
 
 // 同步/连接：bindRuntimeValueListeners的具体业务逻辑。
@@ -258,22 +195,14 @@ function bindRuntimeValueListeners() {
     }
   });
 
-  window.electronAPI.on('connection-status', (data) => {
-    updateConnectionStatus(data);
-    if (data && (data.status === 'connected' || data.status === 'http')) {
-      refreshPlatformName()
-        .then(() => refreshTutorialUrl())
-        .catch((e) => console.warn('[侧边栏] 连接后刷新平台名称失败:', e?.message || e));
-    }
-  });
-
   window.electronAPI.on('active-zoom', () => {});
 }
 
 // 获取/读取/解析：loadInitialConnectionState的具体业务逻辑。
+// 保留函数名以兼容初始化流程；现仅按卡密验证状态刷新功能可用性。
 function loadInitialConnectionState() {
   setTimeout(() => {
-    void refreshConnectionState();
+    refreshFeatureAvailability();
   }, 500);
 }
 

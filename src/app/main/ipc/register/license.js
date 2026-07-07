@@ -366,31 +366,25 @@ function registerLicenseIPC(ctx) {
 
   ipcMain.handle('validate-key', async (_event, { key, device_id, manualProxyPreferred }) => {
     try {
-      const isHttpCompatMode = !!(tcp && (tcp.httpFallbackActive || String(tcp.transportMode || '').toLowerCase() === 'http'));
-      console.log(`[验证] 开始验证卡密，使用${isHttpCompatMode ? 'HTTP兼容模式' : 'TCP连接'}`);
+      console.log('[验证] 开始验证卡密（HTTP）');
       console.log('[验证] 请求参数:', { key: key?.substring(0, 5) + '***', device_id });
 
       if (!tcp) {
-        return { ok: false, status: 0, error: 'TCP客户端不可用' };
+        return { ok: false, status: 0, error: '网络客户端不可用' };
       }
 
       const r = await tcp.validateKey(key, device_id);
-      const transportMode = String(r?.transportMode || (tcp?.httpFallbackActive ? 'http' : 'tcp')).toLowerCase();
-      const transportLabel = transportMode === 'http' ? 'HTTP兼容模式响应摘要' : 'TCP服务器响应摘要';
-      if (transportMode === 'http') {
-        console.warn('[验证] TCP握手失败，已降级到HTTP兼容模式:', r?.transportFallbackReason || '未提供原因');
-        if (r?.requestUrl) {
-          console.log(`[验证] HTTP请求地址: ${r.requestMethod || 'GET'} ${r.requestUrl}`);
-        }
+      if (r?.requestUrl) {
+        console.log(`[验证] HTTP请求地址: ${r.requestMethod || 'GET'} ${r.requestUrl}`);
       }
-      console.log(`[验证] ${transportLabel}:`, {
+      console.log('[验证] HTTP响应摘要:', {
         ok: r?.ok === true,
         valid: r?.valid === true,
         state: r?.state || r?.status || '',
         expire_at: r?.expire_at || '',
         days_left: r?.days_left ?? null,
         account_type: r?.account_type || r?.accountType || '',
-        transport_mode: transportMode,
+        transport_mode: r?.transportMode || 'http',
         request_url: r?.requestUrl || '',
       });
 
@@ -907,26 +901,6 @@ function registerLicenseIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-connection-status', async () => {
-    try {
-      if (tcp && tcp.connected) {
-        const lastStatus = tcp.lastKnownStatus;
-        if (lastStatus === 'maintenance') {
-          return { status: 'disconnected', message: '服务器维护中，请稍后再试' };
-        }
-        return { status: 'connected', message: '网络状态良好' };
-      }
-      if (tcp && tcp.httpFallbackActive) {
-        return { status: 'http', message: '网络兼容模式' };
-      }
-      if (tcp && tcp.lastKnownStatus === 'maintenance') {
-        return { status: 'disconnected', message: '服务器维护中，请稍后再试' };
-      }
-      return { status: 'disconnected', message: '服务器已断开' };
-    } catch (e) {
-      return { status: 'disconnected', message: '服务器连接状态未知' };
-    }
-  });
 }
 
 module.exports = { registerLicenseIPC };

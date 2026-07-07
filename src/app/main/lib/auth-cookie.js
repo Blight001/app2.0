@@ -990,14 +990,13 @@ function createAuthCookie({ serverBase: serverBaseInput, tcp, sendToSide = () =>
   async function fetchCookieFromServerForDream(key, deviceId, options = {}) {
     if (tcpClient) {
       try {
-        // 使用TCP通信（内部会自动降级HTTP）
-        console.log('[fetchCookieFromServerForDream] 使用TCP获取Cookie');
-        console.log(`[fetchCookieFromServerForDream] TCP连接状态: ${tcpClient.connected ? '已连接' : '未连接'}`);
+        // 使用 HTTP 通信获取 Cookie
+        console.log('[fetchCookieFromServerForDream] 使用HTTP获取Cookie');
         const platform = getPlatformFromStore();
         console.log(`[fetchCookieFromServerForDream] 发送请求参数: key=${key.substring(0, 4)}***, platform=${platform}, deviceId=${deviceId.substring(0, 8)}***`);
 
         const r = await tcpClient.fetchCookie(key, platform, deviceId);
-        console.log(`[fetchCookieFromServerForDream] TCP响应接收完成，响应类型: ${typeof r}`);
+        console.log(`[fetchCookieFromServerForDream] HTTP响应接收完成，响应类型: ${typeof r}`);
         const currentAccountTypeInfo = extractCurrentAccountTypeInfo(r);
         const recycleDebugInfo = extractServerRecycleDebugInfo(r);
 

@@ -523,12 +523,12 @@ function registerAccountIPC(ctx) {
         return { ok: false, error: '缺少卡密或设备号' };
       }
 
-      // 检查TCP连接状态
-      if (!tcp || !tcp.connected) {
+      // 检查网络客户端是否可用（HTTP 通信，无持久连接）
+      if (!tcp) {
         return {
           ok: false,
           degraded: true,
-          error: '服务器连接不可用，无法获取账号信息，请检查网络连接后重启应用'
+          error: '网络客户端不可用，无法获取账号信息，请重启应用'
         };
       }
 

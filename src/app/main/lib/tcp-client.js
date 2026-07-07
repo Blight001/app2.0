@@ -157,8 +157,9 @@ class TcpClient {
 
         try {
             const startTime = Date.now();
+            // 使用公开、轻量的公告接口作为 HTTP 连通性探针。
             const resp = await this._executeHttpRequest({
-                path: '/api/get_allowed_platforms',
+                path: '/api/user_announcement',
                 method: 'GET',
                 timeoutMs: NETWORK_DIAG_CONFIG.REQUEST_TIMEOUT,
             });
