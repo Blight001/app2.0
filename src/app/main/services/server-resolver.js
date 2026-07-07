@@ -12,7 +12,6 @@ function createServerResolver(deps = {}) {
     licenseCache,
     setRuntimeTcpConfig = () => {},
     setRuntimeServerBase = () => {},
-    getRegistrationTcpConfigPath = () => '',
     getCurrentPlatformLabel = () => '未知平台',
     logger = console,
   } = deps;
@@ -165,30 +164,7 @@ function createServerResolver(deps = {}) {
     }
   }
 
-// 创建/初始化：buildRegistrationTcpServerUrl的具体业务逻辑。
-  function buildRegistrationTcpServerUrl(tcp = {}) {
-    const host = String(tcp.host || tcp.hostname || '').trim();
-    const port = Number(tcp.port);
-    if (!host || !Number.isFinite(port) || port <= 0) {
-      return '';
-    }
-    return `tcp://${host}:${Math.round(port)}`;
-  }
-
-// 创建/初始化：buildRegistrationTcpServerUrlFromResolved的具体业务逻辑。
-  function buildRegistrationTcpServerUrlFromResolved(resolved = {}) {
-    const tcpFromAddress = resolveTcpAddressMeta(
-      resolved.address_TCP
-      || resolved.address_tcp
-      || resolved.addressTcp
-      || ''
-    );
-    if (tcpFromAddress) {
-      return buildRegistrationTcpServerUrl(tcpFromAddress);
-    }
-
-    return buildRegistrationTcpServerUrl(resolved.tcp || {});
-  }
+// (registration launcher removed) tcp url builder removed
 
 // 处理：isCardExpiredByDate的具体业务逻辑。
   function isCardExpiredByDate(value) {
@@ -805,7 +781,6 @@ function createServerResolver(deps = {}) {
 // 设置/更新/持久化：applyResolvedConfigToStore的具体业务逻辑。
   function applyResolvedConfigToStore({ resolved }) {
     const next = {};
-    const resolvedTcpUrl = buildRegistrationTcpServerUrlFromResolved(resolved || {});
     const resolvedHttpBase = String(
       resolved.serverBase
       || resolved.address_HTTP
@@ -861,60 +836,6 @@ function createServerResolver(deps = {}) {
       logger.warn?.('[配置] 写入运行时 TCP 配置失败:', e?.message || e);
     }
 
-    if (resolvedTcpUrl || resolvedHttpBase) {
-      try {
-        const registrationConfigPath = String(getRegistrationTcpConfigPath?.() || '').trim();
-        if (registrationConfigPath) {
-          const existingConfig = fs && typeof fs.existsSync === 'function' && fs.existsSync(registrationConfigPath)
-            ? JSON.parse(fs.readFileSync(registrationConfigPath, 'utf8') || '{}')
-            : {};
-          const resolvedHttpUrl = resolvedHttpBase;
-          const nextConfig = {
-            ...(existingConfig && typeof existingConfig === 'object' ? existingConfig : {}),
-          };
-
-          if (resolvedTcpUrl) {
-// 获取/读取/解析：parsedUrl的具体业务逻辑。
-            const parsedUrl = (() => {
-              try {
-                return new URL(resolvedTcpUrl.includes('://') ? resolvedTcpUrl : `tcp://${resolvedTcpUrl}`);
-              } catch (_) {
-                return null;
-              }
-            })();
-
-            if (parsedUrl) {
-              const parsedHost = String(parsedUrl.hostname || '').trim();
-              const parsedPort = Number.parseInt(parsedUrl.port, 10);
-              if (parsedHost) {
-                nextConfig.tcp_server_url = resolvedTcpUrl;
-                nextConfig.registration_server_url = resolvedTcpUrl;
-                nextConfig.tcp_host = parsedHost;
-                nextConfig.registration_server_host = parsedHost;
-              }
-              if (Number.isFinite(parsedPort) && parsedPort > 0) {
-                nextConfig.tcp_port = Math.round(parsedPort);
-                nextConfig.registration_server_port = Math.round(parsedPort);
-              }
-            }
-          }
-
-          if (resolvedHttpUrl) {
-            nextConfig.server_url = resolvedHttpUrl;
-            nextConfig.serverUrl = resolvedHttpUrl;
-          }
-
-          fs.mkdirSync(path.dirname(registrationConfigPath), { recursive: true });
-          fs.writeFileSync(registrationConfigPath, JSON.stringify(nextConfig, null, 4), 'utf8');
-          logger.log?.('[配置] 已同步注册器TCP/HTTP地址:', {
-            tcp: resolvedTcpUrl || '',
-            http: resolvedHttpUrl || '',
-          });
-        }
-      } catch (persistError) {
-        logger.warn?.('[配置] 持久化注册器TCP地址失败:', persistError?.message || persistError);
-      }
-    }
     return next;
   }
 

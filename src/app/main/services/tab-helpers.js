@@ -20,41 +20,11 @@ function createTabHelpers(deps = {}) {
   const resolveActiveTabId = () => (typeof getActiveTabId === 'function' ? getActiveTabId() : null);
 // 获取/读取/解析：resolveIsSidebarVisible的具体业务逻辑。
   const resolveIsSidebarVisible = () => (typeof deps.getIsSidebarVisible === 'function' ? deps.getIsSidebarVisible() : true);
-// 处理：isOpenCutTab的具体业务逻辑。
-  const isOpenCutTab = (tab = {}) => {
-    const partition = String(tab?.partition || '').trim();
-    if (partition === 'persist:opencut' || partition === 'opencut') {
-      return true;
-    }
-    const currentUrl = String(tab?.view?.webContents?.getURL?.() || '').trim().toLowerCase();
-    return currentUrl.startsWith('https://www.opencut.app/projects')
-      || currentUrl.startsWith('https://opencut.app/projects')
-      || currentUrl.startsWith('http://www.opencut.app/projects')
-      || currentUrl.startsWith('http://opencut.app/projects');
-  };
-// 处理：isToonflowTab的具体业务逻辑。
-  const isToonflowTab = (tab = {}) => {
-    const partition = String(tab?.partition || '').trim();
-    if (partition === 'persist:toonflow' || partition === 'toonflow') {
-      return true;
-    }
-    const currentUrl = String(tab?.view?.webContents?.getURL?.() || '').trim().toLowerCase();
-    return currentUrl.startsWith('http://localhost:10588/')
-      || currentUrl.startsWith('http://127.0.0.1:10588/')
-      || currentUrl.startsWith('https://localhost:10588/')
-      || currentUrl.startsWith('https://127.0.0.1:10588/');
-  };
 // 获取/读取/解析：resolveTabTitle的具体业务逻辑。
   const resolveTabTitle = (tab = {}) => {
     const fixedTitle = String(tab?.fixedTitle || tab?.tabTitle || '').trim();
     if (fixedTitle) {
       return fixedTitle;
-    }
-    if (isOpenCutTab(tab)) {
-      return '视频剪辑';
-    }
-    if (isToonflowTab(tab)) {
-      return 'Toonflow';
     }
     return String(tab?.view?.webContents?.getTitle?.() || '').trim();
   };

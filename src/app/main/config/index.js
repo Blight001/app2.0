@@ -508,19 +508,6 @@ function getStorePath() {
   }
 }
 
-// 获取注册模块使用的 TCP 配置文件路径。
-function getRegistrationTcpConfigPath() {
-  try {
-    if (app && app.isPackaged) {
-      return path.join(app.getPath('userData'), 'resource', 'cookie_user_config.json');
-    }
-
-    return path.join(process.cwd(), 'src', 'assets', 'extensions', 'registration', 'resource', 'cookie_user_config.json');
-  } catch (_) {
-    return path.join(process.cwd(), 'src', 'assets', 'extensions', 'registration', 'resource', 'cookie_user_config.json');
-  }
-}
-
 module.exports = {
   DREAM_TARGET_URL,
   setDreamTargetUrl,
@@ -539,7 +526,6 @@ module.exports = {
   getCoreDir,
   getStoreDir,
   getStorePath,
-  getRegistrationTcpConfigPath,
   isHttpCompatModeEnabled,
   // 核心文件管理
   initializeCoreDirectory,

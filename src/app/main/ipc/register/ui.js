@@ -327,41 +327,11 @@ function registerUiIPC(ctx) {
       refreshPromptShown: false,
     };
   }
-// 处理：isOpenCutTab的具体业务逻辑。
-  const isOpenCutTab = (tab = {}) => {
-    const partition = String(tab?.partition || '').trim();
-    if (partition === 'persist:opencut' || partition === 'opencut') {
-      return true;
-    }
-    const currentUrl = String(tab?.view?.webContents?.getURL?.() || '').trim().toLowerCase();
-    return currentUrl.startsWith('https://www.opencut.app/projects')
-      || currentUrl.startsWith('https://opencut.app/projects')
-      || currentUrl.startsWith('http://www.opencut.app/projects')
-      || currentUrl.startsWith('http://opencut.app/projects');
-  };
-// 处理：isToonflowTab的具体业务逻辑。
-  const isToonflowTab = (tab = {}) => {
-    const partition = String(tab?.partition || '').trim();
-    if (partition === 'persist:toonflow' || partition === 'toonflow') {
-      return true;
-    }
-    const currentUrl = String(tab?.view?.webContents?.getURL?.() || '').trim().toLowerCase();
-    return currentUrl.startsWith('http://localhost:10588/')
-      || currentUrl.startsWith('http://127.0.0.1:10588/')
-      || currentUrl.startsWith('https://localhost:10588/')
-      || currentUrl.startsWith('https://127.0.0.1:10588/');
-  };
 // 获取/读取/解析：resolveTabTitle的具体业务逻辑。
   const resolveTabTitle = (tab = {}) => {
     const fixedTitle = String(tab?.fixedTitle || tab?.tabTitle || '').trim();
     if (fixedTitle) {
       return fixedTitle;
-    }
-    if (isOpenCutTab(tab)) {
-      return '视频剪辑';
-    }
-    if (isToonflowTab(tab)) {
-      return 'Toonflow';
     }
     return String(tab?.view?.webContents?.getTitle ? tab.view.webContents.getTitle() : '').trim();
   };
@@ -494,64 +464,6 @@ function registerUiIPC(ctx) {
       }
     } catch (e) {
       console.error('[IPC] 处理 Cookie 导入解锁请求失败:', e?.message || e);
-    }
-  });
-
-  ipcMain.handle('open-registration-web-page', async () => {
-    try {
-      console.log('[IPC] 收到打开注册器网页请求');
-      if (ui && typeof ui.openRegistrationWebPage === 'function') {
-        const result = await ui.openRegistrationWebPage();
-        return result || { ok: true };
-      }
-      return { ok: false, message: '注册器打开功能不可用' };
-    } catch (e) {
-      console.error('[IPC] 处理打开注册器网页请求失败:', e?.message || e);
-      return { ok: false, error: e?.message || String(e) };
-    }
-  });
-
-  ipcMain.handle('open-opencut-page', async () => {
-    try {
-      if (ui && typeof ui.openOpenCutPage === 'function') {
-        return await ui.openOpenCutPage();
-      }
-      return { ok: false, message: 'OpenCut 打开功能不可用' };
-    } catch (e) {
-      return { ok: false, message: e?.message || String(e) };
-    }
-  });
-
-  ipcMain.handle('open-ai-canvas-pro-page', async () => {
-    try {
-      if (ui && typeof ui.openAiCanvasProPage === 'function') {
-        return await ui.openAiCanvasProPage();
-      }
-      return { ok: false, message: '无限画布打开功能不可用' };
-    } catch (e) {
-      return { ok: false, message: e?.message || String(e) };
-    }
-  });
-
-  ipcMain.handle('is-ai-canvas-pro-installed', async () => {
-    try {
-      if (ui && typeof ui.isAiCanvasProInstalled === 'function') {
-        return { ok: true, installed: !!ui.isAiCanvasProInstalled() };
-      }
-      return { ok: false, installed: false, message: '无限画布拓展状态检查不可用' };
-    } catch (e) {
-      return { ok: false, installed: false, message: e?.message || String(e) };
-    }
-  });
-
-  ipcMain.handle('open-toonflow-page', async () => {
-    try {
-      if (ui && typeof ui.openToonflowPage === 'function') {
-        return await ui.openToonflowPage();
-      }
-      return { ok: false, message: 'Toonflow 打开功能不可用' };
-    } catch (e) {
-      return { ok: false, message: e?.message || String(e) };
     }
   });
 

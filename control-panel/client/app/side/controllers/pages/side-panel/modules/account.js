@@ -464,32 +464,6 @@ function triggerAccountImportUnlock() {
   return false;
 }
 
-// 设置/更新/持久化：setRegistrationWebButtonVisible的具体业务逻辑。
-function setRegistrationWebButtonVisible(visible) {
-  const btn = safeGetEl('open-registration-web-btn');
-  if (!btn) return;
-  btn.hidden = !visible;
-  btn.classList.toggle('visible', !!visible);
-}
-
-// 处理：openRegistrationWebPage的具体业务逻辑。
-async function openRegistrationWebPage() {
-  if (window.electron && typeof window.electron.openRegistrationWebPage === 'function') {
-    const result = await window.electron.openRegistrationWebPage();
-    if (result && result.ok === false) {
-      throw new Error(result.error || result.message || '打开注册器失败');
-    }
-    return result;
-  }
-
-  if (window.electronAPI && typeof window.electronAPI.send === 'function') {
-    window.electronAPI.send('open-registration-web-page');
-    return { ok: true };
-  }
-
-  throw new Error('当前环境不支持打开注册器');
-}
-
 // 同步/连接：bindCookieImportConfirmListener的具体业务逻辑。
 function bindCookieImportConfirmListener() {
   if (!window.electronAPI || typeof window.electronAPI.on !== 'function') {
@@ -547,13 +521,12 @@ function handleAccountRecordButtonDoubleClick(event) {
   event.stopPropagation();
 
   const unlocked = triggerAccountImportUnlock();
-  setRegistrationWebButtonVisible(true);
   if (unlocked) {
-    console.log('[侧边栏] 已触发功能面板按钮双击，已显示导入与注册器按钮');
+    console.log('[侧边栏] 已触发功能面板按钮双击，已显示导入按钮');
     return;
   }
 
-  console.warn('[侧边栏] 当前环境不支持解锁导入按钮，但仍已显示注册器按钮');
+  console.warn('[侧边栏] 当前环境不支持解锁导入按钮');
 }
 
 // 启动/打开/显示：showAccountContextMenu的具体业务逻辑。
@@ -745,28 +718,10 @@ function bindCookieImportButton() {
   btn.dataset.bound = '1';
 }
 
-// 同步/连接：bindRegistrationWebButton的具体业务逻辑。
-function bindRegistrationWebButton() {
-  const btn = safeGetEl('open-registration-web-btn');
-  if (!btn || btn.dataset.bound === '1') return;
-
-  btn.addEventListener('click', async () => {
-    withBusyButton(btn, [], async () => {
-      await openRegistrationWebPage();
-      if (window.MessageModal && typeof window.MessageModal.showSuccessMessage === 'function') {
-        window.MessageModal.showSuccessMessage('已打开注册器');
-      }
-    });
-  });
-
-  btn.dataset.bound = '1';
-}
-
 // 同步/连接：bindAccountPanel的具体业务逻辑。
 function bindAccountPanel() {
   loadAccountList();
   bindCookieImportButton();
-  bindRegistrationWebButton();
   bindCookieImportConfirmListener();
   void refreshAccountTargetUrl().then(() => {
     if (Array.isArray(lastAccountListSnapshot) && lastAccountListSnapshot.length > 0) {
@@ -775,7 +730,6 @@ function bindAccountPanel() {
   });
   if (cookieImportUnlocked) {
     setCookieImportSectionVisible(true);
-    setRegistrationWebButtonVisible(true);
   }
 
   const accountToggleBtn = getAccountDropdownToggleBtn();
@@ -878,9 +832,7 @@ function bindAccountPanel() {
     window.electronAPI.on('cookie-import-unlock', () => {
       cookieImportUnlocked = true;
       setCookieImportSectionVisible(true);
-      setRegistrationWebButtonVisible(true);
       bindCookieImportButton();
-      bindRegistrationWebButton();
     });
   }
 }

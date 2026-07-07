@@ -117,7 +117,6 @@ function createLicenseCache() {
       platformName: '',
       targetUrl: '',
       tutorialUrl: '',
-      openVideoEditorPending: false,
       browserSettings: {},
       allowedPlatforms: [],
       systemProxyEnabled: null,
@@ -164,9 +163,6 @@ function createLicenseCache() {
     if (partial.tutorialUrl !== undefined) {
       state.config.tutorialUrl = normalizeKeyValue(partial.tutorialUrl);
     }
-    if (partial.openVideoEditorPending !== undefined) {
-      state.config.openVideoEditorPending = partial.openVideoEditorPending === true;
-    }
     if (partial.browserSettings !== undefined) {
       state.config.browserSettings = partial.browserSettings && typeof partial.browserSettings === 'object'
         ? clone(partial.browserSettings)
@@ -199,7 +195,6 @@ function createLicenseCache() {
       platformName: '',
       targetUrl: '',
       tutorialUrl: '',
-      openVideoEditorPending: false,
       browserSettings: {},
       allowedPlatforms: [],
       systemProxyEnabled: null,

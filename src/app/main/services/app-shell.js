@@ -1,8 +1,5 @@
 // 创建/初始化：createAppShell的具体业务逻辑。
 function createAppShell(deps = {}) {
-  const OPENCUT_PROJECTS_URL = 'https://www.opencut.app/projects';
-  const OPENCUT_PERSIST_PARTITION = 'persist:opencut';
-  const TOONFLOW_PERSIST_PARTITION = 'persist:toonflow';
   const {
     app,
     fs,
@@ -37,16 +34,6 @@ function createAppShell(deps = {}) {
     refreshAllowedPlatformsAndNotify,
     resetRuntimeTutorialUrlState,
     registerIPC,
-    startRegistrationApp,
-    startRegistrationAppAndWaitReady,
-    stopRegistrationApp,
-    startAiCanvasProServer,
-    resolveAiCanvasProExePath,
-    ensureAiCanvasProPackageInstalled,
-    startToonflowServer,
-    getToonflowDetectedPort,
-    waitForToonflowDetectedPort,
-    waitForToonflowPort,
     stopClashMiniProcess,
     getStorePath,
     getServerBase,
@@ -106,10 +93,6 @@ function createAppShell(deps = {}) {
     setIsMainBootstrapped,
     getIsSwitchingToLicense,
     setIsSwitchingToLicense,
-    getRegistrationWebTabId,
-    setRegistrationWebTabId,
-    getRegistrationWebPageOpening,
-    setRegistrationWebPageOpening,
     getLatestAllowedPlatforms,
     setLatestAllowedPlatforms,
     licenseCache,
@@ -186,10 +169,6 @@ function createAppShell(deps = {}) {
   const resolveTabs = () => (typeof getTabs === 'function' ? getTabs() : new Map());
 // 获取/读取/解析：resolveActiveTabId的具体业务逻辑。
   const resolveActiveTabId = () => (typeof getActiveTabId === 'function' ? getActiveTabId() : null);
-// 获取/读取/解析：resolveRegistrationWebTabId的具体业务逻辑。
-  const resolveRegistrationWebTabId = () => (typeof getRegistrationWebTabId === 'function' ? getRegistrationWebTabId() : null);
-// 获取/读取/解析：resolveRegistrationWebPageOpening的具体业务逻辑。
-  const resolveRegistrationWebPageOpening = () => (typeof getRegistrationWebPageOpening === 'function' ? getRegistrationWebPageOpening() : false);
 // 获取/读取/解析：resolveAddTab的具体业务逻辑。
   const resolveAddTab = () => (typeof getAddTab === 'function' ? getAddTab() : null);
 // 获取/读取/解析：resolveSwitchTab的具体业务逻辑。
@@ -239,359 +218,6 @@ function createAppShell(deps = {}) {
 
 // 处理：sleep的具体业务逻辑。
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// 处理：isOpenCutProjectsUrl的具体业务逻辑。
-  const isOpenCutProjectsUrl = (value = '') => {
-    const text = String(value || '').trim().toLowerCase();
-    return text.startsWith('https://www.opencut.app/projects')
-      || text.startsWith('https://opencut.app/projects')
-      || text.startsWith('http://www.opencut.app/projects')
-      || text.startsWith('http://opencut.app/projects');
-  };
-
-// 处理：isAiCanvasProUrl的具体业务逻辑。
-  const isAiCanvasProUrl = (value = '') => {
-    const text = String(value || '').trim().toLowerCase();
-    return text.startsWith('http://127.0.0.1:8777/')
-      || text.startsWith('https://127.0.0.1:8777/')
-      || text.startsWith('http://localhost:8777/')
-      || text.startsWith('https://localhost:8777/');
-  };
-
-// 处理：isRegistrationWebUrl的具体业务逻辑。
-  const isRegistrationWebUrl = (value = '') => {
-    const text = String(value || '').trim().toLowerCase();
-    return text.startsWith('http://127.0.0.1:18765/')
-      || text.startsWith('https://127.0.0.1:18765/')
-      || text.startsWith('http://localhost:18765/')
-      || text.startsWith('https://localhost:18765/');
-  };
-
-// 处理：isToonflowProjectUrl的具体业务逻辑。
-  const isToonflowProjectUrl = (value = '') => {
-    const text = String(value || '').trim().toLowerCase();
-    return /^https?:\/\/(?:localhost|127\.0\.0\.1):\d+\//.test(text);
-  };
-
-// 处理：isToonflowProjectUrlForPort的具体业务逻辑。
-  const isToonflowProjectUrlForPort = (value = '', port = null) => {
-    const text = String(value || '').trim().toLowerCase();
-    const portText = Number(port) ? String(Number(port)) : '';
-    if (!portText) {
-      return /^https?:\/\/(?:localhost|127\.0\.0\.1):\d+\//.test(text);
-    }
-    return text.startsWith(`http://localhost:${portText}/`)
-      || text.startsWith(`http://127.0.0.1:${portText}/`)
-      || text.startsWith(`https://localhost:${portText}/`)
-      || text.startsWith(`https://127.0.0.1:${portText}/`);
-  };
-
-// 启动/打开/显示：openOpenCutProjects的具体业务逻辑。
-  async function openOpenCutProjects({ consumePendingFlag = false } = {}) {
-    try {
-      const runtimeConfig = deps.licenseCache && typeof deps.licenseCache.getRuntimeConfig === 'function'
-        ? deps.licenseCache.getRuntimeConfig()
-        : {};
-      const addTab = resolveAddTab();
-      if (typeof addTab !== 'function') {
-        logger.warn?.('[启动] 剪辑栏目打开失败：标签页能力不可用');
-        return { ok: false, message: 'addTab unavailable' };
-      }
-
-      const editorUrl = new URL(OPENCUT_PROJECTS_URL).href;
-      if (!editorUrl) {
-        logger.warn?.('[启动] 剪辑栏目打开失败：编辑器地址为空');
-        return { ok: false, message: 'missing editor url' };
-      }
-
-      const tabs = resolveTabs();
-      for (const tab of tabs.values()) {
-        try {
-          const currentUrl = String(tab?.view?.webContents?.getURL?.() || '');
-          if (tab?.partition === OPENCUT_PERSIST_PARTITION || isOpenCutProjectsUrl(currentUrl)) {
-            const switchTab = resolveSwitchTab();
-            if (typeof switchTab === 'function' && tab?.id) {
-              switchTab(tab.id);
-            }
-            return { ok: true, tabId: tab?.id || null, editorUrl, alreadyOpen: true };
-          }
-        } catch (_) {}
-      }
-
-      const tabId = await addTab(editorUrl, {
-        partition: OPENCUT_PERSIST_PARTITION,
-        browserSettings: {
-          region: 'cn',
-          locale: 'zh-CN',
-          acceptLanguage: 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-        },
-      });
-
-      if (consumePendingFlag && runtimeConfig.openVideoEditorPending === true) {
-        if (deps.licenseCache && typeof deps.licenseCache.setRuntimeConfig === 'function') {
-          deps.licenseCache.setRuntimeConfig({ openVideoEditorPending: false });
-        }
-      }
-
-      logger.log?.('[启动] 已根据验证结果打开剪辑栏目页:', editorUrl, tabId ? `tab=${tabId}` : '');
-      return { ok: true, tabId, editorUrl, alreadyOpen: false };
-    } catch (error) {
-      logger.warn?.('[启动] 自动打开剪辑栏目失败:', error?.message || error);
-      return { ok: false, message: error?.message || String(error) };
-    }
-  }
-
-// 启动/打开/显示：openAiCanvasProPage的具体业务逻辑。
-  async function openAiCanvasProPage() {
-    try {
-      const aiCanvasProExePath = typeof resolveAiCanvasProExePath === 'function'
-        ? resolveAiCanvasProExePath()
-        : '';
-      const hasAiCanvasProExe = !!aiCanvasProExePath && fs.existsSync(aiCanvasProExePath);
-
-      if (!hasAiCanvasProExe && typeof ensureAiCanvasProPackageInstalled === 'function') {
-        const installResult = await ensureAiCanvasProPackageInstalled({
-          logger,
-          showWindow: isDevMode,
-          onProgress: (progress = {}) => {
-            try {
-              if (typeof sendToSide === 'function') {
-                sendToSide('ai-canvas-pro-install-progress', {
-                  phase: progress.phase || 'preparing',
-                  percent: Number.isFinite(progress.percent) ? progress.percent : null,
-                  receivedBytes: Number.isFinite(progress.receivedBytes) ? progress.receivedBytes : null,
-                  totalBytes: Number.isFinite(progress.totalBytes) ? progress.totalBytes : null,
-                  message: progress.message || '',
-                });
-              }
-            } catch (_) {}
-          },
-        });
-        if (!installResult || installResult.ok === false) {
-          return {
-            ok: false,
-            missing: true,
-            message: installResult?.message || '请先下载 AI-CanvasPro 拓展到 extensions_app 后再使用无限画布',
-          };
-        }
-      }
-
-      if (typeof startAiCanvasProServer === 'function') {
-        const startResult = startAiCanvasProServer(logger);
-        if (startResult && startResult.ok === false) {
-          return {
-            ok: false,
-            missing: !!startResult.missing,
-            message: startResult.message || '请先下载 AI-CanvasPro 拓展后再使用无限画布',
-          };
-        }
-      }
-
-      const addTab = resolveAddTab();
-      if (typeof addTab !== 'function') {
-        logger.warn?.('[启动] AI-CanvasPro 页面打开失败：标签页能力不可用');
-        return { ok: false, message: 'addTab unavailable' };
-      }
-
-      const targetUrl = 'http://127.0.0.1:8777/';
-      const tabs = resolveTabs();
-      for (const tab of tabs.values()) {
-        try {
-          const currentUrl = String(tab?.view?.webContents?.getURL?.() || '');
-          if (tab?.partition === 'persist:ai-canvas-pro' || isAiCanvasProUrl(currentUrl)) {
-            const switchTab = resolveSwitchTab();
-            if (typeof switchTab === 'function' && tab?.id) {
-              switchTab(tab.id);
-            }
-            return { ok: true, tabId: tab?.id || null, targetUrl, alreadyOpen: true };
-          }
-        } catch (_) {}
-      }
-
-      const tabId = await addTab(targetUrl, {
-        partition: 'persist:ai-canvas-pro',
-        browserSettings: {
-          locale: 'zh-CN',
-          acceptLanguage: 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-        },
-      });
-
-      logger.log?.('[启动] 已打开 AI-CanvasPro 页面:', targetUrl, tabId ? `tab=${tabId}` : '');
-      return { ok: true, tabId, targetUrl, alreadyOpen: false };
-    } catch (error) {
-      logger.warn?.('[启动] 打开 AI-CanvasPro 页面失败:', error?.message || error);
-      return { ok: false, message: error?.message || String(error) };
-    }
-  }
-
-// 启动/打开/显示：openRegistrationWebPage的具体业务逻辑。
-  async function openRegistrationWebPage() {
-    try {
-      const backendResult = await ensureRegistrationWebBackend();
-      if (!backendResult || backendResult.ok === false) {
-        return {
-          ok: false,
-          message: backendResult?.message || backendResult?.error || 'registration backend unavailable',
-        };
-      }
-
-      const addTab = resolveAddTab();
-      if (typeof addTab !== 'function') {
-        logger.warn?.('[启动] 注册器页面打开失败：标签页能力不可用');
-        return { ok: false, message: 'addTab unavailable' };
-      }
-
-      const targetUrl = 'http://127.0.0.1:18765/';
-      const tabs = resolveTabs();
-      for (const tab of tabs.values()) {
-        try {
-          const currentUrl = String(tab?.view?.webContents?.getURL?.() || '');
-          if (tab?.partition === 'persist:registration' || isRegistrationWebUrl(currentUrl)) {
-            const switchTab = resolveSwitchTab();
-            if (typeof switchTab === 'function' && tab?.id) {
-              switchTab(tab.id);
-            }
-            return { ok: true, tabId: tab?.id || null, targetUrl, alreadyOpen: true };
-          }
-        } catch (_) {}
-      }
-
-      const tabId = await addTab(targetUrl, {
-        partition: 'persist:registration',
-        browserSettings: {
-          locale: 'zh-CN',
-          acceptLanguage: 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-        },
-      });
-
-      if (!tabId) {
-        if (shell && typeof shell.openExternal === 'function') {
-          await shell.openExternal(targetUrl);
-          logger.log?.('[启动] 应用内标签页打开失败，已改用系统浏览器打开注册器网页:', targetUrl);
-          return { ok: true, targetUrl, openedExternal: true };
-        }
-        return { ok: false, message: 'registration tab open failed' };
-      }
-
-      logger.log?.('[启动] 已打开注册器网页:', targetUrl, tabId ? `tab=${tabId}` : '');
-      return { ok: true, tabId, targetUrl, alreadyOpen: false };
-    } catch (error) {
-      const targetUrl = 'http://127.0.0.1:18765/';
-      try {
-        if (shell && typeof shell.openExternal === 'function') {
-          await shell.openExternal(targetUrl);
-          logger.log?.('[启动] 打开注册器网页失败后，已改用系统浏览器打开:', targetUrl);
-          return { ok: true, targetUrl, openedExternal: true, fallback: true };
-        }
-      } catch (externalError) {
-        logger.warn?.('[启动] 系统浏览器兜底打开注册器网页失败:', externalError?.message || externalError);
-      }
-      logger.warn?.('[启动] 打开注册器网页失败:', error?.message || error);
-      return { ok: false, message: error?.message || String(error) };
-    }
-  }
-
-// 校验/保护：ensureToonflowWebBackend的具体业务逻辑。
-  async function ensureToonflowWebBackend() {
-    try {
-      if (typeof startToonflowServer !== 'function') {
-        logger.warn?.('[启动] Toonflow 后台服务启动器不可用');
-        return { ok: false, message: 'toonflow launcher unavailable' };
-      }
-
-      const result = await startToonflowServer(logger);
-      if (result && result.ok === false) {
-        logger.warn?.('[启动] Toonflow 后台服务启动失败:', result.error || result.message || 'unknown');
-        }
-
-      const port = 10588;
-      if (typeof waitForToonflowPort === 'function') {
-        const ready = await waitForToonflowPort(port, 30000, logger);
-        if (!ready || ready.ok === false) {
-          logger.warn?.('[启动] Toonflow 后台服务端口未就绪:', ready?.message || 'unknown');
-          return { ok: false, message: ready?.message || 'toonflow port not ready' };
-        }
-      }
-
-      return { ...(result || { ok: true }), port };
-    } catch (error) {
-      logger.warn?.('[启动] 启动 Toonflow 后台服务异常:', error?.message || error);
-      return { ok: false, message: error?.message || String(error) };
-    }
-  }
-
-// 启动/打开/显示：openToonflowPage的具体业务逻辑。
-  async function openToonflowPage() {
-    try {
-      const backendResult = await ensureToonflowWebBackend();
-      if (!backendResult || backendResult.ok === false) {
-        return {
-          ok: false,
-          message: backendResult?.message || backendResult?.error || 'toonflow backend unavailable',
-        };
-      }
-
-      const toonflowPort = 10588;
-      const targetUrl = `http://localhost:${toonflowPort}/#/project`;
-
-      const tabs = resolveTabs();
-      for (const tab of tabs.values()) {
-        try {
-          const currentUrl = String(tab?.view?.webContents?.getURL?.() || '');
-          if (tab?.partition === TOONFLOW_PERSIST_PARTITION && isToonflowProjectUrlForPort(currentUrl, toonflowPort)) {
-            const switchTab = resolveSwitchTab();
-            if (typeof switchTab === 'function' && tab?.id) {
-              switchTab(tab.id);
-            }
-            return { ok: true, tabId: tab?.id || null, targetUrl, alreadyOpen: true };
-          }
-        } catch (_) {}
-      }
-
-      let tabId = null;
-      let lastError = null;
-      for (let attempt = 0; attempt < 5 && !tabId; attempt += 1) {
-        const addTab = resolveAddTab();
-        if (typeof addTab !== 'function') {
-          lastError = 'addTab unavailable';
-          if (attempt < 4) {
-            await sleep(300);
-          }
-          continue;
-        }
-
-        try {
-          tabId = await addTab(targetUrl, {
-            partition: TOONFLOW_PERSIST_PARTITION,
-            browserSettings: {
-              region: 'cn',
-              locale: 'zh-CN',
-              acceptLanguage: 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-            },
-          });
-        } catch (error) {
-          lastError = error?.message || String(error);
-          tabId = null;
-        }
-
-        if (!tabId && attempt < 4) {
-          await sleep(300);
-        }
-      }
-
-      if (!tabId) {
-        const message = lastError || 'toonflow tab open failed';
-        logger.warn?.('[启动] Toonflow 页面打开失败：', message);
-        return { ok: false, message };
-      }
-
-      logger.log?.('[启动] 已根据验证结果打开 Toonflow 页面:', targetUrl, tabId ? `tab=${tabId}` : '');
-      return { ok: true, tabId, targetUrl, alreadyOpen: false };
-    } catch (error) {
-      logger.warn?.('[启动] 自动打开 Toonflow 页面失败:', error?.message || error);
-      return { ok: false, message: error?.message || String(error) };
-    }
-  }
 
 // 创建/初始化：createLicenseWindow的具体业务逻辑。
   function createLicenseWindow() {
@@ -828,12 +454,6 @@ function createAppShell(deps = {}) {
         logger.warn?.('[启动] 返回首页时关闭 Clash Mini 失败:', clashErr?.message || clashErr);
       }
 
-      try {
-        await stopRegistrationApp(logger);
-      } catch (registrationErr) {
-        logger.warn?.('[启动] 返回首页时关闭注册器失败:', registrationErr?.message || registrationErr);
-      }
-
       resetMainRuntimeForRelicense();
       const licenseWindow = resolveLicenseWindow();
       if (!licenseWindow || licenseWindow.isDestroyed()) {
@@ -925,14 +545,6 @@ function createAppShell(deps = {}) {
     }
 
     try {
-      if (typeof deps.syncRegistrationRuntimeBrowserSettingsToMainApp === 'function') {
-        await deps.syncRegistrationRuntimeBrowserSettingsToMainApp();
-      }
-    } catch (e) {
-      logger.warn?.('[启动] 同步 registration 浏览器设置失败:', e?.message || e);
-    }
-
-    try {
       createMainWindow();
       if (!isControlPanelOnlyModeEnabled()) {
         revealMainWindow();
@@ -969,17 +581,10 @@ function createAppShell(deps = {}) {
           refreshActiveTabToUrl: resolveRefreshActiveTabToUrl(),
           refreshActiveTab: resolveRefreshActiveTab(),
           toggleSidebar,
-          openRegistrationWebPage,
-          openAiCanvasProPage,
-          isAiCanvasProInstalled: typeof deps.isAiCanvasProInstalled === 'function'
-            ? deps.isAiCanvasProInstalled
-            : null,
-          openToonflowPage,
           sendToSide,
           startAppUpdate,
           getAppVersion,
           getMainWindow: () => resolveMainWindow(),
-          getToonflowDetectedPort: () => (typeof getToonflowDetectedPort === 'function' ? getToonflowDetectedPort() : null),
           openExtensionPopup: resolveOpenExtensionPopup(),
           openExtensionOptions: resolveOpenExtensionOptions(),
           forceRemoveWatermark: resolveForceRemoveWatermark(),
@@ -995,7 +600,6 @@ function createAppShell(deps = {}) {
               toggleSidebar();
             }
           },
-          openOpenCutPage: openOpenCutPage,
           purgeBrowserSessionData: typeof purgeBrowserSessionData === 'function'
             ? purgeBrowserSessionData
             : null,
@@ -1149,11 +753,7 @@ function createAppShell(deps = {}) {
         logger.warn?.('[启动] 初始化TCP连接失败:', e?.message || e);
       }
 
-      try {
-        // 不再在启动阶段自动打开视频剪辑，保留手动按钮入口。
-      } catch (e) {
-        logger.warn?.('[启动] 跳过自动打开视频剪辑失败:', e?.message || e);
-      }
+
     })().catch((e) => {
       logger.warn?.('[启动] 后台TCP初始化任务失败:', e?.message || e);
     });
@@ -1365,46 +965,12 @@ function createAppShell(deps = {}) {
     }
   }
 
-// 校验/保护：ensureRegistrationWebBackend的具体业务逻辑。
-  async function ensureRegistrationWebBackend() {
-    try {
-      if (typeof startRegistrationAppAndWaitReady === 'function') {
-        const result = await startRegistrationAppAndWaitReady(logger);
-        if (result && result.ok === false) {
-          logger.warn?.('[启动] 注册器启动失败:', result.error || result.message || 'unknown');
-        }
-        return result || { ok: true };
-      }
-
-      if (typeof startRegistrationApp !== 'function') {
-        logger.warn?.('[启动] 注册器启动器不可用，跳过启动');
-        return { ok: false, error: 'registration launcher unavailable' };
-      }
-
-      const result = await startRegistrationApp(logger);
-      if (result && result.ok === false) {
-        logger.warn?.('[启动] 注册器启动失败:', result.error || result.message || 'unknown');
-      }
-      return result || { ok: true };
-    } catch (error) {
-      logger.warn?.('[启动] 启动注册器失败:', error?.message || error);
-      return { ok: false, error: error?.message || String(error) };
-    }
-  }
-
-// 启动/打开/显示：openOpenCutPage的具体业务逻辑。
-  async function openOpenCutPage() {
-    return await openOpenCutProjects({ consumePendingFlag: true });
-  }
-
 // 停止/关闭/清理：resetMainRuntimeForRelicense的具体业务逻辑。
   function resetMainRuntimeForRelicense() {
     try {
       if (typeof setIsMainBootstrapped === 'function') setIsMainBootstrapped(false);
       if (typeof setAuth === 'function') setAuth(null);
       if (typeof setLatestAllowedPlatforms === 'function') setLatestAllowedPlatforms([]);
-      if (typeof setRegistrationWebTabId === 'function') setRegistrationWebTabId(null);
-      if (typeof setRegistrationWebPageOpening === 'function') setRegistrationWebPageOpening(false);
       if (deps.licenseCache && typeof deps.licenseCache.setRuntimeConfig === 'function') {
         deps.licenseCache.setRuntimeConfig({
           platformName: '',
@@ -1437,12 +1003,6 @@ function createAppShell(deps = {}) {
     bootstrapMainApp,
     createMainWindow,
     revealMainWindow,
-    ensureRegistrationWebBackend,
-    ensureToonflowWebBackend,
-    openRegistrationWebPage,
-    openAiCanvasProPage,
-    openToonflowPage,
-    openOpenCutPage,
     resetMainRuntimeForRelicense,
   };
 }

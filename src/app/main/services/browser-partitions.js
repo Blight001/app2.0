@@ -55,7 +55,7 @@ function createBrowserPartitionCleaner(deps = {}) {
 // 处理：isPersistentSharedPartitionName的具体业务逻辑。
   function isPersistentSharedPartitionName(partitionName) {
     const normalized = String(partitionName || '').trim();
-    return normalized === 'opencut' || normalized === 'toonflow';
+    return false;
   }
 
 // 校验/保护：hasLiveBrowserUsersForSession的具体业务逻辑。

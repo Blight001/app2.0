@@ -43,43 +43,8 @@ async function executeHttpRequest({
   };
 }
 
-// 处理：executeWithFallback的具体业务逻辑。
-async function executeWithFallback({
-  actionLabel,
-  tcpRequest,
-  httpRequest,
-  onFallback,
-}) {
-  try {
-    const tcpResult = await tcpRequest();
-    if (tcpResult && typeof tcpResult === 'object') {
-      return {
-        ...tcpResult,
-        transportMode: 'tcp',
-      };
-    }
-    return tcpResult;
-  } catch (error) {
-    if (typeof onFallback === 'function') {
-      onFallback(error);
-    } else if (actionLabel) {
-      console.warn(`[TCP] ${actionLabel} TCP失败，尝试HTTP降级:`, error?.message || error);
-    }
-    const httpResult = await httpRequest();
-    if (httpResult && typeof httpResult === 'object') {
-      return {
-        ...httpResult,
-        transportMode: 'http',
-        transportFallbackReason: error?.message || String(error || ''),
-      };
-    }
-    return httpResult;
-  }
-}
-
 module.exports = {
   buildHttpUrl,
   executeHttpRequest,
-  executeWithFallback,
   normalizeHttpResult,
 };

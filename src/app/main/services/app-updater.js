@@ -7,11 +7,6 @@ const { BrowserWindow, shell, app: electronApp } = require('electron');
 const extractZip = require('extract-zip');
 const tar = require('tar');
 
-const AI_CANVAS_PRO_DOWNLOAD_URL = 'https://www.kdocs.cn/l/csDSN9DRgmz4';
-const AI_CANVAS_PRO_DIR_NAME = 'AI-CanvasPro';
-const AI_CANVAS_PRO_EXTENSIONS_DIR_NAME = 'extensions_app';
-const AI_CANVAS_PRO_EXE_NAME = 'AI-CanvasPro-Server.exe';
-
 // 格式化/规范化：normalizeVersion的具体业务逻辑。
 function normalizeVersion(value) {
   const text = String(value || '').trim().replace(/^v/i, '');
@@ -929,44 +924,6 @@ function cleanupDownloadedArchive(filePath, logger = console) {
   }
 }
 
-// 获取/读取/解析：getAiCanvasProInstallRoot的具体业务逻辑。
-function getAiCanvasProInstallRoot(pathDep = path, appDep = electronApp) {
-  try {
-    if (appDep && typeof appDep.isPackaged === 'boolean' && appDep.isPackaged) {
-      const exePath = typeof appDep.getPath === 'function' ? appDep.getPath('exe') : '';
-      const rootDir = pathDep.dirname(String(exePath || '').trim());
-      if (rootDir) return rootDir;
-    }
-  } catch (_) {}
-
-  try {
-    const cwd = String(process.cwd() || '').trim();
-    if (cwd) return pathDep.resolve(cwd);
-  } catch (_) {}
-
-  try {
-    return pathDep.resolve(pathDep.dirname(typeof appDep?.getPath === 'function' ? appDep.getPath('exe') : process.execPath || '.'));
-  } catch (_) {}
-
-  return pathDep.resolve('.');
-}
-
-// 获取/读取/解析：getAiCanvasProDownloadWorkspace的具体业务逻辑。
-function getAiCanvasProDownloadWorkspace(pathDep = path, appDep = electronApp) {
-  const rootDir = getAiCanvasProInstallRoot(pathDep, appDep);
-  const workspaceDir = pathDep.join(rootDir, AI_CANVAS_PRO_EXTENSIONS_DIR_NAME);
-  const packageDir = pathDep.join(workspaceDir, AI_CANVAS_PRO_DIR_NAME);
-  const extractDir = pathDep.join(workspaceDir, '.ai-canvaspro-extract');
-  const archivePath = pathDep.join(workspaceDir, 'AI-CanvasPro.zip');
-  return {
-    rootDir,
-    workspaceDir,
-    packageDir,
-    extractDir,
-    archivePath,
-  };
-}
-
 // 处理：copyDirectoryContents的具体业务逻辑。
 function copyDirectoryContents(sourceDir, targetDir) {
   safeMkdir(targetDir);
@@ -989,119 +946,6 @@ function copyDirectoryContents(sourceDir, targetDir) {
     }
     fs.copyFileSync(sourcePath, targetPath);
   }
-}
-
-// 获取/读取/解析：resolveAiCanvasProExtractSourceDir的具体业务逻辑。
-function resolveAiCanvasProExtractSourceDir(sourceDir) {
-  try {
-    const preferred = path.join(sourceDir, AI_CANVAS_PRO_DIR_NAME);
-    if (fs.existsSync(preferred) && fs.statSync(preferred).isDirectory()) {
-      return preferred;
-    }
-
-    const entries = fs.readdirSync(sourceDir, { withFileTypes: true });
-    if (entries.length === 1 && entries[0].isDirectory()) {
-      return path.join(sourceDir, entries[0].name);
-    }
-  } catch (_) {}
-  return sourceDir;
-}
-
-// 获取/读取/解析：ensureAiCanvasProPackageInstalled的具体业务逻辑。
-async function ensureAiCanvasProPackageInstalled({
-  logger = console,
-  onProgress = () => {},
-  showWindow = false,
-} = {}) {
-  const workspace = getAiCanvasProDownloadWorkspace();
-  const { workspaceDir, packageDir, extractDir, archivePath } = workspace;
-
-  safeMkdir(workspaceDir);
-  onProgress({
-    phase: 'preparing',
-    percent: 0,
-    message: '正在准备下载 AI-CanvasPro 拓展...',
-  });
-
-  try {
-    const existingLaunchTarget = await findLaunchTarget(packageDir, AI_CANVAS_PRO_EXE_NAME);
-    if (existingLaunchTarget && fs.existsSync(existingLaunchTarget)) {
-      return {
-        ok: true,
-        installed: true,
-        alreadyInstalled: true,
-        workspace,
-        launchTarget: existingLaunchTarget,
-      };
-    }
-  } catch (_) {}
-
-  logger.warn?.('[AI-CanvasPro] 开始安装拓展', toDebugString({
-    downloadUrl: AI_CANVAS_PRO_DOWNLOAD_URL,
-    workspaceDir,
-    packageDir,
-  }));
-
-  clearDirectory(packageDir);
-  clearDirectory(extractDir);
-  safeMkdir(packageDir);
-  safeMkdir(extractDir);
-
-  const downloadResult = await openDownloadPageAndAutoClick({
-    url: AI_CANVAS_PRO_DOWNLOAD_URL,
-    saveDir: workspaceDir,
-    logger,
-    onProgress: (progress) => {
-      onProgress({
-        ...progress,
-        phase: progress.phase || 'downloading',
-        message: progress.phase === 'downloading'
-          ? '正在下载 AI-CanvasPro 拓展...'
-          : '正在打开下载页并点击下载...',
-      });
-    },
-    showWindow,
-    allowAutoClickOnAnyPage: true,
-  });
-
-  const downloadPath = String(downloadResult?.savePath || archivePath).trim();
-  if (!downloadPath || !fs.existsSync(downloadPath)) {
-    throw new Error('AI-CanvasPro 拓展下载失败');
-  }
-
-  if (!isArchiveFile(downloadPath)) {
-    throw new Error('AI-CanvasPro 下载文件不是压缩包');
-  }
-
-  await extractDownloadedPackage(downloadPath, extractDir, logger);
-
-  const sourceDir = resolveAiCanvasProExtractSourceDir(extractDir);
-  clearDirectory(packageDir);
-  safeMkdir(packageDir);
-  copyDirectoryContents(sourceDir, packageDir);
-
-  cleanupDownloadedArchive(downloadPath, logger);
-  clearDirectory(extractDir);
-
-  const launchTarget = await findLaunchTarget(packageDir, AI_CANVAS_PRO_EXE_NAME);
-  if (!launchTarget || !fs.existsSync(launchTarget)) {
-    throw new Error('AI-CanvasPro 安装完成但未找到可执行文件');
-  }
-
-  onProgress({
-    phase: 'completed',
-    percent: 100,
-    message: 'AI-CanvasPro 安装完成',
-  });
-
-  return {
-    ok: true,
-    installed: true,
-    alreadyInstalled: false,
-    workspace,
-    downloadPath,
-    launchTarget,
-  };
 }
 
 // 获取/读取/解析：getUpdateStorageRoot的具体业务逻辑。
@@ -1639,7 +1483,6 @@ function createAppUpdater(deps = {}) {
     handleServerUpdateCommand,
     cleanupUpdateStorageRoot,
     cleanupDownloadedArchive,
-    ensureAiCanvasProPackageInstalled,
     startAppUpdate,
   };
 }
@@ -1649,7 +1492,4 @@ module.exports = {
   compareVersions,
   extractUpdatePayload,
   launchExecutable,
-  getAiCanvasProInstallRoot,
-  getAiCanvasProDownloadWorkspace,
-  ensureAiCanvasProPackageInstalled,
 };

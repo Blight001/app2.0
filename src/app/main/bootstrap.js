@@ -9,64 +9,6 @@ const { createAppUpdater } = require('./services/app-updater');
 
 let runtimeLicenseCache = null;
 
-// 启动/打开/显示：startRegistrationBridge的具体业务逻辑。
-function startRegistrationBridge() {
-  try {
-    console.warn('[Registration] 启动注册器桥接主进程');
-    require(require('path').join(__dirname, '../../assets/extensions/registration/src/main.js'));
-  } catch (error) {
-    console.error('[Registration] 启动注册器桥接失败:', error?.message || error);
-    try { app.exit(1); } catch (_) {}
-  }
-}
-
-// 获取/读取/解析：readRegistrationRuntimeConfigFromDisk的具体业务逻辑。
-async function readRegistrationRuntimeConfigFromDisk() {
-  const candidates = [
-    path.join(app.getPath('userData'), 'resource', 'config.json'),
-    path.join(process.cwd(), 'resource', 'config.json'),
-    path.join(process.resourcesPath || '', 'resource', 'config.json'),
-  ].filter(Boolean);
-
-  for (const configPath of candidates) {
-    try {
-      if (!configPath || !fs.existsSync(configPath)) {
-        continue;
-      }
-      const raw = await fs.promises.readFile(configPath, 'utf8');
-      const parsed = JSON.parse(raw || '{}');
-      return parsed && typeof parsed === 'object' ? parsed : {};
-    } catch (_) {}
-  }
-
-  return {};
-}
-
-// 同步/连接：syncRegistrationRuntimeBrowserSettingsToMainApp的具体业务逻辑。
-async function syncRegistrationRuntimeBrowserSettingsToMainApp() {
-  try {
-    const runtimeConfig = await readRegistrationRuntimeConfigFromDisk();
-    const browserSettings = runtimeConfig && typeof runtimeConfig === 'object'
-      ? (runtimeConfig.browserSettings && typeof runtimeConfig.browserSettings === 'object'
-          ? runtimeConfig.browserSettings
-          : runtimeConfig.browser_settings && typeof runtimeConfig.browser_settings === 'object'
-            ? runtimeConfig.browser_settings
-            : {})
-      : {};
-
-    if (runtimeLicenseCache && typeof runtimeLicenseCache.setRuntimeConfig === 'function') {
-      runtimeLicenseCache.setRuntimeConfig({
-        browserSettings,
-      });
-    }
-
-    return browserSettings;
-  } catch (error) {
-    console.warn('[启动] 同步 registration 运行态浏览器设置失败:', error?.message || error);
-    return {};
-  }
-}
-
 // 启动/打开/显示：startMainApp的具体业务逻辑。
 function startMainApp() {
   applyWindowsAppUserModelId();
@@ -74,7 +16,7 @@ function startMainApp() {
 // 内部模块（拆分后的小单元）
 const { postJson, getJson, httpGetUniversal } = require('./lib/http');
 const { createLogger } = require('./utils/logger');
-const { DREAM_TARGET_URL, setDreamTargetUrl, getDreamTargetUrl, setRuntimeTcpConfig, setRuntimeServerBase, getCoreDir, getStorePath, initializeCoreDirectory, getServerBase, getSideUrl, getTcpConfig, getRegistrationTcpConfigPath } = require('./config');
+const { DREAM_TARGET_URL, setDreamTargetUrl, getDreamTargetUrl, setRuntimeTcpConfig, setRuntimeServerBase, getCoreDir, getStorePath, initializeCoreDirectory, getServerBase, getSideUrl, getTcpConfig } = require('./config');
 const {
   createAuthCookie,
   extractValidationState,
@@ -93,9 +35,6 @@ const { injectZoomWheelListener } = require('./utils/zoom');
 const { checkDesktopShortcutAndPrompt } = require('./utils/shortcut');
 const { resolveAppIconPath } = require('./utils/app-icon');
 const { initializeAccountCleanup } = require('./utils/accountCleanup');
-const { startRegistrationApp, stopRegistrationApp } = require('./registration-launcher');
-const { startAiCanvasProServer, stopAiCanvasProServer, resolveAiCanvasProExePath, isAiCanvasProInstalled } = require('./ai-canvas-pro-launcher');
-const { startToonflowServer, stopToonflowServer, waitForToonflowPort } = require('./toonflow-launcher');
 const { createBrowserPartitionCleaner } = require('./services/browser-partitions');
 const { registerAppLifecycle } = require('./services/app-lifecycle');
 const { createAppShell } = require('./services/app-shell');
@@ -230,7 +169,6 @@ const serverResolver = createServerResolver({
   licenseCache,
   setRuntimeTcpConfig,
   setRuntimeServerBase,
-  getRegistrationTcpConfigPath,
   getCurrentPlatformLabel: () => getCurrentPlatformLabel(),
   logger: console,
 });
@@ -275,74 +213,8 @@ const {
   computeDeviceId,
 } = runtimeHelpers;
 
-// 处理/分发：handleServerShutdownCommand的具体业务逻辑。
-async function handleServerShutdownCommand(messageData) {
-  const type = messageData && (messageData.type || messageData.command || messageData.action);
-  const messageType = messageData && (
-    messageData.message_type
-    || messageData.messageType
-    || messageData.data?.message_type
-    || messageData.data?.messageType
-    || messageData.announcement?.message_type
-    || messageData.announcement?.messageType
-    || messageData.payload?.message_type
-    || messageData.payload?.messageType
-  );
-  const messageText = String(
-    messageData?.message
-    || messageData?.content
-    || messageData?.data?.message
-    || messageData?.data?.content
-    || messageData?.announcement?.message
-    || messageData?.announcement?.content
-    || ''
-  );
-  const shouldShutdown = type === 'shutdown'
-    || type === 'close_app'
-    || type === 'shutdown_app'
-    || type === 'force_close'
-    || (type === 'announcement' && (
-      messageType === 'shutdown'
-      || messageText.includes('软件暂时无法使用')
-      || messageText.includes('停止使用')
-      || messageText.includes('停用')
-    ));
-
-  if (!shouldShutdown) return false;
-
-  if (appRuntime.getIsServerShutdownInProgress()) return true;
-  appRuntime.setIsServerShutdownInProgress(true);
-  try {
-    console.warn('[Shutdown] 收到停用指令，正在返回首页', {
-      type,
-      messageType,
-      messageText: messageText.slice(0, 80)
-    });
-    const result = await backToLicenseWindow();
-    if (!result || result.ok !== true) {
-      console.warn('[Shutdown] 返回首页失败:', result && (result.message || result.error) ? (result.message || result.error) : 'unknown');
-    }
-  } catch (e) {
-    console.warn('[Shutdown] 处理停用指令失败:', e?.message || e);
-  }
-
-  setTimeout(() => {
-    appRuntime.setIsServerShutdownInProgress(false);
-  }, 1500);
-  return true;
-}
-
-// 处理/分发：handleServerPushMessage的具体业务逻辑。
-async function handleServerPushMessage(messageData) {
-  try {
-    const updateHandled = await appUpdater.handleServerUpdateCommand(messageData);
-    if (updateHandled) return true;
-  } catch (e) {
-    console.warn('[更新] 处理更新消息失败:', e?.message || e);
-  }
-
-  return handleServerShutdownCommand(messageData);
-}
+// TCP 通信已移除：服务器→客户端的推送（含远程停用指令）不再存在。
+// 公告改由客户端轮询 /api/user_announcement 获取。
 
 let platformRefreshInFlight = false;
 let runtimeTutorialUrlOpened = false;
@@ -466,22 +338,9 @@ const appShellDeps = {
   injectZoomWheelListener,
   checkDesktopShortcutAndPrompt,
   initializeAccountCleanup,
-  handleServerShutdownCommand,
-  handleServerUpdateCommand: appUpdater.handleServerUpdateCommand,
-  handleServerPushMessage,
   refreshAllowedPlatformsAndNotify,
   resetRuntimeTutorialUrlState,
   registerIPC,
-  startRegistrationApp,
-  stopRegistrationApp,
-  startAiCanvasProServer,
-  stopAiCanvasProServer,
-  resolveAiCanvasProExePath,
-  isAiCanvasProInstalled,
-  ensureAiCanvasProPackageInstalled: appUpdater.ensureAiCanvasProPackageInstalled,
-  startToonflowServer,
-  stopToonflowServer,
-  waitForToonflowPort,
   stopClashMiniProcess,
   getStorePath,
   getServerBase,
@@ -537,10 +396,6 @@ const appShellDeps = {
   setIsMainBootstrapped: appRuntime.setIsMainBootstrapped,
   getIsSwitchingToLicense: appRuntime.getIsSwitchingToLicense,
   setIsSwitchingToLicense: appRuntime.setIsSwitchingToLicense,
-  getRegistrationWebTabId: appRuntime.getRegistrationWebTabId,
-  setRegistrationWebTabId: appRuntime.setRegistrationWebTabId,
-  getRegistrationWebPageOpening: appRuntime.getRegistrationWebPageOpening,
-  setRegistrationWebPageOpening: appRuntime.setRegistrationWebPageOpening,
   getLatestAllowedPlatforms: appRuntime.getLatestAllowedPlatforms,
   setLatestAllowedPlatforms: appRuntime.setLatestAllowedPlatforms,
   licenseCache,
@@ -561,7 +416,6 @@ const appShellDeps = {
   setRuntimeTcpConfig,
   setRuntimeServerBase,
   httpGetUniversal,
-  syncRegistrationRuntimeBrowserSettingsToMainApp,
   postJson,
   getJson,
   downloadOrSaveMedia,
@@ -587,10 +441,6 @@ const {
   bootstrapMainApp,
   createMainWindow,
   revealMainWindow,
-  ensureRegistrationWebBackend,
-  openRegistrationWebPage,
-  openAiCanvasProPage,
-  openToonflowPage,
   resetMainRuntimeForRelicense,
 } = appShell;
 
@@ -621,8 +471,6 @@ const tabManager = createTabManager({
   setIsSidebarVisible: appRuntime.setIsSidebarVisible,
   getExtPopupWin: appRuntime.getExtPopupWin,
   setExtPopupWin: appRuntime.setExtPopupWin,
-  getRegistrationWebTabId: appRuntime.getRegistrationWebTabId,
-  setRegistrationWebTabId: appRuntime.setRegistrationWebTabId,
     getSetTabAccountId: () => setTabAccountId,
     getSetTabBrowserProxyMode: () => setTabBrowserProxyMode,
     getAuth: () => auth,
@@ -672,18 +520,10 @@ registerAppLifecycle({
   licenseCache,
   bootstrapMainApp,
   createLicenseWindow,
-  ensureRegistrationWebBackend,
   sendToSide,
-  openAiCanvasProPage,
-  openToonflowPage,
   cleanupAllBrowserSessionData,
   cleanupBrowserPartitionsRootDir,
-  stopRegistrationApp,
-  startAiCanvasProServer,
-  stopAiCanvasProServer,
-  startToonflowServer,
-  stopToonflowServer,
-  waitForToonflowPort,
+
   shortcutManager,
   resolveServerConfigForKey: serverResolver.resolveServerConfigForKey,
   applyResolvedConfigToStore: serverResolver.applyResolvedConfigToStore,
@@ -701,5 +541,4 @@ registerAppLifecycle({
 
 module.exports = {
   startMainApp,
-  startRegistrationBridge,
 };

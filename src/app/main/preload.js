@@ -24,9 +24,6 @@ contextBridge.exposeInMainWorld('env', {
 
 contextBridge.exposeInMainWorld('electron', {
   openDreamPage: (payload) => ipcRenderer.invoke('open-dream-page', payload),
-  openRegistrationWebPage: () => ipcRenderer.invoke('open-registration-web-page'),
-  openAiCanvasProPage: () => ipcRenderer.invoke('open-ai-canvas-pro-page'),
-  openToonflowPage: () => ipcRenderer.invoke('open-toonflow-page'),
   ensureSidebarVisible: () => ipcRenderer.send('ensure-sidebar-visible'),
   startClashMini: (options) => ipcRenderer.invoke('start-clash-mini', options),
   stopClashMini: () => ipcRenderer.invoke('stop-clash-mini'),

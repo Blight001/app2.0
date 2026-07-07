@@ -35,8 +35,6 @@ function createTabManager(deps = {}) {
     setIsSidebarVisible,
     getExtPopupWin,
     setExtPopupWin,
-    getRegistrationWebTabId,
-    setRegistrationWebTabId,
     getAuth,
     licenseCache,
     sendToSide,
@@ -62,20 +60,6 @@ function createTabManager(deps = {}) {
   const resolveAuth = () => (typeof getAuth === 'function' ? getAuth() : null);
 // 获取/读取/解析：resolveIsSidebarVisible的具体业务逻辑。
   const resolveIsSidebarVisible = () => (typeof getIsSidebarVisible === 'function' ? getIsSidebarVisible() : true);
-// 格式化/规范化：normalizeOpenCutProjectsUrl的具体业务逻辑。
-  const normalizeOpenCutProjectsUrl = (value = '') => {
-    const text = String(value || '').trim();
-    if (!text) return text;
-    try {
-      const parsed = new URL(text);
-      const host = String(parsed.hostname || '').toLowerCase();
-      if (host === 'opencut.app' || host === 'www.opencut.app') {
-        parsed.hostname = 'www.opencut.app';
-        return parsed.href;
-      }
-    } catch (_) {}
-    return text;
-  };
 // 校验/保护：ensureTranslateExtensionLoaded的具体业务逻辑。
   const ensureTranslateExtensionLoaded = async (wc, label = '') => {
     if (!state?.pluginSettings?.translateExtEnabled) {
@@ -485,7 +469,7 @@ function createTabManager(deps = {}) {
       try { newView.webContents.setTitle(fixedTitle); } catch (_) {}
     }
 
-    try { newView.webContents.loadURL(normalizeOpenCutProjectsUrl(initialUrl)); } catch (_) {}
+    try { newView.webContents.loadURL(initialUrl); } catch (_) {}
     switchTab(newTabId);
     newView.webContents.on('page-title-updated', (event) => {
       if (fixedTitle) {
@@ -592,9 +576,6 @@ function createTabManager(deps = {}) {
         sendToSide('tab-closed', { tabId, accountId: closedAccountId });
       } catch (_) {}
     }
-    if (typeof getRegistrationWebTabId === 'function' && typeof setRegistrationWebTabId === 'function' && getRegistrationWebTabId() === tabId) {
-      setRegistrationWebTabId(null);
-    }
 
     if (resolveActiveTabId() === tabId) {
       const remaining = Array.from(tabs.keys());
@@ -662,7 +643,7 @@ function createTabManager(deps = {}) {
     try {
       const wc = getActiveWC();
       if (wc) {
-        const targetUrl = normalizeOpenCutProjectsUrl(url);
+        const targetUrl = url;
         logger.log?.('刷新', `将当前激活标签页强制刷新到 -> ${targetUrl}`);
         await ensureTranslateExtensionLoaded(wc, `刷新到URL`);
         wc.loadURL(targetUrl);
@@ -683,7 +664,7 @@ function createTabManager(deps = {}) {
       const wc = getActiveWC();
       if (wc) {
         const rawUrl = String(wc.getURL() || '');
-        const currentUrl = normalizeOpenCutProjectsUrl(rawUrl);
+        const currentUrl = rawUrl;
         logger.log?.('刷新', '刷新当前激活标签页 (忽略缓存) ->', currentUrl);
         await ensureTranslateExtensionLoaded(wc, '刷新当前标签页');
         if (currentUrl && currentUrl !== rawUrl) {
@@ -717,7 +698,7 @@ function createTabManager(deps = {}) {
       logger.log?.('刷新', `刷新指定标签页 -> ${tabId}`);
       await ensureTranslateExtensionLoaded(wc, `刷新标签 ${tabId}`);
       const rawUrl = String(wc.getURL() || '');
-      const currentUrl = normalizeOpenCutProjectsUrl(rawUrl);
+      const currentUrl = (rawUrl);
       if (currentUrl && currentUrl !== rawUrl) {
         wc.loadURL(currentUrl);
       } else {

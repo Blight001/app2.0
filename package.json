@@ -107,7 +107,6 @@
     "asar": {
       "smartUnpack": true
     },
-    "afterPack": "scripts/windows/after-pack-win-icon.js",
     "asarUnpack": [
       "src/assets/extensions/transform/**"
     ],

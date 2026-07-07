@@ -321,46 +321,6 @@ function registerLicenseIPC(ctx) {
     };
   };
 
-// 启动/打开/显示：openAiCanvasProPage的具体业务逻辑。
-  const openAiCanvasProPage = async () => {
-    try {
-      if (ui && typeof ui.openAiCanvasProPage === 'function') {
-        return await ui.openAiCanvasProPage();
-      }
-      if (ui && typeof ui.getTabs === 'function' && typeof ui.addTab === 'function') {
-        const targetUrl = 'http://127.0.0.1:8777/';
-        const tabs = ui.getTabs();
-        for (const tab of tabs.values()) {
-          try {
-            const currentUrl = String(tab?.view?.webContents?.getURL?.() || '').trim().toLowerCase();
-            if (String(tab?.partition || '') === 'persist:ai-canvas-pro'
-              || currentUrl.startsWith('http://127.0.0.1:8777/')
-              || currentUrl.startsWith('https://127.0.0.1:8777/')
-              || currentUrl.startsWith('http://localhost:8777/')
-              || currentUrl.startsWith('https://localhost:8777/')) {
-              if (typeof ui.switchTab === 'function' && tab?.id) {
-                ui.switchTab(tab.id);
-              }
-              return { ok: true, tabId: tab?.id || null, targetUrl, alreadyOpen: true };
-            }
-          } catch (_) {}
-        }
-        const tabId = await ui.addTab(targetUrl, {
-          partition: 'persist:ai-canvas-pro',
-          browserSettings: {
-            locale: 'zh-CN',
-            acceptLanguage: 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-          },
-        });
-        return { ok: true, tabId, targetUrl, alreadyOpen: false };
-      }
-      return { ok: false, message: '标签页功能不可用' };
-    } catch (error) {
-      console.warn('[验证] 打开 AI-CanvasPro 页面失败:', error?.message || error);
-      return { ok: false, message: error?.message || String(error) };
-    }
-  };
-
   const resolveRuntimeConnectionConfig = (source = {}) => {
     const runtimeConfig = typeof source === 'object' && source !== null
       ? source

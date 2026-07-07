@@ -70,12 +70,10 @@ function registerAppLifecycle(deps = {}) {
     licenseCache,
     bootstrapMainApp,
     createLicenseWindow,
-    ensureRegistrationWebBackend,
     sendToSide,
     cleanupAllBrowserSessionData,
     cleanupBrowserPartitionsRootDir,
     cleanupUpdateStorageRoot,
-    stopRegistrationApp,
     shortcutManager,
     createDevConsoleWindow,
     isDevMode = false,
@@ -100,18 +98,6 @@ function registerAppLifecycle(deps = {}) {
     cleanupClashMiniRuntimeConfig,
     getClashMiniRuntimeRoot,
   } = require('../ipc/register/clash-mini-core');
-  const startAiCanvasProServer = typeof deps.startAiCanvasProServer === 'function'
-    ? deps.startAiCanvasProServer
-    : null;
-  const stopAiCanvasProServer = typeof deps.stopAiCanvasProServer === 'function'
-    ? deps.stopAiCanvasProServer
-    : async () => ({ ok: true, stopped: false });
-  const startToonflowServer = typeof deps.startToonflowServer === 'function'
-    ? deps.startToonflowServer
-    : null;
-  const stopToonflowServer = typeof deps.stopToonflowServer === 'function'
-    ? deps.stopToonflowServer
-    : async () => ({ ok: true, stopped: false });
 
   app.whenReady().then(async () => {
     if (isDevMode && typeof createDevConsoleWindow === 'function') {
@@ -130,32 +116,6 @@ function registerAppLifecycle(deps = {}) {
       } catch (e) {
         logger.warn?.('[启动] 预创建首屏卡密窗口失败:', e?.message || e);
       }
-    }
-
-    try {
-      if (typeof startAiCanvasProServer === 'function') {
-        const result = startAiCanvasProServer(logger);
-        if (result && result.ok === false) {
-          if (result.missing) {
-            logger.log?.('[启动] AI-CanvasPro 拓展未安装，已跳过后台服务启动');
-          } else {
-            logger.warn?.('[启动] AI-CanvasPro 后台服务启动失败:', result.error || result.message || 'unknown');
-          }
-        }
-      }
-    } catch (e) {
-      logger.warn?.('[启动] 启动 AI-CanvasPro 后台服务异常:', e?.message || e);
-    }
-
-    try {
-      if (typeof startToonflowServer === 'function') {
-        const result = startToonflowServer(logger);
-        if (result && result.ok === false) {
-          logger.warn?.('[启动] Toonflow 后台服务启动失败:', result.error || result.message || 'unknown');
-        }
-      }
-    } catch (e) {
-      logger.warn?.('[启动] 启动 Toonflow 后台服务异常:', e?.message || e);
     }
 
     setImmediate(() => {
@@ -320,12 +280,7 @@ function registerAppLifecycle(deps = {}) {
               message: resolved.data.message || '卡密有效',
             });
           }
-          try {
-            await stopRegistrationApp(logger);
-            void deps.ensureRegistrationWebBackend?.();
-          } catch (registrationErr) {
-            logger.warn?.('[启动] 卡密搜索成功后刷新注册器 TCP 配置失败:', registrationErr?.message || registrationErr);
-          }
+
         }
 
         if (licenseCache && typeof licenseCache.setCredentials === 'function') {
@@ -436,7 +391,6 @@ function registerAppLifecycle(deps = {}) {
       logger.log?.('[启动] 调试模式：跳过首屏卡密窗口，直接进入主界面');
       try {
         await bootstrapMainApp();
-        void deps.ensureRegistrationWebBackend?.();
       } catch (e) {
         logger.warn?.('[启动] 调试模式直接进入主界面失败:', e?.message || e);
         createLicenseWindow();
@@ -556,20 +510,6 @@ function registerAppLifecycle(deps = {}) {
             logger.warn?.('[退出] 启动待安装更新包失败:', error?.message || error);
           }
 
-          const stopTimeout = (promise, label, timeoutMs = 1800) => Promise.race([
-            Promise.resolve(promise).catch((error) => {
-              logger.warn?.(`[退出] ${label} 停止失败:`, error?.message || error);
-              return { ok: false, error: error?.message || String(error) };
-            }),
-            new Promise((resolve) => setTimeout(() => resolve({ ok: false, timeout: true }), timeoutMs)),
-          ]);
-          await stopTimeout(stopAiCanvasProServer(logger), 'AI-CanvasPro');
-          await stopTimeout(stopToonflowServer(logger), 'Toonflow');
-          await stopTimeout(stopRegistrationApp(logger), 'Registration');
-        } else {
-          await stopAiCanvasProServer(logger);
-          await stopToonflowServer(logger);
-          await stopRegistrationApp(logger);
         }
         app.exit(0);
       }

@@ -38,9 +38,9 @@ Current package version: `2.5.7`
 - `src/app/main/ipc/`: IPC registration and handlers
 - `src/app/views/`: app shell and license pages
 - `src/app/side/`: standalone side panel page, controllers, and styles
-- `src/assets/extensions/`: bundled extensions such as `remove_watermark`, `clash-mini`, `AI-CanvasPro`, `transform`, and `Toonflow-app`
+- `src/assets/extensions/`: bundled extensions such as `remove_watermark`, `clash-mini`, `transform`
 - `scripts/run-electron.js`: Electron launch wrapper
-- `scripts/ensure-registration-bridge.js`: syncs the registration bridge workspace before launch/build
+
 
 ## Requirements
 
