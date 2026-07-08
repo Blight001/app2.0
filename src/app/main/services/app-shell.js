@@ -15,8 +15,6 @@ function createAppShell(deps = {}) {
     logger = console,
     FIXED_ICON_RELATIVE_PATH,
     APP_DISPLAY_NAME,
-    EXT_DIR,
-    EXT_CORE_PATH,
     state,
     auth,
     createAuthCookie,
@@ -24,8 +22,6 @@ function createAppShell(deps = {}) {
     loadTranslateExtension,
     attachContextMenu,
     initDownloadPrefs,
-    injectRemoveWatermarkCore,
-    ensureRemoveWmCoreLoaded,
     injectZoomWheelListener,
     checkDesktopShortcutAndPrompt,
     initializeAccountCleanup,
@@ -62,7 +58,7 @@ function createAppShell(deps = {}) {
     getRefreshTab,
     getOpenExtensionPopup,
     getOpenExtensionOptions,
-    getForceRemoveWatermark,
+    extensionManager,
     updateTabs,
     getActiveWC,
     toggleSidebar,
@@ -193,8 +189,6 @@ function createAppShell(deps = {}) {
   const resolveOpenExtensionPopup = () => (typeof getOpenExtensionPopup === 'function' ? getOpenExtensionPopup() : null);
 // 获取/读取/解析：resolveOpenExtensionOptions的具体业务逻辑。
   const resolveOpenExtensionOptions = () => (typeof getOpenExtensionOptions === 'function' ? getOpenExtensionOptions() : null);
-// 获取/读取/解析：resolveForceRemoveWatermark的具体业务逻辑。
-  const resolveForceRemoveWatermark = () => (typeof getForceRemoveWatermark === 'function' ? getForceRemoveWatermark() : null);
 // 获取/读取/解析：resolveAuth的具体业务逻辑。
   const resolveAuth = () => (typeof getAuth === 'function' ? getAuth() : auth);
 // 获取/读取/解析：resolveGlobalTcpClient的具体业务逻辑。
@@ -537,11 +531,14 @@ function createAppShell(deps = {}) {
     }
 
     try {
-      // 去水印插件默认打开，翻译插件默认关闭
-      applyPluginSettings({ removeWatermarkEnabled: true, translateExtEnabled: false });
+      if (extensionManager && typeof extensionManager.initialize === 'function') {
+        await extensionManager.initialize();
+      } else {
+        applyPluginSettings({ translateExtEnabled: false });
+      }
     } catch (e) {
       logger.warn?.('[启动] 初始化插件开关失败，使用默认值:', e?.message || e);
-      applyPluginSettings({ removeWatermarkEnabled: true, translateExtEnabled: false });
+      applyPluginSettings({ translateExtEnabled: false });
     }
 
     try {
@@ -566,6 +563,8 @@ function createAppShell(deps = {}) {
         getDreamTargetUrl: () => getDreamTargetUrl(),
         http: { postJson: deps.postJson, getJson: deps.getJson, httpGetUniversal: deps.httpGetUniversal },
         tcp: resolveGlobalTcpClient(),
+        extensionManager,
+        loadTranslateExtension,
         ui: {
           addTab: resolveAddTab(),
           switchTab: resolveSwitchTab(),
@@ -587,9 +586,9 @@ function createAppShell(deps = {}) {
           getMainWindow: () => resolveMainWindow(),
           openExtensionPopup: resolveOpenExtensionPopup(),
           openExtensionOptions: resolveOpenExtensionOptions(),
-          forceRemoveWatermark: resolveForceRemoveWatermark(),
           backToLicenseWindow,
           applyPluginSettings,
+          extensionManager,
           statePluginGetter,
           setRuntimeTcpConfig,
           setRuntimeServerBase,
@@ -721,7 +720,6 @@ function createAppShell(deps = {}) {
       logger.warn?.('[启动] 后台初始化任务失败:', e?.message || e);
     });
 
-    ensureRemoveWmCoreLoaded().catch(() => {});
     initDownloadPrefs();
 
     const tcpClient = resolveGlobalTcpClient();
@@ -788,18 +786,6 @@ function createAppShell(deps = {}) {
     attachContextMenu(sideView.webContents, { addTab: resolveAddTab(), downloadOrSaveMedia: deps.downloadOrSaveMedia, tabs: resolveTabs(), activeTabId: resolveActiveTabId(), refreshPage: resolveRefreshActiveTab() });
 
     try { auth.applyZhHantRequestPrefs(sideView.webContents.session, sideView.webContents); } catch (_) {}
-    if (statePluginGetter().removeWatermarkEnabled) {
-      try {
-        sideView.webContents.session.extensions.loadExtension(EXT_DIR, { allowFileAccess: true })
-          .then((ext) => {
-            try { extIdBySession.set(sideView.webContents.session, ext && ext.id); } catch (_) {}
-            logger.log?.('扩展已加载到侧栏会话:', ext && ext.name, ext && ext.id);
-          })
-          .catch((err) => logger.warn?.('扩展加载失败(侧栏):', err && (err.message || err)));
-      } catch (_) {}
-    } else {
-      logger.log?.('[RemoveWM] 去水印功能已关闭，跳过侧栏扩展加载');
-    }
 
     sideView.webContents.on('console-message', (details) => {
       if (!details || typeof details !== 'object') return;

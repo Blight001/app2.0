@@ -96,7 +96,8 @@
       "smartUnpack": true
     },
     "asarUnpack": [
-      "src/assets/extensions/transform/**"
+      "src/assets/extensions/transform/**",
+      "src/assets/extensions/remove_watermark/**"
     ],
     "compression": "maximum",
     "electronLanguages": [

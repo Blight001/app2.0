@@ -1,46 +1,4 @@
-const fs = require('fs');
-const path = require('path');
 const { Menu, BrowserWindow, globalShortcut, clipboard } = require('electron');
-
-// Chrome 扩展：去水印插件目录
-const EXT_DIR = path.join(__dirname, '../../../assets/extensions/remove_watermark');
-const EXT_CORE_PATH = path.join(EXT_DIR, 'EDzMc92pfi.js');
-const EXT_PAGE_CORE_PATH = path.join(EXT_DIR, 'page-core.js');
-
-// 去水印总开关（支持运行时更新）
-let removeWatermarkEnabled = false;
-
-// 去水印核心脚本缓存，避免每个标签页重复同步读盘
-let removeWmCoreCode = null;
-let removeWmCoreLoadPromise = null;
-let removeWmPageCoreCode = null;
-let removeWmPageCoreLoadPromise = null;
-
-// 在模块加载时预加载核心脚本
-(async function preloadCoreScript() {
-  if (!removeWatermarkEnabled) {
-    console.log('[RemoveWM] 去水印功能已关闭，跳过核心脚本预加载');
-    return;
-  }
-  try {
-    console.log('[RemoveWM] 开始预加载核心脚本...');
-    await ensureRemoveWmCoreLoaded();
-    console.log('[RemoveWM] 核心脚本预加载完成');
-  } catch (e) {
-    console.warn('[RemoveWM] 预加载核心脚本失败:', e?.message || e);
-  }
-})();
-
-// 已注入页面的跟踪，避免重复注入和日志输出
-const injectedPages = new WeakSet();
-
-// 配置选项
-const CONFIG = {
-  // 是否启用延迟注入（只在需要时注入）
-  lazyInjection: true,
-  // 延迟注入的触发条件（毫秒）
-  lazyInjectionDelay: 1000
-};
 
 // 全局快捷键管理器
 const shortcutManager = {
@@ -107,127 +65,7 @@ const shortcutManager = {
 };
 
 // 清除页面的注入记录，允许重新注入（用于页面刷新等场景）
-function clearInjectionRecord(wc) {
-  injectedPages.delete(wc);
-}
-
-// 延迟注入去水印核心脚本（在页面加载后延迟执行）
-function scheduleLazyInjection(wc) {
-  if (!CONFIG.lazyInjection) {
-    // 如果不启用延迟注入，直接注入
-    injectRemoveWatermarkCore(wc);
-    return;
-  }
-
-  // 延迟注入，避免影响页面初始加载性能
-  setTimeout(() => {
-    if (!wc || wc.isDestroyed()) return;
-    injectRemoveWatermarkCore(wc);
-  }, CONFIG.lazyInjectionDelay);
-}
-
-// 校验/保护：ensureRemoveWmCoreLoaded的具体业务逻辑。
-async function ensureRemoveWmCoreLoaded() {
-  if (!removeWatermarkEnabled) return '';
-  if (removeWmCoreCode && typeof removeWmCoreCode === 'string') return removeWmCoreCode;
-  if (!removeWmCoreLoadPromise) {
-    removeWmCoreLoadPromise = fs.promises.readFile(EXT_CORE_PATH, 'utf8')
-      .then(code => {
-        removeWmCoreCode = code || '';
-        return removeWmCoreCode;
-      })
-      .catch(e => {
-        console.warn('[RemoveWM] 读取核心脚本失败:', e?.message || e);
-        return '';
-      });
-  }
-  return removeWmCoreLoadPromise;
-}
-
-// 校验/保护：ensureRemoveWmPageCoreLoaded的具体业务逻辑。
-async function ensureRemoveWmPageCoreLoaded() {
-  if (!removeWatermarkEnabled) return '';
-  if (removeWmPageCoreCode && typeof removeWmPageCoreCode === 'string') return removeWmPageCoreCode;
-  if (!removeWmPageCoreLoadPromise) {
-    removeWmPageCoreLoadPromise = fs.promises.readFile(EXT_PAGE_CORE_PATH, 'utf8')
-      .then((code) => {
-        removeWmPageCoreCode = code || '';
-        return removeWmPageCoreCode;
-      })
-      .catch((e) => {
-        console.warn('[RemoveWM] 读取页面处理脚本失败:', e?.message || e);
-        return '';
-      });
-  }
-  return removeWmPageCoreLoadPromise;
-}
-
-// 强制注入去水印核心脚本（绕过 MV3 service_worker 依赖）
-async function injectRemoveWatermarkCore(wc) {
-  if (!removeWatermarkEnabled) return;
-  try {
-    if (!wc || wc.isDestroyed()) return;
-
-    // 检查是否已经注入过，避免重复注入
-    if (injectedPages.has(wc)) return;
-    injectedPages.add(wc);
-
-    const [coreCode, pageCoreCode] = await Promise.all([
-      ensureRemoveWmCoreLoaded(),
-      ensureRemoveWmPageCoreLoaded(),
-    ]);
-
-    if (!coreCode && !pageCoreCode) return;
-
-    const combinedScript = `
-      (function() {
-        try {
-          localStorage.setItem('__SP_COPY__', JSON.stringify({ origin: true, expire: null }));
-          localStorage.setItem('__SP_CONTEXT_MENU_TYPE__', JSON.stringify({ origin: true, expire: null }));
-          localStorage.setItem('__SP_KEYBOARD_TYPE__', JSON.stringify({ origin: true, expire: null }));
-
-          ${coreCode || ''}
-          ${pageCoreCode || ''}
-
-// 处理：send的具体业务逻辑。
-          const send = (type) => window.dispatchEvent(new CustomEvent('lah2AqVqxG', { detail: JSON.stringify({ type, payload: 'START' }) }));
-          send('__COPY_TYPE__CI__');
-          send('__KEYBOARD_TYPE__CI__');
-          send('__CONTEXT_MENU_TYPE__CI__');
-
-          return true;
-        } catch (e) {
-          console.warn('[RemoveWM] 注入执行失败:', e?.message || e);
-          return false;
-        }
-      })();
-    `;
-
-    await wc.executeJavaScript(combinedScript, true);
-    console.log('[RemoveWM] 已注入去水印脚本');
-  } catch (e) {
-    console.warn('[RemoveWM] 注入失败:', e?.message || e);
-  }
-}
-
-// 强制去水印（当前激活页）：注入插件核心 + 页面处理脚本
-async function forceRemoveWatermark(wc, immediate = false) {
-  if (!removeWatermarkEnabled) return false;
-  try {
-    if (!wc || wc.isDestroyed()) return false;
-
-    // 如果需要立即注入，则直接注入；否则使用延迟注入
-    if (immediate) {
-      await injectRemoveWatermarkCore(wc);
-    } else {
-      scheduleLazyInjection(wc);
-    }
-    return true;
-  } catch (e) {
-    console.warn('[RemoveWM] 强制去水印失败:', e?.message || e);
-    return false;
-  }
-}
+function clearInjectionRecord() {}
 
 // 右键菜单功能 - 使用传统原生菜单
 function attachContextMenu(wc, dependencies = {}) {
@@ -440,25 +278,7 @@ function extFromUrl(u) {
 }
 
 module.exports = {
-  get removeWatermarkEnabled() {
-    return removeWatermarkEnabled;
-  },
-  setRemoveWatermarkEnabled: (enabled) => {
-    removeWatermarkEnabled = !!enabled;
-    if (removeWatermarkEnabled) {
-      ensureRemoveWmCoreLoaded().catch(() => {});
-    }
-  },
-  EXT_DIR,
-  EXT_CORE_PATH,
-  EXT_PAGE_CORE_PATH,
-  ensureRemoveWmCoreLoaded,
-  ensureRemoveWmPageCoreLoaded,
-  injectRemoveWatermarkCore,
-  forceRemoveWatermark,
   attachContextMenu,
   clearInjectionRecord,
-  scheduleLazyInjection,
-  CONFIG,
   shortcutManager
 };

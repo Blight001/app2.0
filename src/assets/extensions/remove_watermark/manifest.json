@@ -23,7 +23,9 @@
         "file://*/*"
       ],
       "js": [
-        "./content.js"
+        "./content.js",
+        "auto-enable.js",
+        "page-core.js"
       ],
       "run_at": "document_start",
       "all_frames": true

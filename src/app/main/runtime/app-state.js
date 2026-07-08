@@ -1,5 +1,5 @@
 // 创建/初始化：createAppState的具体业务逻辑。
-function createAppState({ setRemoveWatermarkEnabled = () => {} } = {}) {
+function createAppState() {
   const tabs = new Map();
 
   const state = {
@@ -24,13 +24,18 @@ function createAppState({ setRemoveWatermarkEnabled = () => {} } = {}) {
 
 // 设置/更新/持久化：applyPluginSettings的具体业务逻辑。
   function applyPluginSettings(partial = {}) {
-    const nextRemoveWatermarkEnabled = partial.removeWatermarkEnabled === true;
-    const nextTranslateExtEnabled = partial.translateExtEnabled === true;
+    const hasRemoveWatermark = Object.prototype.hasOwnProperty.call(partial, 'removeWatermarkEnabled');
+    const hasTranslateExt = Object.prototype.hasOwnProperty.call(partial, 'translateExtEnabled');
+    const nextRemoveWatermarkEnabled = hasRemoveWatermark
+      ? partial.removeWatermarkEnabled === true
+      : state.pluginSettings.removeWatermarkEnabled === true;
+    const nextTranslateExtEnabled = hasTranslateExt
+      ? partial.translateExtEnabled === true
+      : state.pluginSettings.translateExtEnabled === true;
     state.pluginSettings = {
       removeWatermarkEnabled: nextRemoveWatermarkEnabled,
       translateExtEnabled: nextTranslateExtEnabled,
     };
-    setRemoveWatermarkEnabled(nextRemoveWatermarkEnabled);
     return state.pluginSettings;
   }
 

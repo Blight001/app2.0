@@ -119,23 +119,12 @@
             </div>
           </div>
 
+          <button id="import-extension-btn" class="main-button btn-large-teal extension-import-btn" type="button">导入插件</button>
+
           <button id="start-clash-mini-btn" class="main-button btn-large-teal" data-loading-text="启动中..." hidden>启动 Clash Mini</button>
           
           <div class="plugin-switch-group">
-            <div class="plugin-switch-row">
-              <span class="plugin-switch-label">去水印插件  (右键视频图片直接下载)</span>
-              <label class="plugin-switch">
-                <input type="checkbox" id="remove-watermark-switch" />
-                <span class="plugin-switch-slider"></span>
-              </label>
-            </div>
-            <div class="plugin-switch-row">
-              <span class="plugin-switch-label">翻译插件  (点击网页右侧粉色按钮翻译)</span>
-              <label class="plugin-switch">
-                <input type="checkbox" id="translate-ext-switch" />
-                <span class="plugin-switch-slider"></span>
-              </label>
-            </div>
+            <div id="extension-plugin-list" class="extension-plugin-list" aria-live="polite"></div>
           </div>
 
           <!-- 公告栏 -->

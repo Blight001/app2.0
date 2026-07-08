@@ -5,6 +5,7 @@ const { registerLicenseIPC } = require('./register/license');
 const { registerMiscIPC } = require('./register/misc');
 const { registerSettingsIPC } = require('./register/settings');
 const { registerUiIPC } = require('./register/ui');
+const { registerExtensionsIPC } = require('./register/extensions');
 
 // 同步/连接：patchUniqueIpcRegistration的具体业务逻辑。
 function patchUniqueIpcRegistration() {
@@ -31,6 +32,7 @@ function registerIPC(ctx) {
 
   registerLicenseIPC(ctx);
   registerUiIPC(ctx);
+  registerExtensionsIPC(ctx);
   registerMiscIPC(ctx);
   registerSettingsIPC(ctx);
   registerClashIPC(ctx);

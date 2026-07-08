@@ -30,7 +30,7 @@ const { stopClashMiniProcess } = require('./ipc/register/clash-mini-core');
 
 // 功能模块
 const { initDownloadPrefs, downloadOrSaveMedia } = require('./utils/download');
-const { setRemoveWatermarkEnabled, ensureRemoveWmCoreLoaded, injectRemoveWatermarkCore, forceRemoveWatermark, EXT_DIR, EXT_CORE_PATH, attachContextMenu, clearInjectionRecord, shortcutManager } = require('./utils/removeWatermark');
+const { attachContextMenu, clearInjectionRecord, shortcutManager } = require('./utils/removeWatermark');
 const { injectZoomWheelListener } = require('./utils/zoom');
 const { checkDesktopShortcutAndPrompt } = require('./utils/shortcut');
 const { resolveAppIconPath } = require('./utils/app-icon');
@@ -43,6 +43,7 @@ const { createTabManager } = require('./services/tab-manager');
 const { createLicenseStore } = require('./services/license-store');
 const { createTabHelpers } = require('./services/tab-helpers');
 const { createRuntimeHelpers } = require('./services/runtime-helpers');
+const { createExtensionManager } = require('./services/extension-manager');
 const { buildTabBrowserPreferences, configureTabBrowserView, resolveTabBrowserProfile, applyTabBrowserProxy } = require('./utils/browser-disguise');
 
 // 放宽证书（避免部分环境下自签/中间证书导致的验证失败）
@@ -60,9 +61,7 @@ acquireSingleInstance({
 });
 
 // ---- 全局状态 ----
-const appRuntime = createAppState({
-  setRemoveWatermarkEnabled,
-});
+const appRuntime = createAppState();
   const licenseCache = createLicenseCache();
   runtimeLicenseCache = licenseCache;
   if (typeof accountStorage.setLicenseCache === 'function') {
@@ -209,9 +208,30 @@ const {
 } = tabHelpers;
 
 const {
+  getTranslateExtDir,
   loadTranslateExtension,
   computeDeviceId,
 } = runtimeHelpers;
+
+const extensionManager = createExtensionManager({
+  app,
+  fs,
+  path,
+  BrowserWindow,
+  dialog,
+  logger: console,
+  getStorePath,
+  getTranslateExtDir,
+  getTabs: () => tabs,
+  getActiveTabId: appRuntime.getActiveTabId,
+  getActiveWC,
+  getMainWindow: appRuntime.getMainWindow,
+  getExtPopupWin: appRuntime.getExtPopupWin,
+  setExtPopupWin: appRuntime.setExtPopupWin,
+  cleanupBrowserSessionData,
+  applyPluginSettings,
+  sendToSide,
+});
 
 // 注意：服务器→客户端的 TCP 推送已移除（公告现由客户端轮询）。
 
@@ -323,8 +343,6 @@ const appShellDeps = {
   FIXED_ICON_RELATIVE_PATH,
   resolveAppIconPath,
   APP_DISPLAY_NAME,
-  EXT_DIR,
-  EXT_CORE_PATH,
   state,
   createAuthCookie,
   createTcpClient,
@@ -332,8 +350,6 @@ const appShellDeps = {
   loadTranslateExtension,
   attachContextMenu,
   initDownloadPrefs,
-  injectRemoveWatermarkCore,
-  ensureRemoveWmCoreLoaded,
   injectZoomWheelListener,
   checkDesktopShortcutAndPrompt,
   initializeAccountCleanup,
@@ -366,7 +382,6 @@ const appShellDeps = {
   getRefreshTab: () => refreshTab,
   getOpenExtensionPopup: () => openExtensionPopup,
   getOpenExtensionOptions: () => openExtensionOptions,
-  getForceRemoveWatermark: () => forceRemoveWatermark,
   updateTabs,
   getActiveWC,
   toggleSidebar,
@@ -419,7 +434,6 @@ const appShellDeps = {
   getJson,
   downloadOrSaveMedia,
   dialog,
-  forceRemoveWatermark,
   refreshActiveTabToUrl,
   refreshActiveTab,
   refreshTab,
@@ -429,6 +443,7 @@ const appShellDeps = {
   openExtensionOptions,
   closeTab,
   loadTranslateExtension,
+  extensionManager,
   createDevConsoleWindow: () => appShell.createDevConsoleWindow?.(),
   isDevMode,
 };
@@ -450,13 +465,12 @@ const tabManager = createTabManager({
   fs,
   logger: console,
   state,
-  EXT_DIR,
-  injectRemoveWatermarkCore,
   injectZoomWheelListener,
   clearInjectionRecord,
   attachContextMenu,
   downloadOrSaveMedia,
   loadTranslateExtension,
+  extensionManager,
   cleanupBrowserSessionData,
   getStorePath,
   getTabs: () => tabs,

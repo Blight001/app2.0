@@ -37,17 +37,21 @@ function setNetworkMagicAutoStartEnabledSafe(enabled) {
 // 监听/绑定：registerSettingsIPC的具体业务逻辑。
 function registerSettingsIPC(ctx) {
   const { ui, computeDeviceId, licenseCache } = ctx;
+  const extensionManager = ctx.extensionManager || ui?.extensionManager || null;
 
   ipcMain.handle('get-plugin-settings', async () => {
     try {
       const pluginState = typeof ui?.statePluginGetter === 'function'
         ? ui.statePluginGetter()
         : {};
+      const translateExtEnabled = extensionManager && typeof extensionManager.isPluginEnabled === 'function'
+        ? extensionManager.isPluginEnabled(extensionManager.BUILTIN_TRANSLATE_ID)
+        : pluginState.translateExtEnabled === true;
       return {
         ok: true,
         settings: {
           removeWatermarkEnabled: pluginState.removeWatermarkEnabled === true,
-          translateExtEnabled: pluginState.translateExtEnabled === true,
+          translateExtEnabled,
         },
       };
     } catch (error) {
@@ -62,9 +66,18 @@ function registerSettingsIPC(ctx) {
 
   ipcMain.handle('set-plugin-settings', async (_event, payload = {}) => {
     try {
+      const currentSettings = typeof ui?.statePluginGetter === 'function'
+        ? ui.statePluginGetter()
+        : {};
+      const hasRemoveWatermark = Object.prototype.hasOwnProperty.call(payload || {}, 'removeWatermarkEnabled');
+      const hasTranslateExt = Object.prototype.hasOwnProperty.call(payload || {}, 'translateExtEnabled');
       const nextSettings = {
-        removeWatermarkEnabled: payload.removeWatermarkEnabled === true,
-        translateExtEnabled: payload.translateExtEnabled === true,
+        removeWatermarkEnabled: hasRemoveWatermark
+          ? payload.removeWatermarkEnabled === true
+          : currentSettings.removeWatermarkEnabled === true,
+        translateExtEnabled: hasTranslateExt
+          ? payload.translateExtEnabled === true
+          : currentSettings.translateExtEnabled === true,
       };
 
       try {
@@ -75,9 +88,15 @@ function registerSettingsIPC(ctx) {
         console.warn('[IPC] 应用插件开关到运行时失败:', e?.message || e);
       }
 
-      if (nextSettings.translateExtEnabled === true && typeof ctx.loadTranslateExtension === 'function') {
+      if (hasTranslateExt && extensionManager && typeof extensionManager.setPluginEnabled === 'function') {
         try {
-          const tabs = typeof ctx.getTabs === 'function' ? ctx.getTabs() : null;
+          await extensionManager.setPluginEnabled(extensionManager.BUILTIN_TRANSLATE_ID, nextSettings.translateExtEnabled === true);
+        } catch (e) {
+          console.warn('[IPC] 更新翻译插件开关失败:', e?.message || e);
+        }
+      } else if (nextSettings.translateExtEnabled === true && typeof ctx.loadTranslateExtension === 'function') {
+        try {
+          const tabs = typeof ui?.getTabs === 'function' ? ui.getTabs() : null;
           const entries = tabs && typeof tabs.values === 'function' ? Array.from(tabs.values()) : [];
           await Promise.all(entries.map(async (tab, index) => {
             const wc = tab?.view?.webContents;
@@ -88,22 +107,6 @@ function registerSettingsIPC(ctx) {
           }));
         } catch (e) {
           console.warn('[IPC] 翻译扩展加载到现有标签页失败:', e?.message || e);
-        }
-      }
-
-      if (nextSettings.removeWatermarkEnabled === true && ctx.ui && typeof ctx.ui.forceRemoveWatermark === 'function') {
-        try {
-          const tabs = typeof ctx.ui.getTabs === 'function' ? ctx.ui.getTabs() : null;
-          const entries = tabs && typeof tabs.values === 'function' ? Array.from(tabs.values()) : [];
-          await Promise.all(entries.map(async (tab) => {
-            const wc = tab?.view?.webContents;
-            if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) {
-              return;
-            }
-            await ctx.ui.forceRemoveWatermark(wc, true);
-          }));
-        } catch (e) {
-          console.warn('[IPC] 去水印脚本加载到现有标签页失败:', e?.message || e);
         }
       }
 

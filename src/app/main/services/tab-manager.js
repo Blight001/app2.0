@@ -15,13 +15,12 @@ function createTabManager(deps = {}) {
     fs,
     logger = console,
     state,
-    EXT_DIR,
-    injectRemoveWatermarkCore,
     injectZoomWheelListener,
     clearInjectionRecord,
     attachContextMenu,
     downloadOrSaveMedia,
     loadTranslateExtension,
+    extensionManager,
     cleanupBrowserSessionData,
     getStorePath,
     getTabs,
@@ -60,13 +59,17 @@ function createTabManager(deps = {}) {
   const resolveAuth = () => (typeof getAuth === 'function' ? getAuth() : null);
 // 获取/读取/解析：resolveIsSidebarVisible的具体业务逻辑。
   const resolveIsSidebarVisible = () => (typeof getIsSidebarVisible === 'function' ? getIsSidebarVisible() : true);
-// 校验/保护：ensureTranslateExtensionLoaded的具体业务逻辑。
-  const ensureTranslateExtensionLoaded = async (wc, label = '') => {
-    if (!state?.pluginSettings?.translateExtEnabled) {
-      logger.log?.('[TranslateExt] 翻译功能已关闭，跳过扩展加载');
+// 校验/保护：ensureManagedExtensionsLoaded的具体业务逻辑。
+  const ensureManagedExtensionsLoaded = async (wc, label = '') => {
+    if (!wc || wc.isDestroyed()) {
       return false;
     }
-    if (!wc || wc.isDestroyed()) {
+    if (extensionManager && typeof extensionManager.loadEnabledIntoSession === 'function') {
+      await extensionManager.loadEnabledIntoSession(wc.session, label);
+      return true;
+    }
+    if (!state?.pluginSettings?.translateExtEnabled) {
+      logger.log?.('[TranslateExt] 翻译功能已关闭，跳过扩展加载');
       return false;
     }
     await loadTranslateExtension(wc.session, label);
@@ -318,35 +321,8 @@ function createTabManager(deps = {}) {
 
     try { resolveAuth()?.applyZhHantRequestPrefs(newView.webContents.session, newView.webContents); } catch (_) {}
 
-    if (state?.pluginSettings?.removeWatermarkEnabled) {
-      try {
-        const ext = await newView.webContents.session.extensions.loadExtension(EXT_DIR, { allowFileAccess: true });
-        try { deps.extIdBySession?.set(newView.webContents.session, ext && ext.id); } catch (_) {}
-        logger.log?.('扩展已加载到标签会话:', ext && ext.name, ext && ext.id);
-      } catch (err) {
-        const msg = err && (err.message || String(err));
-        if (msg && /already loaded|exists/i.test(msg)) {
-          try {
-            const all = newView.webContents.session.getAllExtensions ? newView.webContents.session.getAllExtensions() : null;
-            const list = all ? Object.values(all) : [];
-            if (list && list.length > 0) {
-              const ext = list[0];
-              try { deps.extIdBySession?.set(newView.webContents.session, ext && ext.id); } catch (_) {}
-              logger.log?.('已从会话扩展列表获取扩展ID:', ext && ext.name, ext && ext.id);
-            }
-          } catch (e2) {
-            logger.warn?.('读取扩展ID失败:', e2?.message || e2);
-          }
-        } else {
-          logger.warn?.('扩展加载失败(标签):', msg);
-        }
-      }
-    } else {
-      logger.log?.('[RemoveWM] 去水印功能已关闭，跳过标签扩展加载');
-    }
-
     try {
-      await ensureTranslateExtensionLoaded(newView.webContents, `标签 ${newTabId}`);
+      await ensureManagedExtensionsLoaded(newView.webContents, `标签 ${newTabId}`);
     } catch (_) {}
 
     newView.webContents.setWindowOpenHandler(({ url: childUrl }) => {
@@ -371,9 +347,6 @@ function createTabManager(deps = {}) {
         lastUrl: newView.webContents.getURL(),
       });
       newView.webContents.insertCSS('::-webkit-scrollbar { display: none; }');
-      if (state?.pluginSettings?.removeWatermarkEnabled) {
-        injectRemoveWatermarkCore(newView.webContents);
-      }
       injectZoomWheelListener(newView.webContents);
     });
 
@@ -401,9 +374,6 @@ function createTabManager(deps = {}) {
       updateTabLoadState({
         lastUrl: newView.webContents.getURL(),
       });
-      if (state?.pluginSettings?.removeWatermarkEnabled) {
-        injectRemoveWatermarkCore(newView.webContents);
-      }
       injectZoomWheelListener(newView.webContents);
       if (fixedTitle) {
         try { newView.webContents.setTitle(fixedTitle); } catch (_) {}
@@ -645,7 +615,7 @@ function createTabManager(deps = {}) {
       if (wc) {
         const targetUrl = url;
         logger.log?.('刷新', `将当前激活标签页强制刷新到 -> ${targetUrl}`);
-        await ensureTranslateExtensionLoaded(wc, `刷新到URL`);
+        await ensureManagedExtensionsLoaded(wc, `刷新到URL`);
         wc.loadURL(targetUrl);
         sendToSide('active-tab-refreshed', { ok: true, url: targetUrl });
       } else {
@@ -666,7 +636,7 @@ function createTabManager(deps = {}) {
         const rawUrl = String(wc.getURL() || '');
         const currentUrl = rawUrl;
         logger.log?.('刷新', '刷新当前激活标签页 (忽略缓存) ->', currentUrl);
-        await ensureTranslateExtensionLoaded(wc, '刷新当前标签页');
+        await ensureManagedExtensionsLoaded(wc, '刷新当前标签页');
         if (currentUrl && currentUrl !== rawUrl) {
           wc.loadURL(currentUrl);
         } else {
@@ -696,7 +666,7 @@ function createTabManager(deps = {}) {
         return { ok: false, message: '网页不可用' };
       }
       logger.log?.('刷新', `刷新指定标签页 -> ${tabId}`);
-      await ensureTranslateExtensionLoaded(wc, `刷新标签 ${tabId}`);
+      await ensureManagedExtensionsLoaded(wc, `刷新标签 ${tabId}`);
       const rawUrl = String(wc.getURL() || '');
       const currentUrl = (rawUrl);
       if (currentUrl && currentUrl !== rawUrl) {
@@ -715,14 +685,17 @@ function createTabManager(deps = {}) {
   }
 
 // 启动/打开/显示：openExtensionPopup的具体业务逻辑。
-  function openExtensionPopup() {
+  async function openExtensionPopup(pluginId) {
     try {
+      if (extensionManager && typeof extensionManager.openExtensionPopup === 'function') {
+        return await extensionManager.openExtensionPopup(pluginId);
+      }
       const wc = getActiveWC();
-      if (!wc) return;
+      if (!wc) return { ok: false, message: '当前没有可用的网页标签' };
       const extId = deps.extIdBySession.get(wc.session);
       if (!extId) {
         logger.warn?.('未找到扩展ID，可能未加载到该会话');
-        return;
+        return { ok: false, message: '未找到扩展ID，可能未加载到该会话' };
       }
 // 处理：partition的具体业务逻辑。
       const partition = (resolveTabs().get(resolveActiveTabId()) && resolveTabs().get(resolveActiveTabId()).partition) || undefined;
@@ -731,7 +704,7 @@ function createTabManager(deps = {}) {
       const currentPopup = resolveExtPopupWin();
       if (currentPopup && !currentPopup.isDestroyed()) {
         try { currentPopup.loadURL(url); currentPopup.show(); currentPopup.focus(); } catch (_) {}
-        return;
+        return { ok: true };
       }
       const extPopupWin = new BrowserWindow({
         width: 420,
@@ -756,17 +729,22 @@ function createTabManager(deps = {}) {
           source: '扩展弹窗',
         });
       });
-      try { extPopupWin.loadURL(url); } catch (e) { logger.warn?.('加载扩展弹窗失败:', e?.message || e); }
-    } catch (_) {}
+      try { await extPopupWin.loadURL(url); return { ok: true }; } catch (e) { logger.warn?.('加载扩展弹窗失败:', e?.message || e); return { ok: false, message: e?.message || String(e) }; }
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error) };
+    }
   }
 
 // 启动/打开/显示：openExtensionOptions的具体业务逻辑。
-  function openExtensionOptions() {
+  async function openExtensionOptions(pluginId) {
     try {
+      if (extensionManager && typeof extensionManager.openExtensionOptions === 'function') {
+        return await extensionManager.openExtensionOptions(pluginId);
+      }
       const wc = getActiveWC();
-      if (!wc) return;
+      if (!wc) return { ok: false, message: '当前没有可用的网页标签' };
       const extId = deps.extIdBySession.get(wc.session);
-      if (!extId) return;
+      if (!extId) return { ok: false, message: '未找到扩展ID，可能未加载到该会话' };
 // 处理：partition的具体业务逻辑。
       const partition = (resolveTabs().get(resolveActiveTabId()) && resolveTabs().get(resolveActiveTabId()).partition) || undefined;
       const optionsSession = wc.session;
@@ -791,8 +769,10 @@ function createTabManager(deps = {}) {
           source: '扩展设置',
         });
       });
-      try { win.loadURL(url); } catch (e) { logger.warn?.('加载扩展设置失败:', e?.message || e); }
-    } catch (_) {}
+      try { await win.loadURL(url); return { ok: true }; } catch (e) { logger.warn?.('加载扩展设置失败:', e?.message || e); return { ok: false, message: e?.message || String(e) }; }
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error) };
+    }
   }
 
   return {

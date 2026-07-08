@@ -499,20 +499,11 @@ function registerUiIPC(ctx) {
     } catch (_) {}
   });
 
-  ipcMain.on('open-extension-popup', () => {
-    try { ui.openExtensionPopup && ui.openExtensionPopup(); } catch (_) {}
+  ipcMain.on('open-extension-popup', (_event, payload = {}) => {
+    try { ui.openExtensionPopup && void ui.openExtensionPopup(payload?.id || payload); } catch (_) {}
   });
-  ipcMain.on('open-extension-options', () => {
-    try { ui.openExtensionOptions && ui.openExtensionOptions(); } catch (_) {}
-  });
-
-  ipcMain.handle('force-remove-watermark', async () => {
-    try {
-      const ok = await (ui.forceRemoveWatermark && ui.forceRemoveWatermark());
-      return { ok: !!ok };
-    } catch (e) {
-      return { ok: false, error: e?.message || String(e) };
-    }
+  ipcMain.on('open-extension-options', (_event, payload = {}) => {
+    try { ui.openExtensionOptions && void ui.openExtensionOptions(payload?.id || payload); } catch (_) {}
   });
 
   ipcMain.on('open-tutorial', (event, url) => {
