@@ -23,6 +23,15 @@ echo   AI-FREE 安装程序打包 ^(NSIS^)
 echo ========================================
 echo.
 
+rem === 让 electron/electron-builder 的下载走本地 7897 代理 ===
+rem @electron/get 默认不读系统代理，需显式开启 global-agent
+set "ELECTRON_GET_USE_PROXY=true"
+set "GLOBAL_AGENT_HTTP_PROXY=http://127.0.0.1:7897"
+set "GLOBAL_AGENT_HTTPS_PROXY=http://127.0.0.1:7897"
+rem electron-builder 自身下载(nsis/winCodeSign 等)读这两个
+set "HTTP_PROXY=http://127.0.0.1:7897"
+set "HTTPS_PROXY=http://127.0.0.1:7897"
+
 call npm run build:win
 set "EXIT_CODE=%ERRORLEVEL%"
 

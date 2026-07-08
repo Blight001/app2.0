@@ -1,15 +1,10 @@
 {
   "name": "ai-free",
-  "version": "2.5.8",
+  "version": "2.6.0",
   "private": true,
   "description": "Assistant to help creators use AI more conveniently",
   "main": "src/app/main/main.js",
   "workspaces": [],
-  "overrides": {
-    "@rmp135/sql-ts": {
-      "better-sqlite3": "^12.8.0"
-    }
-  },
   "scripts": {
     "prestart": "node scripts/set-side-url.js --mode=remote",
     "start": "node scripts/run-electron.js .",
@@ -34,25 +29,17 @@
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
     "axios": "^1.13.2",
-    "better-sqlite3": "^12.9.0",
     "express": "^4.18.2",
     "extract-zip": "^2.0.1",
     "fs-extra": "^11.1.1",
     "imap-simple": "^5.1.0",
     "js-yaml": "^4.1.1",
     "multer": "^1.4.5-lts.1",
-    "mysql": "^2.18.1",
-    "mysql2": "^3.22.3",
     "node-machine-id": "^1.1.12",
     "nodemailer": "^6.9.7",
-    "oracledb": "^6.10.0",
-    "pg": "^8.20.0",
-    "pg-query-stream": "^4.14.0",
     "playwright": "^1.40.0",
     "sharp": "^0.34.5",
-    "sqlite3": "^6.0.1",
     "tar": "^7.4.3",
-    "tedious": "^19.2.1",
     "vm2": "^3.10.5",
     "yaml": "^2.6.0"
   },
@@ -75,7 +62,8 @@
       "!assets/extensions/remove_watermark/remove_watermark.crx",
       "config/platforms-config.json",
       "package.json",
-      "package-lock.json"
+      "package-lock.json",
+      "!node_modules/onnxruntime-node/**"
     ],
     "extraResources": [
       {
