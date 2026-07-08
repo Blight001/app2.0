@@ -64,4 +64,23 @@ function bindSecondaryEntryButtons() {
       window.MessageModal.showInfoMessage('「一键启动 BananaAI」 功能已经上线，如需请联系客服获取激活码！');
     });
   }
+
+  // 可灵AI / 海螺AI 占位按钮
+  const kelingBtn = safeGetEl('keling-ai-btn');
+  if (kelingBtn) {
+    kelingBtn.addEventListener('click', () => {
+      if (window.MessageModal && typeof window.MessageModal.showWarningMessage === 'function') {
+        window.MessageModal.showWarningMessage('后续对接，敬请期待~');
+      }
+    });
+  }
+
+  const hailuoBtn = safeGetEl('hailuo-ai-btn');
+  if (hailuoBtn) {
+    hailuoBtn.addEventListener('click', () => {
+      if (window.MessageModal && typeof window.MessageModal.showWarningMessage === 'function') {
+        window.MessageModal.showWarningMessage('后续对接，敬请期待~');
+      }
+    });
+  }
 }

@@ -5,7 +5,7 @@ async function initPluginSwitches() {
   if (!removeWmSwitch || !translateSwitch) return;
 
   let lastSettings = {
-    removeWatermarkEnabled: false,
+    removeWatermarkEnabled: true,
     translateExtEnabled: false,
   };
 
@@ -26,11 +26,11 @@ async function initPluginSwitches() {
     if (result?.ok && result.settings) {
       applyUi(result.settings);
     } else {
-      applyUi();
+      applyUi({ removeWatermarkEnabled: true, translateExtEnabled: false });
     }
   } catch (e) {
     console.warn('[侧边栏] 获取插件开关失败:', e);
-    applyUi();
+    applyUi({ removeWatermarkEnabled: true, translateExtEnabled: false });
   }
 
 // 设置/更新/持久化：save的具体业务逻辑。

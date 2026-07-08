@@ -120,7 +120,7 @@ function createLicenseCache() {
       browserSettings: {},
       allowedPlatforms: [],
       systemProxyEnabled: null,
-      removeWatermarkEnabled: false,
+      removeWatermarkEnabled: true,
       translateExtEnabled: false,
       autoValidatePending: false,
     },
@@ -198,7 +198,7 @@ function createLicenseCache() {
       browserSettings: {},
       allowedPlatforms: [],
       systemProxyEnabled: null,
-      removeWatermarkEnabled: false,
+      removeWatermarkEnabled: true,
       translateExtEnabled: false,
       autoValidatePending: false,
     };

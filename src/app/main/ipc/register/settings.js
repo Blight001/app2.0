@@ -47,7 +47,7 @@ function registerSettingsIPC(ctx) {
         ok: true,
         settings: {
           removeWatermarkEnabled: pluginState.removeWatermarkEnabled === true,
-          translateExtEnabled: pluginState.translateExtEnabled !== false,
+          translateExtEnabled: pluginState.translateExtEnabled === true,
         },
       };
     } catch (error) {
@@ -55,7 +55,7 @@ function registerSettingsIPC(ctx) {
       return {
         ok: false,
         error: error.message,
-        settings: { removeWatermarkEnabled: false, translateExtEnabled: false },
+        settings: { removeWatermarkEnabled: true, translateExtEnabled: false },
       };
     }
   });

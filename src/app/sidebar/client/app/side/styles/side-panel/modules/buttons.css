@@ -81,3 +81,14 @@
   cursor: not-allowed !important;
   opacity: 0.6;
 }
+
+.ai-launch-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ai-launch-buttons .main-button {
+  margin-bottom: 0;
+}

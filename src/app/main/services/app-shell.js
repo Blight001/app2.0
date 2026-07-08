@@ -537,11 +537,11 @@ function createAppShell(deps = {}) {
     }
 
     try {
-      // 翻译插件默认保持开启，避免每次启动都要手动重新点开。
-      applyPluginSettings({ translateExtEnabled: true });
+      // 去水印插件默认打开，翻译插件默认关闭
+      applyPluginSettings({ removeWatermarkEnabled: true, translateExtEnabled: false });
     } catch (e) {
       logger.warn?.('[启动] 初始化插件开关失败，使用默认值:', e?.message || e);
-      applyPluginSettings({ translateExtEnabled: true });
+      applyPluginSettings({ removeWatermarkEnabled: true, translateExtEnabled: false });
     }
 
     try {

@@ -17,15 +17,15 @@ function createAppState({ setRemoveWatermarkEnabled = () => {} } = {}) {
     extPopupWin: null,
     globalTcpClient: null,
     pluginSettings: {
-      removeWatermarkEnabled: false,
-      translateExtEnabled: true,
+      removeWatermarkEnabled: true,
+      translateExtEnabled: false,
     },
   };
 
 // 设置/更新/持久化：applyPluginSettings的具体业务逻辑。
   function applyPluginSettings(partial = {}) {
     const nextRemoveWatermarkEnabled = partial.removeWatermarkEnabled === true;
-    const nextTranslateExtEnabled = partial.translateExtEnabled !== false;
+    const nextTranslateExtEnabled = partial.translateExtEnabled === true;
     state.pluginSettings = {
       removeWatermarkEnabled: nextRemoveWatermarkEnabled,
       translateExtEnabled: nextTranslateExtEnabled,
