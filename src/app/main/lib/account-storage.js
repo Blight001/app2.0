@@ -691,42 +691,7 @@ function getAllAccounts() {
   }
 }
 
-
-// 保存用户凭证到 store/content（供外部调用）
-function saveGlobalCredentials(credentials) {
-  try {
-    if (runtimeLicenseCache && typeof runtimeLicenseCache.setCredentials === 'function') {
-      runtimeLicenseCache.setCredentials({ key: credentials.key || '' });
-    }
-    console.log('[AccountStorage] 用户凭证已保存到运行时缓存');
-    return true;
-  } catch (e) {
-    console.error('[AccountStorage] 保存用户凭证到运行时缓存失败:', e?.message || e);
-    return false;
-  }
-}
-
-// 获取用户凭证从运行时缓存（供外部调用）
-function getGlobalCredentials() {
-  try {
-    const credentials = runtimeLicenseCache && typeof runtimeLicenseCache.getCredentials === 'function'
-      ? runtimeLicenseCache.getCredentials()
-      : { key: '', deviceId: '' };
-
-    console.log('[AccountStorage] 读取到的凭证信息:', {
-      hasKey: !!credentials.key,
-      hasDeviceId: !!credentials.deviceId,
-    });
-
-    return credentials;
-  } catch (e) {
-    console.error('[AccountStorage] 读取 store/content 失败:', e?.message || e);
-    return null;
-  }
-}
-
 module.exports = {
-  loadAccounts,
   addAccount,
   updateAccount,
   deleteAccount,
@@ -735,7 +700,5 @@ module.exports = {
   getLastUsedAccount,
   getAllAccounts,
   updateLastUsedTime,
-  saveGlobalCredentials,
-  getGlobalCredentials,
   setLicenseCache,
 };

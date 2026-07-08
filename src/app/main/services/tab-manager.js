@@ -4,6 +4,11 @@ const {
   getClashMiniRuntimeRoot,
 } = require('../ipc/register/clash-mini-core');
 const { normalizeTabBrowserProxyMode } = require('../utils/normalizers');
+const {
+  buildManagedTabPartitionName,
+  getActiveTabWebContents,
+  toggleSidebarVisibility,
+} = require('./tab-common');
 
 // 创建/初始化：createTabManager的具体业务逻辑。
 function createTabManager(deps = {}) {
@@ -130,17 +135,6 @@ function createTabManager(deps = {}) {
     return globalEnabled ? (browserProxy || { enabled: false }) : { enabled: false };
   }
 
-// 格式化/规范化：normalizePartitionSuffix的具体业务逻辑。
-  function normalizePartitionSuffix(value) {
-    const text = String(value || '').trim();
-    if (!text) return Date.now().toString();
-    return text
-      .replace(/[\\/:*?"<>|]/g, '_')
-      .replace(/\s+/g, '_')
-      .replace(/_+/g, '_')
-      .replace(/^_|_$/g, '') || Date.now().toString();
-  }
-
 // 设置/更新/持久化：applyClashMiniBrowserProxy的具体业务逻辑。
   async function applyClashMiniBrowserProxy(enabled = true) {
     const entries = Array.from(resolveTabs().values());
@@ -168,40 +162,17 @@ function createTabManager(deps = {}) {
 
 // 获取/读取/解析：getActiveWC的具体业务逻辑。
   function getActiveWC() {
-    try {
-      const t = resolveTabs().get(resolveActiveTabId());
-      return t && t.view && t.view.webContents && !t.view.webContents.isDestroyed() ? t.view.webContents : null;
-    } catch (_) {
-      return null;
-    }
+    return getActiveTabWebContents(resolveTabs(), resolveActiveTabId());
   }
 
 // 设置/更新/持久化：toggleSidebar的具体业务逻辑。
   function toggleSidebar() {
-    try {
-      const nextVisible = !resolveIsSidebarVisible();
-      if (typeof setIsSidebarVisible === 'function') {
-        setIsSidebarVisible(nextVisible);
-      }
-
-      const mainWindow = resolveMainWindow();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(nextVisible ? 'sidebar-expand' : 'sidebar-collapse');
-      }
-
-      const sideView = resolveSideView();
-      if (sideView && sideView.webContents && !sideView.webContents.isDestroyed()) {
-        sideView.webContents.send(nextVisible ? 'sidebar-expand' : 'sidebar-collapse');
-      }
-
-      const delay = nextVisible ? 140 : 400;
-      setTimeout(() => {
-        const win = resolveMainWindow();
-        if (win && !win.isDestroyed()) {
-          win.emit('resize');
-        }
-      }, delay);
-    } catch (_) {}
+    return toggleSidebarVisibility({
+      getIsSidebarVisible: resolveIsSidebarVisible,
+      setIsSidebarVisible,
+      getMainWindow: resolveMainWindow,
+      getSideView: resolveSideView,
+    });
   }
 
 // 处理：addTab的具体业务逻辑。
@@ -221,7 +192,7 @@ function createTabManager(deps = {}) {
     }
 
     const newTabId = accountId || Date.now().toString();
-    const partition = options.partition || `persist:tab-${normalizePartitionSuffix(newTabId)}`;
+    const partition = options.partition || `persist:${buildManagedTabPartitionName(newTabId)}`;
     const refreshAfterLoad = options.refreshAfterLoad === true;
     const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
       ? licenseCache.getRuntimeConfig()

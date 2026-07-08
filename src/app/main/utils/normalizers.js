@@ -110,7 +110,6 @@ function normalizeTabBrowserProxyMode(value) {
 module.exports = {
   getCurrentAccountTypeLabel,
   inferCurrentAccountTypeFromLabel,
-  normalizeCurrentAccountType,
   normalizeLicenseUsage,
   normalizePositiveNumber,
   normalizeTabBrowserProxyMode,

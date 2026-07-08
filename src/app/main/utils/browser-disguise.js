@@ -812,8 +812,6 @@ async function configureTabBrowserView(webContents, options = {}) {
 
 module.exports = {
   buildTabBrowserPreferences,
-  buildTabDisguiseScript,
-  buildBrowserProfileFromRegion,
   applyTabBrowserProxy,
   configureTabBrowserView,
   resolveTabBrowserProfile,

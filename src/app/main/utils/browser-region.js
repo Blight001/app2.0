@@ -420,13 +420,6 @@ function getBrowserRegionDnsConfig(regionOrSettings = {}) {
 
 module.exports = {
     REGION_PRESETS,
-    GENERIC_DNS_SERVERS,
-    CHINA_DNS_SERVERS,
-    normalizeBrowserRegionKey,
     getBrowserRegionPreset,
-    getBrowserRegionOptions,
     inferBrowserRegionKeyFromLocale,
-    inferBrowserRegionKeyFromNodeName,
-    resolveBrowserRegionKeyFromSettings,
-    getBrowserRegionDnsConfig
 };

@@ -6,6 +6,7 @@
 
 (function initSidePanelShared() {
   const SidePanelSharedUtils = window.RendererControllerUtils || {};
+  const MessageUtils = window.AiFreeMessageUtils || {};
   const safeGetEl = SidePanelSharedUtils.getEl || ((id) => document.getElementById(id));
   const withBusyButton = SidePanelSharedUtils.withBusyButton || ((btn, _companions, fn, options = {}) => {
     if (!btn) return null;
@@ -41,22 +42,7 @@
       minute: '2-digit',
     });
   });
-  const formatRemainingValidity = SidePanelSharedUtils.formatRemainingValidity || ((secondsValue) => {
-    const seconds = Number(secondsValue);
-    if (!Number.isFinite(seconds)) return '';
-    const totalSeconds = Math.max(Math.round(seconds), 0);
-    const days = Math.floor(totalSeconds / 86400);
-    const hours = Math.floor((totalSeconds % 86400) / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-
-    if (days > 0) {
-      return hours > 0 ? `剩余 ${days} 天 ${hours} 小时` : `剩余 ${days} 天`;
-    }
-    if (hours > 0) {
-      return minutes > 0 ? `剩余 ${hours} 小时 ${minutes} 分钟` : `剩余 ${hours} 小时`;
-    }
-    return `剩余 ${Math.max(minutes, 1)} 分钟`;
-  });
+  const formatRemainingValidity = SidePanelSharedUtils.formatRemainingValidity || (() => '');
   const toFiniteNumber = SidePanelSharedUtils.toFiniteNumber || ((value) => {
     const num = Number(value);
     return Number.isFinite(num) ? num : null;
@@ -151,18 +137,10 @@
     };
   }
 
-// 格式化/规范化：sanitizeUserFacingMessage的具体业务逻辑。
-  function sanitizeUserFacingMessage(message, fallback = '账号处理失败') {
-    let text = String(message || '').trim();
-    if (!text) return fallback;
-    text = text
-      .replace(/获取\s*Cookie/gi, '获取账号信息')
-      .replace(/Cookie\s*获取/gi, '账号信息获取')
-      .replace(/Cookies?/gi, '账号信息')
-      .replace(/cookie/gi, '账号信息');
-    text = text.replace(/\s+/g, ' ').trim();
+  const sanitizeUserFacingMessage = MessageUtils.sanitizeUserFacingMessage || ((message, fallback = '账号处理失败') => {
+    const text = String(message || '').replace(/\s+/g, ' ').trim();
     return text || fallback;
-  }
+  });
 
 // 获取/读取/解析：extractValidationPayload的具体业务逻辑。
   function extractValidationPayload(result) {

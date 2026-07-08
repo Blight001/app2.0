@@ -1,4 +1,9 @@
 const crypto = require('crypto');
+const {
+  readJsonFileSafe,
+  readStoreConfigFile,
+  writeStoreConfigFile,
+} = require('../utils/json-store');
 
 const STORE_FIELD = 'extensionManager';
 const BUILTIN_TRANSLATE_ID = 'builtin-transform';
@@ -47,36 +52,26 @@ function createExtensionManager(deps = {}) {
   }
 
   function readJsonFile(filePath) {
-    try {
-      if (!filePath || !fs.existsSync(filePath)) return null;
-      return JSON.parse(fs.readFileSync(filePath, 'utf8') || '{}');
-    } catch (error) {
-      logger.warn?.('[Extensions] 读取 JSON 失败:', filePath, error?.message || error);
-      return null;
-    }
+    return readJsonFileSafe(filePath, {
+      fs,
+      fallback: null,
+      logger,
+      logPrefix: 'Extensions',
+    });
   }
 
   function readStoreSafe() {
-    try {
-      const storePath = typeof getStorePath === 'function' ? getStorePath() : '';
-      if (!storePath || !fs.existsSync(storePath)) return {};
-      return JSON.parse(fs.readFileSync(storePath, 'utf8') || '{}');
-    } catch (_) {
-      return {};
-    }
+    return readStoreConfigFile(getStorePath, { fs });
   }
 
   function writeStoreSafe(nextStore) {
-    try {
-      const storePath = typeof getStorePath === 'function' ? getStorePath() : '';
-      if (!storePath) return false;
-      fs.mkdirSync(path.dirname(storePath), { recursive: true });
-      fs.writeFileSync(storePath, JSON.stringify(nextStore || {}, null, 2), 'utf8');
-      return true;
-    } catch (error) {
-      logger.warn?.('[Extensions] 保存插件配置失败:', error?.message || error);
-      return false;
-    }
+    return writeStoreConfigFile(getStorePath, nextStore, {
+      fs,
+      path,
+      logger,
+      logPrefix: 'Extensions',
+      writeErrorMessage: '保存插件配置失败:',
+    });
   }
 
   function persistState() {
@@ -766,7 +761,5 @@ function createExtensionManager(deps = {}) {
 }
 
 module.exports = {
-  BUILTIN_TRANSLATE_ID,
-  BUILTIN_REMOVE_WATERMARK_ID,
   createExtensionManager,
 };

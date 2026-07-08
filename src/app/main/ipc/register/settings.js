@@ -3,7 +3,7 @@ const fs = require('fs');
 const { getStorePath } = require('../../config');
 const {
   readStoreConfigSafe,
-  persistSavedLicenseKeySafe,
+  saveLicenseCredentialsSafe,
   toFiniteNumber,
   writeStoreConfigSafe,
 } = require('./store-utils');
@@ -168,10 +168,7 @@ function registerSettingsIPC(ctx) {
 
   ipcMain.handle('save-user-credentials', async (_event, { key, deviceId }) => {
     try {
-      if (licenseCache && typeof licenseCache.setCredentials === 'function') {
-        licenseCache.setCredentials({ key, deviceId });
-      }
-      persistSavedLicenseKeySafe({
+      saveLicenseCredentialsSafe({
         readStoreConfigSafe,
         writeStoreConfigSafe,
         licenseCache,

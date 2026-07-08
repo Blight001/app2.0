@@ -270,8 +270,4 @@ function stopAccountCleanup() {
 module.exports = {
   initializeAccountCleanup,
   updateAccountRecycleTimer,
-  refreshAccountRecycleTimers,
-  stopAccountCleanup,
-  clearRecycleTimer,
-  resolveRecycleTimestamp,
 };

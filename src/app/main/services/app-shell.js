@@ -1,4 +1,5 @@
 const { createAnnouncementPoller } = require('../lib/announcement-poller');
+const { removeDirectoryWithRetries } = require('../utils/fs-cleanup');
 
 // 创建/初始化：createAppShell的具体业务逻辑。
 function createAppShell(deps = {}) {
@@ -637,20 +638,7 @@ function createAppShell(deps = {}) {
           const dirPath = path.join(userDataDir, name);
           const stat = await fs.promises.stat(dirPath).catch(() => null);
           if (!stat || !stat.isDirectory()) continue;
-          let deleted = false;
-          for (let attempt = 1; attempt <= 3; attempt++) {
-            try {
-              if (fs.promises.rm) {
-                await fs.promises.rm(dirPath, { recursive: true, force: true });
-              } else {
-                await fs.promises.rmdir(dirPath, { recursive: true });
-              }
-              deleted = true;
-              break;
-            } catch (_) {
-              await new Promise((res) => setTimeout(res, 200));
-            }
-          }
+          const deleted = await removeDirectoryWithRetries(fs, dirPath);
           if (!deleted) {
             logger.warn?.('[启动] 删除残留分区最终失败（跳过）:', dirPath);
           }

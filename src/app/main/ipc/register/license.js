@@ -4,7 +4,14 @@ const { getStorePath, getServerBase } = require('../../config');
 const {
   getValidationFailureMessage,
   isValidationSuccess,
-} = require('../../lib/auth-cookie');
+} = require('../../utils/license-response');
+const { isUsageExhaustedFetchError } = require('../../utils/account-errors');
+const {
+  findAccountRecord,
+  isPermanentAccountRecord,
+  resolveDreamTargetUrl: resolveConfiguredDreamTargetUrl,
+} = require('../../utils/account-records');
+const { setLicenseRuntimeConfig } = require('../../utils/runtime-config');
 const {
   buildUnboundCredentialRecord,
   normalizeLicenseBinding,
@@ -31,16 +38,7 @@ function registerLicenseIPC(ctx) {
     getDreamTargetUrl,
   } = ctx;
 
-// 获取/读取/解析：resolveDreamTargetUrl的具体业务逻辑。
-  const resolveDreamTargetUrl = () => {
-    try {
-      if (typeof getDreamTargetUrl === 'function') {
-        const value = getDreamTargetUrl();
-        if (value && typeof value === 'string') return value;
-      }
-    } catch (_) {}
-    return DREAM_TARGET_URL;
-  };
+  const resolveDreamTargetUrl = () => resolveConfiguredDreamTargetUrl(getDreamTargetUrl, DREAM_TARGET_URL);
 
 // 获取/读取/解析：resolveDreamWindowTitle的具体业务逻辑。
   const resolveDreamWindowTitle = (fallback = '') => {
@@ -61,83 +59,15 @@ function registerLicenseIPC(ctx) {
     return String(fallback || '').trim();
   };
 
-// 获取/读取/解析：findDreamAccountRecord的具体业务逻辑。
-  const findDreamAccountRecord = (accountId = '', key = '') => {
-    try {
-      const normalizedAccountId = String(accountId || '').trim();
-      const normalizedKey = String(key || '').trim();
-      if (normalizedAccountId) {
-        const accountResult = accountStorage.getAccount(normalizedAccountId);
-        if (accountResult && accountResult.ok && accountResult.account) {
-          return accountResult.account;
-        }
-      }
+  const findDreamAccountRecord = (accountId = '', key = '') => findAccountRecord(accountStorage, { accountId, key });
 
-      if (normalizedKey) {
-        const accountSummaries = Array.isArray(accountStorage.getAllAccounts?.())
-          ? accountStorage.getAllAccounts()
-          : [];
-        for (const summary of accountSummaries) {
-          const accountId = String(summary?.id || '').trim();
-          if (!accountId) continue;
-          const accountResult = accountStorage.getAccount(accountId);
-          if (!accountResult || accountResult.ok !== true || !accountResult.account) continue;
-          const account = accountResult.account;
-          if (String(account.key || '').trim() === normalizedKey) {
-            return account;
-          }
-        }
-      }
-
-      return null;
-    } catch (_) {
-      return null;
-    }
-  };
-
-// 处理：isPermanentDreamAccount的具体业务逻辑。
   const isPermanentDreamAccount = (accountId = '', key = '') => {
     try {
       const account = findDreamAccountRecord(accountId, key);
-      if (!account) return false;
-
-      const storageType = String(account.storageType || '').trim();
-      if (storageType === 'custom' || account.cleanupProtected === true) {
-        return true;
-      }
-
-      const currentAccountType = String(
-        account.currentAccountType
-        || account.current_account_type
-        || account.accountType
-        || account.account_type
-        || ''
-      ).trim();
-      if (currentAccountType === 'one_time') {
-        return true;
-      }
-
-      const currentAccountTypeLabel = String(
-        account.currentAccountTypeLabel
-        || account.current_account_type_label
-        || account.accountTypeLabel
-        || account.account_type_label
-        || ''
-      ).trim();
-      return currentAccountTypeLabel.includes('永久') || currentAccountTypeLabel.includes('长久');
+      return isPermanentAccountRecord(account, { includeProtected: true });
     } catch (_) {
       return false;
     }
-  };
-
-// 处理：isUsageExhaustedFetchError的具体业务逻辑。
-  const isUsageExhaustedFetchError = (error) => {
-    const message = String(error?.message || error?.error || '').trim();
-    const errorCode = String(error?.errorCode || '').trim();
-    if (errorCode === 'ACCOUNT_FETCH_FAILED' && message) {
-      return /次数.*用尽|使用次数已用尽|卡密使用次数已用尽/.test(message);
-    }
-    return /次数.*用尽|使用次数已用尽|卡密使用次数已用尽/.test(message);
   };
 
 // 获取/读取/解析：resolveHistoricalDreamAccount的具体业务逻辑。
@@ -177,36 +107,8 @@ function registerLicenseIPC(ctx) {
         if (normalizedPreferredKey && accountKey && accountKey !== normalizedPreferredKey) {
           continue;
         }
-        if (requirePermanent) {
-          const storageType = String(
-            account.storageType
-            || account.storage_type
-            || ''
-          ).trim();
-          if (storageType === 'custom' || account.cleanupProtected === true) {
-            // 视为永久账号
-          } else {
-            const accountType = String(
-              account.currentAccountType
-              || account.current_account_type
-              || account.accountType
-              || account.account_type
-              || ''
-            ).trim();
-            const accountTypeLabel = String(
-              account.currentAccountTypeLabel
-              || account.current_account_type_label
-              || account.accountTypeLabel
-              || account.account_type_label
-              || ''
-            ).trim();
-            const isPermanent = accountType === 'one_time'
-              || accountTypeLabel.includes('永久')
-              || accountTypeLabel.includes('长久');
-            if (!isPermanent) {
-              continue;
-            }
-          }
+        if (requirePermanent && !isPermanentAccountRecord(account, { includeProtected: true })) {
+          continue;
         }
 
         if (targetPlatform) {
@@ -398,27 +300,9 @@ function registerLicenseIPC(ctx) {
           const runtimeConfig = normalizeValidationRuntimeConfig(r);
           const runtimeConnection = resolveRuntimeConnectionConfig(runtimeConfig);
 
-          if (licenseCache && typeof licenseCache.setRuntimeConfig === 'function') {
-            const nextRuntimeConfig = {};
-            if (String(runtimeConfig.platformName || '').trim()) {
-              nextRuntimeConfig.platformName = runtimeConfig.platformName;
-            }
-            if (Array.isArray(runtimeConfig.allowedPlatforms) && runtimeConfig.allowedPlatforms.length > 0) {
-              nextRuntimeConfig.allowedPlatforms = runtimeConfig.allowedPlatforms;
-            }
-            if (String(runtimeConfig.targetUrl || '').trim()) {
-              nextRuntimeConfig.targetUrl = runtimeConfig.targetUrl;
-            }
-            if (String(runtimeConfig.tutorialUrl || '').trim()) {
-              nextRuntimeConfig.tutorialUrl = runtimeConfig.tutorialUrl;
-            }
-            if (String(runtimeConnection.serverBase || '').trim()) {
-              nextRuntimeConfig.serverBase = runtimeConnection.serverBase;
-            }
-            if (Object.keys(nextRuntimeConfig).length > 0) {
-              licenseCache.setRuntimeConfig(nextRuntimeConfig);
-            }
-          }
+          setLicenseRuntimeConfig(licenseCache, runtimeConfig, {
+            serverBase: runtimeConnection.serverBase,
+          });
           if (typeof setRuntimeServerBase === 'function' && runtimeConnection.serverBase) {
             setRuntimeServerBase(runtimeConnection.serverBase);
           }

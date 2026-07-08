@@ -1,3 +1,12 @@
+const {
+  readStoreConfigFile,
+  writeStoreConfigFile,
+} = require('../utils/json-store');
+const {
+  normalizeLicenseRecord: normalizeLicenseRecordBase,
+  normalizeLicenseRecords,
+} = require('../utils/license-records');
+
 // 创建/初始化：createLicenseStore的具体业务逻辑。
 function createLicenseStore(deps = {}) {
   const {
@@ -11,27 +20,18 @@ function createLicenseStore(deps = {}) {
 
 // 获取/读取/解析：readStoreConfigSafe的具体业务逻辑。
   function readStoreConfigSafe() {
-    try {
-      const storePath = getStorePath();
-      if (!fs.existsSync(storePath)) return {};
-      const storeData = fs.readFileSync(storePath, 'utf8');
-      return JSON.parse(storeData);
-    } catch (_) {
-      return {};
-    }
+    return readStoreConfigFile(getStorePath, { fs, fallback: {} });
   }
 
 // 设置/更新/持久化：writeStoreConfigSafe的具体业务逻辑。
   function writeStoreConfigSafe(nextConfig) {
-    try {
-      const storePath = getStorePath();
-      fs.mkdirSync(path.dirname(storePath), { recursive: true });
-      fs.writeFileSync(storePath, JSON.stringify(nextConfig || {}, null, 2), 'utf8');
-      return true;
-    } catch (e) {
-      logger.warn?.('[配置] 写入 store 失败:', e?.message || e);
-      return false;
-    }
+    return writeStoreConfigFile(getStorePath, nextConfig, {
+      fs,
+      path,
+      logger,
+      logPrefix: '配置',
+      writeErrorMessage: '写入 store 失败:',
+    });
   }
 
 // 获取/读取/解析：getLegacyLicenseRecordsPaths的具体业务逻辑。
@@ -68,59 +68,18 @@ function createLicenseStore(deps = {}) {
 
 // 格式化/规范化：normalizeLicenseRecord的具体业务逻辑。
   function normalizeLicenseRecord(entry = {}) {
-    if (!entry) return null;
-    if (entry.status && entry.status !== 'success') return null;
-
-    const keyValue = String(entry.keyValue || entry.key || '').trim();
-    if (!keyValue) return null;
-    const platformName = String(
-      entry.platformName
-      || entry.platform
-      || entry.currentPlatformName
-      || ''
-    ).trim();
-
-    const normalized = {
-      id: String(entry.id || keyValue || `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`),
-      keyValue,
-    };
-
-    if (platformName) {
-      normalized.platformName = platformName;
-    }
-
-    const savedAt = String(entry.savedAt || entry.createdAt || '').trim();
-    const updatedAt = String(entry.updatedAt || '').trim();
-    if (savedAt) {
-      normalized.savedAt = savedAt;
-    }
-    if (updatedAt) {
-      normalized.updatedAt = updatedAt;
-    }
-
-    return normalized;
-  }
-
-// 格式化/规范化：normalizeLicenseRecordsPayload的具体业务逻辑。
-  function normalizeLicenseRecordsPayload(records) {
-    const seenKeys = new Set();
-    const cleaned = [];
-
-    for (const item of Array.isArray(records) ? records : []) {
-      const normalized = normalizeLicenseRecord(item);
-      if (!normalized) continue;
-      if (seenKeys.has(normalized.keyValue)) continue;
-      seenKeys.add(normalized.keyValue);
-      cleaned.push(normalized);
-      if (cleaned.length >= 50) break;
-    }
-
-    return cleaned;
+    return normalizeLicenseRecordBase(entry, {
+      includeTimestamps: true,
+      requireSuccessStatus: true,
+    });
   }
 
 // 格式化/规范化：sanitizeLicenseRecords的具体业务逻辑。
   function sanitizeLicenseRecords(records) {
-    return normalizeLicenseRecordsPayload(records);
+    return normalizeLicenseRecords(records, {
+      includeTimestamps: true,
+      requireSuccessStatus: true,
+    });
   }
 
 // 获取/读取/解析：readLicenseRecordsSafe的具体业务逻辑。

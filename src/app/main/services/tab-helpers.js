@@ -1,3 +1,9 @@
+const {
+  getActiveTabWebContents,
+  resolveTabTitle,
+  toggleSidebarVisibility,
+} = require('./tab-common');
+
 // 创建/初始化：createTabHelpers的具体业务逻辑。
 function createTabHelpers(deps = {}) {
   const {
@@ -20,14 +26,6 @@ function createTabHelpers(deps = {}) {
   const resolveActiveTabId = () => (typeof getActiveTabId === 'function' ? getActiveTabId() : null);
 // 获取/读取/解析：resolveIsSidebarVisible的具体业务逻辑。
   const resolveIsSidebarVisible = () => (typeof deps.getIsSidebarVisible === 'function' ? deps.getIsSidebarVisible() : true);
-// 获取/读取/解析：resolveTabTitle的具体业务逻辑。
-  const resolveTabTitle = (tab = {}) => {
-    const fixedTitle = String(tab?.fixedTitle || tab?.tabTitle || '').trim();
-    if (fixedTitle) {
-      return fixedTitle;
-    }
-    return String(tab?.view?.webContents?.getTitle?.() || '').trim();
-  };
 
   let tabsUpdateTimer = null;
   let lastTabsSignature = '';
@@ -111,42 +109,19 @@ function createTabHelpers(deps = {}) {
 
 // 获取/读取/解析：getActiveWC的具体业务逻辑。
   function getActiveWC() {
-    try {
-      const t = resolveTabs().get(resolveActiveTabId());
-      return t && t.view && t.view.webContents && !t.view.webContents.isDestroyed() ? t.view.webContents : null;
-    } catch (_) {
-      return null;
-    }
+    return getActiveTabWebContents(resolveTabs(), resolveActiveTabId());
   }
 
 // 设置/更新/持久化：toggleSidebar的具体业务逻辑。
   function toggleSidebar() {
-    try {
-      const nextVisible = !resolveIsSidebarVisible();
-      if (typeof setIsSidebarVisible === 'function') {
-        setIsSidebarVisible(nextVisible);
-      }
-
-      const mainWindow = resolveMainWindow();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(nextVisible ? 'sidebar-expand' : 'sidebar-collapse');
-      }
-
-      const sideView = resolveSideView();
-      if (sideView && sideView.webContents && !sideView.webContents.isDestroyed()) {
-        sideView.webContents.send(nextVisible ? 'sidebar-expand' : 'sidebar-collapse');
-      }
-
-      const delay = nextVisible ? 140 : 400;
-      setTimeout(() => {
-        const win = resolveMainWindow();
-        if (win && !win.isDestroyed()) {
-          win.emit('resize');
-        }
-      }, delay);
-    } catch (error) {
-      logger.warn?.('[TabHelpers] toggleSidebar 失败:', error?.message || error);
-    }
+    return toggleSidebarVisibility({
+      getIsSidebarVisible: resolveIsSidebarVisible,
+      setIsSidebarVisible,
+      getMainWindow: resolveMainWindow,
+      getSideView: resolveSideView,
+      logger,
+      logPrefix: 'TabHelpers',
+    });
   }
 
   return {

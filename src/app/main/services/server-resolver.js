@@ -1,3 +1,25 @@
+function normalizeTimeoutMs(value, fallbackMs = 8000) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return fallbackMs;
+  if (num < 1000) return Math.round(num * 1000);
+  return Math.round(num);
+}
+
+function collectUrlCandidates(normalizeUrl, ...groups) {
+  const seen = new Set();
+  const result = [];
+  for (const group of groups) {
+    const values = Array.isArray(group) ? group : [group];
+    for (const value of values) {
+      const normalized = normalizeUrl(value);
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      result.push(normalized);
+    }
+  }
+  return result;
+}
+
 // 创建/初始化：createServerResolver的具体业务逻辑。
 function createServerResolver(deps = {}) {
   const {
@@ -188,30 +210,6 @@ function createServerResolver(deps = {}) {
 // 获取/读取/解析：resolveCardStatusSearchConfig的具体业务逻辑。
   function resolveCardStatusSearchConfig() {
     try {
-// 格式化/规范化：normalizeTimeoutMs的具体业务逻辑。
-      const normalizeTimeoutMs = (value, fallbackMs = 8000) => {
-        const num = Number(value);
-        if (!Number.isFinite(num) || num <= 0) return fallbackMs;
-        if (num < 1000) return Math.round(num * 1000);
-        return Math.round(num);
-      };
-
-// 处理：collectUrlCandidates的具体业务逻辑。
-      const collectUrlCandidates = (...groups) => {
-        const seen = new Set();
-        const result = [];
-        for (const group of groups) {
-          const values = Array.isArray(group) ? group : [group];
-          for (const value of values) {
-            const normalized = normalizeCardStatusSearchUrl(value);
-            if (!normalized || seen.has(normalized)) continue;
-            seen.add(normalized);
-            result.push(normalized);
-          }
-        }
-        return result;
-      };
-
       const platformKey = detectPlatformKeyFromRuntime();
       const cfg = readPlatformsConfigSafe();
 // 处理：platformCfg的具体业务逻辑。
@@ -250,6 +248,7 @@ function createServerResolver(deps = {}) {
       ];
 
       const configuredUrls = collectUrlCandidates(
+        normalizeCardStatusSearchUrl,
         process.env.SERVER_VUE_CARD_STATUS_SEARCH_URL,
         platformResolver.url,
         platformResolver.urls,
@@ -499,14 +498,6 @@ function createServerResolver(deps = {}) {
 // 获取/读取/解析：getLocalResolverConfig的具体业务逻辑。
   function getLocalResolverConfig() {
     try {
-// 格式化/规范化：normalizeTimeoutMs的具体业务逻辑。
-      const normalizeTimeoutMs = (value, fallbackMs = 8000) => {
-        const num = Number(value);
-        if (!Number.isFinite(num) || num <= 0) return fallbackMs;
-        if (num < 1000) return Math.round(num * 1000);
-        return Math.round(num);
-      };
-
       const envUrl = process.env.LOCAL_SERVER_RESOLVER_URL;
       if (envUrl && typeof envUrl === 'string') {
         return { url: envUrl, method: 'POST', timeoutMs: 8000 };

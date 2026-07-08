@@ -1,5 +1,6 @@
 const path = require('path');
 const { spawn } = require('child_process');
+const { setLicenseRuntimeConfig } = require('../utils/runtime-config');
 
 // 启动/打开/显示：launchIndependentCommand的具体业务逻辑。
 function launchIndependentCommand(target, logger = console) {
@@ -92,7 +93,7 @@ function registerAppLifecycle(deps = {}) {
 // 获取/读取/解析：resolveLicenseWindow的具体业务逻辑。
   const resolveLicenseWindow = () => (typeof getLicenseWindow === 'function' ? getLicenseWindow() : deps.licenseWindow);
   const {
-    persistSavedLicenseKeySafe,
+    saveLicenseCredentialsSafe,
   } = require('../ipc/register/store-utils');
   const {
     cleanupClashMiniRuntimeConfig,
@@ -283,10 +284,7 @@ function registerAppLifecycle(deps = {}) {
 
         }
 
-        if (licenseCache && typeof licenseCache.setCredentials === 'function') {
-          licenseCache.setCredentials({ key, deviceId });
-        }
-        persistSavedLicenseKeySafe({
+        saveLicenseCredentialsSafe({
           readStoreConfigSafe,
           writeStoreConfigSafe,
           licenseCache,
@@ -295,24 +293,7 @@ function registerAppLifecycle(deps = {}) {
         try {
           const { normalizeValidationRuntimeConfig } = require('../lib/tcp-client');
           const runtimeConfig = normalizeValidationRuntimeConfig(resolved.data || {});
-          if (licenseCache && typeof licenseCache.setRuntimeConfig === 'function') {
-            const nextRuntimeConfig = {};
-            if (String(runtimeConfig.platformName || '').trim()) {
-              nextRuntimeConfig.platformName = runtimeConfig.platformName;
-            }
-            if (Array.isArray(runtimeConfig.allowedPlatforms) && runtimeConfig.allowedPlatforms.length > 0) {
-              nextRuntimeConfig.allowedPlatforms = runtimeConfig.allowedPlatforms;
-            }
-            if (String(runtimeConfig.targetUrl || '').trim()) {
-              nextRuntimeConfig.targetUrl = runtimeConfig.targetUrl;
-            }
-            if (String(runtimeConfig.tutorialUrl || '').trim()) {
-              nextRuntimeConfig.tutorialUrl = runtimeConfig.tutorialUrl;
-            }
-            if (Object.keys(nextRuntimeConfig).length > 0) {
-              licenseCache.setRuntimeConfig(nextRuntimeConfig);
-            }
-          }
+          setLicenseRuntimeConfig(licenseCache, runtimeConfig);
           if (typeof deps.refreshAllowedPlatformsAndNotify === 'function') {
             void deps.refreshAllowedPlatformsAndNotify().catch((refreshErr) => {
               logger.warn?.('[启动] 异步刷新平台名称失败:', refreshErr?.message || refreshErr);

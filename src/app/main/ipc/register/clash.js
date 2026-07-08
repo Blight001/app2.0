@@ -12,6 +12,7 @@ const {
   importDirectClashRuntimeConfig,
   prepareClashMiniRuntimeDir,
   resolveClashMiniCoreDir,
+  setRuntimeLicenseCache,
   startClashMiniProcess,
   stopClashMiniProcess,
 } = require('./clash-mini-core');
@@ -22,6 +23,10 @@ const {
   switchClashMiniProxyNode,
   testClashMiniLowestLatency,
 } = require('./clash-mini-actions');
+const {
+  decodeBase64Preview,
+  previewText,
+} = require('../../../shared/text-preview-utils');
 
 // 监听/绑定：registerClashIPC的具体业务逻辑。
 function registerClashIPC(ctx) {
@@ -165,27 +170,6 @@ function registerClashIPC(ctx) {
       } else if (directConfigContent) {
         source = 'extracted';
       }
-// 处理：previewText的具体业务逻辑。
-      const previewText = (value, maxLen = 220) => {
-        const text = String(value || '').replace(/\s+/g, ' ').trim();
-        if (!text) return '';
-        return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
-      };
-// 处理：decodeBase64Preview的具体业务逻辑。
-      const decodeBase64Preview = (value, maxLen = 220) => {
-        const raw = String(value || '').replace(/\s+/g, '').trim();
-        if (!raw || raw.length < 32 || raw.length % 4 !== 0 || !/^[A-Za-z0-9+/=]+$/.test(raw)) {
-          return '';
-        }
-        try {
-          const decoded = Buffer.from(raw, 'base64').toString('utf8').replace(/^\uFEFF/, '').trim();
-          if (!decoded || /[\uFFFD]/.test(decoded)) return '';
-          return decoded.length > maxLen ? `${decoded.slice(0, maxLen)}...` : decoded;
-        } catch (_) {
-          return '';
-        }
-      };
-
       console.log('[IPC] Clash配置摘要:', JSON.stringify({
         ok: !!result?.ok,
         accountType: result?.account_type || result?.accountType || '',

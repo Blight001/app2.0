@@ -1,30 +1,19 @@
-const fs = require('fs');
-const path = require('path');
 const { getStorePath } = require('../../config');
+const {
+  readStoreConfigFile,
+  writeStoreConfigFile,
+} = require('../../utils/json-store');
+const { sanitizeUserFacingMessage } = require('../../utils/messages');
 const { toFiniteNumber } = require('../../utils/normalizers');
 
 // 获取/读取/解析：readStoreConfigSafe的具体业务逻辑。
 function readStoreConfigSafe() {
-  try {
-    const storePath = getStorePath();
-    if (!storePath || !fs.existsSync(storePath)) return {};
-    return JSON.parse(fs.readFileSync(storePath, 'utf8') || '{}');
-  } catch (_) {
-    return {};
-  }
+  return readStoreConfigFile(getStorePath);
 }
 
 // 设置/更新/持久化：writeStoreConfigSafe的具体业务逻辑。
 function writeStoreConfigSafe(storeConfig) {
-  try {
-    const storePath = getStorePath();
-    if (!storePath) return false;
-    fs.mkdirSync(path.dirname(storePath), { recursive: true });
-    fs.writeFileSync(storePath, JSON.stringify(storeConfig || {}, null, 2), 'utf8');
-    return true;
-  } catch (_) {
-    return false;
-  }
+  return writeStoreConfigFile(getStorePath, storeConfig);
 }
 
 // 设置/更新/持久化：persistSavedLicenseKeySafe的具体业务逻辑。
@@ -64,13 +53,24 @@ function persistSavedLicenseKeySafe({ readStoreConfigSafe, writeStoreConfigSafe,
   }
 }
 
-// 设置/更新/持久化：persistSystemProxyEnabled的具体业务逻辑。
-function persistSystemProxyEnabled(enabled) {
-  try {
-    return enabled === true || enabled === false;
-  } catch (_) {
+// 设置/更新/持久化：saveLicenseCredentialsSafe的具体业务逻辑。
+function saveLicenseCredentialsSafe(deps = {}, key, deviceId) {
+  const normalizedKey = String(key || '').trim();
+  const normalizedDeviceId = String(deviceId || '').trim();
+  const { licenseCache } = deps || {};
+
+  if (licenseCache && typeof licenseCache.setCredentials === 'function') {
+    licenseCache.setCredentials({
+      key: normalizedKey,
+      deviceId: normalizedDeviceId,
+    });
+  }
+
+  if (!normalizedKey) {
     return false;
   }
+
+  return persistSavedLicenseKeySafe(deps, normalizedKey, normalizedDeviceId);
 }
 
 // 格式化/规范化：normalizeLicenseBinding的具体业务逻辑。
@@ -97,13 +97,6 @@ function buildUnboundCredentialRecord(existing = {}, { key, deviceId } = {}) {
   };
 }
 
-// 格式化/规范化：sanitizeUserFacingMessage的具体业务逻辑。
-function sanitizeUserFacingMessage(message, fallback = '账号分配失败') {
-  const text = String(message || '').trim();
-  if (!text) return fallback;
-  return text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim() || fallback;
-}
-
 // 处理：toBoolean的具体业务逻辑。
 function toBoolean(value, fallback = false) {
   if (typeof value === 'boolean') return value;
@@ -119,9 +112,9 @@ function toBoolean(value, fallback = false) {
 module.exports = {
   buildUnboundCredentialRecord,
   normalizeLicenseBinding,
-  persistSystemProxyEnabled,
   persistSavedLicenseKeySafe,
   readStoreConfigSafe,
+  saveLicenseCredentialsSafe,
   sanitizeUserFacingMessage,
   toBoolean,
   toFiniteNumber,

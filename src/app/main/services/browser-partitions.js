@@ -1,3 +1,9 @@
+const {
+  buildManagedTabPartitionName,
+  normalizePersistPartitionName,
+} = require('./tab-common');
+const { removeDirectoryWithRetries: removeDirWithRetries } = require('../utils/fs-cleanup');
+
 // 创建/初始化：createBrowserPartitionCleaner的具体业务逻辑。
 function createBrowserPartitionCleaner(deps = {}) {
   const {
@@ -14,27 +20,6 @@ function createBrowserPartitionCleaner(deps = {}) {
     getExtPopupWin = () => null,
     logger = console,
   } = deps;
-
-// 格式化/规范化：normalizePersistPartitionName的具体业务逻辑。
-  function normalizePersistPartitionName(partition) {
-    return String(partition || '').trim().replace(/^persist:/, '');
-  }
-
-// 格式化/规范化：normalizeManagedTabPartitionSuffix的具体业务逻辑。
-  function normalizeManagedTabPartitionSuffix(value) {
-    const text = String(value || '').trim();
-    if (!text) return Date.now().toString();
-    return text
-      .replace(/[\\/:*?"<>|]/g, '_')
-      .replace(/\s+/g, '_')
-      .replace(/_+/g, '_')
-      .replace(/^_|_$/g, '') || Date.now().toString();
-  }
-
-// 创建/初始化：buildManagedTabPartitionName的具体业务逻辑。
-  function buildManagedTabPartitionName(accountId) {
-    return `tab-${normalizeManagedTabPartitionSuffix(accountId)}`;
-  }
 
 // 处理：isManagedTabPartitionName的具体业务逻辑。
   function isManagedTabPartitionName(partitionName) {
@@ -88,26 +73,10 @@ function createBrowserPartitionCleaner(deps = {}) {
 
 // 移除/删除：removeDirectoryWithRetries的具体业务逻辑。
   async function removeDirectoryWithRetries(dirPath, label = '目录') {
-    if (!dirPath) return false;
-
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        if (fs.promises.rm) {
-          await fs.promises.rm(dirPath, { recursive: true, force: true });
-        } else {
-          await fs.promises.rmdir(dirPath, { recursive: true });
-        }
-        return true;
-      } catch (error) {
-        if (attempt >= 3) {
-          logger.warn?.(`[缓存清理] 删除${label}失败:`, dirPath, error?.message || error);
-          return false;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 200));
-      }
-    }
-
-    return false;
+    return removeDirWithRetries(fs, dirPath, {
+      logger,
+      failureMessage: `[缓存清理] 删除${label}失败:`,
+    });
   }
 
 // 获取/读取/解析：getBrowserPartitionsRootDir的具体业务逻辑。

@@ -1,4 +1,10 @@
 // 侧边栏 VPN / Clash Mini 相关逻辑
+const TextPreviewUtils = window.AiFreeTextPreviewUtils || {};
+const decodeBase64Preview = TextPreviewUtils.decodeBase64Preview || (() => '');
+const previewText = TextPreviewUtils.previewText || ((value, maxLen = 220) => {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
+});
 
 // 设置/更新/持久化：setVpnNodeSelectorOpen的具体业务逻辑。
 function setVpnNodeSelectorOpen(open, { force = false } = {}) {
@@ -388,22 +394,6 @@ async function syncClashMiniConfigFromServer(options = {}) {
     throw new Error('缺少卡密或设备号，无法获取 Clash 配置');
   }
 
-// 处理：decodeBase64Preview的具体业务逻辑。
-  const decodeBase64Preview = (value, maxLen = 220) => {
-    const raw = String(value || '').replace(/\s+/g, '').trim();
-    if (!raw || raw.length < 32 || raw.length % 4 !== 0 || !/^[A-Za-z0-9+/=]+$/.test(raw)) {
-      return '';
-    }
-    try {
-      const decoded = atob(raw);
-      const text = String(decoded || '').replace(/^\uFEFF/, '').trim();
-      if (!text || /[\uFFFD]/.test(text)) return '';
-      return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
-    } catch (_) {
-      return '';
-    }
-  };
-
   console.log('[侧边栏][Clash] 开始获取客户端配置...');
   const clashResp = await window.electronAPI.invoke('get-clash-config', { key, deviceId });
   if (!clashResp || clashResp.ok !== true) {
@@ -421,7 +411,7 @@ async function syncClashMiniConfigFromServer(options = {}) {
     contentLength: configContent.length,
     contentSource: String(clashResp.contentSource || importSource),
     importSource,
-    importPreview: importContent ? importContent.replace(/\s+/g, ' ').slice(0, 220) : '',
+    importPreview: previewText(importContent),
     importDecodedPreview: decodeBase64Preview(importContent),
   }, null, 2));
 

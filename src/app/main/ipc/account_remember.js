@@ -5,6 +5,13 @@ const path = require('path');
 const accountStorage = require('../lib/account-storage');
 const { updateAccountRecycleTimer } = require('../utils/accountCleanup');
 const { getCoreDir, getStorePath } = require('../config');
+const { isUsageExhaustedFetchError } = require('../utils/account-errors');
+const {
+  findPermanentAccountByKey: findPermanentAccountRecordByKey,
+  resolveDreamTargetUrl: resolveConfiguredDreamTargetUrl,
+} = require('../utils/account-records');
+const { normalizeBrowserStorageEntries } = require('../utils/browser-storage');
+const { buildManagedTabPartitionName: buildFallbackManagedTabPartitionName } = require('../services/tab-common');
 
 // 监听/绑定：registerAccountIPC的具体业务逻辑。
 function registerAccountIPC(ctx) {
@@ -20,16 +27,7 @@ function registerAccountIPC(ctx) {
     licenseCache,
   } = ctx;
 
-// 获取/读取/解析：resolveDreamTargetUrl的具体业务逻辑。
-  const resolveDreamTargetUrl = () => {
-    try {
-      if (typeof getDreamTargetUrl === 'function') {
-        const value = getDreamTargetUrl();
-        if (value && typeof value === 'string') return value;
-      }
-    } catch (_) {}
-    return DREAM_TARGET_URL;
-  };
+  const resolveDreamTargetUrl = () => resolveConfiguredDreamTargetUrl(getDreamTargetUrl, DREAM_TARGET_URL);
 
 // 获取/读取/解析：readGlobalCredentialsFromStore的具体业务逻辑。
   function readGlobalCredentialsFromStore() {
@@ -62,54 +60,7 @@ function registerAccountIPC(ctx) {
     return '';
   }
 
-// 处理：isUsageExhaustedFetchError的具体业务逻辑。
-  function isUsageExhaustedFetchError(error) {
-    const message = String(error?.message || error?.error || '').trim();
-    const errorCode = String(error?.errorCode || '').trim();
-    if (errorCode === 'ACCOUNT_FETCH_FAILED' && message) {
-      return /次数.*用尽|使用次数已用尽|卡密使用次数已用尽/.test(message);
-    }
-    return /次数.*用尽|使用次数已用尽|卡密使用次数已用尽/.test(message);
-  }
-
-// 获取/读取/解析：findPermanentAccountByKey的具体业务逻辑。
-  function findPermanentAccountByKey(key) {
-    const normalizedKey = String(key || '').trim();
-    if (!normalizedKey) return null;
-    try {
-      const accountSummaries = Array.isArray(accountStorage.getAllAccounts?.())
-        ? accountStorage.getAllAccounts()
-        : [];
-      for (const summary of accountSummaries) {
-        const accountId = String(summary?.id || '').trim();
-        if (!accountId) continue;
-        const accountResult = accountStorage.getAccount(accountId);
-        if (!accountResult || accountResult.ok !== true || !accountResult.account) continue;
-        const account = accountResult.account;
-        if (String(account.key || '').trim() !== normalizedKey) continue;
-        const accountType = String(
-          account.currentAccountType
-          || account.current_account_type
-          || account.accountType
-          || account.account_type
-          || ''
-        ).trim();
-        const accountTypeLabel = String(
-          account.currentAccountTypeLabel
-          || account.current_account_type_label
-          || account.accountTypeLabel
-          || account.account_type_label
-          || ''
-        ).trim();
-        if (accountType === 'one_time' || accountTypeLabel.includes('永久') || accountTypeLabel.includes('长久')) {
-          return account;
-        }
-      }
-    } catch (error) {
-      console.warn('[IPC] 查找永久账号失败:', error?.message || error);
-    }
-    return null;
-  }
+  const findPermanentAccountByKey = (key) => findPermanentAccountRecordByKey(accountStorage, key, { logger: console });
 
 // 格式化/规范化：normalizeImportedCookieEntry的具体业务逻辑。
   function normalizeImportedCookieEntry(entry, defaultUrl) {
@@ -163,22 +114,6 @@ function registerAccountIPC(ctx) {
     return cookie;
   }
 
-// 格式化/规范化：normalizeImportedBrowserStorageEntry的具体业务逻辑。
-  function normalizeImportedBrowserStorageEntry(entry) {
-    if (!entry || typeof entry !== 'object') return null;
-    const origin = String(entry.origin ?? entry.Origin ?? '').trim();
-    const url = String(entry.url ?? entry.URL ?? '').trim();
-    const localStorage = entry.localStorage && typeof entry.localStorage === 'object' ? entry.localStorage : {};
-    const sessionStorage = entry.sessionStorage && typeof entry.sessionStorage === 'object' ? entry.sessionStorage : {};
-    if (!origin && !url) return null;
-    return {
-      origin,
-      url,
-      localStorage,
-      sessionStorage,
-    };
-  }
-
 // 获取/读取/解析：parseImportedAccountContent的具体业务逻辑。
   function parseImportedAccountContent(content, defaultUrl) {
     const text = String(content || '').replace(/^\uFEFF/, '').trim();
@@ -206,7 +141,7 @@ function registerAccountIPC(ctx) {
               ? cookiesSource.map((item) => normalizeImportedCookieEntry(item, defaultUrl)).filter(Boolean)
               : [],
             browserStorage: Array.isArray(browserStorageSource)
-              ? browserStorageSource.map((item) => normalizeImportedBrowserStorageEntry(item)).filter(Boolean)
+              ? normalizeBrowserStorageEntries(browserStorageSource)
               : [],
           };
         }
@@ -336,13 +271,7 @@ function registerAccountIPC(ctx) {
     }
 
     const raw = String(accountId || '').trim();
-    if (!raw) return '';
-    const normalized = raw
-      .replace(/[\\/:*?"<>|]/g, '_')
-      .replace(/\s+/g, '_')
-      .replace(/_+/g, '_')
-      .replace(/^_|_$/g, '');
-    return `tab-${normalized || Date.now().toString()}`;
+    return raw ? buildFallbackManagedTabPartitionName(raw) : '';
   }
 
 // 处理：cleanupAccountBrowserArtifacts的具体业务逻辑。

@@ -76,5 +76,5 @@ function httpGetUniversal(urlStr, timeoutMs = 10000) {
   });
 }
 
-module.exports = { requestJson, postJson, getJson, httpGetUniversal };
+module.exports = { postJson, getJson, httpGetUniversal };
 

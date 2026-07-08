@@ -20,9 +20,6 @@ function isHttpCompatModeEnabled() {
   return ['1', 'true', 'yes', 'on', 'http', 'http-only', 'compat', 'compat-mode'].includes(flag);
 }
 
-const DEFAULT_HOST = '127.0.0.1';
-const DEFAULT_HTTP_PORT = 7890;
-const DEFAULT_SOCKS_PORT = 7891;
 const DEFAULT_TCP_TRANSPORT = {
   preferred: 'tls',
   allowHttpFallback: true,
@@ -72,40 +69,6 @@ function normalizeSideUrl(rawUrl) {
     return url.toString();
   } catch (_) {
     return value;
-  }
-}
-
-// ---- 核心文件复制和管理 ----
-
-/**
- * 复制目录及其内容
- * @param {string} src 源目录
- * @param {string} dest 目标目录
- */
-// 递归复制整个目录树，用于迁移或补齐核心资源目录。
-function copyDirectoryRecursive(src, dest) {
-  try {
-    // 确保目标目录存在
-    if (!fs.existsSync(dest)) {
-      fs.mkdirSync(dest, { recursive: true });
-    }
-
-    const entries = fs.readdirSync(src, { withFileTypes: true });
-
-    for (const entry of entries) {
-      const srcPath = path.join(src, entry.name);
-      const destPath = path.join(dest, entry.name);
-
-      if (entry.isDirectory()) {
-        copyDirectoryRecursive(srcPath, destPath);
-      } else {
-        fs.copyFileSync(srcPath, destPath);
-      }
-    }
-    return true;
-  } catch (error) {
-    console.error('[配置] 复制目录失败:', src, '->', dest, error);
-    return false;
   }
 }
 
@@ -247,10 +210,6 @@ function getStoreConfig() {
   }
 }
 
-const storeConfig = getStoreConfig();
-const TCP_HOST = storeConfig.tcp?.host || '127.0.0.1';
-const TCP_PORT = normalizeTcpPort(storeConfig.tcp?.port);
-
 // 动态获取 TCP 配置（每次调用都会重新读取 store，保证在 initializeCoreDirectory 创建默认 store 后能及时生效）
 // 生成当前可用的 TCP 配置，优先使用运行时覆盖值。
 function getTcpConfig() {
@@ -388,10 +347,6 @@ const NETWORK_DIAG_CONFIG = {
   RETRY_DELAY: 2000,         // 重试间隔 (2秒)
 };
 
-const DEV_FLAGS = {
-  TLS_RELAXED: true, // 历史兼容：HTTP 请求放宽证书；如需收紧可改 false 并相应收敛 http.js
-};
-
 // ---- 动态URL设置 ----
 
 // 设置动态获取的目标URL
@@ -519,19 +474,10 @@ module.exports = {
   getDreamTargetUrl,
   setRuntimeTcpConfig,
   setRuntimeServerBase,
-  DEFAULT_HOST,
-  DEFAULT_HTTP_PORT,
-  DEFAULT_SOCKS_PORT,
-  TCP_HOST,
-  TCP_PORT,
-  DEV_FLAGS,
   NETWORK_DIAG_CONFIG,
-  DEFAULT_TCP_TRANSPORT,
   // 路径相关
   getCoreDir,
-  getStoreDir,
   getStorePath,
-  isHttpCompatModeEnabled,
   // 核心文件管理
   initializeCoreDirectory,
   getTcpConfig,

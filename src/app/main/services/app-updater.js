@@ -6,46 +6,8 @@ const { spawn } = require('child_process');
 const { BrowserWindow, shell, app: electronApp } = require('electron');
 const extractZip = require('extract-zip');
 const tar = require('tar');
-
-// 格式化/规范化：normalizeVersion的具体业务逻辑。
-function normalizeVersion(value) {
-  const text = String(value || '').trim().replace(/^v/i, '');
-  if (!text) return { parts: [0], preRelease: '' };
-
-  const [mainPart, preRelease = ''] = text.split('-', 2);
-  const parts = mainPart
-    .split('.')
-    .map((segment) => Number.parseInt(segment, 10))
-    .map((num) => (Number.isFinite(num) ? num : 0));
-
-  while (parts.length > 1 && parts[parts.length - 1] === 0) {
-    parts.pop();
-  }
-
-  return { parts, preRelease };
-}
-
-// 比较/匹配：compareVersions的具体业务逻辑。
-function compareVersions(left, right) {
-  const a = normalizeVersion(left);
-  const b = normalizeVersion(right);
-  const maxLen = Math.max(a.parts.length, b.parts.length);
-
-  for (let i = 0; i < maxLen; i += 1) {
-    const av = a.parts[i] || 0;
-    const bv = b.parts[i] || 0;
-    if (av > bv) return 1;
-    if (av < bv) return -1;
-  }
-
-  if (a.preRelease && !b.preRelease) return -1;
-  if (!a.preRelease && b.preRelease) return 1;
-  if (a.preRelease && b.preRelease && a.preRelease !== b.preRelease) {
-    return a.preRelease > b.preRelease ? 1 : -1;
-  }
-
-  return 0;
-}
+const { compareVersions } = require('../../shared/version-utils');
+const { summarizeUpdatePayload } = require('../utils/update-payload');
 
 // 处理：firstNonEmpty的具体业务逻辑。
 function firstNonEmpty(...values) {
@@ -1109,12 +1071,7 @@ function createAppUpdater(deps = {}) {
     logger.warn?.('[更新] startAppUpdate 被调用');
     const normalized = extractUpdatePayload(payload);
     logger.warn?.('[更新] startAppUpdate 收到原始载荷', toDebugString({
-      type: payload?.type,
-      message_type: payload?.message_type,
-      messageType: payload?.messageType,
-      version: payload?.version || payload?.latest_version || payload?.latestVersion || payload?.update_version || payload?.updateVersion,
-      downloadUrl: payload?.downloadUrl || payload?.download_url || payload?.update_link || payload?.updateLink,
-      openUrl: payload?.openUrl || payload?.open_url || payload?.subscription_url || payload?.subscriptionUrl,
+      ...summarizeUpdatePayload(payload),
       keys: Object.keys(payload || {}),
     }));
     logger.warn?.('[更新] startAppUpdate 归一化结果', toDebugString({
@@ -1489,7 +1446,5 @@ function createAppUpdater(deps = {}) {
 
 module.exports = {
   createAppUpdater,
-  compareVersions,
-  extractUpdatePayload,
-  launchExecutable,
+  cleanupUpdateStorageRoot,
 };

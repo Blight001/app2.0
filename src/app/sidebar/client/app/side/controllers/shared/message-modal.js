@@ -10,6 +10,12 @@ const messageModalEscapeHtml = MessageModalUtils.escapeHtml || ((text) => {
   div.textContent = text;
   return div.innerHTML;
 });
+const ServerMessageUtils = window.AiFreeServerMessageUtils || {};
+const getServerMessageText = ServerMessageUtils.getServerMessageText || (() => '');
+const getServerMessageType = ServerMessageUtils.getServerMessageType || (() => '');
+const getUpdateVersion = ServerMessageUtils.getUpdateVersion || (() => '');
+const isShutdownAnnouncement = ServerMessageUtils.isShutdownAnnouncement || (() => false);
+const isUpdateLikeMessage = ServerMessageUtils.isUpdateLikeMessage || (() => false);
 
 // 消息队列与处理（支持优先级）
 const MESSAGE_PRIORITY = { error: 40, warning: 30, maintenance: 35, success: 20, info: 10, confirm: 50 };
@@ -19,43 +25,6 @@ let currentMessageItem = null;
 let loadingModalVisible = false;
 let pendingLoadingMessage = '';
 let lastShownUpdateVersion = '';
-
-// 处理：isUpdateLikeMessage的具体业务逻辑。
-function isUpdateLikeMessage(messageData = {}) {
-  const type = String(messageData.type || '').toLowerCase();
-  const messageType = String(
-    messageData.message_type
-    || messageData.messageType
-    || messageData.data?.message_type
-    || messageData.data?.messageType
-    || messageData.announcement?.message_type
-    || messageData.announcement?.messageType
-    || messageData.payload?.message_type
-    || messageData.payload?.messageType
-    || ''
-  ).toLowerCase();
-  const hasVersion = Boolean(
-    messageData.version
-    || messageData.latest_version
-    || messageData.latestVersion
-    || messageData.targetVersion
-    || messageData.target_version
-    || messageData.update_version
-    || messageData.updateVersion
-  );
-
-  return (
-    type === 'app_update'
-    || type === 'update'
-    || type === 'software_update'
-    || type === 'upgrade'
-    || messageType === 'app_update'
-    || messageType === 'update'
-    || messageType === 'software_update'
-    || messageType === 'upgrade'
-    || (messageType === 'success' && hasVersion)
-  );
-}
 
 // 队列处理：enqueueMessage的具体业务逻辑。
 function enqueueMessage(item) {
@@ -304,23 +273,8 @@ function showServerMessage(messageData) {
   // 处理不同类型的服务器消息
   let type = messageData.type || 'info';
   let message = messageData.message || '收到服务器消息';
-  const messageType = messageData.message_type
-    || messageData.messageType
-    || messageData.data?.message_type
-    || messageData.data?.messageType
-    || messageData.announcement?.message_type
-    || messageData.announcement?.messageType
-    || messageData.payload?.message_type
-    || messageData.payload?.messageType;
-  const messageText = String(
-    messageData.message
-    || messageData.content
-    || messageData.data?.message
-    || messageData.data?.content
-    || messageData.announcement?.message
-    || messageData.announcement?.content
-    || message
-  );
+  const messageType = getServerMessageType(messageData);
+  const messageText = getServerMessageText(messageData) || message;
 
   if (isUpdateLikeMessage(messageData)) {
     return;
@@ -331,7 +285,7 @@ function showServerMessage(messageData) {
     if (messageType === 'update' || messageType === 'upgrade') {
       return;
     }
-    if (messageType === 'shutdown' || messageText.includes('软件暂时无法使用') || messageText.includes('停用')) {
+    if (isShutdownAnnouncement(messageData) || messageType === 'shutdown' || messageText.includes('软件暂时无法使用') || messageText.includes('停用')) {
       return;
     }
     // 服务器公告类型映射到前端显示类型
@@ -343,7 +297,7 @@ function showServerMessage(messageData) {
       'success': 'success'
     };
 
-    type = announcementTypeMap[messageData.message_type] || 'info';
+    type = announcementTypeMap[messageType] || 'info';
   }
 
   const priority = MESSAGE_PRIORITY[type] || MESSAGE_PRIORITY.info;
@@ -383,7 +337,7 @@ function showMessage(message, type = 'info') {
 // 启动/打开/显示：showUpdateMessage的具体业务逻辑。
 function showUpdateMessage(messageData = {}) {
   const payload = messageData && typeof messageData === 'object' ? messageData : {};
-  const versionKey = String(payload.targetVersion || payload.version || payload.latestVersion || payload.latest_version || '').trim();
+  const versionKey = getUpdateVersion(payload);
   if (versionKey && versionKey === lastShownUpdateVersion) {
     return;
   }
@@ -394,7 +348,7 @@ function showUpdateMessage(messageData = {}) {
     kind: 'update',
     type: 'update',
     title: payload.title || '发现新版本',
-    message: payload.content || payload.message || `发现新版本 v${payload.targetVersion || payload.version || ''}`.trim(),
+    message: payload.content || payload.message || `发现新版本 v${versionKey}`.trim(),
     priority: MESSAGE_PRIORITY.confirm + 5,
     payload,
   });
@@ -554,23 +508,8 @@ function initServerMessageListener() {
       }
 
       // 特殊处理公告消息 - 所有公告消息都只显示在公告栏，不显示弹窗
-      const messageType = messageData.message_type
-        || messageData.messageType
-        || messageData.data?.message_type
-        || messageData.data?.messageType
-        || messageData.announcement?.message_type
-        || messageData.announcement?.messageType
-        || messageData.payload?.message_type
-        || messageData.payload?.messageType;
-      const messageText = String(
-        messageData.message
-        || messageData.content
-        || messageData.data?.message
-        || messageData.data?.content
-        || messageData.announcement?.message
-        || messageData.announcement?.content
-        || ''
-      );
+      const messageType = getServerMessageType(messageData);
+      const messageText = getServerMessageText(messageData);
 
       if (isUpdateLikeMessage(messageData)) {
         return;
@@ -581,7 +520,7 @@ function initServerMessageListener() {
         return;
       }
 
-      if (messageData.type === 'announcement' && (messageType === 'shutdown' || messageText.includes('软件暂时无法使用') || messageText.includes('停用'))) {
+      if (isShutdownAnnouncement(messageData) || (messageData.type === 'announcement' && (messageType === 'shutdown' || messageText.includes('软件暂时无法使用') || messageText.includes('停用')))) {
         console.log('[消息弹窗] 检测到停用公告，跳过弹窗显示');
         return;
       }

@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const YAML = require('yaml');
-const { getCoreDir, getStorePath } = require('../../config');
+const { getCoreDir } = require('../../config');
 const {
   readStoreConfigSafe,
   toBoolean,
@@ -243,17 +243,6 @@ function readYamlIfExists(filePath) {
     return YAML.parse(fs.readFileSync(filePath, 'utf8'));
   } catch (_) {
     return null;
-  }
-}
-
-// 获取/读取/解析：readStoreConfigFile的具体业务逻辑。
-function readStoreConfigFile() {
-  try {
-    const storePath = getStorePath();
-    if (!storePath || !fs.existsSync(storePath)) return {};
-    return JSON.parse(fs.readFileSync(storePath, 'utf8') || '{}');
-  } catch (_) {
-    return {};
   }
 }
 
@@ -1409,37 +1398,25 @@ function cleanupClashMiniRuntimeConfig(coreDir) {
 
 module.exports = {
   CLASH_MINI_DIR_NAME,
-  buildClashMiniControlHeaders,
-  buildClashMiniControlUrl,
   copyDirectoryRecursive,
   collectClashMiniProxyDelays,
   detectNetworkMagicStatus,
   emitClashMiniLog,
-  ensureClashMiniRuntimeConfig,
   extractDirectClashConfigContent,
   fetchClashMiniProxyNames,
   formatClashMiniDelayText,
-  getClashMiniControlEndpoint,
-  getClashMiniControlSecret,
   getClashMiniManualGroupName,
-  getClashMiniProfileRoots,
   getClashMiniProxyEndpoint,
   getClashMiniRuntimeRoot,
   getClashMiniStatus,
   importDirectClashRuntimeConfig,
-  isClashMiniProcessRunning,
   invokeClashMiniControl,
   normalizeProbeTimeout,
   normalizeProbeUrl,
   probeClashMiniProxyDelay,
-  probeLatencyUrl,
   prepareClashMiniRuntimeDir,
   readClashProbeSettings,
-  readStoreConfigFile,
-  resolveBundledClashMiniCoreDir,
   resolveClashMiniCoreDir,
-  resolveClashMiniExecutable,
-  resolveClashMiniProfileFile,
   setRuntimeLicenseCache,
   cleanupClashMiniRuntimeConfig,
   startClashMiniProcess,

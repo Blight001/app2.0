@@ -244,5 +244,4 @@ function initializeRunFileLogger({ app, dirName = 'logs', prefix = 'run' } = {})
 module.exports = {
   createLogger,
   initializeRunFileLogger,
-  resolveUserDataDir,
 };

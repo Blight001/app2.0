@@ -2,16 +2,16 @@ const {
   normalizeLicenseUsage,
   toFiniteNumber,
 } = require('../utils/normalizers');
+const {
+  normalizeLicenseKeyValue,
+  normalizeLicenseRecord,
+  normalizeLicenseRecords,
+} = require('../utils/license-records');
 
 // 复制/克隆：clone的具体业务逻辑。
 function clone(value) {
   if (value === undefined) return undefined;
   return JSON.parse(JSON.stringify(value));
-}
-
-// 格式化/规范化：normalizeKeyValue的具体业务逻辑。
-function normalizeKeyValue(value) {
-  return String(value || '').trim();
 }
 
 // 创建/初始化：createEmptyValidationState的具体业务逻辑。
@@ -50,21 +50,6 @@ function createEmptyValidationState() {
   };
 }
 
-// 格式化/规范化：normalizeRecord的具体业务逻辑。
-function normalizeRecord(entry = {}) {
-  const keyValue = normalizeKeyValue(entry.keyValue || entry.key || '');
-  if (!keyValue) return null;
-  const platformName = normalizeKeyValue(entry.platformName || entry.platform || entry.currentPlatformName || '');
-  const normalized = {
-    id: String(entry.id || keyValue || `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`),
-    keyValue,
-  };
-  if (platformName) {
-    normalized.platformName = platformName;
-  }
-  return normalized;
-}
-
 // 处理：pickValidationSource的具体业务逻辑。
 function pickValidationSource(input = {}) {
   return input.result || input.source || input.data || input.payload || input || {};
@@ -95,8 +80,8 @@ function createLicenseCache() {
 
 // 设置/更新/持久化：setCredentials的具体业务逻辑。
   function setCredentials({ key, deviceId } = {}) {
-    const nextKey = normalizeKeyValue(key);
-    const nextDeviceId = normalizeKeyValue(deviceId);
+    const nextKey = normalizeLicenseKeyValue(key);
+    const nextDeviceId = normalizeLicenseKeyValue(deviceId);
     if (key !== undefined) {
       state.credentials.key = nextKey;
       state.validation.key = nextKey;
@@ -117,16 +102,16 @@ function createLicenseCache() {
   function setRuntimeConfig(partial = {}) {
     if (!partial || typeof partial !== 'object') return getRuntimeConfig();
     if (partial.serverBase !== undefined) {
-      state.config.serverBase = normalizeKeyValue(partial.serverBase);
+      state.config.serverBase = normalizeLicenseKeyValue(partial.serverBase);
     }
     if (partial.platformName !== undefined) {
-      state.config.platformName = normalizeKeyValue(partial.platformName);
+      state.config.platformName = normalizeLicenseKeyValue(partial.platformName);
     }
     if (partial.targetUrl !== undefined) {
-      state.config.targetUrl = normalizeKeyValue(partial.targetUrl);
+      state.config.targetUrl = normalizeLicenseKeyValue(partial.targetUrl);
     }
     if (partial.tutorialUrl !== undefined) {
-      state.config.tutorialUrl = normalizeKeyValue(partial.tutorialUrl);
+      state.config.tutorialUrl = normalizeLicenseKeyValue(partial.tutorialUrl);
     }
     if (partial.browserSettings !== undefined) {
       state.config.browserSettings = partial.browserSettings && typeof partial.browserSettings === 'object'
@@ -135,7 +120,7 @@ function createLicenseCache() {
     }
     if (partial.allowedPlatforms !== undefined) {
       state.config.allowedPlatforms = Array.isArray(partial.allowedPlatforms)
-        ? partial.allowedPlatforms.map((item) => normalizeKeyValue(item)).filter(Boolean)
+        ? partial.allowedPlatforms.map((item) => normalizeLicenseKeyValue(item)).filter(Boolean)
         : [];
     }
     if (partial.systemProxyEnabled !== undefined) {
@@ -171,8 +156,8 @@ function createLicenseCache() {
 
 // 设置/更新/持久化：setValidationState的具体业务逻辑。
   function setValidationState(input = {}) {
-    const key = normalizeKeyValue(input.key || state.credentials.key);
-    const deviceId = normalizeKeyValue(input.deviceId || state.credentials.deviceId);
+    const key = normalizeLicenseKeyValue(input.key || state.credentials.key);
+    const deviceId = normalizeLicenseKeyValue(input.deviceId || state.credentials.deviceId);
     const source = pickValidationSource(input);
     const normalizedUsage = normalizeLicenseUsage({
       ...source,
@@ -247,8 +232,8 @@ function createLicenseCache() {
 
 // 设置/更新/持久化：setUnboundState的具体业务逻辑。
   function setUnboundState(input = {}) {
-    const key = normalizeKeyValue(input.key || state.credentials.key);
-    const deviceId = normalizeKeyValue(input.deviceId || state.credentials.deviceId);
+    const key = normalizeLicenseKeyValue(input.key || state.credentials.key);
+    const deviceId = normalizeLicenseKeyValue(input.deviceId || state.credentials.deviceId);
     state.validation = {
       ...createEmptyValidationState(),
       key,
@@ -292,21 +277,13 @@ function createLicenseCache() {
 
 // 设置/更新/持久化：setRecords的具体业务逻辑。
   function setRecords(records) {
-    const seen = new Set();
-    state.records = [];
-    for (const item of Array.isArray(records) ? records : []) {
-      const normalized = normalizeRecord(item);
-      if (!normalized || seen.has(normalized.keyValue)) continue;
-      seen.add(normalized.keyValue);
-      state.records.push(normalized);
-      if (state.records.length >= 50) break;
-    }
+    state.records = normalizeLicenseRecords(records);
     return getRecords();
   }
 
 // 处理：appendRecord的具体业务逻辑。
   function appendRecord(entry = {}) {
-    const normalized = normalizeRecord(entry);
+    const normalized = normalizeLicenseRecord(entry);
     if (!normalized) return null;
     state.records = state.records.filter((item) => String(item.keyValue || '') !== normalized.keyValue);
     state.records.unshift(normalized);
@@ -318,12 +295,12 @@ function createLicenseCache() {
 
 // 移除/删除：deleteRecord的具体业务逻辑。
   function deleteRecord({ keyValue, id } = {}) {
-    const normalizedKey = normalizeKeyValue(keyValue);
-    const normalizedId = normalizeKeyValue(id);
+    const normalizedKey = normalizeLicenseKeyValue(keyValue);
+    const normalizedId = normalizeLicenseKeyValue(id);
     const before = state.records.length;
     state.records = state.records.filter((item) => {
-      const itemKey = normalizeKeyValue(item?.keyValue);
-      const itemId = normalizeKeyValue(item?.id);
+      const itemKey = normalizeLicenseKeyValue(item?.keyValue);
+      const itemId = normalizeLicenseKeyValue(item?.id);
       if (normalizedId && itemId && itemId === normalizedId) return false;
       if (normalizedKey && itemKey && itemKey === normalizedKey) return false;
       return true;

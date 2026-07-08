@@ -44,7 +44,5 @@ async function executeHttpRequest({
 }
 
 module.exports = {
-  buildHttpUrl,
   executeHttpRequest,
-  normalizeHttpResult,
 };

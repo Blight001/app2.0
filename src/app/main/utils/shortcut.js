@@ -154,9 +154,6 @@ async function createDesktopShortcut() {
 }
 
 module.exports = {
-  getProductDisplayName,
-  getDesktopShortcutPath,
-  createLinuxDesktopFile,
   checkDesktopShortcutAndPrompt,
   createDesktopShortcut
 };

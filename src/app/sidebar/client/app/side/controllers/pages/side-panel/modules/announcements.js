@@ -8,50 +8,16 @@ let updateWidgetState = {
 };
 let cachedAppVersion = '';
 
-// 格式化/规范化：stripVersionPrefix的具体业务逻辑。
-function stripVersionPrefix(value) {
-  return String(value || '').trim().replace(/^v/i, '');
-}
-
-// 格式化/规范化：normalizeVersion的具体业务逻辑。
-function normalizeVersion(value) {
-  const text = stripVersionPrefix(value);
-  if (!text) return { parts: [0], preRelease: '' };
-
-  const [mainPart, preRelease = ''] = text.split('-', 2);
-  const parts = mainPart
-    .split('.')
-    .map((segment) => Number.parseInt(segment, 10))
-    .map((num) => (Number.isFinite(num) ? num : 0));
-
-  while (parts.length > 1 && parts[parts.length - 1] === 0) {
-    parts.pop();
-  }
-
-  return { parts, preRelease };
-}
-
-// 比较/匹配：compareVersions的具体业务逻辑。
-function compareVersions(left, right) {
-  const a = normalizeVersion(left);
-  const b = normalizeVersion(right);
-  const maxLen = Math.max(a.parts.length, b.parts.length);
-
-  for (let i = 0; i < maxLen; i += 1) {
-    const av = a.parts[i] || 0;
-    const bv = b.parts[i] || 0;
-    if (av > bv) return 1;
-    if (av < bv) return -1;
-  }
-
-  if (a.preRelease && !b.preRelease) return -1;
-  if (!a.preRelease && b.preRelease) return 1;
-  if (a.preRelease && b.preRelease && a.preRelease !== b.preRelease) {
-    return a.preRelease > b.preRelease ? 1 : -1;
-  }
-
-  return 0;
-}
+const {
+  stripVersionPrefix,
+  compareVersions,
+} = window.AiFreeVersionUtils;
+const ServerMessageUtils = window.AiFreeServerMessageUtils || {};
+const getServerMessageText = ServerMessageUtils.getServerMessageText || (() => '');
+const getServerMessageType = ServerMessageUtils.getServerMessageType || (() => '');
+const getUpdateVersion = ServerMessageUtils.getUpdateVersion || (() => '');
+const isShutdownAnnouncement = ServerMessageUtils.isShutdownAnnouncement || (() => false);
+const isUpdateLikeMessage = ServerMessageUtils.isUpdateLikeMessage || (() => false);
 
 // 获取/读取/解析：toTextLines的具体业务逻辑。
 function toTextLines(value) {
@@ -220,13 +186,7 @@ async function getCurrentAppVersion() {
 
 // 处理：shouldSkipUpdateAnnouncement的具体业务逻辑。
 async function shouldSkipUpdateAnnouncement(payload = {}) {
-  const targetVersion = stripVersionPrefix(
-    payload.targetVersion
-    || payload.version
-    || payload.latestVersion
-    || payload.latest_version
-    || ''
-  );
+  const targetVersion = stripVersionPrefix(getUpdateVersion(payload));
   if (!targetVersion) {
     return false;
   }
@@ -241,17 +201,7 @@ async function shouldSkipUpdateAnnouncement(payload = {}) {
 
 // 处理：normalizeUpdateAnnouncementPayload的具体业务逻辑。
 function normalizeUpdateAnnouncementPayload(messageData = {}) {
-  const version = stripVersionPrefix(
-    messageData.targetVersion
-    || messageData.version
-    || messageData.latestVersion
-    || messageData.latest_version
-    || messageData.raw?.targetVersion
-    || messageData.raw?.version
-    || messageData.raw?.latestVersion
-    || messageData.raw?.latest_version
-    || ''
-  );
+  const version = stripVersionPrefix(getUpdateVersion(messageData));
   const content = buildAnnouncementHtml(messageData)
     || `<p>${escapeHtml(String(messageData.content || messageData.message || '发现新版本').trim())}</p>`;
 
@@ -369,30 +319,18 @@ function initAnnouncementListener() {
   if (window.electronAPI && window.electronAPI.on) {
     // 普通公告只进公告栏，不进入更新弹窗逻辑。
     window.electronAPI.on('server-message', (messageData) => {
-      const messageType = String(
-        messageData.message_type
-        || messageData.messageType
-        || messageData.data?.message_type
-        || messageData.data?.messageType
-        || messageData.announcement?.message_type
-        || messageData.announcement?.messageType
-        || messageData.payload?.message_type
-        || messageData.payload?.messageType
-        || ''
-      ).toLowerCase();
-      const messageText = String(
-        messageData.message
-        || messageData.content
-        || messageData.data?.message
-        || messageData.data?.content
-        || messageData.announcement?.message
-        || messageData.announcement?.content
-        || ''
-      );
+      const messageType = getServerMessageType(messageData);
+      const messageText = getServerMessageText(messageData);
 
       // 服务器返回的普通公告、成功公告都写入公告栏；
       // 只有停用/更新类公告继续交给其它专门流程处理。
-      if (messageData.type === 'announcement' && !['shutdown', 'update', 'upgrade', 'app_update', 'software_update'].includes(messageType) && !messageText.includes('软件暂时无法使用') && !messageText.includes('停用')) {
+      const shouldShowInAnnouncementList = messageData.type === 'announcement'
+        && !isUpdateLikeMessage(messageData)
+        && !isShutdownAnnouncement(messageData)
+        && !['shutdown', 'update', 'upgrade', 'app_update', 'software_update'].includes(messageType)
+        && !messageText.includes('软件暂时无法使用')
+        && !messageText.includes('停用');
+      if (shouldShowInAnnouncementList) {
         updateAnnouncement(messageData);
       }
     });

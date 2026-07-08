@@ -842,10 +842,5 @@ module.exports = {
   loadSession,
   deleteSession,
   getAllSessionIds,
-  clearAllSessions,
-  clearSessionsOlderThan,
-  clearSessionsOlderThanLastUsed,
-  clearSessionsBeforeTimestamp,
-  migratePlaintextCookieSessions,
   getSessionsDir,
 };

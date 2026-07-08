@@ -1,6 +1,7 @@
 const { app, ipcMain } = require('electron');
 const { createTcpClient } = require('../../lib/tcp-client');
 const { getStorePath } = require('../../config');
+const { summarizeUpdatePayload } = require('../../utils/update-payload');
 
 const DEFAULT_TUTORIAL_URL = '';
 
@@ -124,14 +125,7 @@ function registerMiscIPC(ctx) {
         fromRoot: typeof ctx.startAppUpdate === 'function',
         fromUi: !!(ctx.ui && typeof ctx.ui.startAppUpdate === 'function'),
       }));
-      console.warn('[IPC] start-app-update 被调用', JSON.stringify({
-        type: payload?.type,
-        message_type: payload?.message_type,
-        messageType: payload?.messageType,
-        version: payload?.version || payload?.latest_version || payload?.latestVersion || payload?.update_version || payload?.updateVersion,
-        downloadUrl: payload?.downloadUrl || payload?.download_url || payload?.update_link || payload?.updateLink,
-        openUrl: payload?.openUrl || payload?.open_url || payload?.subscription_url || payload?.subscriptionUrl,
-      }));
+      console.warn('[IPC] start-app-update 被调用', JSON.stringify(summarizeUpdatePayload(payload)));
       if (typeof startAppUpdate !== 'function') {
         return { ok: false, message: '更新功能不可用' };
       }

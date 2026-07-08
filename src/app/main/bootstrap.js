@@ -7,8 +7,6 @@ const { createUiBridge } = require('./composition/create-ui-bridge');
 const { acquireSingleInstance, applyWindowsAppUserModelId } = require('./composition/startup-guards');
 const { createAppUpdater } = require('./services/app-updater');
 
-let runtimeLicenseCache = null;
-
 // 启动/打开/显示：startMainApp的具体业务逻辑。
 function startMainApp() {
   applyWindowsAppUserModelId();
@@ -18,10 +16,10 @@ const { postJson, getJson, httpGetUniversal } = require('./lib/http');
 const { createLogger } = require('./utils/logger');
 const { DREAM_TARGET_URL, setDreamTargetUrl, getDreamTargetUrl, setRuntimeTcpConfig, setRuntimeServerBase, getCoreDir, getStorePath, initializeCoreDirectory, getServerBase, getSideUrl, getTcpConfig } = require('./config');
 const {
-  createAuthCookie,
   extractValidationState,
   getValidationFailureMessage,
-} = require('./lib/auth-cookie');
+} = require('./utils/license-response');
+const { createAuthCookie } = require('./lib/auth-cookie');
 const { registerIPC } = require('./ipc/register');
 const { createTcpClient, initializeTcpConnection, normalizeValidationRuntimeConfig } = require('./lib/tcp-client');
 const { getHardwareFingerprint } = require('./utils/hardware-js');
@@ -63,7 +61,6 @@ acquireSingleInstance({
 // ---- 全局状态 ----
 const appRuntime = createAppState();
   const licenseCache = createLicenseCache();
-  runtimeLicenseCache = licenseCache;
   if (typeof accountStorage.setLicenseCache === 'function') {
     accountStorage.setLicenseCache(licenseCache);
   }

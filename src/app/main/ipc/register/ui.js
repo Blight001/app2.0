@@ -6,6 +6,7 @@ const {
   getClashMiniRuntimeRoot,
 } = require('./clash-mini-core');
 const { normalizeTabBrowserProxyMode } = require('../../utils/normalizers');
+const { resolveTabTitle } = require('../../services/tab-common');
 
 // 监听/绑定：registerUiIPC的具体业务逻辑。
 function registerUiIPC(ctx) {
@@ -320,15 +321,6 @@ function registerUiIPC(ctx) {
       refreshPromptShown: false,
     };
   }
-// 获取/读取/解析：resolveTabTitle的具体业务逻辑。
-  const resolveTabTitle = (tab = {}) => {
-    const fixedTitle = String(tab?.fixedTitle || tab?.tabTitle || '').trim();
-    if (fixedTitle) {
-      return fixedTitle;
-    }
-    return String(tab?.view?.webContents?.getTitle ? tab.view.webContents.getTitle() : '').trim();
-  };
-
   ipcMain.on('add-tab', (_e, url) => ui.addTab(url));
   ipcMain.on('switch-tab', (_e, tabId) => ui.switchTab(tabId));
   ipcMain.on('close-tab', (_e, tabId) => { void ui.closeTab(tabId); });

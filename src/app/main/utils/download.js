@@ -442,20 +442,6 @@ async function downloadOrSaveMedia(wc, url, suggestedNameOrOptions) {
 
 module.exports = {
   initDownloadPrefs,
-  persistLastDir,
-  getDefaultSavePath,
-  safeFilename,
-  hasExt,
-  mimeToExt,
-  isVideoMime,
   extFromUrl,
-  detectImageFormatFromData,
-  withExt,
-  dialogFiltersByExt,
-  attachDownloadHandler,
   downloadOrSaveMedia,
-  downloadedSessions,
-  pendingDownloadPaths,
-  downloadPrefs,
-  lastDownloadDir
 };
