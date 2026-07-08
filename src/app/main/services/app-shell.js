@@ -8,7 +8,6 @@ function createAppShell(deps = {}) {
     path,
     BrowserWindow,
     BrowserView,
-    shell,
     dialog,
     isDevMode = false,
     Menu,

@@ -1,3 +1,8 @@
+const {
+  normalizeLicenseUsage,
+  toFiniteNumber,
+} = require('../utils/normalizers');
+
 // 复制/克隆：clone的具体业务逻辑。
 function clone(value) {
   if (value === undefined) return undefined;
@@ -58,46 +63,6 @@ function normalizeRecord(entry = {}) {
     normalized.platformName = platformName;
   }
   return normalized;
-}
-
-// 处理：toFiniteNumber的具体业务逻辑。
-function toFiniteNumber(value) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
-}
-
-// 格式化/规范化：normalizeLicenseUsage的具体业务逻辑。
-function normalizeLicenseUsage(source = {}) {
-  if (!source || typeof source !== 'object') return null;
-
-  const maxUsageTimes = toFiniteNumber(source.max_usage_times ?? source.maxUsageTimes);
-  const usedUsageTimes = toFiniteNumber(source.used_usage_times ?? source.usedUsageTimes);
-  const remainingUsageTimes = toFiniteNumber(source.remaining_usage_times ?? source.remainingUsageTimes);
-  const expireAt = String(source.expire_at ?? source.expireAt ?? source.cardExpiryDate ?? source.expiryDate ?? '').trim();
-  const daysLeft = source.days_left ?? source.daysLeft;
-  const expiresInSeconds = source.expires_in_seconds ?? source.expiresInSeconds;
-
-  if (
-    maxUsageTimes === null
-    && usedUsageTimes === null
-    && remainingUsageTimes === null
-    && !expireAt
-    && daysLeft === undefined
-    && expiresInSeconds === undefined
-  ) {
-    return null;
-  }
-
-  const out = {
-    max_usage_times: maxUsageTimes,
-    used_usage_times: usedUsageTimes,
-    remaining_usage_times: remainingUsageTimes,
-  };
-
-  if (expireAt) out.expire_at = expireAt;
-  if (daysLeft !== undefined) out.days_left = daysLeft;
-  if (expiresInSeconds !== undefined) out.expires_in_seconds = expiresInSeconds;
-  return out;
 }
 
 // 处理：pickValidationSource的具体业务逻辑。

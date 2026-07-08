@@ -4,6 +4,10 @@ const path = require('path');
 const crypto = require('crypto');
 const { app, safeStorage } = require('electron');
 const { machineIdSync } = require('node-machine-id');
+const {
+  getCurrentAccountTypeLabel,
+  resolveCurrentAccountType,
+} = require('../utils/normalizers');
 
 const COOKIE_ENCRYPTION_VERSION = 'v1';
 const COOKIE_ENCRYPTION_METHOD_SAFE_STORAGE = 'safeStorage';
@@ -101,39 +105,6 @@ function normalizeStorageType(value) {
   const text = String(value || 'server').trim().toLowerCase();
   if (text === 'custom' || text === 'manual' || text === 'server') return text;
   return 'server';
-}
-
-// 格式化/规范化：normalizeCurrentAccountType的具体业务逻辑。
-function normalizeCurrentAccountType(value) {
-  const text = String(value || '').trim().toLowerCase();
-  if (!text) return '';
-  if (['shared', 'permanent', 'long_term', 'long-term', 'longterm'].includes(text)) return 'shared';
-  if (['one_time', 'one-time', 'temporary', 'temp', 'midnight_clear', 'clear_at_24', '24h', '24-hour'].includes(text)) return 'one_time';
-  return text;
-}
-
-// 处理：inferCurrentAccountTypeFromLabel的具体业务逻辑。
-function inferCurrentAccountTypeFromLabel(label) {
-  const text = String(label || '').trim();
-  if (!text) return '';
-  if (text.includes('永久') || text.includes('长久') || text.includes('一次')) return 'one_time';
-  if (text.includes('循环') || text.includes('24点') || text.includes('清空') || text.includes('临时')) return 'shared';
-  return '';
-}
-
-// 获取/读取/解析：resolveCurrentAccountType的具体业务逻辑。
-function resolveCurrentAccountType(rawType, rawLabel) {
-  const normalizedRawType = normalizeCurrentAccountType(rawType);
-  const inferredFromLabel = inferCurrentAccountTypeFromLabel(rawLabel);
-  return normalizedRawType || inferredFromLabel || '';
-}
-
-// 获取/读取/解析：getCurrentAccountTypeLabel的具体业务逻辑。
-function getCurrentAccountTypeLabel(value) {
-  const type = normalizeCurrentAccountType(value);
-  if (type === 'shared') return '循环账号';
-  if (type === 'one_time') return '长久账号';
-  return '';
 }
 
 // 处理：isPermanentAccountSession的具体业务逻辑。

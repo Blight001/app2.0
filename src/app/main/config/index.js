@@ -465,6 +465,11 @@ function getCoreDir() {
     } else {
       candidates.push(path.join(__dirname, '../../../assets/extensions/clash-mini/core'));
       candidates.push(path.join(process.cwd(), 'src', 'assets', 'extensions', 'clash-mini', 'core'));
+      let currentDir = __dirname;
+      while (currentDir !== path.parse(currentDir).root) {
+        candidates.push(path.join(currentDir, 'core'));
+        currentDir = path.dirname(currentDir);
+      }
       candidates.push(path.join(__dirname, '../../../../core'));
       candidates.push(path.join(process.cwd(), 'core'));
     }

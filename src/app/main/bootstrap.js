@@ -1,4 +1,4 @@
-const { app, BrowserWindow, BrowserView, dialog, globalShortcut, ipcMain, Menu, shell, clipboard } = require('electron');
+const { app, BrowserWindow, BrowserView, dialog, ipcMain, Menu } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { createAppState } = require('./runtime/app-state');
@@ -433,16 +433,6 @@ const appShellDeps = {
   postJson,
   getJson,
   downloadOrSaveMedia,
-  dialog,
-  refreshActiveTabToUrl,
-  refreshActiveTab,
-  refreshTab,
-  reorderTab,
-  setZoom,
-  openExtensionPopup,
-  openExtensionOptions,
-  closeTab,
-  loadTranslateExtension,
   extensionManager,
   createDevConsoleWindow: () => appShell.createDevConsoleWindow?.(),
   isDevMode,

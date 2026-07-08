@@ -1,4 +1,5 @@
 const { Menu, BrowserWindow, globalShortcut, clipboard } = require('electron');
+const { extFromUrl } = require('./download');
 
 // 全局快捷键管理器
 const shortcutManager = {
@@ -264,17 +265,6 @@ function fallbackToNativeMenu(wc, params, dependencies) {
   } catch (e) {
     console.warn('回退到原生菜单失败:', e?.message || e);
   }
-}
-
-
-// 辅助函数：从 URL 提取扩展名
-function extFromUrl(u) {
-  try {
-    const p = new URL(u).pathname;
-    const b = p.split('/').pop() || '';
-    const m = b.match(/\.([A-Za-z0-9]{2,6})$/);
-    return m ? m[1].toLowerCase() : '';
-  } catch (_) { return ''; }
 }
 
 module.exports = {

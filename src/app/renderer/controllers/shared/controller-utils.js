@@ -4,6 +4,31 @@
 (function initControllerUtils() {
   const existing = window.RendererControllerUtils || {};
 
+  function createFallbackElectronApi() {
+    return {
+      __rendererFallback: true,
+      send: () => {},
+      on: () => {},
+      invoke: async () => undefined,
+    };
+  }
+
+  function ensureElectronApi() {
+    const current = window.electronAPI;
+    if (current && typeof current === 'object') {
+      if (typeof current.send !== 'function') current.send = () => {};
+      if (typeof current.on !== 'function') current.on = () => {};
+      if (typeof current.invoke !== 'function') current.invoke = async () => undefined;
+      return current;
+    }
+
+    const fallback = createFallbackElectronApi();
+    window.electronAPI = fallback;
+    return fallback;
+  }
+
+  ensureElectronApi();
+
   // 按 id 从指定根节点查找元素，方便页面脚本统一取 DOM。
   function getEl(id, root = document) {
     if (!root || typeof root.getElementById !== 'function') {
@@ -80,12 +105,18 @@
 
   // 获取渲染进程可用的 IPC 适配层，兼容 preload 和直连 electron。
   function getIpcBridge() {
-    if (window.electronAPI && typeof window.electronAPI.send === 'function' && typeof window.electronAPI.on === 'function') {
+    const api = window.electronAPI;
+    if (
+      api
+      && api.__rendererFallback !== true
+      && typeof api.send === 'function'
+      && typeof api.on === 'function'
+    ) {
       return {
-        send: window.electronAPI.send,
-        on: window.electronAPI.on,
-        invoke: typeof window.electronAPI.invoke === 'function'
-          ? window.electronAPI.invoke.bind(window.electronAPI)
+        send: api.send,
+        on: api.on,
+        invoke: typeof api.invoke === 'function'
+          ? api.invoke.bind(api)
           : null,
       };
     }
@@ -131,7 +162,6 @@
       el.disabled = true;
     });
 
-// 处理：restore的具体业务逻辑。
     const restore = () => {
       btn.dataset.busy = '0';
       btn.disabled = false;

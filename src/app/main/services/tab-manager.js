@@ -3,11 +3,11 @@ const {
   getClashMiniProxyEndpoint,
   getClashMiniRuntimeRoot,
 } = require('../ipc/register/clash-mini-core');
+const { normalizeTabBrowserProxyMode } = require('../utils/normalizers');
 
 // 创建/初始化：createTabManager的具体业务逻辑。
 function createTabManager(deps = {}) {
   const DEFAULT_TUTORIAL_URL = 'https://www.baidu.com/';
-  const TAB_BROWSER_PROXY_MODES = new Set(['inherit', 'proxy', 'direct']);
   const {
     BrowserWindow,
     BrowserView,
@@ -89,12 +89,6 @@ function createTabManager(deps = {}) {
 
 // 获取/读取/解析：resolveFixedTabTitle的具体业务逻辑。
   const resolveFixedTabTitle = (tab = {}) => String(tab?.fixedTitle || tab?.tabTitle || '').trim();
-
-// 格式化/规范化：normalizeTabBrowserProxyMode的具体业务逻辑。
-  function normalizeTabBrowserProxyMode(value) {
-    const mode = String(value || '').trim().toLowerCase();
-    return TAB_BROWSER_PROXY_MODES.has(mode) ? mode : 'inherit';
-  }
 
 // 获取/读取/解析：getBrowserProxyEndpoint的具体业务逻辑。
   function getBrowserProxyEndpoint() {

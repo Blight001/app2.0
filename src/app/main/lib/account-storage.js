@@ -1,88 +1,18 @@
 // 账号存储模块：整合凭证存储和会话存储
 const fs = require('fs');
 const path = require('path');
-const { app } = require('electron');
-const { getStorePath } = require('../config');
+const { getCoreDir, getStorePath } = require('../config');
 const sessionStorage = require('./session-storage');
+const {
+  getCurrentAccountTypeLabel,
+  resolveCurrentAccountType,
+} = require('../utils/normalizers');
 
 let runtimeLicenseCache = null;
 
 // 设置/更新/持久化：setLicenseCache的具体业务逻辑。
 function setLicenseCache(next) {
   runtimeLicenseCache = next || null;
-}
-
-// 获取core目录的函数（兼容开发和打包环境）
-function getCoreDir() {
-  try {
-    const candidates = [];
-
-    if (app && app.isPackaged) {
-      const installDir = path.dirname(app.getPath('exe'));
-      candidates.push(path.join(process.resourcesPath || '', 'resource', 'extensions', 'clash-mini', 'core'));
-      candidates.push(path.join(installDir, 'resources', 'resource', 'extensions', 'clash-mini', 'core'));
-      candidates.push(path.join(process.resourcesPath || '', 'resource', 'core'));
-      candidates.push(path.join(installDir, 'resources', 'resource', 'core'));
-    } else {
-      candidates.push(path.join(__dirname, '../../../assets/extensions/clash-mini/core'));
-      candidates.push(path.join(process.cwd(), 'src', 'assets', 'extensions', 'clash-mini', 'core'));
-      let currentDir = __dirname;
-      while (currentDir !== path.parse(currentDir).root) {
-        candidates.push(path.join(currentDir, 'core'));
-        currentDir = path.dirname(currentDir);
-      }
-      candidates.push(path.join(__dirname, '../../../../core'));
-    }
-
-    for (const candidate of candidates) {
-      if (!candidate) continue;
-      if (
-        fs.existsSync(path.join(candidate, 'verge-mihomo.exe')) ||
-        fs.existsSync(path.join(candidate, 'config.yaml')) ||
-        fs.existsSync(path.join(candidate, 'self.yaml'))
-      ) {
-        return candidate;
-      }
-    }
-
-    return candidates[candidates.length - 1] || path.join(__dirname, '../../../../core');
-  } catch (e) {
-    console.error('[getCoreDir] 获取core目录失败:', e?.message || e);
-    return path.join(__dirname, '../../../../core');
-  }
-}
-
-// 格式化/规范化：normalizeCurrentAccountType的具体业务逻辑。
-function normalizeCurrentAccountType(value) {
-  const text = String(value || '').trim().toLowerCase();
-  if (!text) return '';
-  if (['shared', 'permanent', 'long_term', 'long-term', 'longterm'].includes(text)) return 'shared';
-  if (['one_time', 'one-time', 'temporary', 'temp', 'midnight_clear', 'clear_at_24', '24h', '24-hour'].includes(text)) return 'one_time';
-  return text;
-}
-
-// 处理：inferCurrentAccountTypeFromLabel的具体业务逻辑。
-function inferCurrentAccountTypeFromLabel(label) {
-  const text = String(label || '').trim();
-  if (!text) return '';
-  if (text.includes('永久') || text.includes('长久') || text.includes('一次')) return 'one_time';
-  if (text.includes('循环') || text.includes('24点') || text.includes('清空') || text.includes('临时')) return 'shared';
-  return '';
-}
-
-// 获取/读取/解析：resolveCurrentAccountType的具体业务逻辑。
-function resolveCurrentAccountType(rawType, rawLabel) {
-  const normalizedRawType = normalizeCurrentAccountType(rawType);
-  const inferredFromLabel = inferCurrentAccountTypeFromLabel(rawLabel);
-  return normalizedRawType || inferredFromLabel || '';
-}
-
-// 获取/读取/解析：getCurrentAccountTypeLabel的具体业务逻辑。
-function getCurrentAccountTypeLabel(value) {
-  const type = normalizeCurrentAccountType(value);
-  if (type === 'shared') return '循环账号';
-  if (type === 'one_time') return '长久账号';
-  return '';
 }
 
 // 处理：isPermanentAccountRecord的具体业务逻辑。

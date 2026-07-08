@@ -6,6 +6,14 @@ const { URL } = require('url');
 const { postJson } = require('./http');
 const fs = require('fs');
 const { getStorePath, getServerBase } = require('../config');
+const {
+  getCurrentAccountTypeLabel,
+  inferCurrentAccountTypeFromLabel,
+  normalizeLicenseUsage,
+  normalizePositiveNumber,
+  normalizeTimeValueToMs,
+  resolveCurrentAccountType,
+} = require('../utils/normalizers');
 
 // TCP客户端将在运行时注入
 let tcpClient = null;
@@ -87,47 +95,6 @@ function pickFirstValue(...values) {
     return value;
   }
   return null;
-}
-
-// 格式化/规范化：normalizeTimeValueToMs的具体业务逻辑。
-function normalizeTimeValueToMs(value) {
-  if (value === null || value === undefined || value === '') return null;
-
-  if (value instanceof Date) {
-    const ts = value.getTime();
-    return Number.isFinite(ts) ? ts : null;
-  }
-
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    if (value > 1e12) return Math.floor(value);
-    if (value > 1e9) return Math.floor(value * 1000);
-    if (value > 0) return Math.floor(value * 1000);
-    return null;
-  }
-
-  const text = String(value).trim();
-  if (!text) return null;
-
-  if (/^\d+$/.test(text)) {
-    const num = Number(text);
-    if (!Number.isFinite(num)) return null;
-    if (text.length >= 13) return Math.floor(num);
-    if (text.length === 10) return Math.floor(num * 1000);
-    if (num > 1e12) return Math.floor(num);
-    if (num > 1e9) return Math.floor(num * 1000);
-    return Math.floor(num * 1000);
-  }
-
-  const parsed = Date.parse(text);
-  return Number.isNaN(parsed) ? null : parsed;
-}
-
-// 格式化/规范化：normalizePositiveNumber的具体业务逻辑。
-function normalizePositiveNumber(value) {
-  if (value === null || value === undefined || value === '') return null;
-  const num = typeof value === 'number' ? value : Number(String(value).trim());
-  if (!Number.isFinite(num) || num <= 0) return null;
-  return num;
 }
 
 // 获取/读取/解析：extractNestedText的具体业务逻辑。
@@ -264,39 +231,6 @@ function sanitizeUserFacingMessage(message, fallback = '账号分配失败') {
     .replace(/cookie/gi, '账号信息');
   text = text.replace(/\s+/g, ' ').trim();
   return text || fallback;
-}
-
-// 格式化/规范化：normalizeCurrentAccountType的具体业务逻辑。
-function normalizeCurrentAccountType(value) {
-  const text = String(value || '').trim().toLowerCase();
-  if (!text) return '';
-  if (['shared', 'permanent', 'long_term', 'long-term', 'longterm'].includes(text)) return 'shared';
-  if (['one_time', 'one-time', 'temporary', 'temp', 'midnight_clear', 'clear_at_24', '24h', '24-hour'].includes(text)) return 'one_time';
-  return text;
-}
-
-// 处理：inferCurrentAccountTypeFromLabel的具体业务逻辑。
-function inferCurrentAccountTypeFromLabel(label) {
-  const text = String(label || '').trim();
-  if (!text) return '';
-  if (text.includes('长久') || text.includes('一次')) return 'one_time';
-  if (text.includes('循环') || text.includes('24点') || text.includes('清空') || text.includes('临时')) return 'shared';
-  return '';
-}
-
-// 获取/读取/解析：resolveCurrentAccountType的具体业务逻辑。
-function resolveCurrentAccountType(rawType, rawLabel) {
-  const normalizedRawType = normalizeCurrentAccountType(rawType);
-  const inferredFromLabel = inferCurrentAccountTypeFromLabel(rawLabel);
-  return normalizedRawType || inferredFromLabel || '';
-}
-
-// 获取/读取/解析：getCurrentAccountTypeLabel的具体业务逻辑。
-function getCurrentAccountTypeLabel(value) {
-  const type = normalizeCurrentAccountType(value);
-  if (type === 'shared') return '循环账号';
-  if (type === 'one_time') return '长久账号';
-  return '';
 }
 
 // 获取/读取/解析：extractCurrentAccountTypeInfo的具体业务逻辑。
@@ -694,47 +628,6 @@ function createAuthCookie({ serverBase: serverBaseInput, tcp, sendToSide = () =>
       console.warn('[LicenseUsage] 写入store/content失败:', e?.message || e);
       return false;
     }
-  }
-
-// 处理：toFiniteNumber的具体业务逻辑。
-  function toFiniteNumber(value) {
-    const num = Number(value);
-    return Number.isFinite(num) ? num : null;
-  }
-
-// 格式化/规范化：normalizeLicenseUsage的具体业务逻辑。
-  function normalizeLicenseUsage(source = {}) {
-    if (!source || typeof source !== 'object') return null;
-
-    const maxUsageTimes = toFiniteNumber(source.max_usage_times ?? source.maxUsageTimes);
-    const usedUsageTimes = toFiniteNumber(source.used_usage_times ?? source.usedUsageTimes);
-    const remainingUsageTimes = toFiniteNumber(source.remaining_usage_times ?? source.remainingUsageTimes);
-
-    const expireAt = source.expire_at ?? source.expireAt ?? '';
-    const daysLeft = source.days_left ?? source.daysLeft;
-    const expiresInSeconds = source.expires_in_seconds ?? source.expiresInSeconds;
-
-    if (
-      maxUsageTimes === null
-      && usedUsageTimes === null
-      && remainingUsageTimes === null
-      && !expireAt
-      && daysLeft === undefined
-      && expiresInSeconds === undefined
-    ) {
-      return null;
-    }
-
-    const out = {
-      max_usage_times: maxUsageTimes,
-      used_usage_times: usedUsageTimes,
-      remaining_usage_times: remainingUsageTimes,
-    };
-
-    if (expireAt) out.expire_at = expireAt;
-    if (daysLeft !== undefined) out.days_left = daysLeft;
-    if (expiresInSeconds !== undefined) out.expires_in_seconds = expiresInSeconds;
-    return out;
   }
 
 // 获取/读取/解析：getStoredLicenseUsage的具体业务逻辑。

@@ -5,6 +5,7 @@ const {
   getClashMiniProxyEndpoint,
   getClashMiniRuntimeRoot,
 } = require('./clash-mini-core');
+const { normalizeTabBrowserProxyMode } = require('../../utils/normalizers');
 
 // 监听/绑定：registerUiIPC的具体业务逻辑。
 function registerUiIPC(ctx) {
@@ -21,14 +22,6 @@ function registerUiIPC(ctx) {
   let tabProxyMenuWindow = null;
 
   const getProxyModeLabel = (mode) => PROXY_MODE_LABELS[String(mode || '').trim()] || String(mode || '').trim() || '未知模式';
-
-  const normalizeTabBrowserProxyMode = (value) => {
-    const mode = String(value || '').trim().toLowerCase();
-    if (mode === 'proxy' || mode === 'direct' || mode === 'inherit') {
-      return mode;
-    }
-    return 'inherit';
-  };
 
   const resolveEffectiveBrowserProxyMode = (rawMode) => {
     const currentMode = normalizeTabBrowserProxyMode(rawMode);

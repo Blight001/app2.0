@@ -49,9 +49,8 @@ function startApp() {
   console.log('[启动] 主进程已加载，准备初始化应用');
   cleanupUpdateStorageRootOnStartup();
 
-  const { createMainApp } = require('../composition/create-main-app');
-  const mainApp = createMainApp();
-  mainApp.start();
+  const { startMainApp } = require('../bootstrap');
+  startMainApp();
 }
 
 startApp();

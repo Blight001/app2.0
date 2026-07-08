@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { getStorePath } = require('../../config');
+const { toFiniteNumber } = require('../../utils/normalizers');
 
 // 获取/读取/解析：readStoreConfigSafe的具体业务逻辑。
 function readStoreConfigSafe() {
@@ -70,12 +71,6 @@ function persistSystemProxyEnabled(enabled) {
   } catch (_) {
     return false;
   }
-}
-
-// 处理：toFiniteNumber的具体业务逻辑。
-function toFiniteNumber(value) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
 }
 
 // 格式化/规范化：normalizeLicenseBinding的具体业务逻辑。

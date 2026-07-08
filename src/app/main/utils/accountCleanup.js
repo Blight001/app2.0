@@ -1,49 +1,13 @@
 // 基于服务器回收时间的账号删除调度
 
+const {
+  normalizePositiveNumber,
+  normalizeTimeValueToMs,
+} = require('./normalizers');
+
 let recycleTimers = new Map();
 
 const MAX_TIMEOUT_MS = 2147483647;
-
-// 格式化/规范化：normalizeTimeValueToMs的具体业务逻辑。
-function normalizeTimeValueToMs(value) {
-  if (value === null || value === undefined || value === '') return null;
-
-  if (value instanceof Date) {
-    const ts = value.getTime();
-    return Number.isFinite(ts) ? ts : null;
-  }
-
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    if (value > 1e12) return Math.floor(value);
-    if (value > 1e9) return Math.floor(value * 1000);
-    if (value > 0) return Math.floor(value * 1000);
-    return null;
-  }
-
-  const text = String(value).trim();
-  if (!text) return null;
-
-  if (/^\d+$/.test(text)) {
-    const num = Number(text);
-    if (!Number.isFinite(num)) return null;
-    if (text.length >= 13) return Math.floor(num);
-    if (text.length === 10) return Math.floor(num * 1000);
-    if (num > 1e12) return Math.floor(num);
-    if (num > 1e9) return Math.floor(num * 1000);
-    return Math.floor(num * 1000);
-  }
-
-  const parsed = Date.parse(text);
-  return Number.isNaN(parsed) ? null : parsed;
-}
-
-// 格式化/规范化：normalizePositiveNumber的具体业务逻辑。
-function normalizePositiveNumber(value) {
-  if (value === null || value === undefined || value === '') return null;
-  const num = typeof value === 'number' ? value : Number(String(value).trim());
-  if (!Number.isFinite(num) || num <= 0) return null;
-  return num;
-}
 
 // 获取/读取/解析：resolveRecycleTimestamp的具体业务逻辑。
 function resolveRecycleTimestamp(account) {
