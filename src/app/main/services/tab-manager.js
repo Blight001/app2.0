@@ -655,46 +655,7 @@ function createTabManager(deps = {}) {
       if (extensionManager && typeof extensionManager.openExtensionPopup === 'function') {
         return await extensionManager.openExtensionPopup(pluginId);
       }
-      const wc = getActiveWC();
-      if (!wc) return { ok: false, message: '当前没有可用的网页标签' };
-      const extId = deps.extIdBySession.get(wc.session);
-      if (!extId) {
-        logger.warn?.('未找到扩展ID，可能未加载到该会话');
-        return { ok: false, message: '未找到扩展ID，可能未加载到该会话' };
-      }
-// 处理：partition的具体业务逻辑。
-      const partition = (resolveTabs().get(resolveActiveTabId()) && resolveTabs().get(resolveActiveTabId()).partition) || undefined;
-      const popupSession = wc.session;
-      const url = `chrome-extension://${extId}/popup.html`;
-      const currentPopup = resolveExtPopupWin();
-      if (currentPopup && !currentPopup.isDestroyed()) {
-        try { currentPopup.loadURL(url); currentPopup.show(); currentPopup.focus(); } catch (_) {}
-        return { ok: true };
-      }
-      const extPopupWin = new BrowserWindow({
-        width: 420,
-        height: 560,
-        parent: resolveMainWindow(),
-        modal: false,
-        alwaysOnTop: true,
-        title: '扩展',
-        icon: (() => {
-          const candidate = process.resourcesPath ? path.join(process.resourcesPath, 'resource', 'seedance2.0.ico') : '';
-          return candidate && fs.existsSync(candidate) ? candidate : undefined;
-        })(),
-        webPreferences: { partition, nodeIntegration: false, contextIsolation: true, sandbox: false },
-      });
-      if (typeof setExtPopupWin === 'function') setExtPopupWin(extPopupWin);
-      try { extPopupWin.setMenu(null); } catch (_) {}
-      extPopupWin.on('closed', () => {
-        if (typeof setExtPopupWin === 'function') setExtPopupWin(null);
-        void cleanupBrowserSessionData({
-          partition,
-          session: popupSession,
-          source: '扩展弹窗',
-        });
-      });
-      try { await extPopupWin.loadURL(url); return { ok: true }; } catch (e) { logger.warn?.('加载扩展弹窗失败:', e?.message || e); return { ok: false, message: e?.message || String(e) }; }
+      return { ok: false, message: '插件管理器不可用' };
     } catch (error) {
       return { ok: false, message: error?.message || String(error) };
     }
@@ -706,35 +667,7 @@ function createTabManager(deps = {}) {
       if (extensionManager && typeof extensionManager.openExtensionOptions === 'function') {
         return await extensionManager.openExtensionOptions(pluginId);
       }
-      const wc = getActiveWC();
-      if (!wc) return { ok: false, message: '当前没有可用的网页标签' };
-      const extId = deps.extIdBySession.get(wc.session);
-      if (!extId) return { ok: false, message: '未找到扩展ID，可能未加载到该会话' };
-// 处理：partition的具体业务逻辑。
-      const partition = (resolveTabs().get(resolveActiveTabId()) && resolveTabs().get(resolveActiveTabId()).partition) || undefined;
-      const optionsSession = wc.session;
-      const url = `chrome-extension://${extId}/options.html`;
-      const win = new BrowserWindow({
-        width: 720,
-        height: 600,
-        parent: resolveMainWindow(),
-        modal: false,
-        title: '扩展设置',
-        icon: (() => {
-          const candidate = process.resourcesPath ? path.join(process.resourcesPath, 'resource', 'seedance2.0.ico') : '';
-          return candidate && fs.existsSync(candidate) ? candidate : undefined;
-        })(),
-        webPreferences: { partition, nodeIntegration: false, contextIsolation: true, sandbox: false },
-      });
-      try { win.setMenu(null); } catch (_) {}
-      win.on('closed', () => {
-        void cleanupBrowserSessionData({
-          partition,
-          session: optionsSession,
-          source: '扩展设置',
-        });
-      });
-      try { await win.loadURL(url); return { ok: true }; } catch (e) { logger.warn?.('加载扩展设置失败:', e?.message || e); return { ok: false, message: e?.message || String(e) }; }
+      return { ok: false, message: '插件管理器不可用' };
     } catch (error) {
       return { ok: false, message: error?.message || String(error) };
     }

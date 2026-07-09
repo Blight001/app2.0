@@ -1,4 +1,4 @@
-const { BrowserWindow, ipcMain } = require('electron');
+const { ipcMain } = require('electron');
 
 function registerExtensionsIPC(ctx = {}) {
   const extensionManager = ctx.extensionManager || ctx.ui?.extensionManager || null;
@@ -14,28 +14,6 @@ function registerExtensionsIPC(ctx = {}) {
     const missing = ensureManager();
     if (missing) return missing;
     return { ok: true, state: extensionManager.getPublicState() };
-  });
-
-  ipcMain.handle('set-extension-developer-mode', async (_event, payload = {}) => {
-    const missing = ensureManager();
-    if (missing) return missing;
-    try {
-      const state = await extensionManager.setDeveloperModeEnabled(payload?.enabled === true);
-      return { ok: true, state };
-    } catch (error) {
-      return { ok: false, message: error?.message || String(error), state: extensionManager.getPublicState() };
-    }
-  });
-
-  ipcMain.handle('import-extension-directory', async (_event) => {
-    const missing = ensureManager();
-    if (missing) return missing;
-    try {
-      const parentWindow = BrowserWindow.fromWebContents(_event.sender);
-      return await extensionManager.importExtensionWithDialog(parentWindow);
-    } catch (error) {
-      return { ok: false, message: error?.message || String(error), state: extensionManager.getPublicState() };
-    }
   });
 
   ipcMain.handle('set-extension-enabled', async (_event, payload = {}) => {
@@ -75,6 +53,16 @@ function registerExtensionsIPC(ctx = {}) {
       return await extensionManager.openExtensionOptions(payload?.id);
     } catch (error) {
       return { ok: false, message: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle('close-extension-sidebar-panel', async () => {
+    const missing = ensureManager();
+    if (missing) return missing;
+    try {
+      return extensionManager.closeSidebarPanel();
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error), state: extensionManager.getPublicState() };
     }
   });
 }

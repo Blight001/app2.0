@@ -119,8 +119,6 @@
             </div>
           </div>
 
-          <button id="import-extension-btn" class="main-button btn-large-teal extension-import-btn" type="button">导入插件</button>
-
           <button id="start-clash-mini-btn" class="main-button btn-large-teal" data-loading-text="启动中..." hidden>启动 Clash Mini</button>
           
           <div class="plugin-switch-group">
@@ -171,6 +169,21 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="extension-sidebar-panel" class="extension-sidebar-panel" hidden>
+    <div class="extension-sidebar-panel-shell">
+      <div class="extension-sidebar-panel-head">
+        <div class="extension-sidebar-panel-title-wrap">
+          <div id="extension-sidebar-panel-title" class="extension-sidebar-panel-title">插件</div>
+          <div id="extension-sidebar-panel-subtitle" class="extension-sidebar-panel-subtitle">弹窗</div>
+        </div>
+        <button id="extension-sidebar-panel-close" class="extension-sidebar-panel-close" type="button" aria-label="关闭插件浮窗">×</button>
+      </div>
+      <div id="extension-sidebar-panel-body" class="extension-sidebar-panel-body">
+        <span id="extension-sidebar-panel-status" class="extension-sidebar-panel-status">正在加载...</span>
       </div>
     </div>
   </div>

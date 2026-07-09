@@ -8,14 +8,17 @@ const {
 const STORE_FIELD = 'extensionManager';
 const BUILTIN_TRANSLATE_ID = 'builtin-transform';
 const BUILTIN_REMOVE_WATERMARK_ID = 'builtin-remove-watermark';
+const SIDEBAR_PANEL_MARGIN = 12;
+const SIDEBAR_PANEL_HEADER_HEIGHT = 44;
+const POPUP_DEFAULT_SIZE = { width: 360, height: 420 };
+const OPTIONS_DEFAULT_SIZE = { width: 560, height: 620 };
 
 function createExtensionManager(deps = {}) {
   const {
     app,
     fs,
     path,
-    BrowserWindow,
-    dialog,
+    BrowserView,
     logger = console,
     getStorePath,
     getTranslateExtDir,
@@ -23,9 +26,8 @@ function createExtensionManager(deps = {}) {
     getActiveTabId = () => null,
     getActiveWC = () => null,
     getMainWindow = () => null,
-    getExtPopupWin = () => null,
-    setExtPopupWin = () => {},
-    cleanupBrowserSessionData = null,
+    getSideView = () => null,
+    getIsSidebarVisible = () => true,
     applyPluginSettings = null,
     sendToSide = null,
   } = deps;
@@ -37,6 +39,7 @@ function createExtensionManager(deps = {}) {
 
   const sessionExtensionIds = new WeakMap();
   const knownSessions = new Set();
+  let sidebarPanel = null;
 
   function normalizeAbsolutePath(value) {
     try {
@@ -111,36 +114,98 @@ function createExtensionManager(deps = {}) {
     };
   }
 
-  function resolveBundledExtensionDir(dirName) {
-    const name = String(dirName || '').trim();
-    if (!name) return '';
-
+  function resolveBundledExtensionRoots() {
     const candidates = [];
     if (process.resourcesPath) {
-      candidates.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'assets', 'extensions', name));
-      candidates.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'extensions', name));
-      candidates.push(path.join(process.resourcesPath, 'src', 'assets', 'extensions', name));
-      candidates.push(path.join(process.resourcesPath, 'app.asar', 'src', 'assets', 'extensions', name));
+      candidates.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'assets', 'extensions'));
+      candidates.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'extensions'));
+      candidates.push(path.join(process.resourcesPath, 'src', 'assets', 'extensions'));
+      candidates.push(path.join(process.resourcesPath, 'app.asar', 'src', 'assets', 'extensions'));
     }
     if (app && typeof app.getAppPath === 'function') {
       const appPath = app.getAppPath();
-      candidates.push(path.join(appPath, 'src', 'assets', 'extensions', name));
-      candidates.push(path.join(appPath, 'assets', 'extensions', name));
+      candidates.push(path.join(appPath, 'src', 'assets', 'extensions'));
+      candidates.push(path.join(appPath, 'assets', 'extensions'));
     }
-    candidates.push(path.join(__dirname, '../../../assets/extensions', name));
+    candidates.push(path.join(__dirname, '../../../assets/extensions'));
 
+    const roots = [];
     const seen = new Set();
     for (const candidate of candidates) {
       const normalized = normalizeAbsolutePath(candidate);
       if (!normalized || seen.has(normalized)) continue;
       seen.add(normalized);
       try {
-        if (fs.existsSync(path.join(normalized, 'manifest.json'))) {
-          return normalized;
+        if (fs.existsSync(normalized)) {
+          roots.push(normalized);
         }
       } catch (_) {}
     }
-    return '';
+    return roots;
+  }
+
+  function collectBundledExtensionDirs() {
+    const dirsByName = new Map();
+
+    const addDir = (dir) => {
+      const normalized = normalizeAbsolutePath(dir);
+      if (!normalized) return;
+      try {
+        if (!fs.existsSync(path.join(normalized, 'manifest.json'))) return;
+        const key = path.basename(normalized).toLowerCase();
+        if (!dirsByName.has(key)) {
+          dirsByName.set(key, normalized);
+        }
+      } catch (_) {}
+    };
+
+    addDir(resolveBuiltinTranslateDir());
+
+    for (const root of resolveBundledExtensionRoots()) {
+      addDir(root);
+      try {
+        const children = fs.readdirSync(root, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => path.join(root, entry.name));
+        children.forEach(addDir);
+      } catch (error) {
+        logger.warn?.('[Extensions] 扫描内置插件目录失败:', root, error?.message || error);
+      }
+    }
+
+    return Array.from(dirsByName.values())
+      .sort((a, b) => path.basename(a).localeCompare(path.basename(b)));
+  }
+
+  function getBundledExtensionId(dir) {
+    const dirName = path.basename(String(dir || '')).trim();
+    const normalizedName = dirName.toLowerCase();
+    if (normalizedName === 'transform') return BUILTIN_TRANSLATE_ID;
+    if (normalizedName === 'remove_watermark') return BUILTIN_REMOVE_WATERMARK_ID;
+
+    const safeName = normalizedName
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return `asset-${safeName || hashId(dirName || dir)}`;
+  }
+
+  function getBundledExtensionOverrides(dir, existing = {}) {
+    const dirName = path.basename(String(dir || '')).trim().toLowerCase();
+    const overrides = {
+      id: getBundledExtensionId(dir),
+      builtin: true,
+      enabled: existing.enabled !== false,
+    };
+
+    if (dirName === 'transform') {
+      overrides.name = existing.name || '翻译插件';
+      overrides.hint = existing.hint || '点击网页右侧粉色按钮翻译';
+    } else if (dirName === 'remove_watermark') {
+      overrides.name = existing.name || '去水印插件';
+      overrides.hint = existing.hint || '右键视频图片直接下载';
+    }
+
+    return overrides;
   }
 
   function resolveMessages(dir, locale) {
@@ -322,48 +387,27 @@ function createExtensionManager(deps = {}) {
     const storedPlugins = stored.plugins
       .map(normalizeStoredPlugin)
       .filter((plugin) => plugin && plugin.id);
+    const storedById = new Map(storedPlugins.map((plugin) => [plugin.id, plugin]));
+    const storedByPath = new Map(storedPlugins.map((plugin) => [normalizeAbsolutePath(plugin.path), plugin]));
+    const bundledPlugins = [];
+    const seenIds = new Set();
 
-    const builtinDir = resolveBuiltinTranslateDir();
-    const existingBuiltin = storedPlugins.find((plugin) => plugin.id === BUILTIN_TRANSLATE_ID) || {};
-    const removeWatermarkDir = resolveBundledExtensionDir('remove_watermark');
-    const existingRemoveWatermark = storedPlugins.find((plugin) => plugin.id === BUILTIN_REMOVE_WATERMARK_ID) || {};
-    const nextPlugins = storedPlugins.filter((plugin) => plugin.id !== BUILTIN_TRANSLATE_ID);
-    const userPlugins = nextPlugins.filter((plugin) => plugin.id !== BUILTIN_REMOVE_WATERMARK_ID);
-    const builtinPlugins = [];
-
-    if (builtinDir) {
+    for (const dir of collectBundledExtensionDirs()) {
       try {
-        const builtin = buildPluginRecord(builtinDir, existingBuiltin, {
-          id: BUILTIN_TRANSLATE_ID,
-          name: existingBuiltin.name || '翻译插件',
-          hint: existingBuiltin.hint || '点击网页右侧粉色按钮翻译',
-          builtin: true,
-          enabled: existingBuiltin.enabled === true,
-        });
-        builtinPlugins.push(builtin);
+        const id = getBundledExtensionId(dir);
+        const existing = storedById.get(id) || storedByPath.get(normalizeAbsolutePath(dir)) || {};
+        const record = buildPluginRecord(dir, existing, getBundledExtensionOverrides(dir, existing));
+        if (seenIds.has(record.id)) continue;
+        seenIds.add(record.id);
+        bundledPlugins.push(record);
       } catch (error) {
-        logger.warn?.('[Extensions] 初始化内置翻译插件失败:', error?.message || error);
-      }
-    }
-
-    if (removeWatermarkDir) {
-      try {
-        const builtinRemoveWatermark = buildPluginRecord(removeWatermarkDir, existingRemoveWatermark, {
-          id: BUILTIN_REMOVE_WATERMARK_ID,
-          name: existingRemoveWatermark.name || '去水印插件',
-          hint: existingRemoveWatermark.hint || '右键视频图片直接下载',
-          builtin: true,
-          enabled: existingRemoveWatermark.enabled !== false,
-        });
-        builtinPlugins.push(builtinRemoveWatermark);
-      } catch (error) {
-        logger.warn?.('[Extensions] 初始化内置去水印插件失败:', error?.message || error);
+        logger.warn?.('[Extensions] 初始化目录插件失败:', dir, error?.message || error);
       }
     }
 
     state = {
       developerModeEnabled: true,
-      plugins: [...builtinPlugins, ...userPlugins],
+      plugins: bundledPlugins,
     };
     persistState();
     syncLegacyTranslateSetting();
@@ -555,11 +599,186 @@ function createExtensionManager(deps = {}) {
     await Promise.all(sessions.map((session) => loadPluginIntoSession(plugin, session, '现有标签')));
   }
 
-  async function setDeveloperModeEnabled(enabled) {
-    state.developerModeEnabled = true;
-    persistState();
-    emitStateChanged();
-    return getPublicState();
+  function clampNumber(value, min, max) {
+    const num = Number(value);
+    const safeMin = Number.isFinite(Number(min)) ? Number(min) : 0;
+    const safeMax = Number.isFinite(Number(max)) ? Number(max) : safeMin;
+    if (!Number.isFinite(num)) return safeMin;
+    return Math.min(Math.max(Math.round(num), safeMin), safeMax);
+  }
+
+  function getSidebarPanelSizeLimits() {
+    const sideView = typeof getSideView === 'function' ? getSideView() : null;
+    const sideBounds = sideView && typeof sideView.getBounds === 'function'
+      ? sideView.getBounds()
+      : null;
+    if (!sideBounds || !sideBounds.width || !sideBounds.height) return null;
+
+    const maxContentWidth = Math.max(0, Math.floor(sideBounds.width - SIDEBAR_PANEL_MARGIN * 2));
+    const maxContentHeight = Math.max(0, Math.floor(sideBounds.height - SIDEBAR_PANEL_MARGIN * 2 - SIDEBAR_PANEL_HEADER_HEIGHT));
+    if (maxContentWidth < 80 || maxContentHeight < 80) return null;
+
+    return {
+      sideBounds,
+      maxContentWidth,
+      maxContentHeight,
+    };
+  }
+
+  function getDefaultPanelContentSize(pageType) {
+    return pageType === 'options' ? OPTIONS_DEFAULT_SIZE : POPUP_DEFAULT_SIZE;
+  }
+
+  function normalizePanelContentSize(rawSize = {}, pageType = 'popup') {
+    const limits = getSidebarPanelSizeLimits();
+    const defaults = getDefaultPanelContentSize(pageType);
+    const maxContentWidth = limits?.maxContentWidth || defaults.width;
+    const maxContentHeight = limits?.maxContentHeight || defaults.height;
+    const minWidth = Math.min(pageType === 'options' ? 320 : 240, maxContentWidth);
+    const minHeight = Math.min(pageType === 'options' ? 300 : 180, maxContentHeight);
+
+    return {
+      width: clampNumber(rawSize.width || defaults.width, minWidth, maxContentWidth),
+      height: clampNumber(rawSize.height || defaults.height, minHeight, maxContentHeight),
+    };
+  }
+
+  function getSidebarPanelBounds() {
+    const limits = getSidebarPanelSizeLimits();
+    if (!limits) return null;
+
+    const contentSize = normalizePanelContentSize({
+      width: sidebarPanel?.contentWidth,
+      height: sidebarPanel?.contentHeight,
+    }, sidebarPanel?.pageType || 'popup');
+
+    return {
+      x: Math.floor(limits.sideBounds.x + limits.sideBounds.width - SIDEBAR_PANEL_MARGIN - contentSize.width),
+      y: Math.floor(limits.sideBounds.y + SIDEBAR_PANEL_MARGIN + SIDEBAR_PANEL_HEADER_HEIGHT),
+      width: contentSize.width,
+      height: contentSize.height,
+    };
+  }
+
+  function getSidebarPanelDimensionsPayload() {
+    const contentSize = normalizePanelContentSize({
+      width: sidebarPanel?.contentWidth,
+      height: sidebarPanel?.contentHeight,
+    }, sidebarPanel?.pageType || 'popup');
+    return {
+      width: contentSize.width,
+      height: contentSize.height + SIDEBAR_PANEL_HEADER_HEIGHT,
+      contentWidth: contentSize.width,
+      contentHeight: contentSize.height,
+    };
+  }
+
+  function sendSidebarPanelOpened(status = '') {
+    if (!sidebarPanel || typeof sendToSide !== 'function') return;
+    try {
+      sendToSide('extension-sidebar-panel-opened', {
+        id: sidebarPanel.pluginId,
+        name: sidebarPanel.name,
+        title: sidebarPanel.title,
+        pageType: sidebarPanel.pageType,
+        dimensions: getSidebarPanelDimensionsPayload(),
+        status,
+      });
+    } catch (_) {}
+  }
+
+  function syncSidebarPanelBounds() {
+    if (!sidebarPanel?.view) return false;
+    const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
+    if (!mainWindow || mainWindow.isDestroyed?.()) return false;
+    if (typeof getIsSidebarVisible === 'function' && getIsSidebarVisible() === false) {
+      closeSidebarPanel({ notify: true });
+      return false;
+    }
+
+    const bounds = getSidebarPanelBounds();
+    if (!bounds) return false;
+
+    try {
+      sidebarPanel.view.setBounds(bounds);
+      mainWindow.setTopBrowserView(sidebarPanel.view);
+      return true;
+    } catch (error) {
+      logger.warn?.('[Extensions] 同步侧栏插件浮窗位置失败:', error?.message || error);
+      return false;
+    }
+  }
+
+  function closeSidebarPanel(options = {}) {
+    const notify = options.notify !== false;
+    const panel = sidebarPanel;
+    sidebarPanel = null;
+    if (panel?.view) {
+      try {
+        const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
+        if (mainWindow && !mainWindow.isDestroyed?.()) {
+          mainWindow.removeBrowserView(panel.view);
+        }
+      } catch (_) {}
+      try {
+        if (panel.view.webContents && !panel.view.webContents.isDestroyed()) {
+          panel.view.webContents.destroy();
+        }
+      } catch (_) {}
+    }
+    if (notify && typeof sendToSide === 'function') {
+      try { sendToSide('extension-sidebar-panel-closed', {}); } catch (_) {}
+    }
+    return { ok: true, state: getPublicState() };
+  }
+
+  function createSidebarPanelView(partition) {
+    if (!BrowserView) {
+      throw new Error('当前环境无法创建插件浮窗');
+    }
+    return new BrowserView({
+      webPreferences: {
+        partition,
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: false,
+      },
+    });
+  }
+
+  async function measureSidebarPanelContent(view, pageType = 'popup') {
+    try {
+      if (!view?.webContents || view.webContents.isDestroyed?.()) {
+        return normalizePanelContentSize({}, pageType);
+      }
+
+      const measured = await view.webContents.executeJavaScript(`
+        (() => {
+          const doc = document.documentElement;
+          const body = document.body;
+          const bodyRect = body ? body.getBoundingClientRect() : { width: 0, height: 0 };
+          const width = Math.ceil(Math.max(
+            doc ? doc.scrollWidth : 0,
+            doc ? doc.offsetWidth : 0,
+            body ? body.scrollWidth : 0,
+            body ? body.offsetWidth : 0,
+            bodyRect.width || 0
+          ));
+          const height = Math.ceil(Math.max(
+            doc ? doc.scrollHeight : 0,
+            doc ? doc.offsetHeight : 0,
+            body ? body.scrollHeight : 0,
+            body ? body.offsetHeight : 0,
+            bodyRect.height || 0
+          ));
+          return { width, height };
+        })()
+      `, true);
+      return normalizePanelContentSize(measured || {}, pageType);
+    } catch (error) {
+      logger.warn?.('[Extensions] 测量插件浮窗尺寸失败:', error?.message || error);
+      return normalizePanelContentSize({}, pageType);
+    }
   }
 
   async function setPluginEnabled(pluginId, enabled) {
@@ -575,6 +794,10 @@ function createExtensionManager(deps = {}) {
     plugin.updatedAt = new Date().toISOString();
     persistState();
 
+    if (!plugin.enabled && sidebarPanel?.pluginId === plugin.id) {
+      closeSidebarPanel({ notify: true });
+    }
+
     if (plugin.enabled) {
       await loadPluginIntoAllCurrentSessions(plugin);
     } else {
@@ -586,63 +809,14 @@ function createExtensionManager(deps = {}) {
     return { ok: true, plugin: toPublicPlugin(plugin), state: getPublicState() };
   }
 
-  function findExtensionRoot(selectedPath) {
-    const root = normalizeAbsolutePath(selectedPath);
-    if (!root) throw new Error('未选择插件目录');
-    if (fs.existsSync(path.join(root, 'manifest.json'))) return root;
-
-    const directChildren = fs.readdirSync(root, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => path.join(root, entry.name))
-      .filter((dir) => fs.existsSync(path.join(dir, 'manifest.json')));
-
-    if (directChildren.length === 1) return directChildren[0];
-    throw new Error('请选择包含 manifest.json 的已解压插件目录');
-  }
-
-  async function importExtensionFromPath(selectedPath) {
-    const extRoot = findExtensionRoot(selectedPath);
-    const existing = state.plugins.find((plugin) => normalizeAbsolutePath(plugin.path) === extRoot) || {};
-    const record = buildPluginRecord(extRoot, existing, {
-      id: existing.id || `local-${hashId(extRoot)}`,
-      enabled: true,
-      builtin: false,
-    });
-
-    state.plugins = state.plugins.filter((plugin) => plugin.id !== record.id);
-    state.plugins.push(record);
-    persistState();
-    await loadPluginIntoAllCurrentSessions(record);
-    emitStateChanged();
-
-    return { ok: true, plugin: toPublicPlugin(record), state: getPublicState() };
-  }
-
-  async function importExtensionWithDialog(parentWindow = null) {
-    if (!dialog || typeof dialog.showOpenDialog !== 'function') {
-      return { ok: false, message: '当前环境无法打开目录选择器', state: getPublicState() };
-    }
-
-    const parent = parentWindow && !parentWindow.isDestroyed?.() ? parentWindow : getMainWindow();
-    const openDialogOptions = {
-      title: '选择已解压的插件目录',
-      properties: ['openDirectory'],
-      buttonLabel: '导入插件',
-    };
-    const result = parent
-      ? await dialog.showOpenDialog(parent, openDialogOptions)
-      : await dialog.showOpenDialog(openDialogOptions);
-    if (result?.canceled || !result?.filePaths?.[0]) {
-      return { ok: false, canceled: true, state: getPublicState() };
-    }
-    return importExtensionFromPath(result.filePaths[0]);
-  }
-
   async function removePlugin(pluginId) {
     const plugin = getPluginById(pluginId);
     if (!plugin) return { ok: false, message: '插件不存在', state: getPublicState() };
     if (plugin.builtin === true) {
       return { ok: false, message: '内置插件不能删除，可以关闭开关禁用', state: getPublicState() };
+    }
+    if (sidebarPanel?.pluginId === plugin.id) {
+      closeSidebarPanel({ notify: true });
     }
     await unloadPluginFromAllSessions(plugin);
     state.plugins = state.plugins.filter((item) => item.id !== plugin.id);
@@ -689,54 +863,47 @@ function createExtensionManager(deps = {}) {
     const tabs = typeof getTabs === 'function' ? getTabs() : new Map();
     const activeTab = tabs?.get?.(typeof getActiveTabId === 'function' ? getActiveTabId() : null);
     const partition = activeTab?.partition || undefined;
-    const pageSession = wc.session;
     const url = `chrome-extension://${extensionId}/${pagePath}`;
-
-    if (pageType === 'popup') {
-      const currentPopup = typeof getExtPopupWin === 'function' ? getExtPopupWin() : null;
-      if (currentPopup && !currentPopup.isDestroyed?.()) {
-        try {
-          currentPopup.loadURL(url);
-          currentPopup.show();
-          currentPopup.focus();
-          return { ok: true };
-        } catch (_) {}
-      }
+    const title = pageType === 'options' ? `${plugin.name} 设置` : plugin.name;
+    const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
+    if (!mainWindow || mainWindow.isDestroyed?.()) {
+      return { ok: false, message: '主窗口不可用' };
     }
 
-    const win = new BrowserWindow({
-      width: pageType === 'options' ? 760 : 420,
-      height: pageType === 'options' ? 620 : 560,
-      parent: getMainWindow() || undefined,
-      modal: false,
-      alwaysOnTop: pageType !== 'options',
-      title: pageType === 'options' ? `${plugin.name} 设置` : plugin.name,
-      icon: plugin.iconPath && fs.existsSync(plugin.iconPath) ? plugin.iconPath : undefined,
-      webPreferences: {
-        partition,
-        nodeIntegration: false,
-        contextIsolation: true,
-        sandbox: false,
-      },
-    });
-    if (pageType === 'popup' && typeof setExtPopupWin === 'function') {
-      setExtPopupWin(win);
+    closeSidebarPanel({ notify: false });
+
+    const view = createSidebarPanelView(partition);
+    const defaultSize = normalizePanelContentSize({}, pageType);
+    sidebarPanel = {
+      view,
+      pluginId: plugin.id,
+      name: plugin.name,
+      pageType,
+      partition,
+      title,
+      contentWidth: defaultSize.width,
+      contentHeight: defaultSize.height,
+    };
+    mainWindow.addBrowserView(view);
+    syncSidebarPanelBounds();
+    sendSidebarPanelOpened('正在加载...');
+
+    try {
+      await loadPluginIntoSession(plugin, view.webContents.session, '侧栏浮窗');
+      await view.webContents.loadURL(url);
+      const measuredSize = await measureSidebarPanelContent(view, pageType);
+      if (sidebarPanel?.view === view) {
+        sidebarPanel.contentWidth = measuredSize.width;
+        sidebarPanel.contentHeight = measuredSize.height;
+      }
+      syncSidebarPanelBounds();
+      sendSidebarPanelOpened('');
+      return { ok: true };
+    } catch (error) {
+      closeSidebarPanel({ notify: true });
+      logger.warn?.('[Extensions] 加载侧栏插件浮窗失败:', plugin.name, error?.message || error);
+      return { ok: false, message: error?.message || String(error) };
     }
-    try { win.setMenu(null); } catch (_) {}
-    win.on('closed', () => {
-      if (pageType === 'popup' && typeof setExtPopupWin === 'function') {
-        setExtPopupWin(null);
-      }
-      if (typeof cleanupBrowserSessionData === 'function') {
-        void cleanupBrowserSessionData({
-          partition,
-          session: pageSession,
-          source: pageType === 'options' ? '扩展设置' : '扩展弹窗',
-        });
-      }
-    });
-    await win.loadURL(url);
-    return { ok: true };
   }
 
   function isPluginEnabled(pluginId) {
@@ -749,13 +916,12 @@ function createExtensionManager(deps = {}) {
     initialize,
     getPublicState,
     loadEnabledIntoSession,
-    setDeveloperModeEnabled,
     setPluginEnabled,
-    importExtensionWithDialog,
-    importExtensionFromPath,
     removePlugin,
     openExtensionPopup: (pluginId) => openExtensionPage(pluginId, 'popup'),
     openExtensionOptions: (pluginId) => openExtensionPage(pluginId, 'options'),
+    closeSidebarPanel,
+    syncSidebarPanelBounds,
     isPluginEnabled,
   };
 }
