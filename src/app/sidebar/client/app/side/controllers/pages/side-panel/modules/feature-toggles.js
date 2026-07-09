@@ -1,11 +1,6 @@
 // 创建/初始化：initPluginSwitches的具体业务逻辑。
 async function initPluginSwitches() {
   const extensionList = safeGetEl('extension-plugin-list');
-  const extensionPanel = safeGetEl('extension-sidebar-panel');
-  const extensionPanelTitle = safeGetEl('extension-sidebar-panel-title');
-  const extensionPanelSubtitle = safeGetEl('extension-sidebar-panel-subtitle');
-  const extensionPanelStatus = safeGetEl('extension-sidebar-panel-status');
-  const extensionPanelCloseBtn = safeGetEl('extension-sidebar-panel-close');
 
   let extensionState = {
     developerModeEnabled: true,
@@ -24,51 +19,6 @@ async function initPluginSwitches() {
     developerModeEnabled: true,
     plugins: Array.isArray(state.plugins) ? state.plugins : [],
   });
-
-  const getPanelSubtitle = (pageType) => (pageType === 'options' ? '插件设置' : '插件弹窗');
-
-  const applyExtensionPanelDimensions = (dimensions = {}) => {
-    if (!extensionPanel || !dimensions || typeof dimensions !== 'object') return;
-    const width = Math.round(Number(dimensions.width || 0));
-    const height = Math.round(Number(dimensions.height || 0));
-    if (Number.isFinite(width) && width > 0) {
-      extensionPanel.style.setProperty('--extension-sidebar-panel-width', `${width}px`);
-    }
-    if (Number.isFinite(height) && height > 0) {
-      extensionPanel.style.setProperty('--extension-sidebar-panel-height', `${height}px`);
-    }
-  };
-
-  const showExtensionPanel = (plugin, pageType = 'popup', status = '正在加载...', dimensions = null) => {
-    if (!extensionPanel) return;
-    const title = pageType === 'options'
-      ? `${plugin?.name || '插件'} 设置`
-      : (plugin?.name || '插件');
-    if (extensionPanelTitle) extensionPanelTitle.textContent = title;
-    if (extensionPanelSubtitle) extensionPanelSubtitle.textContent = getPanelSubtitle(pageType);
-    if (extensionPanelStatus) extensionPanelStatus.textContent = status;
-    if (dimensions) applyExtensionPanelDimensions(dimensions);
-    extensionPanel.hidden = false;
-    extensionPanel.dataset.extensionId = plugin?.id || '';
-    extensionPanel.dataset.pageType = pageType;
-  };
-
-  const hideExtensionPanel = () => {
-    if (!extensionPanel) return;
-    extensionPanel.hidden = true;
-    extensionPanel.dataset.extensionId = '';
-    extensionPanel.dataset.pageType = '';
-    extensionPanel.style.removeProperty('--extension-sidebar-panel-width');
-    extensionPanel.style.removeProperty('--extension-sidebar-panel-height');
-    if (extensionPanelStatus) extensionPanelStatus.textContent = '正在加载...';
-  };
-
-  const closeExtensionPanel = async () => {
-    hideExtensionPanel();
-    try {
-      await window.electronAPI?.invoke?.('close-extension-sidebar-panel');
-    } catch (_) {}
-  };
 
   const renderExtensionList = () => {
     if (!extensionList) return;
@@ -172,15 +122,12 @@ async function initPluginSwitches() {
       showError('请先打开插件开关');
       return;
     }
-    showExtensionPanel(plugin, 'popup');
     try {
       const resp = await window.electronAPI.invoke('open-extension-popup-by-id', { id });
       if (!resp?.ok) {
         throw new Error(resp?.message || resp?.error || '打开插件弹窗失败');
       }
-      if (extensionPanelStatus) extensionPanelStatus.textContent = '';
     } catch (e) {
-      hideExtensionPanel();
       showError(e?.message || String(e));
     }
   };
@@ -192,24 +139,15 @@ async function initPluginSwitches() {
       showError('请先打开插件开关');
       return;
     }
-    showExtensionPanel(plugin, 'options');
     try {
       const resp = await window.electronAPI.invoke('open-extension-options-by-id', { id });
       if (!resp?.ok) {
         throw new Error(resp?.message || resp?.error || '打开插件设置失败');
       }
-      if (extensionPanelStatus) extensionPanelStatus.textContent = '';
     } catch (e) {
-      hideExtensionPanel();
       showError(e?.message || String(e));
     }
   };
-
-  if (extensionPanelCloseBtn) {
-    extensionPanelCloseBtn.addEventListener('click', () => {
-      closeExtensionPanel();
-    });
-  }
 
   if (extensionList) {
     extensionList.addEventListener('change', (event) => {
@@ -239,14 +177,6 @@ async function initPluginSwitches() {
   }
 
   try {
-    window.electronAPI?.on?.('extension-sidebar-panel-opened', (payload = {}) => {
-      const plugin = extensionState.plugins.find((item) => item.id === payload.id) || { id: payload.id, name: payload.name };
-      showExtensionPanel(plugin, payload.pageType || 'popup', payload.status || '', payload.dimensions || null);
-      if (extensionPanelTitle && payload.title) extensionPanelTitle.textContent = payload.title;
-    });
-    window.electronAPI?.on?.('extension-sidebar-panel-closed', () => {
-      hideExtensionPanel();
-    });
     window.electronAPI?.on?.('extension-manager-state', (nextState) => {
       extensionState = normalizeExtensionState(nextState);
       renderExtensionList();

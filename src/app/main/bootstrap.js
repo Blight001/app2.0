@@ -222,8 +222,6 @@ const extensionManager = createExtensionManager({
   getActiveTabId: appRuntime.getActiveTabId,
   getActiveWC,
   getMainWindow: appRuntime.getMainWindow,
-  getSideView: appRuntime.getSideView,
-  getIsSidebarVisible: appRuntime.getIsSidebarVisible,
   applyPluginSettings,
   sendToSide,
 });

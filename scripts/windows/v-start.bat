@@ -44,5 +44,4 @@ if "%EXIT_CODE%"=="0" (
   echo [ERROR] Launch failed, error code: %EXIT_CODE%
 )
 popd >nul
-pause
 exit /b %EXIT_CODE%

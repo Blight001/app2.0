@@ -56,11 +56,11 @@ function registerExtensionsIPC(ctx = {}) {
     }
   });
 
-  ipcMain.handle('close-extension-sidebar-panel', async () => {
+  ipcMain.handle('close-extension-web-panel', async () => {
     const missing = ensureManager();
     if (missing) return missing;
     try {
-      return extensionManager.closeSidebarPanel();
+      return extensionManager.closeWebPanel();
     } catch (error) {
       return { ok: false, message: error?.message || String(error), state: extensionManager.getPublicState() };
     }

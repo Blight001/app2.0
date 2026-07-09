@@ -49,7 +49,15 @@
     }
   }
 
-  function applyTheme(theme) {
+  function syncAppTheme(theme) {
+    try {
+      if (window.electronAPI && typeof window.electronAPI.send === 'function') {
+        window.electronAPI.send('app-theme-changed', theme);
+      }
+    } catch (_) {}
+  }
+
+  function applyTheme(theme, options = {}) {
     const nextTheme = theme === 'light' ? 'light' : 'dark';
     const isLight = nextTheme === 'light';
 
@@ -67,6 +75,10 @@
     try {
       localStorage.setItem(themeStorageKey, nextTheme);
     } catch (_) {}
+
+    if (options.broadcast !== false) {
+      syncAppTheme(nextTheme);
+    }
   }
 
   function toggleTheme() {
@@ -133,6 +145,12 @@
   function bindEvents() {
     if (themeToggleBtn) {
       themeToggleBtn.addEventListener('click', toggleTheme);
+    }
+
+    if (window.electronAPI && typeof window.electronAPI.on === 'function') {
+      window.electronAPI.on('app-theme-changed', (theme) => {
+        applyTheme(theme, { broadcast: false });
+      });
     }
 
     if (loadBtn) {

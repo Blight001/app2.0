@@ -32,6 +32,40 @@ const showControllerError = AppShellUtils.showUserError
       }
     };
 
+const APP_THEME_STORAGE_KEY = 'ai-free.control-panel.theme';
+
+function normalizeAppTheme(theme) {
+  return String(theme || '').trim() === 'light' ? 'light' : 'dark';
+}
+
+function getSavedAppTheme() {
+  try {
+    return normalizeAppTheme(localStorage.getItem(APP_THEME_STORAGE_KEY));
+  } catch (_) {
+    return 'dark';
+  }
+}
+
+function applyAppShellTheme(theme, options = {}) {
+  const nextTheme = normalizeAppTheme(theme);
+  const isLight = nextTheme === 'light';
+  document.documentElement.classList.toggle('theme-light', isLight);
+  document.documentElement.dataset.theme = nextTheme;
+  if (options.persist === true) {
+    try {
+      localStorage.setItem(APP_THEME_STORAGE_KEY, nextTheme);
+    } catch (_) {}
+  }
+}
+
+applyAppShellTheme(getSavedAppTheme());
+
+if (IPC && typeof IPC.on === 'function') {
+  IPC.on('app-theme-changed', (theme) => {
+    applyAppShellTheme(theme, { persist: true });
+  });
+}
+
 let tabsContainer = document.getElementById('tabs-container');
 let addTabBtn = document.getElementById('add-tab-btn');
 let backToLicenseBtn = document.getElementById('back-to-license-btn');
@@ -162,7 +196,8 @@ function applyAdaptiveTabSizing() {
   const containerWidth = Math.max(rect.width || tabsContainer.clientWidth || 0, 0);
   const tabCount = tabs.length;
   const gapCount = Math.max(tabCount - 1, 0);
-  const availableWidth = Math.max(containerWidth - (gapCount * 4), 320);
+  const tabGap = parseFloat(getComputedStyle(tabsContainer).gap) || 4;
+  const availableWidth = Math.max(containerWidth - (gapCount * tabGap), 320);
   const idealWidth = Math.floor(availableWidth / tabCount);
   const tabWidth = Math.max(108, Math.min(220, idealWidth));
 

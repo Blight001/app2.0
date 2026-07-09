@@ -155,8 +155,8 @@ body {
   border: 1px solid rgba(77, 163, 255, 0.2);
   border-radius: 999px;
   padding: 0;
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -177,8 +177,8 @@ body {
 }
 
 .theme-icon {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.9;
@@ -384,7 +384,7 @@ html.theme-light .announcement-header {
 .announcement-header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .announcement-title-wrap {
@@ -395,7 +395,7 @@ html.theme-light .announcement-header {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   flex-shrink: 0;
 }
 

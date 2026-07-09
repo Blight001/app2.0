@@ -8,8 +8,7 @@ const {
 const STORE_FIELD = 'extensionManager';
 const BUILTIN_TRANSLATE_ID = 'builtin-transform';
 const BUILTIN_REMOVE_WATERMARK_ID = 'builtin-remove-watermark';
-const SIDEBAR_PANEL_MARGIN = 12;
-const SIDEBAR_PANEL_HEADER_HEIGHT = 44;
+const WEB_PANEL_MARGIN = 16;
 const POPUP_DEFAULT_SIZE = { width: 360, height: 420 };
 const OPTIONS_DEFAULT_SIZE = { width: 560, height: 620 };
 
@@ -26,8 +25,6 @@ function createExtensionManager(deps = {}) {
     getActiveTabId = () => null,
     getActiveWC = () => null,
     getMainWindow = () => null,
-    getSideView = () => null,
-    getIsSidebarVisible = () => true,
     applyPluginSettings = null,
     sendToSide = null,
   } = deps;
@@ -39,7 +36,7 @@ function createExtensionManager(deps = {}) {
 
   const sessionExtensionIds = new WeakMap();
   const knownSessions = new Set();
-  let sidebarPanel = null;
+  let webPanel = null;
 
   function normalizeAbsolutePath(value) {
     try {
@@ -607,19 +604,21 @@ function createExtensionManager(deps = {}) {
     return Math.min(Math.max(Math.round(num), safeMin), safeMax);
   }
 
-  function getSidebarPanelSizeLimits() {
-    const sideView = typeof getSideView === 'function' ? getSideView() : null;
-    const sideBounds = sideView && typeof sideView.getBounds === 'function'
-      ? sideView.getBounds()
+  function getActiveWebPanelSizeLimits() {
+    const tabs = typeof getTabs === 'function' ? getTabs() : null;
+    const activeTab = tabs?.get?.(typeof getActiveTabId === 'function' ? getActiveTabId() : null);
+    const activeView = activeTab?.view || null;
+    const webBounds = activeView && typeof activeView.getBounds === 'function'
+      ? activeView.getBounds()
       : null;
-    if (!sideBounds || !sideBounds.width || !sideBounds.height) return null;
+    if (!webBounds || !webBounds.width || !webBounds.height) return null;
 
-    const maxContentWidth = Math.max(0, Math.floor(sideBounds.width - SIDEBAR_PANEL_MARGIN * 2));
-    const maxContentHeight = Math.max(0, Math.floor(sideBounds.height - SIDEBAR_PANEL_MARGIN * 2 - SIDEBAR_PANEL_HEADER_HEIGHT));
+    const maxContentWidth = Math.max(0, Math.floor(webBounds.width - WEB_PANEL_MARGIN * 2));
+    const maxContentHeight = Math.max(0, Math.floor(webBounds.height - WEB_PANEL_MARGIN * 2));
     if (maxContentWidth < 80 || maxContentHeight < 80) return null;
 
     return {
-      sideBounds,
+      webBounds,
       maxContentWidth,
       maxContentHeight,
     };
@@ -630,7 +629,7 @@ function createExtensionManager(deps = {}) {
   }
 
   function normalizePanelContentSize(rawSize = {}, pageType = 'popup') {
-    const limits = getSidebarPanelSizeLimits();
+    const limits = getActiveWebPanelSizeLimits();
     const defaults = getDefaultPanelContentSize(pageType);
     const maxContentWidth = limits?.maxContentWidth || defaults.width;
     const maxContentHeight = limits?.maxContentHeight || defaults.height;
@@ -643,76 +642,45 @@ function createExtensionManager(deps = {}) {
     };
   }
 
-  function getSidebarPanelBounds() {
-    const limits = getSidebarPanelSizeLimits();
+  function getWebPanelBounds() {
+    const limits = getActiveWebPanelSizeLimits();
     if (!limits) return null;
 
     const contentSize = normalizePanelContentSize({
-      width: sidebarPanel?.contentWidth,
-      height: sidebarPanel?.contentHeight,
-    }, sidebarPanel?.pageType || 'popup');
+      width: webPanel?.contentWidth,
+      height: webPanel?.contentHeight,
+    }, webPanel?.pageType || 'popup');
 
     return {
-      x: Math.floor(limits.sideBounds.x + limits.sideBounds.width - SIDEBAR_PANEL_MARGIN - contentSize.width),
-      y: Math.floor(limits.sideBounds.y + SIDEBAR_PANEL_MARGIN + SIDEBAR_PANEL_HEADER_HEIGHT),
+      x: Math.floor(limits.webBounds.x + limits.webBounds.width - WEB_PANEL_MARGIN - contentSize.width),
+      y: Math.floor(limits.webBounds.y + WEB_PANEL_MARGIN),
       width: contentSize.width,
       height: contentSize.height,
     };
   }
 
-  function getSidebarPanelDimensionsPayload() {
-    const contentSize = normalizePanelContentSize({
-      width: sidebarPanel?.contentWidth,
-      height: sidebarPanel?.contentHeight,
-    }, sidebarPanel?.pageType || 'popup');
-    return {
-      width: contentSize.width,
-      height: contentSize.height + SIDEBAR_PANEL_HEADER_HEIGHT,
-      contentWidth: contentSize.width,
-      contentHeight: contentSize.height,
-    };
-  }
-
-  function sendSidebarPanelOpened(status = '') {
-    if (!sidebarPanel || typeof sendToSide !== 'function') return;
-    try {
-      sendToSide('extension-sidebar-panel-opened', {
-        id: sidebarPanel.pluginId,
-        name: sidebarPanel.name,
-        title: sidebarPanel.title,
-        pageType: sidebarPanel.pageType,
-        dimensions: getSidebarPanelDimensionsPayload(),
-        status,
-      });
-    } catch (_) {}
-  }
-
-  function syncSidebarPanelBounds() {
-    if (!sidebarPanel?.view) return false;
+  function syncWebPanelBounds() {
+    if (!webPanel?.view) return false;
     const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
     if (!mainWindow || mainWindow.isDestroyed?.()) return false;
-    if (typeof getIsSidebarVisible === 'function' && getIsSidebarVisible() === false) {
-      closeSidebarPanel({ notify: true });
-      return false;
-    }
 
-    const bounds = getSidebarPanelBounds();
+    const bounds = getWebPanelBounds();
     if (!bounds) return false;
 
     try {
-      sidebarPanel.view.setBounds(bounds);
-      mainWindow.setTopBrowserView(sidebarPanel.view);
+      webPanel.view.setBounds(bounds);
+      mainWindow.setTopBrowserView(webPanel.view);
       return true;
     } catch (error) {
-      logger.warn?.('[Extensions] 同步侧栏插件浮窗位置失败:', error?.message || error);
+      logger.warn?.('[Extensions] 同步网页插件浮窗位置失败:', error?.message || error);
       return false;
     }
   }
 
-  function closeSidebarPanel(options = {}) {
+  function closeWebPanel(options = {}) {
     const notify = options.notify !== false;
-    const panel = sidebarPanel;
-    sidebarPanel = null;
+    const panel = webPanel;
+    webPanel = null;
     if (panel?.view) {
       try {
         const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
@@ -727,12 +695,12 @@ function createExtensionManager(deps = {}) {
       } catch (_) {}
     }
     if (notify && typeof sendToSide === 'function') {
-      try { sendToSide('extension-sidebar-panel-closed', {}); } catch (_) {}
+      try { sendToSide('extension-web-panel-closed', {}); } catch (_) {}
     }
     return { ok: true, state: getPublicState() };
   }
 
-  function createSidebarPanelView(partition) {
+  function createWebPanelView(partition) {
     if (!BrowserView) {
       throw new Error('当前环境无法创建插件浮窗');
     }
@@ -746,7 +714,7 @@ function createExtensionManager(deps = {}) {
     });
   }
 
-  async function measureSidebarPanelContent(view, pageType = 'popup') {
+  async function measureWebPanelContent(view, pageType = 'popup') {
     try {
       if (!view?.webContents || view.webContents.isDestroyed?.()) {
         return normalizePanelContentSize({}, pageType);
@@ -794,8 +762,8 @@ function createExtensionManager(deps = {}) {
     plugin.updatedAt = new Date().toISOString();
     persistState();
 
-    if (!plugin.enabled && sidebarPanel?.pluginId === plugin.id) {
-      closeSidebarPanel({ notify: true });
+    if (!plugin.enabled && webPanel?.pluginId === plugin.id) {
+      closeWebPanel({ notify: true });
     }
 
     if (plugin.enabled) {
@@ -815,8 +783,8 @@ function createExtensionManager(deps = {}) {
     if (plugin.builtin === true) {
       return { ok: false, message: '内置插件不能删除，可以关闭开关禁用', state: getPublicState() };
     }
-    if (sidebarPanel?.pluginId === plugin.id) {
-      closeSidebarPanel({ notify: true });
+    if (webPanel?.pluginId === plugin.id) {
+      closeWebPanel({ notify: true });
     }
     await unloadPluginFromAllSessions(plugin);
     state.plugins = state.plugins.filter((item) => item.id !== plugin.id);
@@ -870,11 +838,16 @@ function createExtensionManager(deps = {}) {
       return { ok: false, message: '主窗口不可用' };
     }
 
-    closeSidebarPanel({ notify: false });
+    if (webPanel?.pluginId === plugin.id && webPanel?.pageType === pageType) {
+      closeWebPanel({ notify: true });
+      return { ok: true, closed: true };
+    }
 
-    const view = createSidebarPanelView(partition);
+    closeWebPanel({ notify: false });
+
+    const view = createWebPanelView(partition);
     const defaultSize = normalizePanelContentSize({}, pageType);
-    sidebarPanel = {
+    webPanel = {
       view,
       pluginId: plugin.id,
       name: plugin.name,
@@ -885,23 +858,31 @@ function createExtensionManager(deps = {}) {
       contentHeight: defaultSize.height,
     };
     mainWindow.addBrowserView(view);
-    syncSidebarPanelBounds();
-    sendSidebarPanelOpened('正在加载...');
+    syncWebPanelBounds();
 
     try {
-      await loadPluginIntoSession(plugin, view.webContents.session, '侧栏浮窗');
+      await loadPluginIntoSession(plugin, view.webContents.session, '网页浮窗');
       await view.webContents.loadURL(url);
-      const measuredSize = await measureSidebarPanelContent(view, pageType);
-      if (sidebarPanel?.view === view) {
-        sidebarPanel.contentWidth = measuredSize.width;
-        sidebarPanel.contentHeight = measuredSize.height;
+      const measuredSize = await measureWebPanelContent(view, pageType);
+      if (webPanel?.view === view) {
+        webPanel.contentWidth = measuredSize.width;
+        webPanel.contentHeight = measuredSize.height;
       }
-      syncSidebarPanelBounds();
-      sendSidebarPanelOpened('');
+      syncWebPanelBounds();
+      if (pageType === 'popup') {
+        try {
+          view.webContents.once('blur', () => {
+            if (webPanel?.view === view) {
+              closeWebPanel({ notify: true });
+            }
+          });
+          view.webContents.focus();
+        } catch (_) {}
+      }
       return { ok: true };
     } catch (error) {
-      closeSidebarPanel({ notify: true });
-      logger.warn?.('[Extensions] 加载侧栏插件浮窗失败:', plugin.name, error?.message || error);
+      closeWebPanel({ notify: true });
+      logger.warn?.('[Extensions] 加载网页插件浮窗失败:', plugin.name, error?.message || error);
       return { ok: false, message: error?.message || String(error) };
     }
   }
@@ -920,8 +901,8 @@ function createExtensionManager(deps = {}) {
     removePlugin,
     openExtensionPopup: (pluginId) => openExtensionPage(pluginId, 'popup'),
     openExtensionOptions: (pluginId) => openExtensionPage(pluginId, 'options'),
-    closeSidebarPanel,
-    syncSidebarPanelBounds,
+    closeWebPanel,
+    syncWebPanelBounds,
     isPluginEnabled,
   };
 }

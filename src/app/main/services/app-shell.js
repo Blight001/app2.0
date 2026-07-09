@@ -854,8 +854,8 @@ function createAppShell(deps = {}) {
       if (getSideView?.()) {
         getSideView().setBounds({ x: mainViewWidth, y: tabBarHeight, width: sideViewWidth, height: tabContentHeight });
       }
-      if (extensionManager && typeof extensionManager.syncSidebarPanelBounds === 'function') {
-        extensionManager.syncSidebarPanelBounds();
+      if (extensionManager && typeof extensionManager.syncWebPanelBounds === 'function') {
+        extensionManager.syncWebPanelBounds();
       }
     }
 
@@ -869,8 +869,8 @@ function createAppShell(deps = {}) {
           panel.close();
         }
       } catch (_) {}
-      if (extensionManager && typeof extensionManager.closeSidebarPanel === 'function') {
-        extensionManager.closeSidebarPanel({ notify: false });
+      if (extensionManager && typeof extensionManager.closeWebPanel === 'function') {
+        extensionManager.closeWebPanel({ notify: false });
       }
       if (typeof setMainWindow === 'function') {
         setMainWindow(null);
