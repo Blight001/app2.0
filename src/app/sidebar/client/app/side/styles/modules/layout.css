@@ -12,55 +12,6 @@ body {
     linear-gradient(180deg, #f5f8fc 0%, #edf3fa 100%);
 }
 
-.tab-nav {
-  display: flex;
-  flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.45);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border-bottom: 1px solid rgba(84, 120, 165, 0.2);
-}
-
-.tab-button {
-  flex: 1;
-  padding: 10px;
-  text-align: center;
-  cursor: pointer;
-  background: rgba(255, 255, 255, 0.24);
-  border: none;
-  border-bottom: 1px solid transparent;
-  font-size: 14px;
-  font-weight: 700;
-  outline: none;
-  color: #3d4f66;
-  transition: all 0.2s ease;
-}
-
-.tab-button.active {
-  border-bottom: 1px solid rgba(70, 132, 235, 0.75);
-  background: rgba(255, 255, 255, 0.6);
-  font-weight: bold;
-  color: #2e5fa8;
-}
-
-.tab-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  color: #999;
-}
-
-.tab-button[aria-disabled='true'] {
-  opacity: 0.5;
-  cursor: not-allowed;
-  color: #999;
-}
-
-.tab-button.is-disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  color: #999;
-}
-
 .main-wrapper {
   flex-grow: 1;
   overflow: hidden;
@@ -285,12 +236,6 @@ body.expanding {
   flex-wrap: wrap;
 }
 
-.info-line .info-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .license-summary-line {
   justify-content: flex-start;
   flex-wrap: nowrap;
@@ -308,27 +253,6 @@ body.expanding {
   margin-left: auto;
 }
 
-.section-title {
-  font-size: 16px;
-  font-weight: bold;
-  margin-bottom: 10px;
-  border-left: 4px solid #409eff;
-  padding-left: 8px;
-}
-
-.section-title.no-border {
-  border: none;
-  padding-left: 0;
-}
-
-.section-title.m-0 {
-  margin: 0;
-}
-
-.section-title.mb-5 {
-  margin-bottom: 5px;
-}
-
 .footer {
   position: fixed;
   left: 12px;
@@ -344,7 +268,6 @@ body.expanding {
 }
 
 .footer-left,
-.footer-center,
 .footer-right {
   display: flex;
   align-items: center;
@@ -356,11 +279,6 @@ body.expanding {
   flex-direction: column;
   align-items: flex-start;
   justify-self: start;
-}
-
-.footer-center {
-  justify-self: center;
-  justify-content: center;
 }
 
 .footer-right {

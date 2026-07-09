@@ -1,0 +1,227 @@
+:root {
+  --shell-bg: #0f1115;
+  --shell-panel: #151a24;
+  --shell-border: #2a3242;
+  --shell-text: #e6e8ee;
+  --shell-muted: #9aa3b2;
+  --shell-accent: #4da3ff;
+  --shell-accent-hover: #2f7fe6;
+  --shell-danger: #d9534f;
+  --shell-scrollbar: #3a4150;
+  --shell-back-text: #d9c28a;
+  --shell-back-border: rgba(217, 194, 138, 0.22);
+  --shell-back-border-hover: rgba(217, 194, 138, 0.30);
+  --shell-back-hover: rgba(217, 194, 138, 0.08);
+  --shell-tab-bg: rgba(77, 163, 255, 0.14);
+  --shell-tab-border: rgba(77, 163, 255, 0.24);
+  --shell-tab-text: #8bbcff;
+  --shell-tab-active-bg: rgba(65, 184, 98, 0.16);
+  --shell-tab-active-border: rgba(65, 184, 98, 0.28);
+  --shell-tab-active-text: #b9efc8;
+  --shell-tab-drop-glow: rgba(77, 163, 255, 0.55);
+}
+
+body, html {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  box-sizing: border-box;
+  background-color: var(--shell-bg);
+  color: var(--shell-text);
+}
+
+#app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+#tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--shell-panel);
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--shell-border);
+  flex-shrink: 0;
+}
+
+.shell-action-btn {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 28px;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+}
+
+.shell-action-btn:hover {
+  transform: translateY(-1px);
+}
+
+.shell-action-back {
+  background: transparent;
+  color: var(--shell-back-text);
+  border-color: var(--shell-back-border);
+}
+
+.shell-action-back:hover {
+  background: var(--shell-back-hover);
+  border-color: var(--shell-back-border-hover);
+}
+
+#add-tab-btn {
+  width: 30px;
+  height: 30px;
+  font-size: 20px;
+  cursor: pointer;
+  text-align: center;
+  line-height: 30px;
+  border-radius: 5px;
+  background-color: var(--shell-accent);
+  color: white;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+#add-tab-btn:hover {
+  background-color: var(--shell-accent-hover);
+}
+
+#content-area {
+  flex-grow: 1;
+  background: var(--shell-bg);
+}
+
+.tabs {
+  display: flex;
+  flex-grow: 1;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-width: 0;
+  gap: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--shell-scrollbar) var(--shell-panel);
+}
+
+.tabs::-webkit-scrollbar {
+  height: 4px;
+}
+
+.tabs::-webkit-scrollbar-track {
+  background: var(--shell-panel);
+}
+
+.tabs::-webkit-scrollbar-thumb {
+  background-color: var(--shell-scrollbar);
+  border-radius: 2px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px 8px 14px;
+  background-color: var(--shell-tab-bg);
+  border: 1px solid var(--shell-tab-border);
+  border-radius: 5px 5px 0 0;
+  margin-right: 0;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  flex: 0 0 var(--tab-width, 160px);
+  width: var(--tab-width, 160px);
+  min-width: var(--tab-width, 160px);
+  max-width: var(--tab-width, 160px);
+  color: var(--shell-tab-text);
+  transition: width 0.25s ease, max-width 0.25s ease, min-width 0.25s ease, flex-basis 0.25s ease, padding 0.25s ease, background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  box-sizing: border-box;
+}
+
+.tab-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.tab.active {
+  background-color: var(--shell-tab-active-bg);
+  border-color: var(--shell-tab-active-border);
+  color: var(--shell-tab-active-text);
+}
+
+.tab.dragging {
+  opacity: 0.55;
+}
+
+.tab.drop-before::before,
+.tab.drop-after::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--shell-accent);
+  box-shadow: 0 0 12px var(--shell-tab-drop-glow);
+}
+
+.tab.drop-before::before {
+  left: -2px;
+}
+
+.tab.drop-after::after {
+  right: -2px;
+}
+
+.tab-close {
+  margin-left: 8px;
+  cursor: pointer;
+  font-weight: bold;
+  flex-shrink: 0;
+  line-height: 1;
+  opacity: 0.72;
+  color: var(--shell-muted);
+}
+
+.tab-close:hover {
+  opacity: 1;
+  color: var(--shell-danger);
+}
+
+@keyframes btnCollapse {
+  0% { opacity: 1; transform: rotate(0deg) scale(1); }
+  50% { opacity: 0.5; transform: rotate(90deg) scale(0.5); }
+  100% { opacity: 0; transform: rotate(180deg) scale(0.3); }
+}
+
+@keyframes btnExpand {
+  0% { opacity: 0; transform: rotate(180deg) scale(0.3); }
+  50% { opacity: 0.5; transform: rotate(90deg) scale(0.5); }
+  100% { opacity: 1; transform: rotate(0deg) scale(1); }
+}
+
+#add-tab-btn.collapsing {
+  animation: btnCollapse 0.4s ease-in-out forwards;
+}
+
+#add-tab-btn.expanding {
+  animation: btnExpand 0.15s ease-in-out forwards;
+}

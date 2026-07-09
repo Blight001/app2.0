@@ -3,6 +3,7 @@
  * 提供统一的弹窗显示功能，支持服务器消息和自定义消息
  */
 
+(function initMessageModalModule() {
 const MessageModalUtils = window.RendererControllerUtils || {};
 const messageModalGetEl = MessageModalUtils.getEl || ((id) => document.getElementById(id));
 const messageModalEscapeHtml = MessageModalUtils.escapeHtml || ((text) => {
@@ -568,3 +569,4 @@ window.MessageModal = {
   createModalHTML,
   ensureModalInitialized
 };
+}());

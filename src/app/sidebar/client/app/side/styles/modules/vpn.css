@@ -272,22 +272,6 @@
   line-height: 1;
 }
 
-.vpn-delay-green {
-  color: #22c55e;
-}
-
-.vpn-delay-blue {
-  color: #3b82f6;
-}
-
-.vpn-delay-yellow {
-  color: #f59e0b;
-}
-
-.vpn-delay-red {
-  color: #ef4444;
-}
-
 .vpn-node-option[aria-checked="true"] {
   outline: none;
 }

@@ -1,13 +1,9 @@
 :root {
-  --bg: #0f1115;
-  --panel: #151a24;
   --panel-2: #1c2230;
-  --panel-3: #212838;
   --border: #2a3242;
   --text: #e6e8ee;
   --muted: #a0a7b4;
   --accent: #4da3ff;
-  --accent-strong: #2f7fe6;
 }
 
 body {
@@ -15,29 +11,6 @@ body {
     radial-gradient(120% 90% at 0% 0%, rgba(77, 163, 255, 0.16) 0%, rgba(77, 163, 255, 0) 58%),
     linear-gradient(180deg, #0d121b 0%, #0a0f16 100%);
   color: var(--text);
-}
-
-.tab-nav {
-  background: rgba(21, 26, 36, 0.52);
-  border-bottom: 1px solid rgba(76, 96, 128, 0.42);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
-.tab-button {
-  background: rgba(28, 34, 48, 0.45);
-  color: #b8c1d1;
-  border-bottom: 1px solid transparent;
-}
-
-.tab-button.active {
-  background: rgba(33, 40, 56, 0.7);
-  color: #e7eefc;
-  border-bottom: 1px solid rgba(77, 163, 255, 0.95);
-}
-
-.tab-button:disabled {
-  color: #6d7482;
 }
 
 .side-panel {
@@ -122,19 +95,6 @@ body {
 .info-group {
   background-color: var(--panel-2);
   border-color: var(--border);
-}
-
-.connection-status {
-  border-top-color: var(--border);
-  border-bottom-color: var(--border);
-}
-
-.status-label {
-  color: var(--muted);
-}
-
-.section-title {
-  border-left-color: var(--accent);
 }
 
 #expire-time,
@@ -235,28 +195,8 @@ body {
 
 .account-item.selected .account-name,
 .account-item.selected .account-meta,
-.account-item.selected .account-platform-text,
 .account-item.selected .account-empty {
   color: #ff9f9f;
-}
-
-.account-bucket {
-  border-color: rgba(77, 163, 255, 0.22);
-  background: rgba(21, 26, 36, 0.42);
-}
-
-.account-bucket-summary {
-  background: rgba(77, 163, 255, 0.16);
-  color: var(--text);
-  border-bottom: 1px solid rgba(77, 163, 255, 0.16);
-}
-
-.account-bucket-summary::after {
-  color: var(--muted);
-}
-
-.account-bucket-meta {
-  color: var(--muted);
 }
 
 .context-menu {

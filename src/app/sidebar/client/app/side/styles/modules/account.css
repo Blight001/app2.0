@@ -43,69 +43,6 @@
   margin-bottom: 10px;
 }
 
-.account-bucket {
-  margin-bottom: 10px;
-  border: 1px solid rgba(124, 135, 184, 0.18);
-  border-radius: 10px;
-  overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(24, 31, 48, 0.98), rgba(17, 23, 38, 0.98)),
-    #111827;
-}
-
-.account-bucket-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-  background:
-    linear-gradient(135deg, rgba(89, 73, 220, 0.18), rgba(28, 34, 53, 0.96));
-  color: #eef2ff;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.account-bucket-summary::-webkit-details-marker {
-  display: none;
-}
-
-.account-bucket-summary::after {
-  content: '▾';
-  font-size: 12px;
-  color: #a7b1c7;
-  transition: transform 0.2s ease;
-}
-
-.account-bucket[open] .account-bucket-summary::after {
-  transform: rotate(180deg);
-}
-
-.account-bucket-title {
-  flex: 1;
-  min-width: 0;
-}
-
-.account-bucket-summary-meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.account-bucket-meta {
-  color: #a7b1c7;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-.account-bucket-content {
-  padding: 10px;
-}
-
 .account-item {
   display: flex;
   justify-content: space-between;
@@ -141,33 +78,6 @@
   color: #eef2ff;
   margin-bottom: 4px;
   line-height: 1.4;
-}
-
-.account-platform-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 4px;
-}
-
-.account-platform-text {
-  min-width: 0;
-  font-size: 12px;
-  color: #c6cee5;
-  line-height: 1.4;
-}
-
-.account-platform-link {
-  flex-shrink: 0;
-  font-size: 12px;
-  color: #a78bfa;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.account-platform-link:hover {
-  text-decoration: underline;
 }
 
 .account-meta {
@@ -221,15 +131,8 @@
   margin-bottom: 6px;
 }
 
-.cookie-import-tip {
-  text-align: center;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #a7b1c7;
-}
 .account-item.selected .account-name,
 .account-item.selected .account-meta,
-.account-item.selected .account-platform-text,
 .account-item.selected .account-empty {
   color: #f1f5ff;
 }
