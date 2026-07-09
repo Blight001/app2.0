@@ -5,6 +5,7 @@ const {
 } = require('../ipc/register/clash-mini-core');
 const { normalizeTabBrowserProxyMode } = require('../utils/normalizers');
 const {
+  buildDefaultManagedTabPartitionName,
   buildManagedTabPartitionName,
   getActiveTabWebContents,
   toggleSidebarVisibility,
@@ -192,7 +193,10 @@ function createTabManager(deps = {}) {
     }
 
     const newTabId = accountId || Date.now().toString();
-    const partition = options.partition || `persist:${buildManagedTabPartitionName(newTabId)}`;
+    const partitionName = accountId
+      ? buildManagedTabPartitionName(accountId)
+      : buildDefaultManagedTabPartitionName();
+    const partition = options.partition || `persist:${partitionName}`;
     const refreshAfterLoad = options.refreshAfterLoad === true;
     const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
       ? licenseCache.getRuntimeConfig()

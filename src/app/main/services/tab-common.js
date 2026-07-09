@@ -32,6 +32,10 @@ function buildManagedTabPartitionName(accountId) {
   return `tab-${normalizeManagedTabPartitionSuffix(accountId)}`;
 }
 
+function buildDefaultManagedTabPartitionName() {
+  return buildManagedTabPartitionName('default');
+}
+
 function getActiveTabWebContents(tabs, activeTabId) {
   try {
     const tab = tabs && typeof tabs.get === 'function' ? tabs.get(activeTabId) : null;
@@ -90,6 +94,7 @@ function toggleSidebarVisibility(options = {}) {
 }
 
 module.exports = {
+  buildDefaultManagedTabPartitionName,
   buildManagedTabPartitionName,
   getActiveTabWebContents,
   normalizePersistPartitionName,
