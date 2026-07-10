@@ -1,10 +1,9 @@
 {
   "localResolver": {
-    "url": "http://heysure001.xyz/api/server_main/card-status/search",
+    "url": "http://heysure.xyz:59000/api/server_main/card-status/search",
     "urls": [
-      "http://49.234.181.190:59000/api/server_main/card-status/search",
-      "http://146.196.80.152:59000/api/server_main/card-status/search",
-      "http://146.196.80.203:59000/api/server_main/card-status/search"
+      "http://146.196.80.203:59000/api/server_main/card-status/search",
+      "http://49.234.181.190:59000/api/server_main/card-status/search"
     ],
     "method": "POST",
     "timeoutSec": 8
@@ -25,16 +24,16 @@
   "platformConfigs": {
     "default": {
       "targetUrl": "https://www.capcut.com/ai-creator/agent",
-      "sideUrl": "http://127.0.0.1:8787/control-panel/",
+      "sideUrl": "http://49.234.181.190:8787/",
       "tutorialUrl": "",
       "allowedPlatforms": [
         "AI-FREE"
       ],
       "systemProxyEnabled": true,
-      "sidebarUrl": "http://127.0.0.1:8787/control-panel/"
+      "sidebarUrl": "http://49.234.181.190:8787/"
     }
   },
   "defaultPlatform": "default",
-  "sideUrl": "http://127.0.0.1:8787/control-panel/",
-  "sidebarUrl": "http://127.0.0.1:8787/control-panel/"
+  "sideUrl": "http://49.234.181.190:8787/",
+  "sidebarUrl": "http://49.234.181.190:8787/"
 }
