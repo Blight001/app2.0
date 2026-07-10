@@ -34,8 +34,9 @@ echo   AI-FREE Launcher  ^(npm start^)
 echo ========================================
 echo.
 
-call npm start
-set "EXIT_CODE=%ERRORLEVEL%"
+@call npm start
+@set "EXIT_CODE=%ERRORLEVEL%"
+@echo off
 
 echo.
 if "%EXIT_CODE%"=="0" (

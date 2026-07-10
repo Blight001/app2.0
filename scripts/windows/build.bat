@@ -21,7 +21,17 @@ if errorlevel 1 (
 echo ========================================
 echo   AI-FREE 安装程序打包 ^(NSIS^)
 echo ========================================
+echo [保护] 将在打包副本中混淆 extensions 插件 JavaScript
 echo.
+
+node -e "require.resolve('javascript-obfuscator')" >nul 2>&1
+if errorlevel 1 (
+  echo [ERROR] 缺少打包保护依赖 javascript-obfuscator。
+  echo         请先运行: npm install
+  popd >nul
+  pause
+  exit /b 1
+)
 
 rem === 让 electron/electron-builder 的下载走本地 7897 代理 ===
 rem @electron/get 默认不读系统代理，需显式开启 global-agent
@@ -32,8 +42,9 @@ rem electron-builder 自身下载(nsis/winCodeSign 等)读这两个
 set "HTTP_PROXY=http://127.0.0.1:7897"
 set "HTTPS_PROXY=http://127.0.0.1:7897"
 
-call npm run build:win
-set "EXIT_CODE=%ERRORLEVEL%"
+@call npm run build:win
+@set "EXIT_CODE=%ERRORLEVEL%"
+@echo off
 
 echo.
 if "%EXIT_CODE%"=="0" (

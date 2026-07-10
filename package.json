@@ -27,7 +27,8 @@
   "devDependencies": {
     "cross-env": "^7.0.3",
     "electron": "^40.0.0",
-    "electron-builder": "^26.0.12"
+    "electron-builder": "^26.0.12",
+    "javascript-obfuscator": "^5.4.6"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
@@ -47,6 +48,7 @@
     "yaml": "^2.6.0"
   },
   "build": {
+    "afterPack": "scripts/obfuscate-packaged-extensions.js",
     "appId": "com.ai-free.app",
     "productName": "AI-FREE",
     "directories": {

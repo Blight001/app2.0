@@ -28,13 +28,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
-call node scripts\set-side-url.js --mode=local
+node scripts\set-side-url.js --mode=local
 if errorlevel 1 (
   echo [ERROR] Failed to set local sideUrl.
   popd >nul
   pause
   exit /b 1
 )
+
+@echo off
 
 echo ========================================
 echo   AI-FREE HTTP Debug Launcher
@@ -43,7 +45,7 @@ echo Server base: %SERVER_BASE%
 echo Mode: HTTP only
 echo.
 
-call node scripts\run-electron.js .
+node scripts\run-electron.js .
 set "EXIT_CODE=%ERRORLEVEL%"
 
 echo.
