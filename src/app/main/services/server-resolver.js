@@ -160,6 +160,33 @@ function createServerResolver(deps = {}) {
     }
   }
 
+// 服务端注册表可能保存内部回环地址；公网搜索命中时，用实际搜索节点的主机名替换它。
+  function publishLoopbackAddress(address, resolverUrl) {
+    const raw = String(address || '').trim();
+    const resolverRaw = String(resolverUrl || '').trim();
+    if (!raw || !resolverRaw) return raw;
+
+    try {
+      const target = new URL(raw.includes('://') ? raw : `http://${raw}`);
+      const resolver = new URL(resolverRaw.includes('://') ? resolverRaw : `http://${resolverRaw}`);
+      const targetHost = String(target.hostname || '').toLowerCase();
+      const resolverHost = String(resolver.hostname || '').toLowerCase();
+      const targetIsLoopback = targetHost === 'localhost'
+        || targetHost === '::1'
+        || /^127(?:\.|$)/.test(targetHost);
+      const resolverIsLoopback = resolverHost === 'localhost'
+        || resolverHost === '::1'
+        || /^127(?:\.|$)/.test(resolverHost);
+      if (!targetIsLoopback || !resolverHost || resolverIsLoopback) return raw;
+
+      // 保留服务端返回的协议、58111 端口和租户路径，只替换不可从远程访问的主机。
+      target.hostname = resolver.hostname;
+      return target.toString().replace(/\/+$/, '');
+    } catch (_) {
+      return raw;
+    }
+  }
+
 // 获取/读取/解析：resolveTcpAddressMeta的具体业务逻辑。
   function resolveTcpAddressMeta(address) {
     const raw = String(address || '').trim();
@@ -299,7 +326,7 @@ function createServerResolver(deps = {}) {
   }
 
 // 格式化/规范化：normalizeCardStatusSearchResponse的具体业务逻辑。
-  function normalizeCardStatusSearchResponse(resp) {
+  function normalizeCardStatusSearchResponse(resp, resolverUrl = '') {
 // 处理：body的具体业务逻辑。
     const body = (resp && resp.body && typeof resp.body === 'object')
       ? resp.body
@@ -360,7 +387,7 @@ function createServerResolver(deps = {}) {
               )
         );
 
-    const serverAddress = String(
+    const rawServerAddress = String(
       body.address
       || body.address_HTTP
       || body.addressHttp
@@ -377,8 +404,9 @@ function createServerResolver(deps = {}) {
       || body.server_base
       || ''
     ).trim();
+    const serverAddress = publishLoopbackAddress(rawServerAddress, resolverUrl);
 
-    const serverAddressHttp = String(
+    const rawServerAddressHttp = String(
       body.address_HTTP
       || body.addressHttp
       || body.address_http
@@ -398,11 +426,12 @@ function createServerResolver(deps = {}) {
       || body.server_base
       || ''
     ).trim();
+    const serverAddressHttp = publishLoopbackAddress(rawServerAddressHttp, resolverUrl);
 
     const serverBase = resolveServerBaseFromAddress(serverAddressHttp)
       || resolveServerBaseFromAddress(serverAddress)
       || String(body.address_HTTP || body.addressHttp || body.address_http || body.address || body.serverBase || body.server_base || '').trim();
-    const tcpAddress = String(
+    const rawTcpAddress = String(
       body.address_TCP
       || body.addressTcp
       || body.address_tcp
@@ -411,6 +440,10 @@ function createServerResolver(deps = {}) {
       || server.address_tcp
       || ''
     ).trim();
+    const tcpAddress = publishLoopbackAddress(rawTcpAddress, resolverUrl);
+    const loopbackAddressRewritten = serverAddress !== rawServerAddress
+      || serverAddressHttp !== rawServerAddressHttp
+      || tcpAddress !== rawTcpAddress;
     const tcpMetaFromAddress = resolveTcpAddressMeta(tcpAddress);
     const host = resolveHostFromAddress(tcpAddress)
       || String(server.server_ip || server.ip || body.server_ip || body.ip || body.host || '').trim();
@@ -467,11 +500,12 @@ function createServerResolver(deps = {}) {
         expiryDate,
         expiredByDate,
         host,
-        address: String(body.address || server.address || '').trim(),
+        address: serverAddress,
         address_HTTP: serverBase,
         addressHttp: serverBase,
         address_TCP: tcpAddress,
         addressTcp: tcpAddress,
+        loopbackAddressRewritten,
         tcp: (tcpHost && Number.isFinite(tcpPort) && tcpPort > 0)
           ? {
               host: tcpHost,
@@ -736,7 +770,10 @@ function createServerResolver(deps = {}) {
           continue;
         }
 
-        const normalized = normalizeCardStatusSearchResponse(resp);
+        const normalized = normalizeCardStatusSearchResponse(resp, resolverUrl);
+        if (normalized.data?.loopbackAddressRewritten) {
+          logger.warn?.(`[卡密搜索] 服务端返回了回环地址，已按搜索节点 ${requestUrl.hostname} 自动改写为公网地址`);
+        }
         logger.log?.('[卡密搜索] 结果摘要:', {
           status: resp?.status ?? null,
           ok: resp?.ok === true,
@@ -841,6 +878,7 @@ function createServerResolver(deps = {}) {
     normalizeCardStatusSearchUrl,
     resolveHostFromAddress,
     resolveServerBaseFromAddress,
+    publishLoopbackAddress,
     isCardExpiredByDate,
     resolveCardStatusSearchConfig,
     normalizeCardStatusSearchResponse,
