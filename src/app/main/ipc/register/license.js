@@ -25,7 +25,7 @@ const { initializeAccountCleanup, updateAccountRecycleTimer } = require('../../u
 // 监听/绑定：registerLicenseIPC的具体业务逻辑。
 function registerLicenseIPC(ctx) {
   const {
-    tcp,
+    httpClient,
     auth,
     ui,
     state,
@@ -34,6 +34,7 @@ function registerLicenseIPC(ctx) {
     setRuntimeServerBase = () => {},
     appendLicenseRecord,
     refreshAllowedPlatformsAndNotify,
+    refreshAnnouncements,
     DREAM_TARGET_URL,
     getDreamTargetUrl,
   } = ctx;
@@ -271,11 +272,11 @@ function registerLicenseIPC(ctx) {
       console.log('[验证] 开始验证卡密（HTTP）');
       console.log('[验证] 请求参数:', { key: key?.substring(0, 5) + '***', device_id });
 
-      if (!tcp) {
+      if (!httpClient) {
         return { ok: false, status: 0, error: '网络客户端不可用' };
       }
 
-      const r = await tcp.validateKey(key, device_id);
+      const r = await httpClient.validateKey(key, device_id);
       if (r?.requestUrl) {
         console.log(`[验证] HTTP请求地址: ${r.requestMethod || 'GET'} ${r.requestUrl}`);
       }
@@ -296,7 +297,7 @@ function registerLicenseIPC(ctx) {
 
       if (isValid) {
         try {
-          const { normalizeValidationRuntimeConfig } = require('../../lib/tcp-client');
+          const { normalizeValidationRuntimeConfig } = require('../../lib/http-client');
           const runtimeConfig = normalizeValidationRuntimeConfig(r);
           const runtimeConnection = resolveRuntimeConnectionConfig(runtimeConfig);
 
@@ -407,6 +408,15 @@ function registerLicenseIPC(ctx) {
           } catch (refreshErr) {
             console.warn('[验证] 刷新平台名称失败:', refreshErr?.message || refreshErr);
           }
+
+          try {
+            if (typeof refreshAnnouncements === 'function') {
+              // 验证成功只做普通刷新；已展示过的公告不会重复弹出。
+              await refreshAnnouncements();
+            }
+          } catch (announcementErr) {
+            console.warn('[验证] 获取服务器公告失败:', announcementErr?.message || announcementErr);
+          }
         } catch (e) {
           console.warn('[验证] 保存凭证过程出错:', e?.message || e);
         }
@@ -471,8 +481,8 @@ function registerLicenseIPC(ctx) {
       });
 
       let response = null;
-      if (tcp && typeof tcp.unbindDevice === 'function') {
-        response = await tcp.unbindDevice(normalizedKey, normalizedDeviceId);
+      if (httpClient && typeof httpClient.unbindDevice === 'function') {
+        response = await httpClient.unbindDevice(normalizedKey, normalizedDeviceId);
       } else if (ctx.http && typeof ctx.http.postJson === 'function') {
         const serverBase = getServerBase();
         if (!serverBase) {
@@ -754,7 +764,7 @@ function registerLicenseIPC(ctx) {
     try {
       console.log('[刷新] 开始重新获取订阅链接...');
 
-      if (!tcp) {
+      if (!httpClient) {
         return { ok: false, error: 'TCP客户端不可用' };
       }
 
@@ -765,7 +775,7 @@ function registerLicenseIPC(ctx) {
           return { ok: false, error: '没有找到有效的账号信息，请先验证卡密' };
         }
         const { key, deviceId } = lastAccountResult.account;
-        configResponse = await tcp.getClientConfig(key, deviceId);
+        configResponse = await httpClient.getClientConfig(key, deviceId);
       } catch (e) {
         console.warn('[刷新] 获取配置失败:', e?.message || e);
         return { ok: false, error: '获取配置失败: ' + (e?.message || e) };

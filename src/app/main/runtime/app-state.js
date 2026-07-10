@@ -15,7 +15,7 @@ function createAppState() {
     isSwitchingToLicense: false,
     latestAllowedPlatforms: [],
     extPopupWin: null,
-    globalTcpClient: null,
+    globalHttpClient: null,
     pluginSettings: {
       removeWatermarkEnabled: true,
       translateExtEnabled: false,
@@ -67,8 +67,8 @@ function createAppState() {
     setLatestAllowedPlatforms: (next) => { state.latestAllowedPlatforms = Array.isArray(next) ? next : []; },
     getExtPopupWin: () => state.extPopupWin,
     setExtPopupWin: (next) => { state.extPopupWin = next; },
-    getGlobalTcpClient: () => state.globalTcpClient,
-    setGlobalTcpClient: (next) => { state.globalTcpClient = next; },
+    getGlobalHttpClient: () => state.globalHttpClient,
+    setGlobalHttpClient: (next) => { state.globalHttpClient = next; },
     getPluginSettings: () => state.pluginSettings,
   };
 }

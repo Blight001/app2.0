@@ -21,7 +21,7 @@ const {
 } = require('./utils/license-response');
 const { createAuthCookie } = require('./lib/auth-cookie');
 const { registerIPC } = require('./ipc/register');
-const { createTcpClient, initializeTcpConnection, normalizeValidationRuntimeConfig } = require('./lib/tcp-client');
+const { createHttpClient, normalizeValidationRuntimeConfig } = require('./lib/http-client');
 const { getHardwareFingerprint } = require('./utils/hardware-js');
 const accountStorage = require('./lib/account-storage');
 const { stopClashMiniProcess } = require('./ipc/register/clash-mini-core');
@@ -338,8 +338,7 @@ const appShellDeps = {
   APP_DISPLAY_NAME,
   state,
   createAuthCookie,
-  createTcpClient,
-  initializeTcpConnection,
+  createHttpClient,
   loadTranslateExtension,
   attachContextMenu,
   initDownloadPrefs,
@@ -406,8 +405,8 @@ const appShellDeps = {
   getLatestAllowedPlatforms: appRuntime.getLatestAllowedPlatforms,
   setLatestAllowedPlatforms: appRuntime.setLatestAllowedPlatforms,
   licenseCache,
-  getGlobalTcpClient: appRuntime.getGlobalTcpClient,
-  setGlobalTcpClient: appRuntime.setGlobalTcpClient,
+  getGlobalHttpClient: appRuntime.getGlobalHttpClient,
+  setGlobalHttpClient: appRuntime.setGlobalHttpClient,
   cleanupBrowserSessionData,
   purgeBrowserSessionData,
   cleanupAllBrowserSessionData,
@@ -523,7 +522,7 @@ registerAppLifecycle({
   shortcutManager,
   resolveServerConfigForKey: serverResolver.resolveServerConfigForKey,
   applyResolvedConfigToStore: serverResolver.applyResolvedConfigToStore,
-  getGlobalTcpClient: appRuntime.getGlobalTcpClient,
+  getGlobalHttpClient: appRuntime.getGlobalHttpClient,
   isSwitchingToLicense: appRuntime.getIsSwitchingToLicense,
   isMainBootstrapped: appRuntime.getIsMainBootstrapped,
   getLicenseWindow: appRuntime.getLicenseWindow,

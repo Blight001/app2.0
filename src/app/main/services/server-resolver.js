@@ -102,7 +102,8 @@ function createServerResolver(deps = {}) {
     const value = String(rawUrl || '').trim();
     if (!value) return '';
 
-    const CARD_STATUS_SEARCH_PATH = '/api/server_vue/card-status/search';
+    const CARD_STATUS_SEARCH_PATH = '/api/server_main/card-status/search';
+    const LEGACY_CARD_STATUS_SEARCH_PATH = '/api/server_vue/card-status/search';
 
     try {
       const url = new URL(value);
@@ -110,6 +111,8 @@ function createServerResolver(deps = {}) {
 
       if (pathname.includes(CARD_STATUS_SEARCH_PATH)) {
         url.pathname = pathname.replace(/\/+$/, '');
+      } else if (pathname.includes(LEGACY_CARD_STATUS_SEARCH_PATH)) {
+        url.pathname = pathname.replace(LEGACY_CARD_STATUS_SEARCH_PATH, CARD_STATUS_SEARCH_PATH).replace(/\/+$/, '');
       } else if (pathname.endsWith('/api/card/search_platform')) {
         url.pathname = CARD_STATUS_SEARCH_PATH;
       } else if (pathname === '/' || pathname === '' || pathname === '/api' || pathname === '/api/') {
@@ -150,7 +153,8 @@ function createServerResolver(deps = {}) {
     if (!raw) return '';
     try {
       const url = new URL(raw.includes('://') ? raw : `http://${raw}`);
-      return `${url.protocol}//${url.host}`.replace(/\/+$/, '');
+      const pathname = String(url.pathname || '').replace(/\/+$/, '');
+      return `${url.protocol}//${url.host}${pathname === '/' ? '' : pathname}`.replace(/\/+$/, '');
     } catch (_) {
       return raw.replace(/\/+$/, '');
     }
@@ -235,6 +239,7 @@ function createServerResolver(deps = {}) {
       );
 
       const candidateUrls = [
+        process.env.SERVER_MAIN_CARD_STATUS_SEARCH_URL,
         process.env.SERVER_VUE_CARD_STATUS_SEARCH_URL,
         platformCfg.cardStatusSearchUrl,
         cfg.cardStatusSearchUrl,
@@ -249,6 +254,7 @@ function createServerResolver(deps = {}) {
 
       const configuredUrls = collectUrlCandidates(
         normalizeCardStatusSearchUrl,
+        process.env.SERVER_MAIN_CARD_STATUS_SEARCH_URL,
         process.env.SERVER_VUE_CARD_STATUS_SEARCH_URL,
         platformResolver.url,
         platformResolver.urls,
@@ -629,7 +635,7 @@ function createServerResolver(deps = {}) {
     if (address) {
       try {
         const u = new URL(address);
-        serverBase = `${u.protocol}//${u.host}`;
+        serverBase = resolveServerBaseFromAddress(address);
         if (!host) host = u.hostname || '';
       } catch (_) {
         serverBase = address;

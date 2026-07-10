@@ -1,10 +1,10 @@
 {
   "localResolver": {
-    "url": "http://heysure001.xyz/api/server_vue/card-status/search",
+    "url": "http://heysure001.xyz/api/server_main/card-status/search",
     "urls": [
-      "http://49.234.181.190:59000/api/server_vue/card-status/search",
-      "http://146.196.80.152:59000/api/server_vue/card-status/search",
-      "http://146.196.80.203:59000/api/server_vue/card-status/search"
+      "http://49.234.181.190:59000/api/server_main/card-status/search",
+      "http://146.196.80.152:59000/api/server_main/card-status/search",
+      "http://146.196.80.203:59000/api/server_main/card-status/search"
     ],
     "method": "POST",
     "timeoutSec": 8
@@ -24,21 +24,17 @@
   },
   "platformConfigs": {
     "default": {
-      "tcp": {
-        "host": "49.234.181.190",
-        "port": 58113
-      },
       "targetUrl": "https://www.capcut.com/ai-creator/agent",
-      "sideUrl": "http://49.234.181.190:8787/",
+      "sideUrl": "http://127.0.0.1:8787/control-panel/",
       "tutorialUrl": "",
       "allowedPlatforms": [
         "AI-FREE"
       ],
       "systemProxyEnabled": true,
-      "sidebarUrl": "http://49.234.181.190:8787/"
+      "sidebarUrl": "http://127.0.0.1:8787/control-panel/"
     }
   },
   "defaultPlatform": "default",
-  "sideUrl": "http://49.234.181.190:8787/",
-  "sidebarUrl": "http://49.234.181.190:8787/"
+  "sideUrl": "http://127.0.0.1:8787/control-panel/",
+  "sidebarUrl": "http://127.0.0.1:8787/control-panel/"
 }

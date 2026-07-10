@@ -1,12 +1,10 @@
-// 客户端与服务器之间仅使用 HTTP 通信（原 TCP 通信已移除）。
-// 该类保留原有的对外方法名与导出符号，仅把底层传输改为纯 HTTP，
-// 以最小化调用点的改动。
+// 客户端与服务器之间仅使用 HTTP 通信。
 const { NETWORK_DIAG_CONFIG, getServerBase, setRuntimeServerBase } = require('../config');
 const { postJson, getJson } = require('./http');
-const { executeHttpRequest } = require('./tcp-client/transport-request');
+const { executeHttpRequest } = require('./http-client/transport-request');
 
 // HTTP 客户端：负责把客户端请求通过 HTTP 发送到服务器。
-class TcpClient {
+class HttpClient {
     constructor(options = {}) {
         // 兼容旧调用：既支持直接传入 mainWindow，也支持 options 对象。
         const hasMainWindow =
@@ -28,7 +26,8 @@ class TcpClient {
         if (!text) return '';
         try {
             const url = new URL(text.includes('://') ? text : `http://${text}`);
-            return `${url.protocol}//${url.host}`.replace(/\/+$/, '');
+            const pathname = String(url.pathname || '').replace(/\/+$/, '');
+            return `${url.protocol}//${url.host}${pathname === '/' ? '' : pathname}`.replace(/\/+$/, '');
         } catch (_) {
             return text.replace(/\/+$/, '');
         }
@@ -311,42 +310,31 @@ class TcpClient {
 }
 
 // 创建全局 HTTP 客户端实例
-let globalTcpClient = null;
+let globalHttpClient = null;
 
-// 设置/更新/持久化：updateGlobalTcpClientOptions的具体业务逻辑。
-function updateGlobalTcpClientOptions(opts = {}) {
-    if (!globalTcpClient || !opts || typeof opts !== 'object') {
+// Update the shared HTTP client options.
+function updateGlobalHttpClientOptions(opts = {}) {
+    if (!globalHttpClient || !opts || typeof opts !== 'object') {
         return;
     }
     if (Object.prototype.hasOwnProperty.call(opts, 'mainWindow')) {
-        globalTcpClient.mainWindow = opts.mainWindow;
+        globalHttpClient.mainWindow = opts.mainWindow;
     }
 }
 
-// 校验/保护：ensureGlobalTcpClient的具体业务逻辑。
-function ensureGlobalTcpClient(options = {}) {
+// Return the shared HTTP client instance.
+function ensureGlobalHttpClient(options = {}) {
     const opts = (options && typeof options === 'object') ? options : { mainWindow: options };
-    if (!globalTcpClient) {
-        globalTcpClient = new TcpClient(opts);
+    if (!globalHttpClient) {
+        globalHttpClient = new HttpClient(opts);
     }
-    updateGlobalTcpClientOptions(opts);
-    return globalTcpClient;
+    updateGlobalHttpClientOptions(opts);
+    return globalHttpClient;
 }
 
-// 创建/初始化：createTcpClient的具体业务逻辑。
-function createTcpClient(options = {}) {
-    return ensureGlobalTcpClient(options);
-}
-
-/**
- * 初始化服务器连接。
- * HTTP 模式下不存在持久连接，这里仅确保全局客户端已创建，直接返回成功。
- * 保留导出名与签名以兼容既有调用点。
- * @returns {Promise<boolean>}
- */
-function initializeTcpConnection(_onConnectionStatusChange = null, _onServerMessage = null) {
-    ensureGlobalTcpClient();
-    return Promise.resolve(true);
+// Create or reuse the shared HTTP client.
+function createHttpClient(options = {}) {
+    return ensureGlobalHttpClient(options);
 }
 
 // 格式化/规范化：normalizeValidationRuntimeConfig的具体业务逻辑。
@@ -397,7 +385,6 @@ function normalizeValidationRuntimeConfig(source = {}) {
 }
 
 module.exports = {
-    createTcpClient,
-    initializeTcpConnection,
+    createHttpClient,
     normalizeValidationRuntimeConfig,
 };

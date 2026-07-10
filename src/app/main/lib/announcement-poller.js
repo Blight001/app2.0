@@ -8,6 +8,7 @@ const DEFAULT_INTERVAL_MS = 60000; // 服务器公告调度器每分钟检查一
 function createAnnouncementPoller({
   getJson,
   getServerBase,
+  shouldPoll,
   sendToSide,
   logger = console,
   intervalMs = DEFAULT_INTERVAL_MS,
@@ -15,8 +16,10 @@ function createAnnouncementPoller({
 } = {}) {
   let timer = null;
   let inFlight = false;
-  // 记录已下发过的公告 id，避免每次轮询重复推送（侧边栏本身也按 id 去重，这里减少无谓 IPC）。
-  const seen = new Set();
+  let pendingDeliveryReset = false;
+  let lastServerBase = '';
+  // 每个平台分别记录上次成功下发的内容指纹，避免相同数字 ID 在租户间互相抑制。
+  const seenByServer = new Map();
 
   // 获取/读取/解析：resolveAnnouncementId 的具体业务逻辑。
   function resolveAnnouncementId(ann) {
@@ -29,36 +32,96 @@ function createAnnouncementPoller({
     return String(ann.content || ann.message || '').trim().slice(0, 160);
   }
 
+  function resolveAnnouncementFingerprint(ann) {
+    const id = resolveAnnouncementId(ann);
+    if (!id) return '';
+    return JSON.stringify([
+      id,
+      ann.message ?? ann.content ?? '',
+      ann.message_type ?? ann.announcement_type ?? '',
+      ann.latest_version ?? ann.latestVersion ?? ann.version ?? '',
+      ann.update_link ?? ann.downloadUrl ?? ann.download_url ?? '',
+    ]);
+  }
+
+  function resolveDeliveryChannel(ann) {
+    const messageType = String(
+      ann?.message_type ?? ann?.messageType ?? ann?.announcement_type ?? ann?.type ?? ''
+    ).trim().toLowerCase();
+    const hasUpdateMetadata = Boolean(
+      (ann?.latest_version ?? ann?.latestVersion ?? ann?.version)
+      && (ann?.update_link ?? ann?.downloadUrl ?? ann?.download_url ?? ann?.url)
+    );
+    return ['update', 'upgrade', 'app_update', 'software_update'].includes(messageType) || hasUpdateMetadata
+      ? 'app-update-notice'
+      : 'server-message';
+  }
+
   // 处理/分发：pollOnce 的具体业务逻辑。
-  async function pollOnce() {
-    if (inFlight) return;
+  async function pollOnce({ resetDelivery = false } = {}) {
+    if (inFlight) {
+      pendingDeliveryReset = pendingDeliveryReset || resetDelivery;
+      return;
+    }
     inFlight = true;
     try {
+      if (typeof shouldPoll === 'function' && shouldPoll() !== true) {
+        return;
+      }
       const base = String((typeof getServerBase === 'function' ? getServerBase() : '') || '').replace(/\/+$/, '');
       if (!base) {
         // 尚未拿到服务器地址（未验证卡密），静默跳过。
         return;
       }
 
+      if (base !== lastServerBase) {
+        lastServerBase = base;
+        // 平台切换后先清空侧边栏，避免继续展示上一个租户的公告。
+        sendToSide('server-announcements-reset', { serverBase: base });
+      }
+
       const url = `${base}/api/user_announcement`;
       const resp = await getJson(url, timeoutMs);
       const body = resp && typeof resp === 'object' && resp.body !== undefined ? resp.body : resp;
+      if (!body || body.success === false) {
+        throw new Error(body?.message || '公告接口返回失败');
+      }
       const list = body && Array.isArray(body.data) ? body.data : [];
+      if (resetDelivery) {
+        seenByServer.delete(base);
+      }
+      const previous = seenByServer.get(base) || new Map();
+      const current = new Map();
 
       for (const ann of list) {
-        const key = resolveAnnouncementId(ann);
-        if (!key || seen.has(key)) continue;
-        seen.add(key);
+        const id = resolveAnnouncementId(ann);
+        const fingerprint = resolveAnnouncementFingerprint(ann);
+        if (!id || !fingerprint) continue;
+        current.set(id, fingerprint);
+        if (previous.get(id) === fingerprint) continue;
         try {
-          sendToSide('server-message', ann);
+          const delivered = sendToSide(resolveDeliveryChannel(ann), ann);
+          if (delivered === false) {
+            current.delete(id);
+            logger.warn?.('[公告轮询] 侧边栏尚未就绪，公告将在下次轮询重试:', id);
+          } else {
+            logger.log?.('[公告轮询] 公告已交给软件界面:', id);
+          }
         } catch (e) {
+          current.delete(id);
           logger.warn?.('[公告轮询] 下发公告到侧边栏失败:', e?.message || e);
         }
       }
+      // 只保留本次接口仍然返回的公告。公告被禁用后再启用时会重新展示。
+      seenByServer.set(base, current);
     } catch (e) {
       logger.warn?.('[公告轮询] 拉取公告失败:', e?.message || e);
     } finally {
       inFlight = false;
+      if (pendingDeliveryReset) {
+        pendingDeliveryReset = false;
+        void pollOnce({ resetDelivery: true });
+      }
     }
   }
 
@@ -78,8 +141,8 @@ function createAnnouncementPoller({
   }
 
   // 渲染/刷新：refreshNow 的具体业务逻辑（如卡密验证成功后立即拉取一次）。
-  function refreshNow() {
-    return pollOnce();
+  function refreshNow(options = {}) {
+    return pollOnce(options);
   }
 
   return { start, stop, refreshNow };

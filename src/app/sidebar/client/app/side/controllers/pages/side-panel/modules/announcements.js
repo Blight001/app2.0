@@ -317,6 +317,14 @@ function resetUpdateWidget() {
 // 创建/初始化：initAnnouncementListener的具体业务逻辑。
 function initAnnouncementListener() {
   if (window.electronAPI && window.electronAPI.on) {
+    window.electronAPI.on('server-announcements-reset', () => {
+      announcements = [];
+      const announcementContent = safeGetEl('announcement-content');
+      if (announcementContent) {
+        announcementContent.innerHTML = '<p>暂无公告内容</p>';
+      }
+    });
+
     // 普通公告只进公告栏，不进入更新弹窗逻辑。
     window.electronAPI.on('server-message', (messageData) => {
       const messageType = getServerMessageType(messageData);

@@ -16,7 +16,7 @@ const { buildManagedTabPartitionName: buildFallbackManagedTabPartitionName } = r
 // 监听/绑定：registerAccountIPC的具体业务逻辑。
 function registerAccountIPC(ctx) {
   const {
-    tcp,
+    httpClient,
     auth,
     ui,
     dialog,
@@ -453,7 +453,7 @@ function registerAccountIPC(ctx) {
       }
 
       // 检查网络客户端是否可用（HTTP 通信，无持久连接）
-      if (!tcp) {
+      if (!httpClient) {
         return {
           ok: false,
           degraded: true,

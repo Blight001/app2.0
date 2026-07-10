@@ -85,7 +85,7 @@ The main runtime settings live in `config/platforms-config.json`.
 Important fields:
 
 - `platforms`: app metadata such as `name`, `appId`, and icon paths
-- `platformConfigs.tcp`: host and port for the backend TCP service
+- `localResolver`: HTTP endpoint and timeout settings used to locate a card's platform
 - `platformConfigs.targetUrl`: default target page loaded by the app
 - `platformConfigs.tutorialUrl`: tutorial link used by the UI
 - `platformConfigs.allowedPlatforms`: allowed platform labels for validation
@@ -98,8 +98,7 @@ The default target URL currently points to the CapCut AI creator page.
 If you prefer batch files, use the helpers in `scripts/windows/`:
 
 - `v-start.bat`: launch the app
-- `v-debug.bat`: launch with debug-oriented defaults
-- `v-debug-http.bat`: launch with HTTP debug defaults
+- `v-debug.bat`: launch the debug environment in HTTP-only mode
 - `build.bat`: build from Windows
 - `backup.bat`: create a backup snapshot
 

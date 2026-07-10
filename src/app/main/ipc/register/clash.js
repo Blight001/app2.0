@@ -30,7 +30,7 @@ const {
 
 // 监听/绑定：registerClashIPC的具体业务逻辑。
 function registerClashIPC(ctx) {
-  const { tcp, ui, licenseCache } = ctx;
+  const { httpClient, ui, licenseCache } = ctx;
   try {
     if (typeof setRuntimeLicenseCache === 'function') {
       setRuntimeLicenseCache(licenseCache);
@@ -131,7 +131,7 @@ function registerClashIPC(ctx) {
   ipcMain.handle('get-clash-config', async (_event, { key, deviceId }) => {
     try {
       console.log('[IPC] 获取Clash配置...');
-      const result = await tcp.getClientConfig(key, deviceId);
+      const result = await httpClient.getClientConfig(key, deviceId);
 // 格式化/规范化：normalizeYamlContent的具体业务逻辑。
       const normalizeYamlContent = (value) => {
         if (!value) return '';

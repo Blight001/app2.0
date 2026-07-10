@@ -19,7 +19,7 @@ echo 备份目录: %backup_dir%
 echo.
 
 rem 要备份的文件和目录
-set "items=src config docs README.md README_zh-CN.md package.json package-lock.json scripts\windows\build.bat scripts\windows\backup.bat scripts\windows\v-start.bat scripts\windows\v-debug.bat scripts\windows\v-debug-http.bat"
+set "items=src config docs README.md README_zh-CN.md package.json package-lock.json scripts\windows\build.bat scripts\windows\backup.bat scripts\windows\v-start.bat scripts\windows\v-debug.bat"
 
 for %%i in (%items%) do (
   if exist "%%i\" (

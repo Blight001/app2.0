@@ -31,8 +31,7 @@ const {
   writeStoreConfigFile,
 } = require('../utils/json-store');
 
-// TCP客户端将在运行时注入
-let tcpClient = null;
+let httpClient = null;
 let runtimeLicenseCache = null;
 
 // 获取/读取/解析：readStoreConfig的具体业务逻辑。
@@ -439,9 +438,8 @@ async function setLocaleCookies(sess, log = () => {}) {
 }
 
 // 创建/初始化：createAuthCookie的具体业务逻辑。
-function createAuthCookie({ serverBase: serverBaseInput, tcp, sendToSide = () => {}, log = () => {}, licenseCache } = {}) {
-  // 设置TCP客户端
-  tcpClient = tcp;
+function createAuthCookie({ serverBase: serverBaseInput, httpClient: injectedHttpClient, sendToSide = () => {}, log = () => {}, licenseCache } = {}) {
+  httpClient = injectedHttpClient;
   runtimeLicenseCache = licenseCache || null;
   const ENDPOINT_FETCH_COOKIE = '/api/fetch_cookie';
 
@@ -455,8 +453,8 @@ function createAuthCookie({ serverBase: serverBaseInput, tcp, sendToSide = () =>
       if (runtimeBase) return runtimeBase.replace(/\/+$/, '');
     } catch (_) {}
     try {
-      const tcpRuntimeBase = String(tcp?.runtimeServerBase || '').trim();
-      if (tcpRuntimeBase) return tcpRuntimeBase.replace(/\/+$/, '');
+      const clientRuntimeBase = String(injectedHttpClient?.runtimeServerBase || '').trim();
+      if (clientRuntimeBase) return clientRuntimeBase.replace(/\/+$/, '');
     } catch (_) {}
     return String(serverBaseInput || getServerBase() || '').replace(/\/+$/, '');
   }
@@ -699,14 +697,14 @@ function createAuthCookie({ serverBase: serverBaseInput, tcp, sendToSide = () =>
 
 // 获取/读取/解析：fetchCookieFromServerForDream的具体业务逻辑。
   async function fetchCookieFromServerForDream(key, deviceId, options = {}) {
-    if (tcpClient) {
+    if (httpClient) {
       try {
         // 使用 HTTP 通信获取 Cookie
         console.log('[fetchCookieFromServerForDream] 使用HTTP获取Cookie');
         const platform = getPlatformFromStore();
         console.log(`[fetchCookieFromServerForDream] 发送请求参数: key=${key.substring(0, 4)}***, platform=${platform}, deviceId=${deviceId.substring(0, 8)}***`);
 
-        const r = await tcpClient.fetchCookie(key, platform, deviceId);
+        const r = await httpClient.fetchCookie(key, platform, deviceId);
         console.log(`[fetchCookieFromServerForDream] HTTP响应接收完成，响应类型: ${typeof r}`);
         const currentAccountTypeInfo = extractCurrentAccountTypeInfo(r);
         const recycleDebugInfo = extractServerRecycleDebugInfo(r);

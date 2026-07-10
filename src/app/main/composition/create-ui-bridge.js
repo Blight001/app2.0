@@ -32,15 +32,21 @@ function createUiBridge({ getSideView, getControlPanelWindow, getConsoleWindow }
 // 处理：sendToSide的具体业务逻辑。
   function sendToSide(channel, ...args) {
     try {
+      let delivered = false;
       sideView = getSideView();
       controlPanelWindow = typeof getControlPanelWindow === 'function' ? getControlPanelWindow() : null;
       if (sideView && sideView.webContents && !sideView.webContents.isDestroyed()) {
         sideView.webContents.send(channel, ...args);
+        delivered = true;
       }
       if (controlPanelWindow && controlPanelWindow.webContents && !controlPanelWindow.webContents.isDestroyed()) {
         controlPanelWindow.webContents.send(channel, ...args);
+        delivered = true;
       }
-    } catch (_) {}
+      return delivered;
+    } catch (_) {
+      return false;
+    }
   }
 
   return {

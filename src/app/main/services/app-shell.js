@@ -18,7 +18,7 @@ function createAppShell(deps = {}) {
     state,
     auth,
     createAuthCookie,
-    createTcpClient,
+    createHttpClient,
     loadTranslateExtension,
     attachContextMenu,
     initDownloadPrefs,
@@ -90,8 +90,8 @@ function createAppShell(deps = {}) {
     getLatestAllowedPlatforms,
     setLatestAllowedPlatforms,
     licenseCache,
-    getGlobalTcpClient,
-    setGlobalTcpClient,
+    getGlobalHttpClient,
+    setGlobalHttpClient,
     cleanupBrowserSessionData,
     purgeBrowserSessionData,
     buildManagedTabPartitionName,
@@ -107,6 +107,30 @@ function createAppShell(deps = {}) {
 
   let controlPanelWindow = null;
   let announcementPoller = null;
+
+  const canPollAnnouncements = () => {
+    try {
+      const snapshot = licenseCache && typeof licenseCache.getSnapshot === 'function'
+        ? licenseCache.getSnapshot()
+        : null;
+      return snapshot?.validated === true;
+    } catch (_) {
+      return false;
+    }
+  };
+
+  const ensureAnnouncementPoller = () => {
+    if (!announcementPoller) {
+      announcementPoller = createAnnouncementPoller({
+        getJson: deps.getJson,
+        getServerBase,
+        shouldPoll: canPollAnnouncements,
+        sendToSide,
+        logger,
+      });
+    }
+    return announcementPoller;
+  };
 
 // 获取/读取/解析：resolveMainWindow的具体业务逻辑。
   const resolveMainWindow = () => (typeof getMainWindow === 'function' ? getMainWindow() : null);
@@ -191,8 +215,7 @@ function createAppShell(deps = {}) {
   const resolveOpenExtensionOptions = () => (typeof getOpenExtensionOptions === 'function' ? getOpenExtensionOptions() : null);
 // 获取/读取/解析：resolveAuth的具体业务逻辑。
   const resolveAuth = () => (typeof getAuth === 'function' ? getAuth() : auth);
-// 获取/读取/解析：resolveGlobalTcpClient的具体业务逻辑。
-  const resolveGlobalTcpClient = () => (typeof getGlobalTcpClient === 'function' ? getGlobalTcpClient() : null);
+  const resolveGlobalHttpClient = () => (typeof getGlobalHttpClient === 'function' ? getGlobalHttpClient() : null);
 // 获取/读取/解析：resolveIsMainBootstrapped的具体业务逻辑。
   const resolveIsMainBootstrapped = () => (typeof getIsMainBootstrapped === 'function' ? getIsMainBootstrapped() : false);
 // 获取/读取/解析：resolveIsSwitchingToLicense的具体业务逻辑。
@@ -508,18 +531,18 @@ function createAppShell(deps = {}) {
     }
 
     try {
-      if (!resolveGlobalTcpClient()) {
-        const nextClient = createTcpClient({ mainWindow: null });
-        if (typeof setGlobalTcpClient === 'function') {
-          setGlobalTcpClient(nextClient);
+      if (!resolveGlobalHttpClient()) {
+        const nextClient = createHttpClient({ mainWindow: null });
+        if (typeof setGlobalHttpClient === 'function') {
+          setGlobalHttpClient(nextClient);
         }
       }
-      const tcpClient = resolveGlobalTcpClient();
+      const httpClient = resolveGlobalHttpClient();
       if (typeof setAuth === 'function') {
-        setAuth(createAuthCookie({ serverBase: getServerBase(), tcp: tcpClient, sendToSide, licenseCache: deps.licenseCache }));
+        setAuth(createAuthCookie({ serverBase: getServerBase(), httpClient, sendToSide, licenseCache: deps.licenseCache }));
       }
     } catch (e) {
-      logger.warn?.('[启动] 初始化TCP/鉴权失败:', e?.message || e);
+      logger.warn?.('[启动] 初始化HTTP客户端/鉴权失败:', e?.message || e);
     }
 
     try {
@@ -562,7 +585,7 @@ function createAppShell(deps = {}) {
         DREAM_TARGET_URL: initialTargetUrl,
         getDreamTargetUrl: () => getDreamTargetUrl(),
         http: { postJson: deps.postJson, getJson: deps.getJson, httpGetUniversal: deps.httpGetUniversal },
-        tcp: resolveGlobalTcpClient(),
+        httpClient: resolveGlobalHttpClient(),
         extensionManager,
         loadTranslateExtension,
         ui: {
@@ -615,6 +638,7 @@ function createAppShell(deps = {}) {
         licenseCache,
         appendLicenseRecord: typeof appendLicenseRecord === 'function' ? appendLicenseRecord : null,
         refreshAllowedPlatformsAndNotify: typeof refreshAllowedPlatformsAndNotify === 'function' ? refreshAllowedPlatformsAndNotify : null,
+        refreshAnnouncements: (options = {}) => ensureAnnouncementPoller().refreshNow(options),
         getCurrentPlatformLabel,
       });
       logger.log?.('[启动] IPC handlers 已注册');
@@ -688,15 +712,7 @@ function createAppShell(deps = {}) {
 
         // 启动公告轮询（替代原 TCP 推送公告）。
         try {
-          if (!announcementPoller) {
-            announcementPoller = createAnnouncementPoller({
-              getJson: deps.getJson,
-              getServerBase,
-              sendToSide,
-              logger,
-            });
-          }
-          announcementPoller.start();
+          ensureAnnouncementPoller().start();
         } catch (e) {
           logger.warn?.('[启动] 启动公告轮询失败:', e?.message || e);
         }
@@ -709,9 +725,9 @@ function createAppShell(deps = {}) {
 
     initDownloadPrefs();
 
-    const tcpClient = resolveGlobalTcpClient();
-    if (tcpClient) {
-      tcpClient.mainWindow = resolveMainWindow();
+    const httpClient = resolveGlobalHttpClient();
+    if (httpClient) {
+      httpClient.mainWindow = resolveMainWindow();
     }
 
   }
@@ -811,6 +827,14 @@ function createAppShell(deps = {}) {
         sendToSide('app-console-history', typeof getAppConsoleHistory === 'function' ? getAppConsoleHistory() : []);
       } catch (_) {}
       try { sendToSide('app-version', app.getVersion()); } catch (_) {}
+      try {
+        if (canPollAnnouncements()) {
+          // 页面重新加载后，旧的 IPC 下发记录已失效，只在这里重置一次。
+          await ensureAnnouncementPoller().refreshNow({ resetDelivery: true });
+        }
+      } catch (e) {
+        logger.warn?.('[公告轮询] 侧边栏加载完成后刷新失败:', e?.message || e);
+      }
       setTimeout(async () => {
         try {
           await checkDesktopShortcutAndPrompt(mainWindow, sendToSide);
@@ -919,11 +943,11 @@ function createAppShell(deps = {}) {
       if (typeof resetRuntimeTutorialUrlState === 'function') {
         resetRuntimeTutorialUrlState();
       }
-      const client = resolveGlobalTcpClient();
+      const client = resolveGlobalHttpClient();
       if (client && typeof client.close === 'function') {
         try { client.close(); } catch (_) {}
       }
-      if (typeof setGlobalTcpClient === 'function') setGlobalTcpClient(null);
+      if (typeof setGlobalHttpClient === 'function') setGlobalHttpClient(null);
       clearLicenseCacheValidation();
     } catch (e) {
       logger.warn?.('[启动] 重置运行态失败:', e?.message || e);

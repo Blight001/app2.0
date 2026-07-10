@@ -12,10 +12,45 @@ const WEB_PANEL_MARGIN = 16;
 const POPUP_DEFAULT_SIZE = { width: 360, height: 420 };
 const OPTIONS_DEFAULT_SIZE = { width: 560, height: 620 };
 const COMPAT_CACHE_DIR_NAME = 'extension-runtime-compat';
-const COMPAT_SHIM_FILE = '__electron_extension_compat__.js';
+// Chromium reserves extension files/directories beginning with "_". Keep the
+// software-generated shim name ordinary so the original plugin remains untouched.
+const COMPAT_SHIM_FILE = 'electron-extension-compat.js';
 const COMPAT_SHIM_MARKER = '__AI_FREE_ELECTRON_EXTENSION_COMPAT__';
+const COMPAT_CACHE_SCHEMA = 2;
+const ELECTRON_UNRECOGNIZED_EXTENSION_PERMISSIONS = new Set([
+  'notifications',
+  'contextMenus',
+  'debugger',
+  'cookies',
+  'downloads',
+  'webNavigation',
+]);
 const EXTENSION_REFRESH_INTERVAL_MS = 10000;
 const EXTENSION_REFRESH_DEBOUNCE_MS = 300;
+
+function sanitizeManifestPermissionsForElectron(sourceManifest) {
+  const manifest = sourceManifest && typeof sourceManifest === 'object'
+    ? { ...sourceManifest }
+    : {};
+  const removedPermissions = [];
+
+  for (const field of ['permissions', 'optional_permissions']) {
+    if (!Array.isArray(manifest[field])) continue;
+    manifest[field] = manifest[field].filter((permission) => {
+      const normalized = String(permission || '').trim();
+      if (!ELECTRON_UNRECOGNIZED_EXTENSION_PERMISSIONS.has(normalized)) {
+        return true;
+      }
+      removedPermissions.push(normalized);
+      return false;
+    });
+  }
+
+  return {
+    manifest,
+    removedPermissions: Array.from(new Set(removedPermissions)),
+  };
+}
 
 function createExtensionManager(deps = {}) {
   const {
@@ -545,10 +580,13 @@ function createExtensionManager(deps = {}) {
 
   function patchCompatExtensionDirectory(compatDir) {
     const manifestPath = path.join(compatDir, 'manifest.json');
-    const manifest = readJsonFile(manifestPath);
-    if (!manifest || typeof manifest !== 'object') {
+    const sourceManifest = readJsonFile(manifestPath);
+    if (!sourceManifest || typeof sourceManifest !== 'object') {
       throw new Error('运行时插件副本缺少有效 manifest.json');
     }
+    const sanitized = sanitizeManifestPermissionsForElectron(sourceManifest);
+    const manifest = sanitized.manifest;
+    let manifestChanged = sanitized.removedPermissions.length > 0;
 
     const shimText = buildElectronExtensionCompatShim();
     fs.writeFileSync(path.join(compatDir, COMPAT_SHIM_FILE), shimText, 'utf8');
@@ -564,7 +602,7 @@ function createExtensionManager(deps = {}) {
       const scripts = background.scripts.map((item) => String(item || '').trim()).filter(Boolean);
       if (!scripts.includes(COMPAT_SHIM_FILE)) {
         background.scripts = [COMPAT_SHIM_FILE, ...scripts];
-        fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+        manifestChanged = true;
       }
     } else if (background?.page) {
       injectShimIntoHtml(path.join(compatDir, String(background.page).replace(/^\/+/, '')), compatDir);
@@ -574,6 +612,16 @@ function createExtensionManager(deps = {}) {
       .files
       .filter((filePath) => ['.html', '.htm'].includes(path.extname(filePath).toLowerCase()));
     htmlFiles.forEach((filePath) => injectShimIntoHtml(filePath, compatDir));
+
+    if (manifestChanged) {
+      fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+    }
+    if (sanitized.removedPermissions.length) {
+      logger.log?.(
+        '[Extensions] Electron 兼容层已处理不识别的权限声明:',
+        sanitized.removedPermissions.join(', '),
+      );
+    }
   }
 
   function prepareCompatExtensionPath(plugin) {
@@ -594,6 +642,8 @@ function createExtensionManager(deps = {}) {
       scan.latestMtimeMs,
       scan.fileCount,
       COMPAT_SHIM_MARKER,
+      COMPAT_SHIM_FILE,
+      COMPAT_CACHE_SCHEMA,
     ].join('|'));
     const signaturePath = path.join(compatDir, '.compat-signature');
 
@@ -1683,4 +1733,6 @@ function createExtensionManager(deps = {}) {
 
 module.exports = {
   createExtensionManager,
+  COMPAT_SHIM_FILE,
+  sanitizeManifestPermissionsForElectron,
 };

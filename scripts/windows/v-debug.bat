@@ -1,7 +1,7 @@
 ﻿@echo off
 setlocal EnableExtensions
 chcp 65001 >nul
-title AI-FREE TCP Debug Launcher
+title AI-FREE HTTP Debug Launcher
 
 pushd "%~dp0..\.." >nul 2>&1
 if errorlevel 1 (
@@ -12,14 +12,11 @@ if errorlevel 1 (
 
 rem Local debug target. Adjust to your own local service.
 set "SERVER_BASE=http://127.0.0.1:59000"
-set "LOCAL_SERVER_RESOLVER_URL=http://127.0.0.1:59000/api/server_vue/card-status/search"
-set "SERVER_VUE_CARD_STATUS_SEARCH_URL=http://127.0.0.1:59000/api/server_vue/card-status/search"
+set "LOCAL_SERVER_RESOLVER_URL=http://127.0.0.1:59000/api/server_main/card-status/search"
+set "SERVER_MAIN_CARD_STATUS_SEARCH_URL=http://127.0.0.1:59000/api/server_main/card-status/search"
 set "PLATFORM=local"
 set "DEBUG=1"
-set "FORCE_HTTP_COMPAT_MODE="
-set "NETWORK_COMPAT_MODE="
-set "DISABLE_TCP_CONNECTION="
-set "NO_TCP="
+set "FORCE_HTTP_COMPAT_MODE=1"
 set "SKIP_LICENSE_WINDOW="
 set "FORCE_COLOR=1"
 
@@ -40,10 +37,10 @@ if errorlevel 1 (
 )
 
 echo ========================================
-echo   AI-FREE TCP Debug Launcher
+echo   AI-FREE HTTP Debug Launcher
 echo ========================================
 echo Server base: %SERVER_BASE%
-echo Mode: TCP 连接（允许自动 HTTP 降级）
+echo Mode: HTTP only
 echo.
 
 call node scripts\run-electron.js .

@@ -1,4 +1,4 @@
-// 格式化/规范化：normalizeHttpResult的具体业务逻辑。
+// HTTP response normalization and request dispatch.
 function normalizeHttpResult(resp) {
   if (!resp) return { ok: false, message: 'HTTP请求失败' };
   const body = resp.body;

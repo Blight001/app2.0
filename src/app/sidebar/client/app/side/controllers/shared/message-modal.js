@@ -305,6 +305,7 @@ function showServerMessage(messageData) {
   enqueueMessage({
     kind: 'info',
     type,
+    title: messageData.title || undefined,
     message,
     priority
   });
@@ -477,15 +478,11 @@ function initServerMessageListener() {
       showUpdateMessage(messageData);
     });
     window.electronAPI.on('server-message', (messageData) => {
-// 处理：debugMessage的具体业务逻辑。
-      const debugMessage = (() => {
-        try {
-          return typeof messageData === 'string' ? messageData : JSON.stringify(messageData);
-        } catch (_) {
-          return String(messageData);
-        }
-      })();
-      console.log('收到服务器消息:', debugMessage);
+      const messageType = getServerMessageType(messageData);
+      const messageText = getServerMessageText(messageData);
+      const announcementId = messageData?.announcement_id ?? '-';
+      const logText = String(messageText || '').replace(/\s+/g, ' ').slice(0, 160);
+      console.log(`[公告] #${announcementId} ${messageType || 'normal'}: ${logText}`);
 
       // 特殊处理账号cookie自动处理消息
       if (messageData.type === 'account_cookie_auto_process' && messageData.data && messageData.data.autoProcess) {
@@ -508,10 +505,7 @@ function initServerMessageListener() {
         return; // 不显示普通的服务器消息弹窗
       }
 
-      // 特殊处理公告消息 - 所有公告消息都只显示在公告栏，不显示弹窗
-      const messageType = getServerMessageType(messageData);
-      const messageText = getServerMessageText(messageData);
-
+      // 更新/停用类公告交给专门流程；其余服务器公告在这里弹窗显示。
       if (isUpdateLikeMessage(messageData)) {
         return;
       }

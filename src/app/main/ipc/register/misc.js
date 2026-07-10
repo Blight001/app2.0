@@ -1,5 +1,5 @@
 const { app, ipcMain } = require('electron');
-const { createTcpClient } = require('../../lib/tcp-client');
+const { createHttpClient } = require('../../lib/http-client');
 const { getStorePath } = require('../../config');
 const { summarizeUpdatePayload } = require('../../utils/update-payload');
 
@@ -7,7 +7,7 @@ const DEFAULT_TUTORIAL_URL = '';
 
 // 监听/绑定：registerMiscIPC的具体业务逻辑。
 function registerMiscIPC(ctx) {
-  const { tcp, licenseCache } = ctx;
+  const { licenseCache } = ctx;
 
   ipcMain.handle('create-desktop-shortcut', async (_event, { createShortcut }) => {
     try {
@@ -28,8 +28,8 @@ function registerMiscIPC(ctx) {
   ipcMain.handle('network:diagnose', async () => {
     try {
       console.log('[IPC] 开始网络连接诊断...');
-      const tcpClient = createTcpClient();
-      const result = await tcpClient.diagnoseConnection();
+      const httpClient = createHttpClient();
+      const result = await httpClient.diagnoseConnection();
 
       console.log('[IPC] 网络诊断完成:', result);
       return {

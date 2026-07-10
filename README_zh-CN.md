@@ -84,7 +84,7 @@ npm run build:portable
 常见字段说明：
 
 - `platforms`：应用元数据，例如 `name`、`appId` 和图标路径
-- `platformConfigs.tcp`：后端 TCP 服务的主机和端口
+- `localResolver`：通过 HTTP 查询卡密所属平台的地址和超时配置
 - `platformConfigs.targetUrl`：应用默认加载的目标页面
 - `platformConfigs.tutorialUrl`：界面中的教程链接
 - `platformConfigs.allowedPlatforms`：验证时允许的平台标签
@@ -97,8 +97,7 @@ npm run build:portable
 如果你更习惯使用批处理脚本，可以直接用 `scripts/windows/` 下的文件：
 
 - `v-start.bat`：启动应用
-- `v-debug.bat`：按调试方式启动
-- `v-debug-http.bat`：按 HTTP 调试方式启动
+- `v-debug.bat`：以纯 HTTP 模式启动调试环境
 - `build.bat`：Windows 构建脚本
 - `backup.bat`：生成备份快照
 

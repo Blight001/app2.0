@@ -78,8 +78,7 @@ function registerAppLifecycle(deps = {}) {
     shortcutManager,
     createDevConsoleWindow,
     isDevMode = false,
-    globalTcpClientRef,
-    getGlobalTcpClient,
+    getGlobalHttpClient,
     isSwitchingToLicenseRef,
     isMainBootstrappedRef,
     getLicenseWindow,
@@ -291,7 +290,7 @@ function registerAppLifecycle(deps = {}) {
         }, key, deviceId);
 
         try {
-          const { normalizeValidationRuntimeConfig } = require('../lib/tcp-client');
+          const { normalizeValidationRuntimeConfig } = require('../lib/http-client');
           const runtimeConfig = normalizeValidationRuntimeConfig(resolved.data || {});
           setLicenseRuntimeConfig(licenseCache, runtimeConfig);
           if (typeof deps.refreshAllowedPlatformsAndNotify === 'function') {
@@ -430,13 +429,12 @@ function registerAppLifecycle(deps = {}) {
         }
 
         try {
-          const globalTcpClient = getGlobalTcpClient?.() || globalTcpClientRef?.current || null;
-          if (globalTcpClient) {
-            logger.log?.('[退出] 关闭 TCP 连接...');
-            globalTcpClient.close();
+          const globalHttpClient = getGlobalHttpClient?.() || null;
+          if (globalHttpClient) {
+            globalHttpClient.close();
           }
         } catch (e) {
-          logger.warn?.('[退出] 关闭 TCP 连接失败:', e?.message || e);
+          logger.warn?.('[退出] 释放 HTTP 客户端失败:', e?.message || e);
         }
 
         if (!isUpdateExit) {
