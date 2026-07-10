@@ -77,6 +77,7 @@ function registerAppLifecycle(deps = {}) {
     cleanupUpdateStorageRoot,
     shortcutManager,
     createDevConsoleWindow,
+    getAppConsoleHistory,
     isDevMode = false,
     getGlobalHttpClient,
     isSwitchingToLicenseRef,
@@ -100,6 +101,24 @@ function registerAppLifecycle(deps = {}) {
   } = require('../ipc/register/clash-mini-core');
 
   app.whenReady().then(async () => {
+    // The development console is loaded before bootstrapMainApp registers the
+    // full IPC set. Make its history request available before loading its page.
+    if (isDevMode) {
+      try {
+        ipcMain.removeHandler('get-app-console-history');
+        ipcMain.handle('get-app-console-history', async () => {
+          try {
+            const history = typeof getAppConsoleHistory === 'function' ? getAppConsoleHistory() : [];
+            return { ok: true, history: Array.isArray(history) ? history : [] };
+          } catch (error) {
+            return { ok: false, error: error?.message || String(error), history: [] };
+          }
+        });
+      } catch (e) {
+        logger.warn?.('[启动] 注册调试控制台历史 IPC 失败:', e?.message || e);
+      }
+    }
+
     if (isDevMode && typeof createDevConsoleWindow === 'function') {
       try {
         createDevConsoleWindow();

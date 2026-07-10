@@ -275,6 +275,17 @@ function createAppShell(deps = {}) {
       if (typeof setLicenseWindow === 'function') {
         setLicenseWindow(null);
       }
+
+      // 调试窗口是独立顶层窗口；未验证时直接关闭卡密窗口后，它会阻止
+      // window-all-closed 触发。此时主动退出，让 before-quit 统一关闭调试
+      // 窗口并执行其余清理。验证成功进入主界面后的程序化关闭不退出应用。
+      if (!resolveIsMainBootstrapped()) {
+        try {
+          app.quit();
+        } catch (e) {
+          logger.warn?.('[启动] 关闭卡密窗口后退出应用失败:', e?.message || e);
+        }
+      }
     });
 
     return licenseWindow;
@@ -546,14 +557,6 @@ function createAppShell(deps = {}) {
     }
 
     try {
-      if (isDevMode) {
-        createDevConsoleWindow();
-      }
-    } catch (e) {
-      logger.warn?.('[启动] 预创建调试控制台失败:', e?.message || e);
-    }
-
-    try {
       if (extensionManager && typeof extensionManager.initialize === 'function') {
         await extensionManager.initialize();
       } else {
@@ -644,6 +647,14 @@ function createAppShell(deps = {}) {
       logger.log?.('[启动] IPC handlers 已注册');
     } catch (e) {
       logger.error?.('[启动] 注册 IPC 失败:', e?.message || e);
+    }
+
+    try {
+      if (isDevMode) {
+        createDevConsoleWindow();
+      }
+    } catch (e) {
+      logger.warn?.('[启动] 创建调试控制台窗口失败:', e?.message || e);
     }
 
     try {
@@ -900,13 +911,6 @@ function createAppShell(deps = {}) {
         setMainWindow(null);
       }
     });
-    if (isDevMode) {
-      try {
-        createDevConsoleWindow();
-      } catch (e) {
-        logger.warn?.('[启动] 创建调试控制台窗口失败:', e?.message || e);
-      }
-    }
     return mainWindow;
   }
 

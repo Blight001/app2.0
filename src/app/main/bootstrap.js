@@ -529,6 +529,7 @@ registerAppLifecycle({
   BrowserWindow,
   createMainWindow,
   createDevConsoleWindow: appShell.createDevConsoleWindow,
+  getAppConsoleHistory,
   isDevMode,
   logger: console,
 });
