@@ -159,6 +159,9 @@ function registerSettingsIPC(ctx) {
         pending,
         key: String(snapshot.key || '').trim(),
         deviceId: String(snapshot.deviceId || '').trim(),
+        validated: snapshot.validated === true || snapshot.licenseValidated === true,
+        bound: snapshot.bound === true,
+        validation: snapshot,
       };
     } catch (error) {
       console.error('[IPC] 消费自动验证标记失败:', error);

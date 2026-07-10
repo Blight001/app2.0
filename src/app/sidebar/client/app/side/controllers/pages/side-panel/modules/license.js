@@ -28,35 +28,6 @@ function clearAutoValidateTimer() {
   }
 }
 
-// 处理：scheduleAutoValidateAttempt的具体业务逻辑。
-function scheduleAutoValidateAttempt(delayMs = 1000) {
-  clearAutoValidateTimer();
-  autoValidateTimer = setTimeout(() => {
-    autoValidateTimer = null;
-    void attemptAutoValidateClick();
-  }, delayMs);
-}
-
-// 处理：attemptAutoValidateClick的具体业务逻辑。
-async function attemptAutoValidateClick() {
-  const validateBtn = safeGetEl('validate-key-btn');
-  const keyInput = safeGetEl('key-input');
-  if (!validateBtn || !keyInput) {
-    return;
-  }
-
-  if (!String(keyInput.value || '').trim()) {
-    clearAutoValidateTimer();
-    setAutoValidateStatus('自动验证已取消，卡密为空', 'error');
-    return;
-  }
-
-  clearAutoValidateTimer();
-  validateBtn.disabled = false;
-  validateBtn.focus();
-  validateBtn.click();
-}
-
 // 处理：captureLicenseState的具体业务逻辑。
 function captureLicenseState(payload, { key = '', deviceId = '', bound = true } = {}) {
   const data = payload && typeof payload === 'object' ? payload : {};
@@ -553,12 +524,65 @@ function bindLicenseValidationControls() {
             globalCurrentKey = autoKey;
             currentLicenseState.key = autoKey;
           }
-          setAutoValidateStatus('已自动填入卡密，1秒后自动验证...');
-          clearAutoValidateTimer();
-          autoValidateTimer = setTimeout(() => {
-            autoValidateTimer = null;
-            void handleValidateClick();
-          }, 1000);
+          const cachedValidation = autoValidate.validation && typeof autoValidate.validation === 'object'
+            ? autoValidate.validation
+            : autoValidate;
+          if (autoValidate.validated === true && autoValidate.bound === true) {
+            displayExpirationInfo(cachedValidation);
+            applyValidatedLicenseResult(cachedValidation, {
+              key: autoKey,
+              deviceId: String(autoValidate.deviceId || loadedDeviceId || '').trim(),
+            });
+            enableAllLicenseRequiredButtons();
+            setAutoValidateStatus('已同步首页验证结果，无需重复请求');
+            const cachedDeviceId = String(autoValidate.deviceId || loadedDeviceId || '').trim();
+            try {
+              const vpnBtn = safeGetEl('VPN-switch');
+              const startBtn = safeGetEl('start-clash-mini-btn');
+              if (typeof autoStartClashMiniAfterValidation === 'function') {
+                void autoStartClashMiniAfterValidation({
+                  startBtn,
+                  vpnBtn,
+                  key: autoKey,
+                  deviceId: cachedDeviceId,
+                });
+              }
+            } catch (error) {
+              console.warn('[侧边栏] 复用验证结果后自动开启网络魔法失败:', error?.message || error);
+            }
+
+            // 首页结果先立即生效；到期时间、使用次数等详细字段在后台刷新，
+            // 不锁定按钮，也不阻塞教程和其他侧边栏数据加载。
+            void (async () => {
+              try {
+                const resp = await window.electronAPI.invoke('validate-key', {
+                  key: autoKey,
+                  device_id: cachedDeviceId,
+                });
+                if (!resp?.ok) {
+                  console.warn('[侧边栏][自动验证] 后台刷新详细数据失败:', resp?.error || resp?.message || '未知错误');
+                  return;
+                }
+                const payload = extractValidationPayload(resp?.result || resp);
+                displayExpirationInfo(payload || resp);
+                applyValidatedLicenseResult(payload || resp, {
+                  key: autoKey,
+                  deviceId: cachedDeviceId,
+                });
+                enableAllLicenseRequiredButtons();
+                setAutoValidateStatus('卡密详细数据已后台刷新');
+              } catch (error) {
+                console.warn('[侧边栏][自动验证] 后台刷新详细数据异常:', error?.message || error);
+              }
+            })();
+          } else {
+            setAutoValidateStatus('缓存验证状态缺失，立即补充验证...');
+            clearAutoValidateTimer();
+            autoValidateTimer = setTimeout(() => {
+              autoValidateTimer = null;
+              void handleValidateClick();
+            }, 0);
+          }
         }
       }
 

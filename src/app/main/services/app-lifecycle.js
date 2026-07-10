@@ -312,11 +312,6 @@ function registerAppLifecycle(deps = {}) {
           const { normalizeValidationRuntimeConfig } = require('../lib/http-client');
           const runtimeConfig = normalizeValidationRuntimeConfig(resolved.data || {});
           setLicenseRuntimeConfig(licenseCache, runtimeConfig);
-          if (typeof deps.refreshAllowedPlatformsAndNotify === 'function') {
-            void deps.refreshAllowedPlatformsAndNotify().catch((refreshErr) => {
-              logger.warn?.('[启动] 异步刷新平台名称失败:', refreshErr?.message || refreshErr);
-            });
-          }
         } catch (refreshErr) {
           logger.warn?.('[启动] 验证后刷新平台名称失败:', refreshErr?.message || refreshErr);
         }

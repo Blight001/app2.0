@@ -557,26 +557,6 @@ function createAppShell(deps = {}) {
     }
 
     try {
-      if (extensionManager && typeof extensionManager.initialize === 'function') {
-        await extensionManager.initialize();
-      } else {
-        applyPluginSettings({ translateExtEnabled: false });
-      }
-    } catch (e) {
-      logger.warn?.('[启动] 初始化插件开关失败，使用默认值:', e?.message || e);
-      applyPluginSettings({ translateExtEnabled: false });
-    }
-
-    try {
-      createMainWindow();
-      if (!isControlPanelOnlyModeEnabled()) {
-        revealMainWindow();
-      }
-    } catch (e) {
-      logger.warn?.('[启动] 创建主窗口失败:', e?.message || e);
-    }
-
-    try {
       const runtimeConfig = deps.licenseCache && typeof deps.licenseCache.getRuntimeConfig === 'function'
         ? deps.licenseCache.getRuntimeConfig()
         : {};
@@ -649,38 +629,22 @@ function createAppShell(deps = {}) {
       logger.error?.('[启动] 注册 IPC 失败:', e?.message || e);
     }
 
+    // IPC 必须先于渲染进程就绪；主窗口则不再等待扩展扫描和磁盘清理。
+    try {
+      createMainWindow();
+      if (!isControlPanelOnlyModeEnabled()) {
+        revealMainWindow();
+      }
+    } catch (e) {
+      logger.warn?.('[启动] 创建主窗口失败:', e?.message || e);
+    }
+
     try {
       if (isDevMode) {
         createDevConsoleWindow();
       }
     } catch (e) {
       logger.warn?.('[启动] 创建调试控制台窗口失败:', e?.message || e);
-    }
-
-    try {
-      const userDataDir = app.getPath('userData');
-      const entries = await fs.promises.readdir(userDataDir).catch(() => []);
-      const partitionPattern = /^tab-\d+$/;
-      const inUsePartitions = new Set(
-        Array.from(resolveTabs().values())
-          .map((t) => String((t && t.partition) || '').replace(/^persist:/, ''))
-          .filter(Boolean),
-      );
-      for (const name of entries) {
-        try {
-          if (!partitionPattern.test(name)) continue;
-          if (inUsePartitions.has(name)) continue;
-          const dirPath = path.join(userDataDir, name);
-          const stat = await fs.promises.stat(dirPath).catch(() => null);
-          if (!stat || !stat.isDirectory()) continue;
-          const deleted = await removeDirectoryWithRetries(fs, dirPath);
-          if (!deleted) {
-            logger.warn?.('[启动] 删除残留分区最终失败（跳过）:', dirPath);
-          }
-        } catch (_) {}
-      }
-    } catch (e) {
-      logger.warn?.('[启动] 启动时清理残留分区失败:', e?.message || e);
     }
 
     void (async () => {
@@ -702,6 +666,9 @@ function createAppShell(deps = {}) {
       };
 
       try {
+        // 先让 BrowserWindow 完成首轮绘制，再启动首屏数据同步。
+        await new Promise((resolve) => setImmediate(resolve));
+
         // 账号回收定时器：卡密已验证时启动。
         try {
           const validationSnapshot = licenseCache && typeof licenseCache.getSnapshot === 'function'
@@ -714,7 +681,8 @@ function createAppShell(deps = {}) {
           logger.warn?.('[启动] 刷新账号回收定时器失败:', e?.message || e);
         }
 
-        // 启动时刷新一次平台/URL 配置（HTTP）。
+        // 运行配置来自刚完成的卡密验证，优先同步并创建教程标签页。
+        // 不等待扩展目录扫描，避免主内容区长时间空白。
         try {
           await refreshRuntimeUrls();
         } catch (e) {
@@ -726,6 +694,49 @@ function createAppShell(deps = {}) {
           ensureAnnouncementPoller().start();
         } catch (e) {
           logger.warn?.('[启动] 启动公告轮询失败:', e?.message || e);
+        }
+
+        // 教程标签页开始加载后再扫描扩展；完成后补加载到已经创建的会话，
+        // 防止提速后已有标签遗漏扩展，同时向已加载的侧边栏广播最新状态。
+        try {
+          if (extensionManager && typeof extensionManager.initialize === 'function') {
+            await extensionManager.initialize({ emit: true });
+            if (typeof extensionManager.ensureEnabledPluginsLoadedInCurrentSessions === 'function') {
+              await extensionManager.ensureEnabledPluginsLoadedInCurrentSessions('启动补加载');
+            }
+          } else {
+            applyPluginSettings({ translateExtEnabled: false });
+          }
+        } catch (e) {
+          logger.warn?.('[启动] 初始化插件开关失败，使用默认值:', e?.message || e);
+          applyPluginSettings({ translateExtEnabled: false });
+        }
+
+        // 磁盘清理放到首屏和教程页启动之后，避免阻塞验证后的窗口切换。
+        try {
+          const userDataDir = app.getPath('userData');
+          const entries = await fs.promises.readdir(userDataDir).catch(() => []);
+          const partitionPattern = /^tab-\d+$/;
+          const inUsePartitions = new Set(
+            Array.from(resolveTabs().values())
+              .map((t) => String((t && t.partition) || '').replace(/^persist:/, ''))
+              .filter(Boolean),
+          );
+          for (const name of entries) {
+            try {
+              if (!partitionPattern.test(name)) continue;
+              if (inUsePartitions.has(name)) continue;
+              const dirPath = path.join(userDataDir, name);
+              const stat = await fs.promises.stat(dirPath).catch(() => null);
+              if (!stat || !stat.isDirectory()) continue;
+              const deleted = await removeDirectoryWithRetries(fs, dirPath);
+              if (!deleted) {
+                logger.warn?.('[启动] 删除残留分区最终失败（跳过）:', dirPath);
+              }
+            } catch (_) {}
+          }
+        } catch (e) {
+          logger.warn?.('[启动] 启动时清理残留分区失败:', e?.message || e);
         }
       } catch (e) {
         logger.warn?.('[启动] 初始化后台任务失败:', e?.message || e);

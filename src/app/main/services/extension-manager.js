@@ -1103,9 +1103,12 @@ function createExtensionManager(deps = {}) {
     return result;
   }
 
-  async function initialize() {
+  async function initialize(options = {}) {
     await refreshBundledExtensions({ persist: true, load: false, emit: false });
     startRealtimePluginLoading();
+    if (options.emit === true) {
+      emitStateChanged();
+    }
     return getPublicState();
   }
 
@@ -1721,6 +1724,7 @@ function createExtensionManager(deps = {}) {
     initialize,
     getPublicState,
     loadEnabledIntoSession,
+    ensureEnabledPluginsLoadedInCurrentSessions,
     setPluginEnabled,
     removePlugin,
     openExtensionPopup: (pluginId) => openExtensionPage(pluginId, 'popup'),
