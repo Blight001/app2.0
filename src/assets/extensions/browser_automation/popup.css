@@ -1105,6 +1105,28 @@
       margin-top: 10px;
     }
 
+    .card-cache-summary {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .card-cache-summary__name {
+      max-width: 180px;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .card-cache-summary .chip {
+      flex: 0 0 auto;
+      padding: 4px 8px;
+    }
+
     .card-run-inputs {
       margin-top: 12px;
       padding: 10px 12px;

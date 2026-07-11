@@ -477,8 +477,39 @@ cardFileInput?.addEventListener('change', () => {
         return;
     }
 
-    setCardFileName(files.length === 1 ? files[0].name : `已选择 ${files.length} 个文件`);
-    showActionToast(files.length > 1 ? `已选择 ${files.length} 个自动化卡片` : `已选择: ${files[0].name}`, 'info');
+    setCardFileName(files.length === 1 ? files[0].name : `正在导入 ${files.length} 个文件`);
+    if (pickCardFileButton) {
+        pickCardFileButton.disabled = true;
+    }
+    if (importCardButton) {
+        importCardButton.disabled = true;
+    }
+    if (loopCardButton) {
+        loopCardButton.disabled = true;
+    }
+    void importSelectedCardFilesToCache().then((result) => {
+        const count = Number(result?.items?.length || 0);
+        if (!count) {
+            throw new Error('未识别到可导入的自动化卡片');
+        }
+        showActionToast(`已导入 ${count} 张自动化卡片并载入缓存`, 'success');
+    }).catch((error) => {
+        if (cardFileInput) {
+            cardFileInput.value = '';
+        }
+        void refreshCardCacheUi().catch(() => {});
+        showActionToast(error && error.message ? error.message : '导入自动化卡片失败', 'error', 4200);
+    }).finally(() => {
+        if (pickCardFileButton) {
+            pickCardFileButton.disabled = false;
+        }
+        if (importCardButton) {
+            importCardButton.disabled = false;
+        }
+        if (loopCardButton) {
+            loopCardButton.disabled = false;
+        }
+    });
 });
 
 pickCardFileButton?.addEventListener('click', () => {
@@ -517,6 +548,32 @@ cardCacheListNode?.addEventListener('click', (event) => {
             showActionToast(error && error.message ? error.message : '选择自动化卡片失败', 'error');
         }
     })();
+});
+
+// 后台 AI 工具、另一个弹窗或侧边栏写入卡片后，当前列表立即同步。
+// 仅刷新列表和运行变量，避免覆盖用户尚未保存的编辑器内容。
+let cardCacheRefreshTimer = null;
+chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local') {
+        return;
+    }
+    const cacheKeys = [
+        AUTOMATION_CARD_CACHE_LIST_KEY,
+        AUTOMATION_CARD_SELECTED_ID_KEY,
+        AUTOMATION_CARD_CACHE_KEY,
+        AUTOMATION_CARD_CACHE_NAME_KEY,
+        AUTOMATION_CARD_CACHE_TIME_KEY
+    ];
+    if (!cacheKeys.some((key) => Object.prototype.hasOwnProperty.call(changes, key))) {
+        return;
+    }
+    if (cardCacheRefreshTimer) {
+        window.clearTimeout(cardCacheRefreshTimer);
+    }
+    cardCacheRefreshTimer = window.setTimeout(() => {
+        cardCacheRefreshTimer = null;
+        void refreshCardCacheUi().catch(() => {});
+    }, 50);
 });
 
 // 进度面板停止/继续按钮：失败后自动变成“继续”，点击可从失败步骤重试

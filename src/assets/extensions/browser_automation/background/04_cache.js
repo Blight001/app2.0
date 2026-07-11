@@ -80,13 +80,13 @@ function normalizeFlowData(flow = null, steps = []) {
     };
 }
 
-function normalizeCardData(cardData) {
+function normalizeCardData(cardData, options = {}) {
     if (!cardData || typeof cardData !== 'object' || Array.isArray(cardData)) {
         throw new Error('自动化卡片内容格式不正确');
     }
 
     const steps = ensureStepIds(Array.isArray(cardData.steps) ? cardData.steps : []);
-    if (steps.length === 0) {
+    if (steps.length === 0 && options.allowEmptySteps !== true) {
         throw new Error('自动化卡片缺少 steps 步骤');
     }
 
@@ -103,7 +103,8 @@ function normalizeCardData(cardData) {
 
 function normalizeCardCacheEntry(entry = {}, index = 0) {
     const source = entry && typeof entry === 'object' ? entry : {};
-    const cardData = normalizeCardData(source.cardData || source);
+    // UI 允许先保存空步骤草稿；缓存列表/get 应能读取草稿，真正执行时再做严格校验。
+    const cardData = normalizeCardData(source.cardData || source, { allowEmptySteps: true });
     return {
         id: String(source.id || source.cacheId || `${cardData.name || 'automation'}_${index + 1}`).trim(),
         cardData,
@@ -124,12 +125,20 @@ async function loadCardCacheState() {
 
     const list = Array.isArray(stored[AUTOMATION_CARD_CACHE_LIST_KEY]) ? stored[AUTOMATION_CARD_CACHE_LIST_KEY] : [];
     if (list.length > 0) {
-        const items = list.map((item, index) => normalizeCardCacheEntry(item, index));
-        let selectedId = String(stored[AUTOMATION_CARD_SELECTED_ID_KEY] || '').trim();
-        if (!selectedId || !items.some((item) => item.id === selectedId)) {
-            selectedId = String(items[0]?.id || '').trim();
+        const items = list.map((item, index) => {
+            try {
+                return normalizeCardCacheEntry(item, index);
+            } catch (_error) {
+                return null;
+            }
+        }).filter(Boolean);
+        if (items.length > 0) {
+            let selectedId = String(stored[AUTOMATION_CARD_SELECTED_ID_KEY] || '').trim();
+            if (!selectedId || !items.some((item) => item.id === selectedId)) {
+                selectedId = String(items[0]?.id || '').trim();
+            }
+            return { items, selectedId };
         }
-        return { items, selectedId };
     }
 
     const cachedCard = stored[AUTOMATION_CARD_CACHE_KEY];
@@ -186,7 +195,7 @@ async function saveCardCacheState(cardData, selectedId = '') {
         [AUTOMATION_CARD_CACHE_KEY]: safeCardData,
         [AUTOMATION_CARD_CACHE_NAME_KEY]: String(safeCardData.name || '').trim(),
         [AUTOMATION_CARD_CACHE_TIME_KEY]: new Date().toISOString()
-    }).catch(() => {});
+    });
     return {
         items: nextItems,
         selectedId: nextSelectedId,
@@ -213,7 +222,7 @@ async function deleteCardCacheEntry(id) {
         [AUTOMATION_CARD_CACHE_KEY]: nextItems.find((item) => item.id === nextSelectedId)?.cardData || nextItems[0]?.cardData || {},
         [AUTOMATION_CARD_CACHE_NAME_KEY]: nextItems.find((item) => item.id === nextSelectedId)?.cardName || nextItems[0]?.cardName || '',
         [AUTOMATION_CARD_CACHE_TIME_KEY]: nextItems.find((item) => item.id === nextSelectedId)?.savedAt || nextItems[0]?.savedAt || ''
-    }).catch(() => {});
+    });
 
     return {
         deleted: true,

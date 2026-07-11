@@ -9,7 +9,7 @@ const STORE_FIELD = 'extensionManager';
 const BUILTIN_TRANSLATE_ID = 'builtin-transform';
 const BUILTIN_REMOVE_WATERMARK_ID = 'builtin-remove-watermark';
 const WEB_PANEL_MARGIN = 16;
-const POPUP_DEFAULT_SIZE = { width: 360, height: 420 };
+const POPUP_DEFAULT_SIZE = { width: 360, height: 300 };
 const OPTIONS_DEFAULT_SIZE = { width: 560, height: 620 };
 const COMPAT_CACHE_DIR_NAME = 'extension-runtime-compat';
 // Chromium reserves extension files/directories beginning with "_". Keep the
@@ -1203,6 +1203,10 @@ function createExtensionManager(deps = {}) {
       if (typeof sendToSide === 'function') {
         sendToSide('extension-manager-state', publicState);
       }
+      const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
+      if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed?.()) {
+        mainWindow.webContents.send('extension-manager-state', publicState);
+      }
     } catch (_) {}
   }
 
@@ -1702,7 +1706,7 @@ function createExtensionManager(deps = {}) {
     const maxContentWidth = limits?.maxContentWidth || defaults.width;
     const maxContentHeight = limits?.maxContentHeight || defaults.height;
     const minWidth = Math.min(pageType === 'options' ? 320 : 240, maxContentWidth);
-    const minHeight = Math.min(pageType === 'options' ? 300 : 180, maxContentHeight);
+    const minHeight = Math.min(pageType === 'options' ? 300 : 80, maxContentHeight);
 
     return {
       width: clampNumber(rawSize.width || defaults.width, minWidth, maxContentWidth),
@@ -1793,21 +1797,34 @@ function createExtensionManager(deps = {}) {
         (() => {
           const doc = document.documentElement;
           const body = document.body;
-          const bodyRect = body ? body.getBoundingClientRect() : { width: 0, height: 0 };
-          const width = Math.ceil(Math.max(
-            doc ? doc.scrollWidth : 0,
-            doc ? doc.offsetWidth : 0,
-            body ? body.scrollWidth : 0,
-            body ? body.offsetWidth : 0,
-            bodyRect.width || 0
-          ));
-          const height = Math.ceil(Math.max(
-            doc ? doc.scrollHeight : 0,
-            doc ? doc.offsetHeight : 0,
-            body ? body.scrollHeight : 0,
-            body ? body.offsetHeight : 0,
-            bodyRect.height || 0
-          ));
+          const bodyStyle = body ? getComputedStyle(body) : null;
+          const marginRight = parseFloat(bodyStyle?.marginRight || '0') || 0;
+          const marginBottom = parseFloat(bodyStyle?.marginBottom || '0') || 0;
+          const roots = body
+            ? Array.from(body.children).filter((element) => {
+                if (!element || ['SCRIPT', 'STYLE', 'LINK'].includes(element.tagName)) return false;
+                const style = getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden';
+              })
+            : [];
+
+          let contentRight = 0;
+          let contentBottom = 0;
+          for (const root of roots) {
+            const rect = root.getBoundingClientRect();
+            contentRight = Math.max(contentRight, rect.right, rect.left + root.scrollWidth);
+            contentBottom = Math.max(contentBottom, rect.bottom, rect.top + root.scrollHeight);
+          }
+
+          // documentElement.scrollHeight is always at least the current BrowserView
+          // height, so using it prevents a short popup from ever shrinking. Measure
+          // the actual body roots instead and retain the old values only as fallback.
+          const width = Math.ceil(contentRight > 0
+            ? contentRight + marginRight
+            : Math.max(body?.scrollWidth || 0, doc?.scrollWidth || 0));
+          const height = Math.ceil(contentBottom > 0
+            ? contentBottom + marginBottom
+            : Math.max(body?.scrollHeight || 0, doc?.scrollHeight || 0));
           return { width, height };
         })()
       `, true);
@@ -1816,6 +1833,14 @@ function createExtensionManager(deps = {}) {
       logger.warn?.('[Extensions] 测量插件浮窗尺寸失败:', error?.message || error);
       return normalizePanelContentSize({}, pageType);
     }
+  }
+
+  async function resizeWebPanelToContent(view, pageType = 'popup') {
+    const measuredSize = await measureWebPanelContent(view, pageType);
+    if (webPanel?.view !== view) return false;
+    webPanel.contentWidth = measuredSize.width;
+    webPanel.contentHeight = measuredSize.height;
+    return syncWebPanelBounds();
   }
 
   async function setPluginEnabled(pluginId, enabled) {
@@ -1932,12 +1957,18 @@ function createExtensionManager(deps = {}) {
     try {
       await loadPluginIntoSession(plugin, view.webContents.session, '网页浮窗');
       await view.webContents.loadURL(url);
-      const measuredSize = await measureWebPanelContent(view, pageType);
-      if (webPanel?.view === view) {
-        webPanel.contentWidth = measuredSize.width;
-        webPanel.contentHeight = measuredSize.height;
+      await resizeWebPanelToContent(view, pageType);
+      // A number of extension popups render data asynchronously after did-finish-load.
+      // Recheck shortly afterwards so loading placeholders do not determine the final size.
+      if (pageType === 'popup') {
+        for (const delay of [120, 400]) {
+          setTimeout(() => {
+            if (webPanel?.view === view && !view.webContents.isDestroyed?.()) {
+              void resizeWebPanelToContent(view, pageType);
+            }
+          }, delay);
+        }
       }
-      syncWebPanelBounds();
       if (pageType === 'popup') {
         // 不再监听 blur 自动关闭浮窗：blur 会在打开系统文件选择对话框、
         // 切换到其它应用等场景下触发，导致浮窗在文件导入等操作中途被误关。

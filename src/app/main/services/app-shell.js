@@ -635,6 +635,11 @@ function createAppShell(deps = {}) {
               toggleSidebar();
             }
           },
+          ensureSidebarCollapsed: () => {
+            if (deps.getIsSidebarVisible?.()) {
+              toggleSidebar();
+            }
+          },
           purgeBrowserSessionData: typeof purgeBrowserSessionData === 'function'
             ? purgeBrowserSessionData
             : null,

@@ -93,6 +93,16 @@ function createTabManager(deps = {}) {
     return DEFAULT_TUTORIAL_URL;
   };
 
+// 启动/打开/显示：openTutorialTab 的具体业务逻辑。
+  const openTutorialTab = () => addTab(resolveDefaultTabUrl(), {
+    browserProxyMode: 'direct',
+    browserSettings: {
+      region: 'cn',
+      locale: 'zh-CN',
+      acceptLanguage: 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+    },
+  });
+
 // 获取/读取/解析：resolveFixedTabTitle的具体业务逻辑。
   const resolveFixedTabTitle = (tab = {}) => String(tab?.fixedTitle || tab?.tabTitle || '').trim();
 
@@ -516,16 +526,20 @@ function createTabManager(deps = {}) {
       } catch (_) {}
     }
 
-    if (resolveActiveTabId() === tabId) {
-      const remaining = Array.from(tabs.keys());
-      if (remaining.length > 0) {
-        const preferredLeftId = orderedTabIds[closeIndex - 1];
-        const preferredRightId = orderedTabIds[closeIndex + 1];
-        const nextTabId = remaining.includes(preferredLeftId) ? preferredLeftId : (remaining.includes(preferredRightId) ? preferredRightId : remaining[0]);
-        switchTab(nextTabId);
-      } else {
-        await addTab();
+    const remaining = Array.from(tabs.keys());
+    if (remaining.length === 0) {
+      // 以实际标签数量为准，不依赖可能尚未同步的 activeTabId。
+      // 这样无论通过关闭按钮、中键还是其它 IPC 路径关闭最后一页，
+      // 主窗口都会立即恢复为教程页，不会留下空白内容区。
+      if (typeof setActiveTabId === 'function') {
+        setActiveTabId(null);
       }
+      await openTutorialTab();
+    } else if (resolveActiveTabId() === tabId) {
+      const preferredLeftId = orderedTabIds[closeIndex - 1];
+      const preferredRightId = orderedTabIds[closeIndex + 1];
+      const nextTabId = remaining.includes(preferredLeftId) ? preferredLeftId : (remaining.includes(preferredRightId) ? preferredRightId : remaining[0]);
+      switchTab(nextTabId);
     }
     updateTabs(true);
 

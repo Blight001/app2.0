@@ -9,6 +9,7 @@ const AUTOMATION_CARD_SELECTED_ID_KEY = shared.STORAGE_KEYS.AUTOMATION_CARD_SELE
 const AUTOMATION_CARD_RUN_INPUTS_KEY = shared.STORAGE_KEYS.AUTOMATION_CARD_RUN_INPUTS_KEY;
 const LAST_MAIN_PANEL_KEY = shared.STORAGE_KEYS.LAST_MAIN_PANEL_KEY;
 const STANDALONE_PROGRESS_STATE_KEY = shared.STORAGE_KEYS.STANDALONE_PROGRESS_STATE_KEY;
+const TUTORIAL_URL = 'https://www.yuque.com/heysure/mn6q55/lyorlysczr8eh39b?singleDoc#';
 
 
 const accountInput = document.getElementById('account');
@@ -1531,6 +1532,7 @@ function buildSidebarStepCardHtml(step = {}, index = 0, expanded = false) {
 
     return `
       <div class="sidebar-step-card${expanded ? ' is-expanded' : ''}" data-sidebar-step-card data-step-index="${index}" data-step-id="${escapeHtml(stepId)}">
+        <textarea data-sidebar-step-field="raw_json" hidden aria-hidden="true">${escapeHtml(JSON.stringify(step))}</textarea>
         <div class="sidebar-step-card__header">
           <div class="sidebar-step-card__title-wrap">
             <h4 class="sidebar-step-card__title">步骤 ${index + 1}-${name} <span class="sidebar-step-status" data-step-status></span></h4>
@@ -1736,11 +1738,24 @@ function readSidebarStepCard(stepCard, index = 0) {
     const selectorControl = stepCard.querySelector('[data-sidebar-step-field="selector"]');
     const selectorNormalization = normalizeSidebarStepSelectorControl(stepCard, selectorControl);
 
+    let baseStep = {};
+    try {
+        const rawStep = readField('raw_json');
+        baseStep = rawStep ? JSON.parse(rawStep) : {};
+    } catch (_error) {
+        baseStep = {};
+    }
+
     const step = {
+        ...(baseStep && typeof baseStep === 'object' && !Array.isArray(baseStep) ? baseStep : {}),
         id: String(readField('id') || stepCard.dataset.stepId || `step_${index + 1}`).trim() || `step_${index + 1}`,
         name: String(readField('name') || `步骤${index + 1}`).trim() || `步骤${index + 1}`,
         type: String(readField('type') || 'navigate').trim() || 'navigate'
     };
+    [
+        'selector', 'text', 'variable', 'url', 'by', 'condition_mode', 'condition',
+        'timeout', 'wait_for_text', 'wait_for_element_hidden', 'script', 'optional'
+    ].forEach((key) => delete step[key]);
 
     const selector = String(selectorNormalization.selector || readField('selector') || '').trim();
     const text = String(readField('text') || '').trim();
@@ -1846,16 +1861,16 @@ function collectSidebarCardDataFromForm() {
         flow
     };
 
-    if (String(sidebarCardUploadServerUrlInput?.value || '').trim()) {
-        cardData.upload_server_url = String(sidebarCardUploadServerUrlInput.value || '').trim();
-    }
-    if (String(sidebarCardUploadCardKeyInput?.value || '').trim()) {
-        cardData.upload_card_key = String(sidebarCardUploadCardKeyInput.value || '').trim();
-    }
+    const uploadServerUrl = String(sidebarCardUploadServerUrlInput?.value || '').trim();
+    const uploadCardKey = String(sidebarCardUploadCardKeyInput?.value || '').trim();
+    if (uploadServerUrl) cardData.upload_server_url = uploadServerUrl;
+    else delete cardData.upload_server_url;
+    if (uploadCardKey) cardData.upload_card_key = uploadCardKey;
+    else delete cardData.upload_card_key;
     cardData.upload = {
         ...(base.upload && typeof base.upload === 'object' ? base.upload : {}),
-        server_url: cardData.upload_server_url || base.upload?.server_url || '',
-        card_key: cardData.upload_card_key || base.upload?.card_key || ''
+        server_url: uploadServerUrl,
+        card_key: uploadCardKey
     };
 
     return normalizeCardData(cardData, cardData.name, { allowEmptySteps: true });
@@ -1950,12 +1965,21 @@ async function loadCardCacheState() {
 
     const list = Array.isArray(stored[AUTOMATION_CARD_CACHE_LIST_KEY]) ? stored[AUTOMATION_CARD_CACHE_LIST_KEY] : [];
     if (list.length > 0) {
-        const items = list.map((item, index) => normalizeCardCacheEntry(item, index));
-        let selectedId = String(stored[AUTOMATION_CARD_SELECTED_ID_KEY] || '').trim();
-        if (!selectedId || !items.some((item) => item.id === selectedId)) {
-            selectedId = String(items[0]?.id || '').trim();
+        // 单张历史卡片损坏时跳过该项，不能让整份卡片列表都显示为空。
+        const items = list.map((item, index) => {
+            try {
+                return normalizeCardCacheEntry(item, index);
+            } catch (_error) {
+                return null;
+            }
+        }).filter(Boolean);
+        if (items.length > 0) {
+            let selectedId = String(stored[AUTOMATION_CARD_SELECTED_ID_KEY] || '').trim();
+            if (!selectedId || !items.some((item) => item.id === selectedId)) {
+                selectedId = String(items[0]?.id || '').trim();
+            }
+            return { items, selectedId };
         }
-        return { items, selectedId };
     }
 
     const legacyCard = stored[AUTOMATION_CARD_CACHE_KEY];
@@ -1978,7 +2002,10 @@ async function loadCardCacheState() {
 
 async function saveCardCacheState(items = [], selectedId = '') {
     const normalizedItems = Array.isArray(items) ? items.map((item, index) => normalizeCardCacheEntry(item, index)) : [];
-    const normalizedSelectedId = String(selectedId || normalizedItems[0]?.id || '').trim();
+    const requestedSelectedId = String(selectedId || '').trim();
+    const normalizedSelectedId = normalizedItems.some((item) => item.id === requestedSelectedId)
+        ? requestedSelectedId
+        : String(normalizedItems[0]?.id || '').trim();
     await chrome.storage.local.set({
         [AUTOMATION_CARD_CACHE_LIST_KEY]: normalizedItems,
         [AUTOMATION_CARD_SELECTED_ID_KEY]: normalizedSelectedId,
@@ -2023,7 +2050,11 @@ async function selectCardCacheItem(cardId) {
 async function upsertCardCache(cardData, options = {}) {
     const safeCardData = normalizeCardData(cardData, cardData?.name || options.fileName || 'automation', { allowEmptySteps: true });
     const state = await loadCardCacheState().catch(() => ({ items: [], selectedId: '' }));
-    const existingIndex = state.items.findIndex((item) => item.id === (options.id || state.selectedId));
+    // append=true 必须始终新增。旧逻辑会用当前 selectedId 查找，导致批量导入时
+    // 后一张卡片把前一张替换掉。
+    const requestedId = String(options.id || '').trim();
+    const existingId = requestedId || (options.append === true ? '' : state.selectedId);
+    const existingIndex = existingId ? state.items.findIndex((item) => item.id === existingId) : -1;
     const nextItem = normalizeCardCacheEntry({
         id: options.id || (options.append === true ? buildCardCacheId(safeCardData, options.fileName || safeCardData.name) : (state.selectedId || buildCardCacheId(safeCardData, options.fileName || safeCardData.name))),
         cardData: safeCardData,

@@ -40,6 +40,9 @@ function registerExtensionsIPC(ctx = {}) {
     const missing = ensureManager();
     if (missing) return missing;
     try {
+      if (payload?.collapseSidebar === true && typeof ctx.ui?.ensureSidebarCollapsed === 'function') {
+        ctx.ui.ensureSidebarCollapsed();
+      }
       return await extensionManager.openExtensionPopup(payload?.id);
     } catch (error) {
       return { ok: false, message: error?.message || String(error) };
@@ -50,6 +53,9 @@ function registerExtensionsIPC(ctx = {}) {
     const missing = ensureManager();
     if (missing) return missing;
     try {
+      if (payload?.collapseSidebar === true && typeof ctx.ui?.ensureSidebarCollapsed === 'function') {
+        ctx.ui.ensureSidebarCollapsed();
+      }
       return await extensionManager.openExtensionOptions(payload?.id);
     } catch (error) {
       return { ok: false, message: error?.message || String(error) };

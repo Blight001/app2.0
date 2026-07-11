@@ -33,6 +33,7 @@
     <div id="toast-stack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
 
     <div id="sidebar-editor-shell" class="sidebar-editor-shell">
+      <textarea id="sidebar-card-raw-json" hidden aria-hidden="true"></textarea>
       <div class="sidebar-editor-topbar">
         <div class="sidebar-editor-title">
           <h2>自动化卡片编辑</h2>
@@ -126,6 +127,10 @@
       <section id="card-section" class="card card--accent" data-main-panel="card">
         <div class="card-title-row">
           <h2 class="card-title">自动化卡片</h2>
+          <div class="card-cache-summary" aria-live="polite">
+            <span id="card-file-name" class="card-cache-summary__name">未选择卡片</span>
+            <span id="card-cache-badge" class="chip">0 张</span>
+          </div>
         </div>
         <div class="field">
           <input id="card-file" type="file" accept=".json,application/json" multiple hidden>

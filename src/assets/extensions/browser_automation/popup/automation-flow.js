@@ -327,13 +327,40 @@ async function readSelectedCardFiles() {
     const cards = [];
     for (const file of files) {
         const rawText = await file.text();
-        let cardData;
+        let parsed;
         try {
-            cardData = JSON.parse(rawText);
+            parsed = JSON.parse(rawText);
         } catch (_error) {
             throw new Error(`自动化卡片文件不是有效的 JSON: ${file.name}`);
         }
-        cards.push(normalizeCardData(cardData, file.name, { allowEmptySteps: true }));
+
+        // 兼容单卡片、卡片数组、{ cards: [] }、缓存备份 { items: [] }
+        // 以及后台 manage_card get 返回的 { cardData } 包装格式。
+        let candidates = [];
+        if (Array.isArray(parsed)) {
+            candidates = parsed;
+        } else if (Array.isArray(parsed?.cards)) {
+            candidates = parsed.cards;
+        } else if (Array.isArray(parsed?.items)) {
+            candidates = parsed.items.map((item) => item?.cardData || item);
+        } else {
+            candidates = [parsed?.cardData || parsed];
+        }
+
+        const validCandidates = candidates.filter((item) => item && typeof item === 'object' && !Array.isArray(item));
+        if (validCandidates.length === 0) {
+            throw new Error(`未识别到自动化卡片: ${file.name}`);
+        }
+        validCandidates.forEach((cardData, index) => {
+            const fallbackName = validCandidates.length === 1 ? file.name : `${file.name}#${index + 1}`;
+            const normalized = normalizeCardData(cardData, fallbackName, { allowEmptySteps: true });
+            Object.defineProperty(normalized, '__importSourceName', {
+                value: file.name,
+                enumerable: false,
+                configurable: true
+            });
+            cards.push(normalized);
+        });
     }
 
     return cards;
@@ -406,14 +433,14 @@ async function importSelectedCardFilesToCache() {
         const result = await upsertCardCache(cardData, {
             append: true,
             select: false,
-            fileName: cardData.name
+            fileName: cardData.__importSourceName || cardData.name
         });
         items.push({
             id: result.id,
             cardData: result.cardData,
             cardName: result.cardName,
             savedAt: new Date().toISOString(),
-            sourceName: cardData.name
+            sourceName: cardData.__importSourceName || cardData.name
         });
     }
 
