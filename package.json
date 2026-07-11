@@ -18,7 +18,7 @@
     "prebuild:win": "node scripts/set-side-url.js --mode=remote",
     "prebuild:portable": "node scripts/set-side-url.js --mode=remote",
     "build": "electron-builder",
-    "build:win": "electron-builder --win",
+    "build:win": "node scripts/build-windows.js",
     "build:portable": "electron-builder --win portable"
   },
   "keywords": [],

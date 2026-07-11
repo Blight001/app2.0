@@ -3,7 +3,7 @@ setlocal EnableExtensions
 chcp 65001 >nul
 title AI-FREE Launcher
 
-pushd "%~dp0..\.." >nul 2>&1
+pushd "%~dp0" >nul 2>&1
 if errorlevel 1 (
   echo [ERROR] Failed to enter repo root.
   pause

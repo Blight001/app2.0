@@ -8,6 +8,12 @@
     "method": "POST",
     "timeoutSec": 8
   },
+  "packagedExtensions": [
+    "browser_automation",
+    "browser_MCP",
+    "remove_watermark",
+    "transform"
+  ],
   "platforms": {
     "default": {
       "name": "ai-free",
