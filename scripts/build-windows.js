@@ -4,12 +4,22 @@ const { build, Platform } = require('electron-builder');
 
 const projectDir = path.resolve(__dirname, '..');
 const extensionsDir = path.join(projectDir, 'src', 'assets', 'extensions');
-const configPath = path.join(projectDir, 'config', 'platforms-config.json');
+const configPath = path.join(projectDir, 'docs', 'config', 'platforms-config.json');
 const packagePath = path.join(projectDir, 'package.json');
 const alwaysPackagedExtensions = new Set(['clash-mini']);
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+function isTransientFileLock(error) {
+  const code = error && error.code;
+  const message = String(error && error.message ? error.message : error);
+  return code === 'EBUSY' || code === 'EPERM' || /\b(?:EBUSY|EPERM)\b/.test(message);
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function resolvePackagedExtensions() {
@@ -68,14 +78,24 @@ async function main() {
     return;
   }
 
-  await build({
+  const buildOptions = {
     projectDir,
     targets: Platform.WINDOWS.createTarget(),
     config: builderConfig,
-  });
+  };
+
+  try {
+    await build(buildOptions);
+  } catch (error) {
+    if (!isTransientFileLock(error)) throw error;
+
+    console.warn('[build:win] 检测到临时文件占用，等待 2 秒后自动重试一次...');
+    await delay(2000);
+    await build(buildOptions);
+  }
 }
 
 main().catch((error) => {
   console.error(`[build:win] ${error && error.stack ? error.stack : error}`);
-  process.exitCode = 1;
+  process.exit(1);
 });

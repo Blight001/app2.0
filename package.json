@@ -1,22 +1,16 @@
 {
   "name": "ai-free",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "private": true,
   "description": "Assistant to help creators use AI more conveniently",
   "main": "src/app/main/main.js",
   "workspaces": [],
   "scripts": {
-    "prestart": "node scripts/set-side-url.js --mode=remote",
     "start": "node scripts/run-electron.js .",
-    "prestart:dev": "node scripts/set-side-url.js --mode=remote",
-    "predev": "node scripts/set-side-url.js --mode=remote",
     "start:dev": "node scripts/run-electron.js .",
     "check:http-routing": "node scripts/check-http-tenant-routing.js",
     "check:announcements": "node scripts/check-announcement-polling.js",
     "check:extension-compat": "node scripts/check-extension-compat.js",
-    "prebuild": "node scripts/set-side-url.js --mode=remote",
-    "prebuild:win": "node scripts/set-side-url.js --mode=remote",
-    "prebuild:portable": "node scripts/set-side-url.js --mode=remote",
     "build": "electron-builder",
     "build:win": "node scripts/build-windows.js",
     "build:portable": "electron-builder --win portable"
@@ -65,7 +59,7 @@
       "!assets/extensions/remove_watermark/**/*.map",
       "!assets/extensions/remove_watermark/**/*.LICENSE.txt",
       "!assets/extensions/remove_watermark/remove_watermark.crx",
-      "config/platforms-config.json",
+      "docs/config/platforms-config.json",
       "package.json",
       "package-lock.json",
       "!node_modules/onnxruntime-node/**"
@@ -81,6 +75,9 @@
       }
     ],
     "win": {
+      "signExts": [
+        "!verge-mihomo.exe"
+      ],
       "target": [
         {
           "target": "nsis",
@@ -112,7 +109,6 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "include": "build/installer.nsh",
       "installerIcon": "src/assets/seedance2.0.ico",
       "uninstallerIcon": "src/assets/seedance2.0.ico",
       "installerHeaderIcon": "src/assets/seedance2.0.ico"

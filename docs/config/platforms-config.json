@@ -9,8 +9,6 @@
     "timeoutSec": 8
   },
   "packagedExtensions": [
-    "browser_automation",
-    "browser_MCP",
     "remove_watermark",
     "transform"
   ],
@@ -30,16 +28,12 @@
   "platformConfigs": {
     "default": {
       "targetUrl": "https://www.capcut.com/ai-creator/agent",
-      "sideUrl": "http://49.234.181.190:8787/",
       "tutorialUrl": "",
       "allowedPlatforms": [
         "AI-FREE"
       ],
-      "systemProxyEnabled": true,
-      "sidebarUrl": "http://49.234.181.190:8787/"
+      "systemProxyEnabled": true
     }
   },
-  "defaultPlatform": "default",
-  "sideUrl": "http://49.234.181.190:8787/",
-  "sidebarUrl": "http://49.234.181.190:8787/"
+  "defaultPlatform": "default"
 }

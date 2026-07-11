@@ -39,10 +39,13 @@ function normalizeTcpPort(port, fallback = 58113) {
   return Math.round(resolved);
 }
 
-// 读取平台配置文件，用于 sideUrl 等启动入口配置。
+// 读取平台配置文件。
 function readPlatformsConfigSafe() {
   try {
     const candidates = [
+      path.join(app.getAppPath ? app.getAppPath() : '', 'docs', 'config', 'platforms-config.json'),
+      path.join(process.cwd(), 'docs', 'config', 'platforms-config.json'),
+      path.join(__dirname, '../../../../docs/config/platforms-config.json'),
       path.join(app.getAppPath ? app.getAppPath() : '', 'config', 'platforms-config.json'),
       path.join(process.cwd(), 'config', 'platforms-config.json'),
       path.join(__dirname, '../../../../config/platforms-config.json'),
@@ -56,20 +59,6 @@ function readPlatformsConfigSafe() {
     }
   } catch (_) {}
   return {};
-}
-
-// 将 sideUrl 归一成可直接访问的完整 URL，不额外补路径。
-function normalizeSideUrl(rawUrl) {
-  const value = String(rawUrl || '').trim();
-  if (!value) return '';
-
-  try {
-    const url = new URL(value.includes('://') ? value : `http://${value}`);
-    url.hash = '';
-    return url.toString();
-  } catch (_) {
-    return value;
-  }
 }
 
 // 把许可证记录压缩成适合持久化的最小结构。
@@ -317,26 +306,9 @@ function getServerBase() {
   return '';
 }
 
-// 读取当前平台的侧边栏入口地址。
+// 侧边栏已内置；此地址仅作为本地页面加载失败时的固定回退。
 function getSideUrl() {
-  try {
-    const cfg = readPlatformsConfigSafe() || {};
-    const platformConfigs = cfg.platformConfigs || {};
-    const defaultPlatform = String(cfg.defaultPlatform || '').trim();
-    const platformCfg = (defaultPlatform && platformConfigs[defaultPlatform])
-      || platformConfigs.default
-      || platformConfigs[Object.keys(platformConfigs)[0]]
-      || {};
-    const rawSideUrl =
-      platformCfg.sideUrl
-      || cfg.sideUrl
-      || platformCfg.sidebarUrl
-      || cfg.sidebarUrl
-      || '';
-    return normalizeSideUrl(rawSideUrl);
-  } catch (_) {
-    return '';
-  }
+  return 'http://127.0.0.1:8787/control-panel/';
 }
 
 // 网络诊断配置
