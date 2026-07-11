@@ -123,7 +123,17 @@ function createAppShell(deps = {}) {
     if (!announcementPoller) {
       announcementPoller = createAnnouncementPoller({
         getJson: deps.getJson,
+        postJson: deps.postJson,
         getServerBase,
+        getClientIdentity: () => {
+          const snapshot = licenseCache && typeof licenseCache.getSnapshot === 'function'
+            ? licenseCache.getSnapshot()
+            : null;
+          return {
+            key: snapshot?.key || '',
+            deviceId: snapshot?.deviceId || '',
+          };
+        },
         shouldPoll: canPollAnnouncements,
         sendToSide,
         logger,

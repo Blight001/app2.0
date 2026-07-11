@@ -7,7 +7,9 @@ const DEFAULT_INTERVAL_MS = 60000; // 服务器公告调度器每分钟检查一
 // 创建/初始化：createAnnouncementPoller 的具体业务逻辑。
 function createAnnouncementPoller({
   getJson,
+  postJson,
   getServerBase,
+  getClientIdentity,
   shouldPoll,
   sendToSide,
   logger = console,
@@ -78,6 +80,26 @@ function createAnnouncementPoller({
         lastServerBase = base;
         // 平台切换后先清空侧边栏，避免继续展示上一个租户的公告。
         sendToSide('server-announcements-reset', { serverBase: base });
+      }
+
+      const identity = typeof getClientIdentity === 'function' ? getClientIdentity() : null;
+      const key = String(identity?.key || '').trim();
+      const deviceId = String(identity?.deviceId || identity?.device_id || '').trim();
+      if (key && deviceId && typeof postJson === 'function') {
+        try {
+          const heartbeatResp = await postJson(
+            `${base}/api/client/heartbeat`,
+            { key, device_id: deviceId },
+            timeoutMs
+          );
+          const heartbeatBody = heartbeatResp?.body ?? heartbeatResp;
+          if (!heartbeatBody || heartbeatBody.success !== true) {
+            logger.warn?.('[HTTP 心跳] 服务器未确认在线状态:', heartbeatBody?.message || '未知响应');
+          }
+        } catch (e) {
+          // 心跳失败不应阻止公告拉取；下一轮会自动重试。
+          logger.warn?.('[HTTP 心跳] 上报失败:', e?.message || e);
+        }
       }
 
       const url = `${base}/api/user_announcement`;
