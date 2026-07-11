@@ -380,7 +380,8 @@ function effectiveAgentToolDefs() {
                     password: { type: 'string', description: '可选：兼容别名，等价于 inputs.password（用于名为 password 的变量与 Cookie 命名）。' },
                     email: { type: 'string', description: '可选：兼容别名，等价于 inputs.email（用于名为 email 的变量）。' },
                     start_step: { type: 'number', description: '可选：action=run 时从第 N 步开始执行（1-based，序号与失败结果 stepIndex 一致；卡片 website 自动插入的 navigate 前置步骤算第 1 步）。用于失败修复后续跑：页面停留在失败现场，跳过已成功的步骤直接继续；同时通过 inputs 回传已用到的变量值。' },
-                    timeout_seconds: { type: 'number', description: '可选：action=run 的结果等待上限（秒），默认 900。步骤多、等待久的超长卡片可上调（上限 1800）；调用方据此等待，避免长任务被过早判定超时而拿不到完整 execution 明细。' }
+                    timeout_seconds: { type: 'number', description: '可选：action=run 的结果等待上限（秒），默认 900。步骤多、等待久的超长卡片可上调（上限 1800）；调用方据此等待，避免长任务被过早判定超时而拿不到完整 execution 明细。' },
+                    tab_id: { type: 'number', description: '可选：action=run 时指定真实网页标签页；省略时使用最近 switch/navigate/replace 的操作目标。' }
                 },
                 required: ['action']
             }
@@ -395,7 +396,8 @@ function effectiveAgentToolDefs() {
                     password: { type: 'string', description: '可选：关联密码，用于文件命名。' },
                     server_url: { type: 'string', description: '可选：抓取结果额外 POST 上传的服务器地址。' },
                     card_key: { type: 'string', description: '可选：随上传附带的卡密/凭证标识。' },
-                    save_to_server: { type: 'boolean', description: 'AI 调用时设为 true：将抓取的完整 Cookie 数据随任务结果返回服务器，由服务器持久化保存到对应 AI 的目录（cookies/ 下）。不回传原始内容到聊天记录。' }
+                    save_to_server: { type: 'boolean', description: 'AI 调用时设为 true：将抓取的完整 Cookie 数据随任务结果返回服务器，由服务器持久化保存到对应 AI 的目录（cookies/ 下）。不回传原始内容到聊天记录。' },
+                    tab_id: { type: 'number', description: '可选：指定要抓取的真实网页标签页；省略时使用最近操作目标。' }
                 }
             }
         },
@@ -439,7 +441,8 @@ function effectiveAgentToolDefs() {
                     include_text: { type: 'boolean', description: '是否同时包含普通可见文本（items 中 kind=text 的条目）。默认 true；传 false 时只返回可交互元素。' },
                     text_limit: { type: 'number', description: '最多返回的普通可见文本条数。默认 200，最大 500。' },
                     allow_truncate: { type: 'boolean', description: '为 true 时即使超过 limit/max_items 也截断返回；默认 false，即超量时不返回 items，只给 categoryCounts 和筛选提示。' },
-                    mark: { type: 'boolean', description: '是否在页面上绘制状态色描边标记，便于随后截图查看。默认 true；传 false 只清除已有标记、不重绘。标记为纯视觉叠加，不影响其他工具或点击。' }
+                    mark: { type: 'boolean', description: '是否在页面上绘制状态色描边标记，便于随后截图查看。默认 true；传 false 只清除已有标记、不重绘。标记为纯视觉叠加，不影响其他工具或点击。' },
+                    tab_id: { type: 'number', description: '可选：指定要观察的真实网页标签页；省略时使用最近操作目标。' }
                 }
             }
         },
@@ -471,7 +474,8 @@ function effectiveAgentToolDefs() {
                     ctrl: { type: 'boolean', description: 'action=press_key 时按住 Ctrl。' },
                     shift: { type: 'boolean', description: 'action=press_key 时按住 Shift。' },
                     alt: { type: 'boolean', description: 'action=press_key 时按住 Alt。' },
-                    meta: { type: 'boolean', description: 'action=press_key 时按住 Meta/Cmd。' }
+                    meta: { type: 'boolean', description: 'action=press_key 时按住 Meta/Cmd。' },
+                    tab_id: { type: 'number', description: '可选：指定要交互的真实网页标签页；省略时使用最近操作目标。' }
                 },
                 required: ['action']
             }
@@ -483,7 +487,8 @@ function effectiveAgentToolDefs() {
                 type: 'object',
                 properties: {
                     selector: { type: 'string', description: '等待出现的 CSS 元素。' },
-                    ms: { type: 'number', description: '固定等待的毫秒数（不传 selector 时使用；默认 1000）。' }
+                    ms: { type: 'number', description: '固定等待的毫秒数（不传 selector 时使用；默认 1000）。' },
+                    tab_id: { type: 'number', description: '可选：指定要等待的真实网页标签页；省略时使用最近操作目标。' }
                 }
             }
         },
@@ -871,6 +876,9 @@ async function runAgentToolCommand(tool, args, taskId = null) {
                 }
                 activeMcpCardTask = taskId ? { taskId } : null;
                 try {
+                    if (Number(payload.tab_id ?? payload.tabId ?? 0) > 0) {
+                        await resolveAutomationTargetTab(payload);
+                    }
                     if (taskId && agentSocket && agentSocket.connected) {
                         agentSocket.emit('task:progress', { taskId, progress: 3, message: '开始执行自动化卡片（MCP）' });
                     }
@@ -963,6 +971,7 @@ async function runAgentToolCommand(tool, args, taskId = null) {
         case 'capture_cookies': {
             const saveToServer = !!(payload.saveToServer || payload.save_to_server);
             const raw = await captureCurrentTab({
+                tab_id: payload.tab_id ?? payload.tabId ?? 0,
                 account: payload.account || '',
                 password: payload.password || '',
                 serverUrl: payload.serverUrl || payload.server_url || '',

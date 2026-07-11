@@ -1,4 +1,4 @@
-const { app, BrowserWindow, BrowserView, dialog, ipcMain, Menu } = require('electron');
+const { app, BrowserWindow, BrowserView, dialog, ipcMain, Menu, powerSaveBlocker } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { createAppState } = require('./runtime/app-state');
@@ -46,6 +46,40 @@ const { buildTabBrowserPreferences, configureTabBrowserView, resolveTabBrowserPr
 
 // 放宽证书（避免部分环境下自签/中间证书导致的验证失败）
 app.commandLine.appendSwitch('ignore-certificate-errors');
+
+// 自动化任务必须与窗口可见性解耦。Chromium 默认会冻结最小化、被遮挡
+// 或移出 BrowserWindow 的页面，导致扩展定时器、Socket 和脚本执行中断。
+for (const switchName of [
+  'disable-renderer-backgrounding',
+  'disable-background-timer-throttling',
+  'disable-backgrounding-occluded-windows',
+]) {
+  app.commandLine.appendSwitch(switchName);
+}
+
+let automationPowerBlockerId = null;
+app.whenReady().then(() => {
+  try {
+    if (automationPowerBlockerId === null && powerSaveBlocker && typeof powerSaveBlocker.start === 'function') {
+      automationPowerBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+    }
+  } catch (error) {
+    console.warn('[AutomationRuntime] 无法启用后台运行保护:', error?.message || error);
+  }
+});
+app.once('will-quit', () => {
+  try {
+    if (
+      automationPowerBlockerId !== null
+      && powerSaveBlocker
+      && typeof powerSaveBlocker.isStarted === 'function'
+      && powerSaveBlocker.isStarted(automationPowerBlockerId)
+    ) {
+      powerSaveBlocker.stop(automationPowerBlockerId);
+    }
+  } catch (_) {}
+  automationPowerBlockerId = null;
+});
 
 // ---- 单例应用 ----
 acquireSingleInstance({

@@ -107,6 +107,24 @@ function createAppShell(deps = {}) {
 
   let controlPanelWindow = null;
   let announcementPoller = null;
+  let sideAnnouncementReady = false;
+
+  // 公告只投递到已完成加载的侧边栏。若页面仍在加载则返回 false，
+  // 让轮询器保留为未送达，避免启动轮询与 did-finish-load 竞态造成重复弹窗。
+  const sendAnnouncementToSide = (channel, payload) => {
+    try {
+      const sideView = typeof getSideView === 'function' ? getSideView() : null;
+      const webContents = sideView?.webContents;
+      if (!sideAnnouncementReady || !webContents || webContents.isDestroyed()) return false;
+      if (typeof webContents.isLoadingMainFrame === 'function' && webContents.isLoadingMainFrame()) {
+        return false;
+      }
+      webContents.send(channel, payload);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  };
 
   const canPollAnnouncements = () => {
     try {
@@ -135,7 +153,7 @@ function createAppShell(deps = {}) {
           };
         },
         shouldPoll: canPollAnnouncements,
-        sendToSide,
+        sendToSide: sendAnnouncementToSide,
         logger,
       });
     }
@@ -266,6 +284,7 @@ function createAppShell(deps = {}) {
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
+        backgroundThrottling: false,
         preload: path.join(__dirname, '../preload.js'),
       },
     });
@@ -813,6 +832,7 @@ function createAppShell(deps = {}) {
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: false,
+        backgroundThrottling: false,
         preload: path.join(__dirname, '../preload.js'),
       },
     });
@@ -852,7 +872,11 @@ function createAppShell(deps = {}) {
     } else {
       loadSidebarRemoteFallback(forceRemoteSidebar ? 'SIDEBAR_MODE=remote' : '未找到本地 src/app/sidebar/index.html');
     }
+    sideView.webContents.on('did-start-loading', () => {
+      sideAnnouncementReady = false;
+    });
     sideView.webContents.on('did-finish-load', async () => {
+      sideAnnouncementReady = true;
       const id = await computeDeviceId();
       sendToSide('update-device-id', id);
       try {

@@ -49,7 +49,9 @@ async function focusTab(tabId) {
     if (tab.windowId !== undefined) {
         await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
     }
-    return chrome.tabs.get(tabId);
+    const refreshed = await chrome.tabs.get(tabId);
+    await rememberAutomationTargetTab(refreshed.id);
+    return { ...refreshed, active: true };
 }
 
 function tabIdArg(args = {}) {
@@ -59,23 +61,27 @@ function tabIdArg(args = {}) {
 }
 
 async function resolveTargetTabForAction(args = {}) {
-    const requested = tabIdArg(args);
-    if (Number.isFinite(requested) && requested > 0) return chrome.tabs.get(requested);
-    const active = await getActiveTab();
-    if (!active) throw new Error('未找到可操作的当前标签页');
-    return active;
+    const target = await resolveAutomationTargetTab(args);
+    if (!target) throw new Error('未找到可操作的真实网页标签页');
+    return target;
 }
 
 async function toolBrowserTabList() {
     const tabs = await chrome.tabs.query({});
-    const activeTab = tabs.find((t) => t.active) || null;
+    const targetTab = await resolveAutomationTargetTab().catch(() => null);
+    const targetId = Number(targetTab?.id || 0) || 0;
+    const normalizedTabs = tabs.map((tab) => ({
+        ...tab,
+        active: targetId > 0 ? Number(tab.id) === targetId : !!tab.active
+    }));
+    const activeTab = normalizedTabs.find((t) => t.active) || null;
     return {
         success: true,
         action: 'list',
         count: tabs.length,
         activeTabId: activeTab ? activeTab.id : null,
         activeTab: activeTab ? tabSummary(activeTab) : null,
-        tabs: tabs.map(tabSummary)
+        tabs: normalizedTabs.map(tabSummary)
     };
 }
 
@@ -189,8 +195,8 @@ async function toolBrowserTab(args = {}) {
 
 // ── 页面观察：browser_observe ─────────────────────────────────────────────
 async function toolBrowserObserve(args = {}) {
-    const tab = await getActiveTab();
-    if (!tab) throw new Error('未找到可观察的当前标签页');
+    const tab = await resolveAutomationTargetTab(args);
+    if (!tab) throw new Error('未找到可观察的真实网页标签页');
     return callObserveMethod(tab.id, 'scan', [args]);
 }
 
@@ -198,8 +204,8 @@ async function toolBrowserObserve(args = {}) {
 const BROWSER_ACTION_KINDS = ['click', 'double_click', 'right_click', 'scroll', 'type', 'press_key'];
 
 async function toolBrowserAction(args = {}) {
-    const tab = await getActiveTab();
-    if (!tab) throw new Error('未找到可操作的当前标签页');
+    const tab = await resolveAutomationTargetTab(args);
+    if (!tab) throw new Error('未找到可操作的真实网页标签页');
     const action = String(args.action || '').trim();
     switch (action) {
         case 'click':        return callObserveMethod(tab.id, 'click', [args, 'left']);
@@ -215,7 +221,7 @@ async function toolBrowserAction(args = {}) {
 
 // ── 页面交互：browser_wait ────────────────────────────────────────────────
 async function toolBrowserWait(args = {}) {
-    const tab = await getActiveTab();
-    if (!tab) throw new Error('未找到可等待的当前标签页');
+    const tab = await resolveAutomationTargetTab(args);
+    if (!tab) throw new Error('未找到可等待的真实网页标签页');
     return callObserveMethod(tab.id, 'wait', [args]);
 }

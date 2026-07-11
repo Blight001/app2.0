@@ -1296,7 +1296,7 @@ async function saveCookieStepResult(tabId, account, password) {
 }
 
 async function captureCurrentTab(payload = {}) {
-    const tab = await getActiveTab();
+    const tab = await resolveAutomationTargetTab(payload);
     if (!tab || !Number.isFinite(Number(tab.id || 0))) {
         throw new Error('未找到可抓取的当前标签页');
     }

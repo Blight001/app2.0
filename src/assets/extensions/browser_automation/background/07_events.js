@@ -19,6 +19,9 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
     void (async () => {
+        if (Number(tabId || 0) === Number(await readRememberedAutomationTargetId().catch(() => 0))) {
+            await rememberAutomationTargetTab(0);
+        }
         const sidebarState = await loadCardSidebarState().catch(() => null);
         if (sidebarState && Number(sidebarState.tabId || 0) === Number(tabId)) {
             await clearCardSidebarState();

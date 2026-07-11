@@ -16,7 +16,7 @@ const COMPAT_CACHE_DIR_NAME = 'extension-runtime-compat';
 // software-generated shim name ordinary so the original plugin remains untouched.
 const COMPAT_SHIM_FILE = 'electron-extension-compat.js';
 const COMPAT_SHIM_MARKER = '__AI_FREE_ELECTRON_EXTENSION_COMPAT__';
-const COMPAT_CACHE_SCHEMA = 2;
+const COMPAT_CACHE_SCHEMA = 4;
 const ELECTRON_UNRECOGNIZED_EXTENSION_PERMISSIONS = new Set([
   'notifications',
   'contextMenus',
@@ -255,21 +255,21 @@ function createExtensionManager(deps = {}) {
 
   function scanExtensionCompatNeeds(rootDir) {
     const scan = listExtensionTextFiles(rootDir);
-    let needsWindowsShim = false;
+    const requiredApiRoots = new Set();
 
     for (const filePath of scan.files) {
       try {
         const text = fs.readFileSync(filePath, 'utf8');
-        if (/\b(?:chrome|browser)\.windows\b/.test(text)) {
-          needsWindowsShim = true;
-          break;
+        for (const match of text.matchAll(/\b(?:chrome|browser)\.(windows|tabs|cookies|downloads|alarms|action|storage)\b/g)) {
+          requiredApiRoots.add(match[1]);
         }
       } catch (_) {}
     }
 
     return {
       ...scan,
-      needsWindowsShim,
+      requiredApiRoots: Array.from(requiredApiRoots).sort(),
+      needsCompatShim: requiredApiRoots.size > 0,
     };
   }
 
@@ -289,16 +289,26 @@ function createExtensionManager(deps = {}) {
 
   const tabsApi = chromeApi.tabs || null;
   const runtimeApi = chromeApi.runtime || null;
+  const nativeTabsQuery = tabsApi && typeof tabsApi.query === 'function' ? tabsApi.query.bind(tabsApi) : null;
+  const nativeTabsUpdate = tabsApi && typeof tabsApi.update === 'function' ? tabsApi.update.bind(tabsApi) : null;
   const WINDOW_ID_NONE = -1;
   const WINDOW_ID_CURRENT = -2;
 
   const isThenable = (value) => value && typeof value.then === 'function';
-  const makeEvent = () => ({
-    addListener() {},
-    removeListener() {},
-    hasListener() { return false; },
-    hasListeners() { return false; },
-  });
+  const makeEvent = () => {
+    const listeners = new Set();
+    return {
+      addListener(listener) { if (typeof listener === 'function') listeners.add(listener); },
+      removeListener(listener) { listeners.delete(listener); },
+      hasListener(listener) { return listeners.has(listener); },
+      hasListeners() { return listeners.size > 0; },
+      dispatch(...args) {
+        for (const listener of Array.from(listeners)) {
+          try { listener(...args); } catch (_) {}
+        }
+      },
+    };
+  };
 
   function callChrome(api, method, args) {
     if (!api || typeof api[method] !== 'function') {
@@ -338,6 +348,70 @@ function createExtensionManager(deps = {}) {
       return undefined;
     }
     return promise;
+  }
+
+  function callNative(method, args) {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const callback = (value) => {
+        if (settled) return;
+        settled = true;
+        const lastError = runtimeApi && runtimeApi.lastError;
+        lastError && lastError.message ? reject(new Error(lastError.message)) : resolve(value);
+      };
+      try {
+        const result = method(...args, callback);
+        if (isThenable(result)) {
+          result.then(callback, reject);
+        } else if (result !== undefined && !settled) {
+          settled = true;
+          resolve(result);
+        }
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  // Normalize Chrome query/update options to Electron's documented subset.
+  // This also makes active/currentWindow calls deterministic for a session
+  // backed by one app BrowserView.
+  if (tabsApi && nativeTabsQuery) {
+    tabsApi.query = (queryInfo, callback) => {
+      const source = queryInfo && typeof queryInfo === 'object' ? queryInfo : {};
+      const supported = {};
+      for (const key of ['url', 'title', 'audible', 'active', 'muted']) {
+        if (source[key] !== undefined) supported[key] = source[key];
+      }
+      const promise = callNative(nativeTabsQuery, [supported]).then((tabs) => {
+        const list = Array.isArray(tabs) ? tabs : [];
+        return list.map((tab, index) => ({
+          ...tab,
+          active: source.active === false ? !!tab.active : (index === 0 || !!tab.active),
+          windowId: Number.isFinite(Number(tab && tab.windowId)) ? Number(tab.windowId) : 1,
+        }));
+      });
+      return withCallback(promise, callback);
+    };
+  }
+
+  if (tabsApi && nativeTabsUpdate) {
+    tabsApi.update = (tabId, updateProperties, callback) => {
+      if (typeof updateProperties === 'function') {
+        callback = updateProperties;
+        updateProperties = tabId;
+        tabId = undefined;
+      }
+      const source = updateProperties && typeof updateProperties === 'object' ? updateProperties : {};
+      const supported = {};
+      if (source.url !== undefined) supported.url = source.url;
+      if (source.muted !== undefined) supported.muted = source.muted;
+      const args = tabId === undefined ? [supported] : [tabId, supported];
+      const promise = Object.keys(supported).length
+        ? callNative(nativeTabsUpdate, args)
+        : (tabId === undefined ? queryTabs({ active: true }).then((tabs) => tabs[0]) : getTab(tabId));
+      return withCallback(promise, callback);
+    };
   }
 
   function tabWindowId(tab) {
@@ -530,6 +604,169 @@ function createExtensionManager(deps = {}) {
       return withCallback(promise, callback);
     };
   }
+
+  // Electron intentionally implements only a subset of chrome.tabs.  Complete
+  // the common API surface in one place so extensions do not need Electron
+  // branches scattered through their business code.  A BrowserView session has
+  // one app-managed tab, therefore create/remove degrade to replacing/blanking
+  // that view while preserving Chrome-compatible return values.
+  if (tabsApi) {
+    tabsApi.onCreated = tabsApi.onCreated || makeEvent();
+    tabsApi.onRemoved = tabsApi.onRemoved || makeEvent();
+    tabsApi.onUpdated = tabsApi.onUpdated || makeEvent();
+    tabsApi.onActivated = tabsApi.onActivated || makeEvent();
+
+    if (typeof tabsApi.get !== 'function') {
+      tabsApi.get = (tabId, callback) => {
+        const promise = queryTabs({}).then((tabs) => {
+          const found = tabs.find((tab) => Number(tab && tab.id) === Number(tabId));
+          if (!found) throw new Error('No tab with id: ' + tabId);
+          return found;
+        });
+        return withCallback(promise, callback);
+      };
+    }
+
+    if (typeof tabsApi.create !== 'function') {
+      tabsApi.create = (createProperties, callback) => {
+        const promise = (async () => {
+          const data = createProperties && typeof createProperties === 'object' ? createProperties : {};
+          const before = await queryTabs({});
+          const current = before.find((tab) => /^https?:\/\//i.test(String(tab && tab.url || '')))
+            || (await queryTabs({ active: true }))[0]
+            || before[0];
+          if (!current) throw new Error('No Electron tab is available');
+          const url = String(data.url || 'about:blank');
+          const knownIds = new Set(before.map((tab) => Number(tab && tab.id)));
+
+          // The app's BrowserView setWindowOpenHandler turns this into a real
+          // managed tab. Poll chrome.tabs so the extension receives its ID.
+          if (chromeApi.scripting && typeof chromeApi.scripting.executeScript === 'function') {
+            try {
+              await chromeApi.scripting.executeScript({
+                target: { tabId: current.id },
+                args: [url],
+                func: (targetUrl) => { window.open(targetUrl, '_blank', 'noopener'); },
+              });
+              for (let attempt = 0; attempt < 30; attempt += 1) {
+                await new Promise((resolve) => setTimeout(resolve, 100));
+                const after = await queryTabs({});
+                const created = after.find((tab) => !knownIds.has(Number(tab && tab.id)))
+                  || after.find((tab) => String(tab && tab.url || '') === url && Number(tab.id) !== Number(current.id));
+                if (created) return { ...created, active: data.active !== false };
+              }
+            } catch (_) {}
+          }
+
+          // Last-resort behavior for pages that block window.open: navigation
+          // still succeeds in the current real page instead of targeting the
+          // extension's offscreen document.
+          if (typeof tabsApi.update === 'function') {
+            await callChrome(tabsApi, 'update', [current.id, { url }]);
+          }
+          return await getTab(current.id) || { ...current, url, active: true };
+        })();
+        return withCallback(promise, callback);
+      };
+    }
+
+    if (typeof tabsApi.remove !== 'function') {
+      tabsApi.remove = (tabIds, callback) => {
+        const ids = Array.isArray(tabIds) ? tabIds : [tabIds];
+        const promise = Promise.all(ids.map(async (id) => {
+          if (typeof tabsApi.update === 'function') {
+            await callChrome(tabsApi, 'update', [id, { url: 'about:blank' }]);
+          }
+        })).then(() => undefined);
+        return withCallback(promise, callback);
+      };
+    }
+  }
+
+  // MV3 storage.session is absent in Electron. Local storage has the same
+  // asynchronous contract and is a durable, deterministic fallback.
+  if (chromeApi.storage && !chromeApi.storage.session && chromeApi.storage.local) {
+    try { chromeApi.storage.session = chromeApi.storage.local; } catch (_) {}
+  }
+
+  // Badge APIs are cosmetic; missing methods must never break an automation
+  // socket or MCP result path.
+  const actionApi = chromeApi.action || {};
+  if (!chromeApi.action) {
+    try { chromeApi.action = actionApi; } catch (_) {}
+  }
+  for (const method of ['setBadgeText', 'setBadgeBackgroundColor', 'setTitle', 'setIcon']) {
+    if (typeof actionApi[method] !== 'function') actionApi[method] = () => Promise.resolve();
+  }
+
+  // Keep MV3 keepalive code operational. Timers are scoped to the extension
+  // worker; recreating an alarm with the same name replaces the previous one.
+  const alarmsApi = chromeApi.alarms || {};
+  const alarmTimers = new Map();
+  if (!chromeApi.alarms) {
+    try { chromeApi.alarms = alarmsApi; } catch (_) {}
+  }
+  alarmsApi.onAlarm = alarmsApi.onAlarm || makeEvent();
+  if (typeof alarmsApi.create !== 'function') {
+    alarmsApi.create = (name, info) => {
+      if (typeof name !== 'string') { info = name; name = ''; }
+      const alarmName = String(name || '');
+      const data = info && typeof info === 'object' ? info : {};
+      const old = alarmTimers.get(alarmName);
+      if (old) clearTimeout(old);
+      const delay = Math.max(1, Number(data.delayInMinutes || data.periodInMinutes || 1)) * 60000;
+      const tick = () => {
+        alarmsApi.onAlarm.dispatch({ name: alarmName, scheduledTime: Date.now(), periodInMinutes: data.periodInMinutes });
+        if (data.periodInMinutes) alarmTimers.set(alarmName, setTimeout(tick, delay));
+        else alarmTimers.delete(alarmName);
+      };
+      alarmTimers.set(alarmName, setTimeout(tick, delay));
+      return Promise.resolve();
+    };
+  }
+  if (typeof alarmsApi.clear !== 'function') {
+    alarmsApi.clear = (name, callback) => {
+      const timer = alarmTimers.get(String(name || ''));
+      if (timer) clearTimeout(timer);
+      const removed = alarmTimers.delete(String(name || ''));
+      return withCallback(Promise.resolve(removed), callback);
+    };
+  }
+
+  // Downloads are implemented through the active page. This preserves the
+  // app's Session 'will-download' handling and works for data/blob/http URLs.
+  const downloadsApi = chromeApi.downloads || {};
+  let nextDownloadId = 1;
+  if (!chromeApi.downloads) {
+    try { chromeApi.downloads = downloadsApi; } catch (_) {}
+  }
+  if (typeof downloadsApi.download !== 'function') {
+    downloadsApi.download = (options, callback) => {
+      const promise = (async () => {
+        const data = options && typeof options === 'object' ? options : {};
+        if (!data.url) throw new Error('downloads.download requires url');
+        const tab = (await queryTabs({ active: true }))[0] || (await queryTabs({}))[0];
+        if (!tab || !chromeApi.scripting || typeof chromeApi.scripting.executeScript !== 'function') {
+          throw new Error('No page is available for the Electron download');
+        }
+        await chromeApi.scripting.executeScript({
+          target: { tabId: tab.id },
+          args: [data.url, data.filename || ''],
+          func: (url, filename) => {
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            if (filename) anchor.download = filename;
+            anchor.style.display = 'none';
+            document.documentElement.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+          },
+        });
+        return nextDownloadId++;
+      })();
+      return withCallback(promise, callback);
+    };
+  }
 })();
 `;
   }
@@ -629,7 +866,7 @@ function createExtensionManager(deps = {}) {
     if (!sourcePath) return '';
 
     const scan = scanExtensionCompatNeeds(sourcePath);
-    if (!scan.needsWindowsShim) {
+    if (!scan.needsCompatShim) {
       return sourcePath;
     }
 
@@ -641,6 +878,7 @@ function createExtensionManager(deps = {}) {
       plugin?.version || '',
       scan.latestMtimeMs,
       scan.fileCount,
+      scan.requiredApiRoots.join(','),
       COMPAT_SHIM_MARKER,
       COMPAT_SHIM_FILE,
       COMPAT_CACHE_SCHEMA,
@@ -1537,6 +1775,7 @@ function createExtensionManager(deps = {}) {
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: false,
+        backgroundThrottling: false,
       },
     });
   }

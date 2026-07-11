@@ -27,9 +27,58 @@ function collectStorageSnapshot() {
     };
 }
 
+const AUTOMATION_TARGET_TAB_KEY = 'heysure-automation-target-tab-id';
+let automationTargetTabId = 0;
+
+function isControllableWebTab(tab) {
+    return !!(tab && Number(tab.id || 0) > 0 && /^https?:\/\//i.test(String(tab.url || '')));
+}
+
+async function rememberAutomationTargetTab(tabOrId) {
+    const id = Number(typeof tabOrId === 'object' ? tabOrId?.id : tabOrId) || 0;
+    automationTargetTabId = id > 0 ? id : 0;
+    await runtimeStateStorage.set({ [AUTOMATION_TARGET_TAB_KEY]: automationTargetTabId }).catch(() => {});
+    return automationTargetTabId;
+}
+
+async function readRememberedAutomationTargetId() {
+    if (automationTargetTabId > 0) return automationTargetTabId;
+    const stored = await runtimeStateStorage.get([AUTOMATION_TARGET_TAB_KEY]).catch(() => ({}));
+    automationTargetTabId = Number(stored?.[AUTOMATION_TARGET_TAB_KEY] || 0) || 0;
+    return automationTargetTabId;
+}
+
+async function resolveAutomationTargetTab(args = {}) {
+    const explicitId = Number(args?.tab_id ?? args?.tabId ?? args?.id ?? 0) || 0;
+    if (explicitId > 0) {
+        const explicit = await chrome.tabs.get(explicitId).catch(() => null);
+        if (!isControllableWebTab(explicit)) throw new Error(`标签页 ${explicitId} 不是可控制的 http/https 页面`);
+        await rememberAutomationTargetTab(explicitId);
+        return explicit;
+    }
+
+    const rememberedId = await readRememberedAutomationTargetId();
+    if (rememberedId > 0) {
+        const remembered = await chrome.tabs.get(rememberedId).catch(() => null);
+        if (isControllableWebTab(remembered)) return remembered;
+        await rememberAutomationTargetTab(0);
+    }
+
+    const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
+    const activeWebTab = Array.isArray(activeTabs) ? activeTabs.find(isControllableWebTab) : null;
+    if (activeWebTab) {
+        await rememberAutomationTargetTab(activeWebTab.id);
+        return activeWebTab;
+    }
+
+    const allTabs = await chrome.tabs.query({}).catch(() => []);
+    const fallback = Array.isArray(allTabs) ? allTabs.find(isControllableWebTab) : null;
+    if (fallback) await rememberAutomationTargetTab(fallback.id);
+    return fallback || null;
+}
+
 async function getActiveTab() {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    return Array.isArray(tabs) ? tabs.find((tab) => tab && Number(tab.id || 0) > 0) || null : null;
+    return resolveAutomationTargetTab();
 }
 
 function extractTabMatchKey(url = '') {

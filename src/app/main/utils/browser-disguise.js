@@ -274,6 +274,8 @@ function buildTabBrowserPreferences(partition) {
   return {
     partition,
     contextIsolation: true,
+    // Inactive/minimized BrowserViews remain live MCP targets.
+    backgroundThrottling: false,
     preload: path.join(__dirname, '../preload.js'),
   };
 }
