@@ -108,6 +108,7 @@ function createAppShell(deps = {}) {
   let controlPanelWindow = null;
   let announcementPoller = null;
   let sideAnnouncementReady = false;
+  let hasFinishedInitialSidebarLoad = false;
 
   // 公告只投递到已完成加载的侧边栏。若页面仍在加载则返回 false，
   // 让轮询器保留为未送达，避免启动轮询与 did-finish-load 竞态造成重复弹窗。
@@ -877,6 +878,8 @@ function createAppShell(deps = {}) {
     });
     sideView.webContents.on('did-finish-load', async () => {
       sideAnnouncementReady = true;
+      const shouldRestoreAnnouncements = hasFinishedInitialSidebarLoad;
+      hasFinishedInitialSidebarLoad = true;
       const id = await computeDeviceId();
       sendToSide('update-device-id', id);
       try {
@@ -885,8 +888,9 @@ function createAppShell(deps = {}) {
       try { sendToSide('app-version', app.getVersion()); } catch (_) {}
       try {
         if (canPollAnnouncements()) {
-          // 页面重新加载后，旧的 IPC 下发记录已失效，只在这里重置一次。
-          await ensureAnnouncementPoller().refreshNow({ resetDelivery: true });
+          // 首次加载时保留轮询器的投递记录，避免与启动轮询竞态而重复弹窗；
+          // 只有页面真正重新加载后，才恢复当前有效公告到新页面。
+          await ensureAnnouncementPoller().refreshNow({ resetDelivery: shouldRestoreAnnouncements });
         }
       } catch (e) {
         logger.warn?.('[公告轮询] 侧边栏加载完成后刷新失败:', e?.message || e);

@@ -451,6 +451,7 @@ function initMessageModal() {
 
 // 标记弹窗是否已初始化
 let isModalInitialized = false;
+let lastServerMessageFingerprint = '';
 
 /**
  * 确保弹窗已初始化
@@ -481,6 +482,17 @@ function initServerMessageListener() {
       const messageType = getServerMessageType(messageData);
       const messageText = getServerMessageText(messageData);
       const announcementId = messageData?.announcement_id ?? '-';
+      const fingerprint = JSON.stringify([
+        String(announcementId),
+        String(messageData?.type || ''),
+        String(messageType || ''),
+        String(messageText || '').trim(),
+      ]);
+      if (fingerprint === lastServerMessageFingerprint) {
+        console.log(`[公告] 跳过连续重复消息: #${announcementId}`);
+        return;
+      }
+      lastServerMessageFingerprint = fingerprint;
       const logText = String(messageText || '').replace(/\s+/g, ' ').slice(0, 160);
       console.log(`[公告] #${announcementId} ${messageType || 'normal'}: ${logText}`);
 
