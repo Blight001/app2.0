@@ -10,7 +10,14 @@ const source = fs.readFileSync(managerPath, 'utf8');
 const match = source.match(/return `\/\* \$\{COMPAT_SHIM_MARKER\} \*\/([\s\S]*?)\n`;\r?\n  }/);
 assert(match, 'Electron extension compatibility shim template was not found');
 
-const shim = `/* test marker */${match[1]}`;
+// Compile the template exactly as extension-manager does. Testing the raw
+// source body would miss JavaScript template escape processing (for example
+// `\/` becoming `/` in the generated extension file).
+const buildShim = new Function(
+  'COMPAT_SHIM_MARKER',
+  `return \`/* \${COMPAT_SHIM_MARKER} */${match[1]}\n\`;`,
+);
+const shim = buildShim('test marker');
 const updated = [];
 const chrome = {
   runtime: {},

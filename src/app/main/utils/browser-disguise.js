@@ -540,7 +540,12 @@ function buildTabDisguiseScript(profile = {}) {
         if (state) {
           const permissionStatus = Object.create(typeof PermissionStatus !== 'undefined' && PermissionStatus.prototype ? PermissionStatus.prototype : Object.prototype);
           define(permissionStatus, 'state', state);
-          define(permissionStatus, 'onchange', null);
+          Object.defineProperty(permissionStatus, 'onchange', {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: null,
+          });
           define(permissionStatus, 'addEventListener', function addEventListener() {});
           define(permissionStatus, 'removeEventListener', function removeEventListener() {});
           define(permissionStatus, 'dispatchEvent', function dispatchEvent() { return false; });

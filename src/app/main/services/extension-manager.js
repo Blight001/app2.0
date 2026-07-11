@@ -16,7 +16,7 @@ const COMPAT_CACHE_DIR_NAME = 'extension-runtime-compat';
 // software-generated shim name ordinary so the original plugin remains untouched.
 const COMPAT_SHIM_FILE = 'electron-extension-compat.js';
 const COMPAT_SHIM_MARKER = '__AI_FREE_ELECTRON_EXTENSION_COMPAT__';
-const COMPAT_CACHE_SCHEMA = 4;
+const COMPAT_CACHE_SCHEMA = 5;
 const ELECTRON_UNRECOGNIZED_EXTENSION_PERMISSIONS = new Set([
   'notifications',
   'contextMenus',
@@ -632,7 +632,10 @@ function createExtensionManager(deps = {}) {
         const promise = (async () => {
           const data = createProperties && typeof createProperties === 'object' ? createProperties : {};
           const before = await queryTabs({});
-          const current = before.find((tab) => /^https?:\/\//i.test(String(tab && tab.url || '')))
+          const current = before.find((tab) => {
+            const tabUrl = String(tab && tab.url || '').toLowerCase();
+            return tabUrl.startsWith('http://') || tabUrl.startsWith('https://');
+          })
             || (await queryTabs({ active: true }))[0]
             || before[0];
           if (!current) throw new Error('No Electron tab is available');
