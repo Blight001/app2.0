@@ -896,12 +896,6 @@
       font-size: 12px;
     }
 
-    .temp-email-card-actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
     .field {
       margin-bottom: 10px;
     }
@@ -1047,10 +1041,6 @@
     }
 
     html[data-layout='sidebar'] #card-section {
-      display: none;
-    }
-
-    html[data-layout='sidebar'] #temp-email-section {
       display: none;
     }
 

@@ -1277,7 +1277,7 @@ async function saveCookieStepResult(tabId, account, password) {
         source: 'card-run-save-cookies-step'
     };
 
-    const jsonText = JSON.stringify(savePayload, null, 2);
+    const jsonText = JSON.stringify(savePayload);
     const downloadUrl = `data:application/json;charset=utf-8,${encodeURIComponent(jsonText)}`;
     await chrome.downloads.download({
         url: downloadUrl,
@@ -1324,8 +1324,12 @@ async function captureCurrentTab(payload = {}) {
         });
     }
 
-    if ((!Array.isArray(cookies) || cookies.length === 0) && browserStorage.length === 0) {
-        throw new Error('当前页面没有可保存的 Cookie 或浏览器存储');
+    const minimized = minimizeCapturedState({ cookies, browserStorage });
+    const slimCookies = minimized.cookies;
+    const slimBrowserStorage = minimized.browserStorage;
+
+    if (slimCookies.length === 0 && slimBrowserStorage.length === 0) {
+        throw new Error('当前页面没有可保存的登录凭证（Cookie 或浏览器存储）');
     }
 
     const account = String(payload.account || '').trim();
@@ -1336,12 +1340,12 @@ async function captureCurrentTab(payload = {}) {
         password,
         pageUrl: tab.url || pageSnapshot.url || '',
         pageTitle: tab.title || pageSnapshot.title || '',
-        cookies,
-        browserStorage,
+        cookies: slimCookies,
+        browserStorage: slimBrowserStorage,
         capturedAt: new Date().toISOString()
     };
 
-    const jsonText = JSON.stringify(savePayload, null, 2);
+    const jsonText = JSON.stringify(savePayload);
     const downloadUrl = `data:application/json;charset=utf-8,${encodeURIComponent(jsonText)}`;
     await chrome.downloads.download({
         url: downloadUrl,

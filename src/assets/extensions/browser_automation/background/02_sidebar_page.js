@@ -660,111 +660,12 @@ async function collectTabCookieSnapshot(tabId) {
         });
     }
 
-    return {
+    return minimizeCapturedState({
         pageUrl,
         pageTitle,
         cookies,
         browserStorage
-    };
+    });
 }
 
-async function clickTempEmailDetailBySelector(tabId, rowSelector = '') {
-    const selector = String(rowSelector || '').trim();
-    if (!selector) {
-        return {
-            success: false,
-            error: '未配置验证码邮件点击选择器'
-        };
-    }
-
-    const directClickResult = await executePageAction(tabId, {
-        type: 'click',
-        selector,
-        timeoutMs: 5000,
-        intervalMs: 250
-    }).catch(() => null);
-
-    if (directClickResult && directClickResult.success === true) {
-        return directClickResult;
-    }
-
-    const result = await executePageAction(tabId, {
-        type: 'external_script',
-        script: `
-            const selector = ${JSON.stringify(selector)};
-            const isVisible = (element) => {
-                if (!element) {
-                    return false;
-                }
-                const style = window.getComputedStyle(element);
-                const rect = element.getBoundingClientRect();
-                return style && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && rect.width > 0 && rect.height > 0;
-            };
-            const clickElement = (element) => {
-                if (!element) {
-                    return false;
-                }
-                try {
-                    element.scrollIntoView({ block: 'center', inline: 'center' });
-                } catch (_error) {
-                }
-                // Hover + focus for all injected clicks
-                try { element.focus?.(); } catch (_error) {}
-                try {
-                    const b = { bubbles: true, cancelable: true, view: window };
-                    element.dispatchEvent(new MouseEvent('mouseover', b));
-                    element.dispatchEvent(new MouseEvent('mouseenter', b));
-                    element.dispatchEvent(new MouseEvent('mousedown', b));
-                    element.dispatchEvent(new MouseEvent('mouseup', b));
-                    element.dispatchEvent(new MouseEvent('click', b));
-                } catch (_error) {
-                }
-                try {
-                    element.click();
-                    return true;
-                } catch (_error) {
-                }
-                return false;
-            };
-            const pickCandidates = (root) => {
-                if (!root) {
-                    return [];
-                }
-                const candidates = [root];
-                try {
-                    candidates.push(...Array.from(root.querySelectorAll('button, a, [role="button"], [onclick], [tabindex]:not([tabindex="-1"]), input[type="button"], input[type="submit"]')));
-                } catch (_error) {
-                }
-                return candidates.filter((item, index, array) => item && array.indexOf(item) === index && isVisible(item));
-            };
-            const rows = Array.from(document.querySelectorAll(selector)).filter(isVisible);
-            for (const row of rows) {
-                const candidates = pickCandidates(row);
-                for (const candidate of candidates) {
-                    if (clickElement(candidate)) {
-                        return {
-                            success: true,
-                            clicked: true
-                        };
-                    }
-                }
-            }
-            return {
-                success: false,
-                error: '未找到可点击的验证码邮件'
-            };
-        `
-    }).catch(() => null);
-
-    if (result && result.success === true) {
-        return result;
-    }
-
-    return result || {
-        success: false,
-        error: '未找到可点击的验证码邮件'
-    };
-}
-
-const clickInboxRowsByCurrentTime = clickTempEmailDetailBySelector;
 

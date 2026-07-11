@@ -579,7 +579,6 @@ const STEP_TYPE_LABELS = {
     type: '输入内容',
     wait: '等待条件',
     condition: '判断分支',
-    wait_verification_code: '等待验证码',
     get_credits: '获取积分',
     save_cookies: '获取Cookie',
     clear_current_page_cache: '清理当前页缓存',
@@ -667,14 +666,6 @@ function setCardEditorValue(cardData) {
 
 function getCardEditorValue() {
     return String(cardEditor?.value || '');
-}
-
-function isVerificationStepName(value = '') {
-    return /验证码|verification|verify|verification code|verification_code|code|otp|校验码|确认码|动态码/i.test(String(value || '').trim());
-}
-
-function isEmailStepName(value = '') {
-    return /邮箱|email|mail|电子邮箱|邮箱地址|e-mail/i.test(String(value || '').trim());
 }
 
 // 变量键推导（须与后台 03_formatting.js 的 resolveStepVariableKey 保持一致）：
@@ -1454,8 +1445,6 @@ function buildSidebarStepTemplate(stepType = 'navigate') {
 
     if (normalizedType === 'navigate') {
         template.url = template.url || '';
-    } else if (normalizedType === 'wait_verification_code') {
-        delete template.selector;
     } else if (normalizedType === 'clear_current_page_cache') {
         template.name = '清理当前页缓存';
         delete template.selector;
@@ -1571,7 +1560,6 @@ function buildSidebarStepCardHtml(step = {}, index = 0, expanded = false) {
                     ['type', '输入内容'],
                     ['wait', '等待条件'],
                     ['condition', '判断分支'],
-                    ['wait_verification_code', '等待验证码'],
                     ['get_credits', '获取积分'],
                     ['save_cookies', '获取Cookie'],
                     ['clear_current_page_cache', '清理当前页缓存'],
@@ -2137,8 +2125,6 @@ globalThis.CookieCaptureAutomationWorkbench = {
     parseEditorCardData,
     setCardEditorValue,
     getCardEditorValue,
-    isVerificationStepName,
-    isEmailStepName,
     isSidebarLayout,
     sanitizeSidebarStepIdPart,
     buildSidebarStepId,

@@ -181,8 +181,6 @@ const {
     parseEditorCardData,
     setCardEditorValue,
     getCardEditorValue,
-    isVerificationStepName,
-    isEmailStepName,
     isSidebarLayout,
     escapeHtml,
     normalizeSidebarPopupsInput,

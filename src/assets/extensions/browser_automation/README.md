@@ -4,15 +4,13 @@
 
 支持自动化卡片定义、本地执行自动化流程、Cookie 抓取，以及登录后把上述能力作为工具暴露给分配到本设备的 AI。
 
-> 说明：早期的「临时邮箱」调试栏目已移除。自动化流程内部仍可通过 `wait_verification_code` 步骤自动获取邮件验证码（引擎能力保留），只是不再有单独的临时邮箱调试面板。
-
 ## 主要功能
 
 - **自动化卡片**：可视化编辑自动化步骤，支持：
   - 固定或随机数据生成
   - 弹窗处理规则
   - 流程图编辑（节点拖拽、连线、true/false 分支）
-  - 步骤导航（点击、输入、等待、判断分支、验证码识别、脚本执行等）
+  - 步骤导航（点击、输入、等待、判断分支、脚本执行等）
   - 循环执行模式
   - 缓存保存 / 导出 / 导入
 
@@ -60,7 +58,7 @@
 
 | 分类 | 工具 | 功能说明 |
 |------|------|----------|
-| 自动化卡片 | `manage_card`   | 卡片唯一入口（管理 + 执行合一）：rules 获取步骤类型、`flow.nodes/edges/start` 流程图结构与运行规则（写卡片前必看，write 和局部步骤编辑都会按规范校验拒绝非法步骤类型）、list 列出全部卡片、get 获取卡片完整 JSON、write 创建/覆盖完整卡片、patch_step 修改某一步、insert_step 插入步骤、delete_step 删除步骤、move_step 移动步骤、delete 删除整张卡片、run 在当前活动标签页执行卡片（可指定账号/邮箱/验证码，耗时操作）。没有 flow 时仍按 steps 顺序执行；有 flow 时按连线执行，`condition` 节点根据 true/false 出边分支。步骤索引使用 1-based，与失败结果 stepIndex 对齐；insert_step 不传 step_index 时默认追加。run 失败时返回结构化现场（errorCode + 失败步骤 stepIndex/selector + failureSnapshot 候选元素 + context 实际凭证），页面停留在失败现场，修复卡片后可用 `start_step` 从失败步骤续跑，形成「失败 → 修卡 → 续跑」闭环。旧工具名 `get_status`/`run_card`/`write_card` 仍兼容执行（分别等价 list/run/write） |
+| 自动化卡片 | `manage_card`   | 卡片唯一入口（管理 + 执行合一）：rules 获取步骤类型、`flow.nodes/edges/start` 流程图结构与运行规则（写卡片前必看，write 和局部步骤编辑都会按规范校验拒绝非法步骤类型）、list 列出全部卡片、get 获取卡片完整 JSON、write 创建/覆盖完整卡片、patch_step 修改某一步、insert_step 插入步骤、delete_step 删除步骤、move_step 移动步骤、delete 删除整张卡片、run 在当前活动标签页执行卡片（可通过 inputs 指定账号等变量，耗时操作）。没有 flow 时仍按 steps 顺序执行；有 flow 时按连线执行，`condition` 节点根据 true/false 出边分支。步骤索引使用 1-based，与失败结果 stepIndex 对齐；insert_step 不传 step_index 时默认追加。run 失败时返回结构化现场（errorCode + 失败步骤 stepIndex/selector + failureSnapshot 候选元素 + context 实际凭证），页面停留在失败现场，修复卡片后可用 `start_step` 从失败步骤续跑，形成「失败 → 修卡 → 续跑」闭环。旧工具名 `get_status`/`run_card`/`write_card` 仍兼容执行（分别等价 list/run/write） |
 | 自动化卡片 | `save_cookies`  | 抓取当前页面的 Cookie + localStorage + sessionStorage，可选上传到指定服务器 |
 | 导航与搜索 | `browser_tab`   | 标签页管理与导航：list / switch / replace / navigate / close / back / forward |
 | 页面观察   | `browser_observe`    | 感知当前视口的可交互元素、媒体、可见文本与 iframe 边界，返回带 tag/selector/name/placeholder/ariaLabel 等基本信息的 items 列表（含临时 id）；支持用 selector/text 定位构造卡片步骤或 ref 快速操作，便于卡片创建/修改与表单信息填入 |
@@ -90,7 +88,6 @@ browser_automation/
 │   ├── 02_sidebar_page.js      # 页面动作执行器（executePageAction，含动效挂钩）
 │   ├── 03_formatting.js
 │   ├── 04_cache.js
-│   ├── 05_temp_email_flow.js
 │   ├── 06_automation_run.js
 │   ├── 07_events.js
 │   ├── 08_agent_auth.js        # 软件端账号登录 / 认证 HTTP 客户端

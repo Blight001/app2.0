@@ -33,7 +33,6 @@ jspm_packages/
 *cookies*.json
 *credentials*.json
 *card*.json
-temp-email*.json
 export-*.json
 cookie-*.json
 

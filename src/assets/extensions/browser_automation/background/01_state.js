@@ -383,6 +383,115 @@ function normalizeBrowserStorageEntry(entry = {}, fallbackIndex = 0) {
     };
 }
 
+// 登录凭证瘦身：跨机器分发的 cookie 卡只需要能恢复登录态的数据，
+// 统计/追踪类 cookie 与 storage key 对登录无用且体积很大，storeId/partitionKey 等字段跨机器也无意义。
+// 匹配采用前缀/正则，宁可少删也不误删真正的会话凭证，确保仍能登陆。
+const CREDENTIAL_TRACKING_KEY_PATTERNS = [
+    /^_ga(_.*)?$/i, /^_gid$/i, /^_gat(_.*)?$/i, /^_gcl_/i, /^__utm[abctvz]$/i, /^__gads$/i, /^__gpi$/i,
+    /^_fbp$/i, /^_fbc$/i, /^fr$/i,
+    /^Hm_lvt_/i, /^Hm_lpvt_/i, /^HMACCOUNT$/i, /^CNZZDATA/i,
+    /^sensorsdata/i, /^ajs_/i, /^mp_/i, /^amplitude_/i, /^AMP_/i,
+    /^_hj/i, /^_clck$/i, /^_clsk$/i, /^_clarity/i, /^_uetsid$/i, /^_uetvid$/i,
+    /^_pk_/i, /^intercom-/i, /^__gac_/i, /^_tt_/i, /^_scid$/i, /^_uetmsclkid/i
+];
+
+function isCredentialTrackingKey(name = '') {
+    const key = String(name || '').trim();
+    if (!key) {
+        return false;
+    }
+    return CREDENTIAL_TRACKING_KEY_PATTERNS.some((pattern) => pattern.test(key));
+}
+
+function slimCookieForExport(cookie = {}) {
+    const source = cookie && typeof cookie === 'object' ? cookie : {};
+    const slimmed = {
+        name: String(source.name || '').trim(),
+        value: String(source.value ?? ''),
+        domain: String(source.domain || '').trim(),
+        path: String(source.path || '/').trim() || '/'
+    };
+
+    if (source.secure === true) slimmed.secure = true;
+    if (source.httpOnly === true) slimmed.httpOnly = true;
+    if (source.hostOnly === true) slimmed.hostOnly = true;
+    if (source.session === true) slimmed.session = true;
+
+    const sameSite = normalizeCookieImportSameSite(source.sameSite || '');
+    if (sameSite) {
+        slimmed.sameSite = sameSite;
+    }
+
+    const expirationDate = Number(source.expirationDate || 0);
+    if (Number.isFinite(expirationDate) && expirationDate > 0) {
+        slimmed.expirationDate = Math.floor(expirationDate);
+    }
+
+    return slimmed;
+}
+
+function minimizeCookiesForExport(cookies = []) {
+    if (!Array.isArray(cookies)) {
+        return [];
+    }
+    const result = [];
+    for (const cookie of cookies) {
+        const name = String(cookie?.name || '').trim();
+        if (!name || isCredentialTrackingKey(name)) {
+            continue;
+        }
+        result.push(slimCookieForExport(cookie));
+    }
+    return result;
+}
+
+function minimizeStorageMapForExport(map = {}) {
+    if (!map || typeof map !== 'object' || Array.isArray(map)) {
+        return {};
+    }
+    const result = {};
+    for (const [key, value] of Object.entries(map)) {
+        const normalizedKey = String(key || '').trim();
+        if (!normalizedKey || isCredentialTrackingKey(normalizedKey)) {
+            continue;
+        }
+        result[normalizedKey] = value == null ? '' : String(value);
+    }
+    return result;
+}
+
+function minimizeBrowserStorageForExport(browserStorage = []) {
+    if (!Array.isArray(browserStorage)) {
+        return [];
+    }
+    const result = [];
+    for (const entry of browserStorage) {
+        const source = entry && typeof entry === 'object' ? entry : {};
+        const localStorage = minimizeStorageMapForExport(source.localStorage || {});
+        const sessionStorage = minimizeStorageMapForExport(source.sessionStorage || {});
+        if (Object.keys(localStorage).length === 0 && Object.keys(sessionStorage).length === 0) {
+            continue;
+        }
+        result.push({
+            url: String(source.url || '').trim(),
+            origin: String(source.origin || '').trim(),
+            localStorage,
+            sessionStorage
+        });
+    }
+    return result;
+}
+
+// 对采集到的完整 storageState 快照做瘦身：只保留登录必需的 cookie + localStorage/sessionStorage。
+function minimizeCapturedState(snapshot = {}) {
+    const source = snapshot && typeof snapshot === 'object' ? snapshot : {};
+    return {
+        ...source,
+        cookies: minimizeCookiesForExport(source.cookies || []),
+        browserStorage: minimizeBrowserStorageForExport(source.browserStorage || [])
+    };
+}
+
 function buildCookieSetUrl(pageUrl = '', cookie = {}) {
     const normalizedPageUrl = String(pageUrl || '').trim();
     const cookieDomain = String(cookie?.domain || '').trim().replace(/^\./, '');

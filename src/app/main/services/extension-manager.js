@@ -1939,14 +1939,10 @@ function createExtensionManager(deps = {}) {
       }
       syncWebPanelBounds();
       if (pageType === 'popup') {
-        try {
-          view.webContents.once('blur', () => {
-            if (webPanel?.view === view) {
-              closeWebPanel({ notify: true });
-            }
-          });
-          view.webContents.focus();
-        } catch (_) {}
+        // 不再监听 blur 自动关闭浮窗：blur 会在打开系统文件选择对话框、
+        // 切换到其它应用等场景下触发，导致浮窗在文件导入等操作中途被误关。
+        // 浮窗改为仅通过再次点击插件、关闭按钮或 close-extension-web-panel 关闭。
+        try { view.webContents.focus(); } catch (_) {}
       }
       return { ok: true };
     } catch (error) {
