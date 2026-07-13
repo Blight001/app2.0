@@ -385,13 +385,11 @@ function getCoreDir() {
 
     if (app && app.isPackaged) {
       const installDir = path.dirname(app.getPath('exe'));
-      candidates.push(path.join(process.resourcesPath || '', 'resource', 'extensions', 'clash-mini', 'core'));
-      candidates.push(path.join(installDir, 'resources', 'resource', 'extensions', 'clash-mini', 'core'));
-      candidates.push(path.join(process.resourcesPath || '', 'resource', 'core'));
-      candidates.push(path.join(installDir, 'resources', 'resource', 'core'));
+      candidates.push(path.join(process.resourcesPath || '', 'clash-mini', 'core'));
+      candidates.push(path.join(installDir, 'resources', 'clash-mini', 'core'));
     } else {
-      candidates.push(path.join(__dirname, '../../../assets/extensions/clash-mini/core'));
-      candidates.push(path.join(process.cwd(), 'src', 'assets', 'extensions', 'clash-mini', 'core'));
+      candidates.push(path.join(__dirname, '../../../../resources/clash-mini/core'));
+      candidates.push(path.join(process.cwd(), 'resources', 'clash-mini', 'core'));
       let currentDir = __dirname;
       while (currentDir !== path.parse(currentDir).root) {
         candidates.push(path.join(currentDir, 'core'));
@@ -412,9 +410,9 @@ function getCoreDir() {
       }
     }
 
-    return candidates[candidates.length - 1] || path.join(__dirname, '../../../../core');
+    return candidates[0] || path.join(__dirname, '../../../../resources/clash-mini/core');
   } catch (_) {
-    return path.join(__dirname, '../../../../core');
+    return path.join(__dirname, '../../../../resources/clash-mini/core');
   }
 }
 

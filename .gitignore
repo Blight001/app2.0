@@ -123,8 +123,7 @@ version/
 extensions_app/
 
 # Clash Mini runtime files (generated dynamically; not required in source control)
-src/assets/extensions/clash-mini/core/cache.db
-src/assets/extensions/clash-mini/core/config.yaml
-src/assets/extensions/clash-mini/core/providers/
-src/assets/extensions/clash-mini/core/rules/
-src/assets/extensions/clash-mini/core/*.log
+resources/clash-mini/core/cache.db
+resources/clash-mini/core/config.yaml
+resources/clash-mini/core/providers/
+resources/clash-mini/core/*.log

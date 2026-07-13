@@ -62,7 +62,6 @@
       "src/**/*",
       "native/browser-host/build/Release/browser_host.node",
       "!src/DEV_MAP.md",
-      "!src/assets/extensions/clash-mini/core/**/*",
       "!src/assets/extensions/remove_watermark/**/*.map",
       "!src/assets/extensions/remove_watermark/**/*.LICENSE.txt",
       "!src/assets/extensions/remove_watermark/remove_watermark.crx",
@@ -85,8 +84,8 @@
         "to": "chromium"
       },
       {
-        "from": "src/assets/extensions/clash-mini/core",
-        "to": "resource/extensions/clash-mini/core"
+        "from": "resources/clash-mini/core",
+        "to": "clash-mini/core"
       },
       {
         "from": "src/assets/seedance2.0.ico",

@@ -45,10 +45,10 @@ function copyDirectoryRecursive(src, dest, { overwrite = false } = {}) {
 // 获取/读取/解析：getClashMiniAppRoots的具体业务逻辑。
 function getClashMiniAppRoots() {
   const roots = [];
-  try { roots.push(path.join(__dirname, '..', '..', '..', '..', 'assets', 'extensions', CLASH_MINI_DIR_NAME)); } catch (_) {}
-  try { roots.push(path.join(process.cwd(), 'src', 'assets', 'extensions', CLASH_MINI_DIR_NAME)); } catch (_) {}
-  try { roots.push(path.join(process.resourcesPath || '', 'resource', 'extensions', CLASH_MINI_DIR_NAME)); } catch (_) {}
-  try { roots.push(path.join(path.dirname(process.execPath || ''), 'resources', 'resource', 'extensions', CLASH_MINI_DIR_NAME)); } catch (_) {}
+  try { roots.push(path.join(process.resourcesPath || '', CLASH_MINI_DIR_NAME)); } catch (_) {}
+  try { roots.push(path.join(path.dirname(process.execPath || ''), 'resources', CLASH_MINI_DIR_NAME)); } catch (_) {}
+  try { roots.push(path.join(process.cwd(), 'resources', CLASH_MINI_DIR_NAME)); } catch (_) {}
+  try { roots.push(path.join(__dirname, '..', '..', '..', '..', '..', 'resources', CLASH_MINI_DIR_NAME)); } catch (_) {}
   return Array.from(new Set(roots.filter(Boolean)));
 }
 
@@ -72,24 +72,8 @@ function resolveBundledClashMiniCoreDir() {
   return getClashMiniCoreRoots()[0] || null;
 }
 
-// 处理：isDirectoryWritable的具体业务逻辑。
-function isDirectoryWritable(dir) {
-  try {
-    if (!dir || !fs.existsSync(dir)) return false;
-    fs.accessSync(dir, fs.constants.W_OK);
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
 // 获取/读取/解析：getClashMiniRuntimeRoot的具体业务逻辑。
 function getClashMiniRuntimeRoot() {
-  const bundledCoreDir = resolveBundledClashMiniCoreDir();
-  if (bundledCoreDir && isDirectoryWritable(bundledCoreDir)) {
-    return bundledCoreDir;
-  }
-
   try {
     return path.join(electronApp.getPath('appData'), CLASH_MINI_DIR_NAME);
   } catch (_) {
@@ -719,7 +703,7 @@ async function invokeClashMiniControl(coreDir, method, pathname, { data = null, 
 function getClashMiniProfileRoots() {
   const roots = [];
   try { roots.push(path.join(electronApp.getPath('appData'), CLASH_MINI_DIR_NAME)); } catch (_) {}
-  try { roots.push(path.join(getCoreDir(), CLASH_MINI_DIR_NAME)); } catch (_) {}
+  try { roots.push(getCoreDir()); } catch (_) {}
   return Array.from(new Set(roots.filter(Boolean)));
 }
 
