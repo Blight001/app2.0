@@ -67,6 +67,7 @@ function createExtensionManager(deps = {}) {
     getMainWindow = () => null,
     applyPluginSettings = null,
     sendToSide = null,
+    onPluginStateChanged = null,
   } = deps;
 
   let state = {
@@ -1887,9 +1888,22 @@ function createExtensionManager(deps = {}) {
       await unloadPluginFromAllSessions(plugin);
     }
 
+    let browserRefresh = null;
+    if (typeof onPluginStateChanged === 'function') {
+      try {
+        browserRefresh = await onPluginStateChanged({
+          plugin: toPublicPlugin(plugin),
+          enabled: plugin.enabled,
+        });
+      } catch (error) {
+        browserRefresh = { ok: false, message: error?.message || String(error) };
+        logger.warn?.('[Extensions] 插件状态已更新，但浏览器刷新失败:', error?.message || error);
+      }
+    }
+
     syncLegacyTranslateSetting();
     emitStateChanged();
-    return { ok: true, plugin: toPublicPlugin(plugin), state: getPublicState() };
+    return { ok: true, plugin: toPublicPlugin(plugin), state: getPublicState(), browserRefresh };
   }
 
   async function removePlugin(pluginId) {
@@ -1904,6 +1918,13 @@ function createExtensionManager(deps = {}) {
     await unloadPluginFromAllSessions(plugin);
     state.plugins = state.plugins.filter((item) => item.id !== plugin.id);
     persistState();
+    if (typeof onPluginStateChanged === 'function') {
+      try {
+        await onPluginStateChanged({ plugin: toPublicPlugin(plugin), enabled: false, removed: true });
+      } catch (error) {
+        logger.warn?.('[Extensions] 插件已删除，但浏览器刷新失败:', error?.message || error);
+      }
+    }
     emitStateChanged();
     return { ok: true, state: getPublicState() };
   }

@@ -18,6 +18,7 @@
     "check:http-routing": "node scripts/check-http-tenant-routing.js",
     "check:announcements": "node scripts/check-announcement-polling.js",
     "check:extension-compat": "node scripts/check-extension-compat.js",
+    "check:extension-refresh": "node scripts/check-extension-refresh.js",
     "check:browser-runtime": "node scripts/check-browser-runtime.js",
     "check:browser-settings": "node scripts/check-browser-settings.js",
     "check:browser-settings-ui": "node scripts/run-electron.js scripts/check-browser-settings-ui.js",

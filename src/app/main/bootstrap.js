@@ -145,6 +145,7 @@ let refreshActiveTab;
 let refreshTab;
 let openExtensionPopup;
 let openExtensionOptions;
+let tabManager;
 
 // 每个会话(session) -> 扩展ID 映射，用于后续打开 popup/options
 const extIdBySession = new WeakMap();
@@ -288,6 +289,12 @@ const extensionManager = createExtensionManager({
   getMainWindow: appRuntime.getMainWindow,
   applyPluginSettings,
   sendToSide,
+  onPluginStateChanged: async (change) => {
+    if (!tabManager || typeof tabManager.refreshBrowsersAfterExtensionChange !== 'function') {
+      return { ok: true, total: 0, electronReloaded: 0, chromiumRestarted: 0 };
+    }
+    return tabManager.refreshBrowsersAfterExtensionChange(change);
+  },
 });
 
 // 注意：服务器→客户端的 TCP 推送已移除（公告现由客户端轮询）。
@@ -506,7 +513,7 @@ const {
   resetMainRuntimeForRelicense,
 } = appShell;
 
-const tabManager = createTabManager({
+tabManager = createTabManager({
   BrowserWindow,
   BrowserView,
   browserRuntimeManager,

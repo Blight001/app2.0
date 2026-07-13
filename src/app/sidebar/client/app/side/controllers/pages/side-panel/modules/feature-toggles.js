@@ -85,7 +85,18 @@ async function initPluginSwitches() {
       }
       extensionState = normalizeExtensionState(resp.state);
       renderExtensionList();
-      showSuccess(enabled ? '插件已启用' : '插件已禁用');
+      const refresh = resp.browserRefresh;
+      if (refresh && refresh.ok === false) {
+        const failed = Array.isArray(refresh.failures) ? refresh.failures.length : 0;
+        showError(`插件已${enabled ? '启用' : '禁用'}，但有 ${failed || '部分'} 个浏览器刷新失败，请手动刷新或重启该环境`);
+        return;
+      }
+      const refreshed = Number(refresh?.total || 0);
+      const chromium = Number(refresh?.chromiumRestarted || 0);
+      const suffix = refreshed > 0
+        ? `，已刷新 ${refreshed} 个浏览器${chromium > 0 ? `（含 ${chromium} 个 Chromium 环境重启）` : ''}`
+        : '，新打开的浏览器将使用此状态';
+      showSuccess(`${enabled ? '插件已启用' : '插件已禁用'}${suffix}`);
     } catch (e) {
       await loadExtensionState();
       showError(e?.message || String(e));

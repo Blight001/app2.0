@@ -941,6 +941,57 @@ function createTabManager(deps = {}) {
     }
   }
 
+// 插件启停后，Electron 需要重载页面才能重新执行/移除 content scripts；
+// Chromium Fork 的扩展清单来自启动参数，因此必须带着新清单重启 Profile。
+  async function refreshBrowsersAfterExtensionChange(change = {}) {
+    const entries = Array.from(resolveTabs().values());
+    const refreshedWebContents = new Set();
+    let electronReloaded = 0;
+    let chromiumRestarted = 0;
+    const failures = [];
+
+    for (const tab of entries) {
+      if (isChromiumTab(tab)) {
+        try {
+          const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(tab.id));
+          if (!instance?.profile) continue;
+          instance.profile.extensionPaths = resolveChromiumExtensionPaths(tab.browserSettings || {}, extensionManager);
+          const runtimeState = await browserRuntimeManager.restart(tab.id);
+          tab.runtimeStatus = runtimeState?.status || tab.runtimeStatus;
+          chromiumRestarted += 1;
+        } catch (error) {
+          failures.push({ tabId: String(tab.id || ''), runtimeType: 'chromium', message: error?.message || String(error) });
+          logger.warn?.(`[Extensions] Chromium 环境 ${tab.id} 刷新失败:`, error?.message || error);
+        }
+        continue;
+      }
+
+      const wc = tab?.view?.webContents;
+      if (!wc || wc.isDestroyed?.() || refreshedWebContents.has(wc)) continue;
+      refreshedWebContents.add(wc);
+      try {
+        wc.reloadIgnoringCache();
+        electronReloaded += 1;
+      } catch (error) {
+        failures.push({ tabId: String(tab.id || ''), runtimeType: 'electron', message: error?.message || String(error) });
+        logger.warn?.(`[Extensions] Electron 标签 ${tab.id} 刷新失败:`, error?.message || error);
+      }
+    }
+
+    const result = {
+      ok: failures.length === 0,
+      pluginId: String(change?.plugin?.id || ''),
+      enabled: change?.enabled === true,
+      electronReloaded,
+      chromiumRestarted,
+      total: electronReloaded + chromiumRestarted,
+      failures,
+    };
+    updateTabs(true);
+    try { sendToSide('extension-browsers-refreshed', result); } catch (_) {}
+    return result;
+  }
+
 // 启动/打开/显示：openExtensionOptions的具体业务逻辑。
   async function openExtensionOptions(pluginId) {
     try {
@@ -958,6 +1009,7 @@ function createTabManager(deps = {}) {
     applyClashMiniBrowserProxy,
     setTabBrowserProxyMode,
     setTabBrowserSettings,
+    refreshBrowsersAfterExtensionChange,
     switchTab,
     closeTab,
     reorderTab,
