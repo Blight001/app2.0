@@ -1400,6 +1400,27 @@ function createExtensionManager(deps = {}) {
     };
   }
 
+  // Chromium Fork cannot use Electron's session.extensions API. It must receive
+  // unpacked extension directories before the browser process starts so that
+  // document_start content scripts are registered before the first navigation.
+  function getEnabledExtensionPaths() {
+    const seen = new Set();
+    const paths = [];
+    for (const plugin of state.plugins) {
+      if (plugin?.enabled !== true || plugin?.missing === true) continue;
+      const pluginPath = normalizeAbsolutePath(plugin.path);
+      if (!pluginPath || seen.has(pluginPath)) continue;
+      try {
+        if (!fs.existsSync(path.join(pluginPath, 'manifest.json'))) continue;
+      } catch (_) {
+        continue;
+      }
+      seen.add(pluginPath);
+      paths.push(pluginPath);
+    }
+    return paths;
+  }
+
   function getPluginById(pluginId) {
     const id = String(pluginId || '').trim();
     return state.plugins.find((plugin) => plugin.id === id) || null;
@@ -1992,6 +2013,7 @@ function createExtensionManager(deps = {}) {
     BUILTIN_REMOVE_WATERMARK_ID,
     initialize,
     getPublicState,
+    getEnabledExtensionPaths,
     loadEnabledIntoSession,
     ensureEnabledPluginsLoadedInCurrentSessions,
     setPluginEnabled,

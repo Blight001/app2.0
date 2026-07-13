@@ -7,7 +7,7 @@ index a154b12d..0a9e4f06 100644
          <else>
            <message name="IDS_PRODUCT_NAME" desc="The Chrome application name" translateable="false">
 -            Chromium
-+            AI-FREE Browser
++            AI-FREE
            </message>
            <message name="IDS_SHORT_PRODUCT_NAME" desc="The Chrome application short name." translateable="false">
 -            Chromium
@@ -22,12 +22,12 @@ index a154b12d..0a9e4f06 100644
 -        <message name="IDS_PRODUCT_DESCRIPTION" desc="Browser description">
 -          Chromium is a web browser that runs webpages and applications with lightning speed. It's fast, stable, and easy to use. Browse the web more safely with malware and phishing protection built into Chromium.
 +        <message name="IDS_PRODUCT_DESCRIPTION" desc="Browser description" translateable="false">
-+          AI-FREE Browser is a web browser that runs webpages and applications with speed, stability, and built-in protection against malicious sites.
++          AI-FREE is a web browser that runs webpages and applications with speed, stability, and built-in protection against malicious sites.
          </message>
 -        <message name="IDS_WELCOME_TO_CHROME" desc="Welcoming text announced via screen readers the first time Chrome is launched at the conclusion of installation.">
 -          Welcome to Chromium; new browser window opened
 +        <message name="IDS_WELCOME_TO_CHROME" desc="Welcoming text announced via screen readers the first time Chrome is launched at the conclusion of installation." translateable="false">
-+          Welcome to AI-FREE Browser; new browser window opened
++          Welcome to AI-FREE; new browser window opened
          </message>
        </if>
        <if expr="is_macosx or is_linux">
@@ -38,7 +38,7 @@ index a154b12d..0a9e4f06 100644
 -        <message name="IDS_TASK_MANAGER_TITLE" desc="The title of the Task Manager window">
 -          Task Manager - Chromium
 +        <message name="IDS_TASK_MANAGER_TITLE" desc="The title of the Task Manager window" translateable="false">
-+          Task Manager - AI-FREE Browser
++          Task Manager - AI-FREE
          </message>
        </if>
        <message name="IDS_TASK_MANAGER_SEARCH_PLACEHOLDER" desc="The placeholder text for the Search bar in the Task Manager window">
@@ -49,7 +49,7 @@ index a154b12d..0a9e4f06 100644
 -      <message name="IDS_SESSION_CRASHED_VIEW_UMA_OPTIN" desc="Text besides the checkbox to let users optin to UMA in the restore from previous crash bubble.">
 -        Help make Chromium better by sending crash reports and <ph name="UMA_LINK">$1<ex>usage statistics</ex></ph> to Google
 +      <message name="IDS_SESSION_CRASHED_VIEW_UMA_OPTIN" desc="Text besides the checkbox to let users optin to UMA in the restore from previous crash bubble." translateable="false">
-+        Help make AI-FREE Browser better by sending crash reports and <ph name="UMA_LINK">$1<ex>usage statistics</ex></ph>
++        Help make AI-FREE better by sending crash reports and <ph name="UMA_LINK">$1<ex>usage statistics</ex></ph>
        </message>
        <if expr="not is_android">
          <message name="IDS_CHROME_SIGNOUT_CONFIRMATION_PROMPT_TOO_MANY_BOOKMARKS_BODY" desc="Body of the signout confirmation dialog when the user has too many bookmarks.">
@@ -62,7 +62,7 @@ index a154b12d..0a9e4f06 100644
          This action will:
          <ph name="LINE_BREAKS">&lt;br&gt;&lt;br&gt;</ph>
 -          • Reset some Chromium settings and Chromium shortcuts
-+          • Reset some AI-FREE Browser settings and shortcuts
++          • Reset some AI-FREE settings and shortcuts
            <ph name="LINE_BREAK">&lt;br&gt;</ph>
            • Disable extensions
            <ph name="LINE_BREAK">&lt;br&gt;</ph>
@@ -73,7 +73,7 @@ index a154b12d..0a9e4f06 100644
 -            <message name="IDS_BROWSER_WINDOW_TITLE_FORMAT" desc="The format for titles displayed in tabs and popup windows">
 -              <ph name="PAGE_TITLE">$1<ex>Google</ex></ph> - Chromium
 +            <message name="IDS_BROWSER_WINDOW_TITLE_FORMAT" desc="The format for titles displayed in tabs and popup windows" translateable="false">
-+              <ph name="PAGE_TITLE">$1<ex>Example</ex></ph> - AI-FREE Browser
++              <ph name="PAGE_TITLE">$1<ex>Example</ex></ph> - AI-FREE
              </message>
            </else>
          </if>
@@ -84,7 +84,7 @@ index a154b12d..0a9e4f06 100644
 -        <message name="IDS_CAPTIVE_PORTAL_BROWSER_WINDOW_TITLE_FORMAT" desc="The format for titles displayed in captive portal popup windows">
 -          <ph name="PAGE_TITLE">$1<ex>Google</ex></ph> - Network Sign-in - Chromium
 +        <message name="IDS_CAPTIVE_PORTAL_BROWSER_WINDOW_TITLE_FORMAT" desc="The format for titles displayed in captive portal popup windows" translateable="false">
-+          <ph name="PAGE_TITLE">$1<ex>Example</ex></ph> - Network Sign-in - AI-FREE Browser
++          <ph name="PAGE_TITLE">$1<ex>Example</ex></ph> - Network Sign-in - AI-FREE
          </message>
        </if>
        <if expr="is_chromeos">
@@ -95,7 +95,7 @@ index a154b12d..0a9e4f06 100644
 -          <message name="IDS_ACCESSIBLE_BROWSER_WINDOW_TITLE_FORMAT" desc="The format for the accessible name of a tabbed browser window">
 -            <ph name="PAGE_TITLE">$1<ex>Google</ex></ph> - Chromium
 +          <message name="IDS_ACCESSIBLE_BROWSER_WINDOW_TITLE_FORMAT" desc="The format for the accessible name of a tabbed browser window" translateable="false">
-+            <ph name="PAGE_TITLE">$1<ex>Example</ex></ph> - AI-FREE Browser
++            <ph name="PAGE_TITLE">$1<ex>Example</ex></ph> - AI-FREE
            </message>
          </else>
        </if>

@@ -329,7 +329,7 @@ function createTabElement(tab) {
     runtimeBadge.type = 'button';
     runtimeBadge.className = `tab-runtime-badge${crashed ? ' crashed' : ''}`;
     runtimeBadge.textContent = crashed ? '重启' : 'C';
-    runtimeBadge.title = crashed ? 'AI-FREE 浏览器已退出，点击重新启动环境' : `AI-FREE 浏览器: ${tab.runtimeStatus || 'ready'}`;
+    runtimeBadge.title = crashed ? 'AI-FREE 已退出，点击重新启动环境' : `AI-FREE: ${tab.runtimeStatus || 'ready'}`;
     runtimeBadge.addEventListener('click', async (event) => {
       event.stopPropagation();
       if (!crashed || typeof IPC.invoke !== 'function' || runtimeBadge.disabled) return;
@@ -339,7 +339,7 @@ function createTabElement(tab) {
         const result = await IPC.invoke('restart-browser-runtime', { profileId: tab.id });
         if (!result?.ok) throw new Error(result?.message || '重启失败');
       } catch (error) {
-        showControllerError('重启 AI-FREE 浏览器环境失败', error);
+        showControllerError('重启 AI-FREE 环境失败', error);
         runtimeBadge.disabled = false;
         runtimeBadge.textContent = '重启';
       }

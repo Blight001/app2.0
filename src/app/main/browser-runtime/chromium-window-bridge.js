@@ -52,7 +52,7 @@ class ChromiumWindowBridge {
   isWindowAlive(hwnd) { return this.load().isWindowAlive({ hwnd }); }
   getWindowProcessId(hwnd) { return this.load().getWindowProcessId({ hwnd }); }
   findMainWindowByProcessId(pid) { return this.load().findMainWindowByProcessId({ pid }); }
-  setChildWindowTitle(childHwnd, title = 'AI-FREE 浏览器') { return this.load().setChildWindowTitle({ childHwnd, title }); }
+  setChildWindowTitle(childHwnd, title = 'AI-FREE') { return this.load().setChildWindowTitle({ childHwnd, title }); }
   isChildWindowAttached(hostHwnd, childHwnd) { return this.load().isChildWindowAttached({ hostHwnd, childHwnd }); }
 }
 

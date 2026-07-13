@@ -62,7 +62,7 @@ app.whenReady().then(async () => {
       allowPrototypeWindowDiscovery: true,
       launchTimeoutMs: 30000,
     }, currentBounds());
-    if (state?.embedded !== true || state?.productName !== 'AI-FREE 浏览器') {
+    if (state?.embedded !== true || state?.productName !== 'AI-FREE') {
       throw new Error('Chromium 已启动，但未确认嵌入 AI-FREE BrowserHost');
     }
     console.log('[embed-smoke] READY', JSON.stringify(state));

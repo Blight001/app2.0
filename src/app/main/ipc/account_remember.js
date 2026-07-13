@@ -984,7 +984,9 @@ function registerAccountIPC(ctx) {
           console.log('[switch-account] 独立 Chromium Profile 会话导入完成:', {
             tabId,
             cookiesImported: importResult.cookiesImported,
+            cookiesSkipped: importResult.cookiesSkipped,
             storageOriginsImported: importResult.storageOriginsImported,
+            storageOriginsSkipped: importResult.storageOriginsSkipped,
           });
           return { ok: true, tabId };
         }
@@ -1009,7 +1011,7 @@ function registerAccountIPC(ctx) {
         }
       } catch (e) {
         if (isChromiumTab) {
-          try { await ui.closeTab(tabId); } catch (_) {}
+          console.warn('[switch-account] Chromium 会话导入失败，保留浏览器供用户重试:', e?.message || e);
           throw e;
         }
         console.warn('[switch-account] cookie 导入/打开网页失败:', e?.message || e);

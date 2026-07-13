@@ -128,10 +128,41 @@ function prepareSessionImport(input = {}) {
   if (rawCookies.length > MAX_COOKIES) fail('SESSION_COOKIE_LIMIT', 'Cookie 数量超过限制');
   if (rawStorage.length > MAX_STORAGE_ORIGINS) fail('SESSION_STORAGE_LIMIT', 'Storage origin 数量超过限制');
   const counter = { count: 0 };
+  const cookies = [];
+  let skippedCookies = 0;
+  for (const cookie of rawCookies) {
+    try {
+      cookies.push(normalizeCookie(cookie, targetUrl));
+    } catch (error) {
+      // Account exports may contain cookies from unrelated identity providers
+      // or previously visited sites. They must not be written into this
+      // profile, but one unrelated cookie should not abort the valid session.
+      if (error?.code === 'SESSION_DOMAIN_FORBIDDEN') {
+        skippedCookies += 1;
+        continue;
+      }
+      throw error;
+    }
+  }
+  const browserStorage = [];
+  let skippedStorageOrigins = 0;
+  for (const entry of rawStorage) {
+    try {
+      browserStorage.push(normalizeStorageEntry(entry, targetUrl, counter));
+    } catch (error) {
+      if (error?.code === 'SESSION_ORIGIN_FORBIDDEN') {
+        skippedStorageOrigins += 1;
+        continue;
+      }
+      throw error;
+    }
+  }
   const prepared = {
     targetUrl: targetUrl.href,
-    cookies: rawCookies.map((cookie) => normalizeCookie(cookie, targetUrl)),
-    browserStorage: rawStorage.map((entry) => normalizeStorageEntry(entry, targetUrl, counter)),
+    cookies,
+    browserStorage,
+    skippedCookies,
+    skippedStorageOrigins,
   };
   const bytes = Buffer.byteLength(JSON.stringify(prepared), 'utf8');
   if (bytes > MAX_SESSION_IMPORT_BYTES) fail('SESSION_IMPORT_TOO_LARGE', '会话导入数据超过限制');

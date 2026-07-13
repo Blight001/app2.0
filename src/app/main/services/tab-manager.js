@@ -11,6 +11,21 @@ const {
   toggleSidebarVisibility,
 } = require('./tab-common');
 
+function resolveChromiumExtensionPaths(browserSettings = {}, extensionManager = null) {
+  const configuredExtensionPaths = Array.isArray(browserSettings.chromiumExtensionPaths)
+    ? browserSettings.chromiumExtensionPaths
+    : [];
+  const managedExtensionPaths = extensionManager
+    && typeof extensionManager.getEnabledExtensionPaths === 'function'
+    ? extensionManager.getEnabledExtensionPaths()
+    : [];
+  return Array.from(new Set(
+    [...managedExtensionPaths, ...configuredExtensionPaths]
+      .map((item) => String(item || '').trim())
+      .filter(Boolean),
+  ));
+}
+
 // 创建/初始化：createTabManager的具体业务逻辑。
 function createTabManager(deps = {}) {
   const DEFAULT_TUTORIAL_URL = 'https://www.baidu.com/';
@@ -264,6 +279,7 @@ function createTabManager(deps = {}) {
       ? browserRuntimeManager.resolveType({ runtimeType: options.runtimeType || browserSettings.runtimeType })
       : 'electron';
     if (requestedRuntimeType === 'chromium') {
+      const chromiumExtensionPaths = resolveChromiumExtensionPaths(browserSettings, extensionManager);
       let initialUrl = options.deferChromiumNavigation === true
         ? 'about:blank'
         : (url || resolveDefaultTabUrl());
@@ -278,7 +294,7 @@ function createTabManager(deps = {}) {
         partition,
         accountId,
         fixedTitle,
-        runtimeTitle: fixedTitle || 'AI-FREE 浏览器',
+        runtimeTitle: fixedTitle || 'AI-FREE',
         runtimeType: 'chromium',
         runtimeStatus: 'starting',
         browserProxyMode,
@@ -296,7 +312,7 @@ function createTabManager(deps = {}) {
           proxyServer: effectiveProxy?.enabled ? effectiveProxy.server : '',
           proxyBypassList: effectiveProxy?.bypassRules || '',
           executablePath: browserSettings.chromiumExecutablePath,
-          extensionPaths: browserSettings.chromiumExtensionPaths,
+          extensionPaths: chromiumExtensionPaths,
           allowPrototypeWindowDiscovery: browserSettings.allowPrototypeWindowDiscovery === true,
           remoteDebuggingPipe: browserSettings.remoteDebuggingPipe === true,
         }, bounds);
@@ -826,4 +842,5 @@ function createTabManager(deps = {}) {
 
 module.exports = {
   createTabManager,
+  resolveChromiumExtensionPaths,
 };

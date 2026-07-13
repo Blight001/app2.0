@@ -55,7 +55,7 @@ napi_value CreateHostWindow(napi_env env, napi_callback_info info) {
   HWND hwnd = CreateWindowExW(
       WS_EX_NOPARENTNOTIFY,
       kHostWindowClass,
-      L"AI-FREE Browser Host",
+      L"AI-FREE",
       WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
       x, y, width, height,
       parent, nullptr, GetModuleHandleW(nullptr), nullptr);

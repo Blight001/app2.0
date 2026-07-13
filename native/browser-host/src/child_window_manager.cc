@@ -71,7 +71,7 @@ napi_value AttachChildWindow(napi_env env, napi_callback_info info) {
     napi_throw_error(env, nullptr, "Chromium HWND was not attached to the Browser Host");
     return nullptr;
   }
-  const std::wstring product_title = ReadWideString(env, GetNamed(env, options, "title"), L"AI-FREE 浏览器");
+  const std::wstring product_title = ReadWideString(env, GetNamed(env, options, "title"), L"AI-FREE");
   if (!product_title.empty()) SetWindowTextW(child, product_title.c_str());
   RECT rect = {};
   GetClientRect(host, &rect);
@@ -84,7 +84,7 @@ napi_value SetChildWindowTitle(napi_env env, napi_callback_info info) {
   napi_value options = SingleObjectArg(env, info);
   HWND child = ReadHwnd(env, GetNamed(env, options, "childHwnd"));
   if (!IsWindow(child)) return BoolValue(env, false);
-  const std::wstring title = ReadWideString(env, GetNamed(env, options, "title"), L"AI-FREE 浏览器");
+  const std::wstring title = ReadWideString(env, GetNamed(env, options, "title"), L"AI-FREE");
   return BoolValue(env, !title.empty() && SetWindowTextW(child, title.c_str()) != FALSE);
 }
 

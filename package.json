@@ -20,6 +20,7 @@
     "check:extension-compat": "node scripts/check-extension-compat.js",
     "check:browser-runtime": "node scripts/check-browser-runtime.js",
     "check:chromium-handshake": "node scripts/check-chromium-handshake.js",
+    "check:chromium-embedded-policy": "node scripts/check-chromium-embedded-policy.js",
     "build:native-host": "node scripts/build-native-host.js",
     "build": "electron-builder",
     "build:win": "node scripts/build-windows.js",

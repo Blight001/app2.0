@@ -10,6 +10,22 @@ const FORBIDDEN_SWITCHES = new Set([
   '--allow-running-insecure-content',
 ]);
 
+const GOOGLE_CREDENTIAL_ENV_MAP = Object.freeze({
+  AI_FREE_GOOGLE_API_KEY: 'GOOGLE_API_KEY',
+  AI_FREE_GOOGLE_CLIENT_ID: 'GOOGLE_DEFAULT_CLIENT_ID',
+  AI_FREE_GOOGLE_CLIENT_SECRET: 'GOOGLE_DEFAULT_CLIENT_SECRET',
+});
+
+function buildChromiumEnvironment(baseEnv = process.env, overrides = {}) {
+  const environment = { ...baseEnv, ...overrides };
+  for (const [aiFreeName, chromiumName] of Object.entries(GOOGLE_CREDENTIAL_ENV_MAP)) {
+    const chromiumValue = String(environment[chromiumName] || '').trim();
+    const aiFreeValue = String(environment[aiFreeName] || '').trim();
+    if (!chromiumValue && aiFreeValue) environment[chromiumName] = aiFreeValue;
+  }
+  return environment;
+}
+
 function normalizeExecutableCandidate(value) {
   const candidate = String(value || '').trim().replace(/^"|"$/g, '');
   return candidate ? path.resolve(candidate) : '';
@@ -120,9 +136,9 @@ function launchChromium(options = {}) {
     windowsHide: false,
     detached: false,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, ...(options.env || {}) },
+    env: buildChromiumEnvironment(process.env, options.env || {}),
   });
-  options.logger?.info?.(`[AI-FREE Browser] 已启动外部浏览器内核: ${executablePath}`);
+  options.logger?.info?.(`[AI-FREE] 已启动外部浏览器内核: ${executablePath}`);
   options.logger?.info?.(`[ChromiumRuntime] PID=${child.pid} Profile=${options.profile?.profileId || ''}`);
   child.stdout?.on('data', (chunk) => options.logger?.log?.(`[Chromium:${child.pid}] ${String(chunk).trimEnd()}`));
   child.stderr?.on('data', (chunk) => options.logger?.warn?.(`[Chromium:${child.pid}] ${String(chunk).trimEnd()}`));
@@ -133,6 +149,7 @@ module.exports = {
   FORBIDDEN_SWITCHES,
   assertSafeChromiumArgs,
   buildChromiumArgs,
+  buildChromiumEnvironment,
   getSystemChromiumCandidates,
   launchChromium,
   resolveChromiumExecutable,

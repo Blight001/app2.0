@@ -160,7 +160,9 @@ class ChromiumCommandClient extends EventEmitter {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
-        reject(new Error(`Runtime Bridge 命令超时: ${type}`));
+        const error = runtimeBridgeError('RUNTIME_COMMAND_TIMEOUT', `Runtime Bridge 命令超时: ${type}`);
+        error.command = String(type || '');
+        reject(error);
       }, Math.max(100, Number(options.timeoutMs) || 5000));
       this.pending.set(requestId, { resolve, reject, timer });
       try { this.sendRaw(message); } catch (error) {

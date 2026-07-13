@@ -113,18 +113,18 @@ class ChromiumRuntime extends BrowserRuntime {
         hostHwnd,
         childHwnd: browserHwnd,
         childPid: child.pid,
-        title: 'AI-FREE 浏览器',
+        title: 'AI-FREE',
       });
       if (!attached || !this.windowBridge.isChildWindowAttached(hostHwnd, browserHwnd)) {
         const attachError = new Error('外部浏览器未能嵌入 AI-FREE 软件窗口');
         attachError.code = 'CHROMIUM_HWND_ATTACH_FAILED';
         throw attachError;
       }
-      this.windowBridge.setChildWindowTitle(browserHwnd, 'AI-FREE 浏览器');
+      this.windowBridge.setChildWindowTitle(browserHwnd, 'AI-FREE');
       this.windowBridge.setHostBounds(hostHwnd, bounds);
       this.windowBridge.showHostWindow(hostHwnd);
       this.store.transition(profileId, RUNTIME_STATUS.READY, {
-        productName: 'AI-FREE 浏览器',
+        productName: 'AI-FREE',
         embedded: true,
         lastHeartbeatAt: Date.now(),
       });
@@ -248,6 +248,12 @@ class ChromiumRuntime extends BrowserRuntime {
     const instance = this.getReadyInstance(profileId);
     const prepared = prepareSessionImport(rawSession);
     const commandClient = instance.commandClient;
+    if (prepared.skippedCookies > 0 || prepared.skippedStorageOrigins > 0) {
+      this.logger?.warn?.(
+        `[ChromiumRuntime] importSession ${profileId}: 跳过与目标站点无关的数据 `
+        + `(Cookie ${prepared.skippedCookies} 个, Storage ${prepared.skippedStorageOrigins} 个)`,
+      );
+    }
     this.logger?.info?.(`[ChromiumRuntime] importSession ${profileId}: clear-session`);
     const clearResult = await commandClient.send('clear-session', {}, { timeoutMs: 30000 });
     let cookieResult = { result: { imported: 0 } };
@@ -267,15 +273,35 @@ class ChromiumRuntime extends BrowserRuntime {
       }, { timeoutMs: 30000 }));
     }
     this.logger?.info?.(`[ChromiumRuntime] importSession ${profileId}: navigate ${prepared.targetUrl}`);
-    const navigation = await commandClient.send('navigate', {
-      url: prepared.targetUrl,
-    }, { timeoutMs: 30000 });
+    let navigation;
+    try {
+      navigation = await commandClient.send('navigate', {
+        url: prepared.targetUrl,
+      }, { timeoutMs: 30000 });
+    } catch (error) {
+      if (!['NAVIGATION_TIMEOUT', 'RUNTIME_COMMAND_TIMEOUT'].includes(error?.code)) throw error;
+      // navigate has already been delivered to Chromium. A slow page can keep
+      // loading after the bridge response deadline, so a timeout must not tear
+      // down the tab/Profile or turn a valid session import into a hard failure.
+      this.logger?.warn?.(
+        `[ChromiumRuntime] importSession ${profileId}: 页面加载超过等待时间，保留浏览器并继续加载`,
+      );
+      navigation = {
+        result: {
+          pending: true,
+          timedOut: true,
+          message: '页面仍在加载，已保留浏览器窗口',
+        },
+      };
+    }
     return {
       ok: true,
       profileId: String(profileId),
       targetUrl: prepared.targetUrl,
       cookiesImported: Number(cookieResult?.result?.imported || 0),
+      cookiesSkipped: prepared.skippedCookies,
       storageOriginsImported: storageResults.length,
+      storageOriginsSkipped: prepared.skippedStorageOrigins,
       storageResults: storageResults.map((item) => item.result || {}),
       clearResult: clearResult.result || {},
       navigation: navigation.result || {},

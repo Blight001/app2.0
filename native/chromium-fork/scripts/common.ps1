@@ -1,7 +1,8 @@
 $ErrorActionPreference = 'Stop'
 
 $script:ForkRoot = Split-Path -Parent $PSScriptRoot
-$script:RepoRoot = Split-Path -Parent $script:ForkRoot
+$script:NativeRoot = Split-Path -Parent $script:ForkRoot
+$script:RepoRoot = Split-Path -Parent $script:NativeRoot
 $script:Lock = Get-Content -Raw -Encoding UTF8 (Join-Path $script:ForkRoot 'version-lock.json') | ConvertFrom-Json
 $script:SourceRoot = [string]$script:Lock.chromium.sourceRoot
 $script:DepotToolsRoot = [string]$script:Lock.depotTools.root

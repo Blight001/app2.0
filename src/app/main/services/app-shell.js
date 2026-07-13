@@ -711,6 +711,23 @@ function createAppShell(deps = {}) {
         // 先让 BrowserWindow 完成首轮绘制，再启动首屏数据同步。
         await new Promise((resolve) => setImmediate(resolve));
 
+        // 必须在创建首个网页标签（尤其是 Chromium Fork 进程）前完成插件扫描。
+        // Chromium 只能在进程启动时通过 --load-extension 注册插件；Electron
+        // 也只有在首次导航前加载扩展，document_start 内容脚本才会立即注入。
+        try {
+          if (extensionManager && typeof extensionManager.initialize === 'function') {
+            await extensionManager.initialize({ emit: true });
+            if (typeof extensionManager.ensureEnabledPluginsLoadedInCurrentSessions === 'function') {
+              await extensionManager.ensureEnabledPluginsLoadedInCurrentSessions('启动预加载');
+            }
+          } else {
+            applyPluginSettings({ translateExtEnabled: false });
+          }
+        } catch (e) {
+          logger.warn?.('[启动] 初始化插件开关失败，使用默认值:', e?.message || e);
+          applyPluginSettings({ translateExtEnabled: false });
+        }
+
         // 账号回收定时器：卡密已验证时启动。
         try {
           const validationSnapshot = licenseCache && typeof licenseCache.getSnapshot === 'function'
@@ -723,8 +740,7 @@ function createAppShell(deps = {}) {
           logger.warn?.('[启动] 刷新账号回收定时器失败:', e?.message || e);
         }
 
-        // 运行配置来自刚完成的卡密验证，优先同步并创建教程标签页。
-        // 不等待扩展目录扫描，避免主内容区长时间空白。
+        // 插件就绪后再同步运行配置并创建教程标签页，确保首次导航即可注入。
         try {
           await refreshRuntimeUrls();
         } catch (e) {
@@ -736,22 +752,6 @@ function createAppShell(deps = {}) {
           ensureAnnouncementPoller().start();
         } catch (e) {
           logger.warn?.('[启动] 启动公告轮询失败:', e?.message || e);
-        }
-
-        // 教程标签页开始加载后再扫描扩展；完成后补加载到已经创建的会话，
-        // 防止提速后已有标签遗漏扩展，同时向已加载的侧边栏广播最新状态。
-        try {
-          if (extensionManager && typeof extensionManager.initialize === 'function') {
-            await extensionManager.initialize({ emit: true });
-            if (typeof extensionManager.ensureEnabledPluginsLoadedInCurrentSessions === 'function') {
-              await extensionManager.ensureEnabledPluginsLoadedInCurrentSessions('启动补加载');
-            }
-          } else {
-            applyPluginSettings({ translateExtEnabled: false });
-          }
-        } catch (e) {
-          logger.warn?.('[启动] 初始化插件开关失败，使用默认值:', e?.message || e);
-          applyPluginSettings({ translateExtEnabled: false });
         }
 
         // 磁盘清理放到首屏和教程页启动之后，避免阻塞验证后的窗口切换。
