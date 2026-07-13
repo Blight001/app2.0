@@ -308,6 +308,35 @@ class ChromiumRuntime extends BrowserRuntime {
     };
   }
 
+  async setCookies(profileId, rawCookies = []) {
+    const instance = this.getReadyInstance(profileId);
+    const groups = new Map();
+    for (const cookie of Array.isArray(rawCookies) ? rawCookies : []) {
+      let targetUrl = String(cookie?.url || '').trim();
+      if (!targetUrl && cookie?.domain) targetUrl = `https://${String(cookie.domain).replace(/^\./, '')}/`;
+      try {
+        const parsed = new URL(targetUrl);
+        if (!['http:', 'https:'].includes(parsed.protocol)) continue;
+        const key = parsed.origin;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push({ ...cookie, url: targetUrl });
+      } catch (_) {}
+    }
+    let imported = 0;
+    let skipped = 0;
+    for (const [targetUrl, cookies] of groups) {
+      const prepared = prepareSessionImport({ targetUrl, cookies });
+      skipped += prepared.skippedCookies;
+      if (!prepared.cookies.length) continue;
+      const response = await instance.commandClient.send('set-cookies', {
+        cookies: prepared.cookies,
+        targetUrl: prepared.targetUrl,
+      }, { timeoutMs: 30000 });
+      imported += Number(response?.result?.imported || 0);
+    }
+    return { ok: true, imported, skipped };
+  }
+
   async restart(profileId) {
     const id = String(profileId);
     const instance = this.instances.get(id);

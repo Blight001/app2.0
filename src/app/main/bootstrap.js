@@ -45,6 +45,17 @@ const { createRuntimeHelpers } = require('./services/runtime-helpers');
 const { createExtensionManager } = require('./services/extension-manager');
 const { buildTabBrowserPreferences, configureTabBrowserView, resolveTabBrowserProfile, applyTabBrowserProxy } = require('./utils/browser-disguise');
 
+// Electron 的 GPU 开关必须在 ready 之前设置；侧栏保存后会在下次应用启动时读取。
+try {
+  const storePath = getStorePath();
+  if (storePath && fs.existsSync(storePath)) {
+    const store = JSON.parse(fs.readFileSync(storePath, 'utf8') || '{}');
+    if (store?.aiFreeBrowserSettings?.hardwareAcceleration === false) app.disableHardwareAcceleration();
+  }
+} catch (error) {
+  console.warn('[BrowserSettings] 读取硬件加速启动配置失败:', error?.message || error);
+}
+
 // 自动化任务必须与窗口可见性解耦。Chromium 默认会冻结最小化、被遮挡
 // 或移出 BrowserWindow 的页面，导致扩展定时器、Socket 和脚本执行中断。
 for (const switchName of [
@@ -127,6 +138,7 @@ let closeTab;
 let reorderTab;
 let setTabAccountId;
 let setTabBrowserProxyMode;
+let setTabBrowserSettings;
 let setZoom;
 let refreshActiveTabToUrl;
 let refreshActiveTab;
@@ -421,6 +433,7 @@ const appShellDeps = {
   getCloseTab: () => closeTab,
   getReorderTab: () => reorderTab,
   getSetTabBrowserProxyMode: () => setTabBrowserProxyMode,
+  getSetTabBrowserSettings: () => setTabBrowserSettings,
   getSetZoom: () => setZoom,
   getRefreshActiveTabToUrl: () => refreshActiveTabToUrl,
   getRefreshActiveTab: () => refreshActiveTab,
@@ -543,6 +556,7 @@ const tabManager = createTabManager({
   reorderTab,
   setTabAccountId,
   setTabBrowserProxyMode,
+  setTabBrowserSettings,
   setZoom,
   refreshActiveTabToUrl,
   refreshActiveTab,

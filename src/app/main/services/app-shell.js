@@ -52,6 +52,7 @@ function createAppShell(deps = {}) {
     getReorderTab,
     getSetTabAccountId,
     getSetTabBrowserProxyMode,
+    getSetTabBrowserSettings,
     getSetZoom,
     getRefreshActiveTabToUrl,
     getRefreshActiveTab,
@@ -230,6 +231,7 @@ function createAppShell(deps = {}) {
   const resolveSetTabAccountId = () => (typeof getSetTabAccountId === 'function' ? getSetTabAccountId() : null);
 // 获取/读取/解析：resolveSetTabBrowserProxyMode的具体业务逻辑。
   const resolveSetTabBrowserProxyMode = () => (typeof getSetTabBrowserProxyMode === 'function' ? getSetTabBrowserProxyMode() : null);
+  const resolveSetTabBrowserSettings = () => (typeof getSetTabBrowserSettings === 'function' ? getSetTabBrowserSettings() : null);
 // 获取/读取/解析：resolveSetZoom的具体业务逻辑。
   const resolveSetZoom = () => (typeof getSetZoom === 'function' ? getSetZoom() : null);
 // 获取/读取/解析：resolveRefreshActiveTabToUrl的具体业务逻辑。
@@ -613,6 +615,7 @@ function createAppShell(deps = {}) {
           closeTab: resolveCloseTab(),
           setTabAccountId: resolveSetTabAccountId(),
           setTabBrowserProxyMode: resolveSetTabBrowserProxyMode(),
+          setTabBrowserSettings: resolveSetTabBrowserSettings(),
           getTabs: () => resolveTabs(),
           getActiveTabId: () => resolveActiveTabId(),
           getActiveWC,

@@ -5,6 +5,11 @@ const {
 } = require('../ipc/register/clash-mini-core');
 const { normalizeTabBrowserProxyMode } = require('../utils/normalizers');
 const {
+  normalizeAiFreeBrowserSettings,
+  parseCookieJson,
+  parseLaunchArgs,
+} = require('../utils/ai-free-browser-settings');
+const {
   buildDefaultManagedTabPartitionName,
   buildManagedTabPartitionName,
   getActiveTabWebContents,
@@ -24,6 +29,39 @@ function resolveChromiumExtensionPaths(browserSettings = {}, extensionManager = 
       .map((item) => String(item || '').trim())
       .filter(Boolean),
   ));
+}
+
+function resolveConfiguredBrowserProxy(browserSettings = {}) {
+  const proxy = browserSettings.proxy && typeof browserSettings.proxy === 'object' ? browserSettings.proxy : {};
+  if (proxy.mode === 'default') return null;
+  if (proxy.mode === 'none') return { enabled: false };
+  const host = String(proxy.host || '').trim();
+  const port = Number(proxy.port);
+  if (proxy.mode !== 'custom' || !host || !Number.isInteger(port) || port < 1 || port > 65535) {
+    return { enabled: false };
+  }
+  const protocol = String(proxy.protocol || 'http').toLowerCase();
+  return {
+    enabled: true,
+    protocol,
+    server: `${protocol}://${host}:${port}`,
+    bypassRules: '<local>;127.0.0.1;localhost;::1',
+    username: String(proxy.username || ''),
+    password: String(proxy.password || ''),
+  };
+}
+
+function resolveConfiguredHomepage(browserSettings = {}, fallback = '') {
+  const homepage = browserSettings.homepage && typeof browserSettings.homepage === 'object' ? browserSettings.homepage : {};
+  return homepage.mode === 'custom' && String(homepage.url || '').trim()
+    ? String(homepage.url).trim()
+    : fallback;
+}
+
+function resolveChromiumExtraArgs(browserSettings = {}) {
+  const args = parseLaunchArgs(browserSettings);
+  if (browserSettings.hardwareAcceleration === false && !args.includes('--disable-gpu')) args.push('--disable-gpu');
+  return args;
 }
 
 // 创建/初始化：createTabManager的具体业务逻辑。
@@ -82,6 +120,19 @@ function createTabManager(deps = {}) {
 // 获取/读取/解析：resolveIsSidebarVisible的具体业务逻辑。
   const resolveIsSidebarVisible = () => (typeof getIsSidebarVisible === 'function' ? getIsSidebarVisible() : true);
   const isChromiumTab = (tab) => String(tab?.runtimeType || '') === 'chromium';
+
+  function readPersistedBrowserSettings() {
+    try {
+      const storePath = typeof getStorePath === 'function' ? getStorePath() : '';
+      if (!storePath || !fs?.existsSync?.(storePath)) return {};
+      const store = JSON.parse(fs.readFileSync(storePath, 'utf8') || '{}');
+      return store.aiFreeBrowserSettings && typeof store.aiFreeBrowserSettings === 'object'
+        ? store.aiFreeBrowserSettings
+        : {};
+    } catch (_) {
+      return {};
+    }
+  }
 
   if (browserRuntimeManager?.chromium?.on) {
     browserRuntimeManager.chromium.on('state-changed', (runtimeState) => {
@@ -252,10 +303,12 @@ function createTabManager(deps = {}) {
     const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
       ? licenseCache.getRuntimeConfig()
       : {};
-    const browserSettings = {
+    const rawBrowserSettings = {
       ...(runtimeConfig && typeof runtimeConfig.browserSettings === 'object' ? runtimeConfig.browserSettings : {}),
+      ...readPersistedBrowserSettings(),
       ...(options.browserSettings && typeof options.browserSettings === 'object' ? options.browserSettings : {}),
     };
+    const browserSettings = { ...rawBrowserSettings, ...normalizeAiFreeBrowserSettings(rawBrowserSettings) };
     const browserProfile = typeof resolveTabBrowserProfile === 'function'
       ? await resolveTabBrowserProfile({
           browserSettings,
@@ -275,6 +328,7 @@ function createTabManager(deps = {}) {
           bypassRules: '<local>;127.0.0.1;localhost;::1',
         }
       : null;
+    const configuredBrowserProxy = resolveConfiguredBrowserProxy(browserSettings);
     const requestedRuntimeType = browserRuntimeManager
       ? browserRuntimeManager.resolveType({ runtimeType: options.runtimeType || browserSettings.runtimeType })
       : 'electron';
@@ -282,8 +336,8 @@ function createTabManager(deps = {}) {
       const chromiumExtensionPaths = resolveChromiumExtensionPaths(browserSettings, extensionManager);
       let initialUrl = options.deferChromiumNavigation === true
         ? 'about:blank'
-        : (url || resolveDefaultTabUrl());
-      const effectiveProxy = resolveTabBrowserProxy({ browserProxyMode }, browserProxy, true);
+        : (url || resolveConfiguredHomepage(browserSettings, resolveDefaultTabUrl()));
+      const effectiveProxy = configuredBrowserProxy || resolveTabBrowserProxy({ browserProxyMode }, browserProxy, true);
       const [contentWidth, contentHeight] = mainWindow.getContentSize();
       const sidebarWidth = resolveIsSidebarVisible() ? Math.floor(contentWidth * 0.3) : 0;
       const bounds = { x: 0, y: 41, width: contentWidth - sidebarWidth, height: Math.max(0, contentHeight - 41) };
@@ -299,6 +353,7 @@ function createTabManager(deps = {}) {
         runtimeStatus: 'starting',
         browserProxyMode,
         browserProfile,
+        browserSettings,
       };
       resolveTabs().set(newTabId, chromiumTab);
       try {
@@ -311,12 +366,17 @@ function createTabManager(deps = {}) {
           userAgent: browserProfile?.userAgent,
           proxyServer: effectiveProxy?.enabled ? effectiveProxy.server : '',
           proxyBypassList: effectiveProxy?.bypassRules || '',
+          extraArgs: resolveChromiumExtraArgs(browserSettings),
           executablePath: browserSettings.chromiumExecutablePath,
           extensionPaths: chromiumExtensionPaths,
           allowPrototypeWindowDiscovery: browserSettings.allowPrototypeWindowDiscovery === true,
           remoteDebuggingPipe: browserSettings.remoteDebuggingPipe === true,
         }, bounds);
         chromiumTab.runtimeStatus = runtimeState.status;
+        const configuredCookies = parseCookieJson(browserSettings);
+        if (configuredCookies.length && typeof browserRuntimeManager.setCookies === 'function') {
+          try { await browserRuntimeManager.setCookies(newTabId, configuredCookies); } catch (error) { logger.warn?.('[ChromiumRuntime] AI-FREE Cookie 注入失败:', error?.message || error); }
+        }
         switchTab(newTabId);
         return newTabId;
       } catch (error) {
@@ -351,6 +411,7 @@ function createTabManager(deps = {}) {
       runtimeType: 'electron',
       runtimeStatus: 'ready',
       browserProxyMode,
+      browserSettings,
       browserProfile: browserProfile ? {
         browserBrand: browserProfile.browserBrand || '',
         browserType: browserProfile.browserType || '',
@@ -378,7 +439,7 @@ function createTabManager(deps = {}) {
         logger,
         browserProfile,
         browserSettings,
-        browserProxy: resolveTabBrowserProxy({ browserProxyMode }, browserProxy, true),
+        browserProxy: configuredBrowserProxy || resolveTabBrowserProxy({ browserProxyMode }, browserProxy, true),
       });
     }
 
@@ -403,7 +464,8 @@ function createTabManager(deps = {}) {
     } catch (_) {}
 
     newView.webContents.setWindowOpenHandler(({ url: childUrl }) => {
-      addTab(childUrl, { partition, browserSettings });
+      const currentSourceTab = resolveTabs().get(newTabId);
+      addTab(childUrl, { partition, browserSettings: currentSourceTab?.browserSettings || browserSettings });
       return { action: 'deny' };
     });
 
@@ -482,6 +544,10 @@ function createTabManager(deps = {}) {
     if (Array.isArray(options.cookies) && options.cookies.length) {
       try { await resolveAuth()?.setCookiesToSession(newView.webContents.session, options.cookies); } catch (e) { logger.warn?.('Cookie 注入失败:', e?.message || e); }
     }
+    const configuredCookies = parseCookieJson(browserSettings);
+    if (configuredCookies.length) {
+      try { await resolveAuth()?.setCookiesToSession(newView.webContents.session, configuredCookies); } catch (e) { logger.warn?.('AI-FREE Cookie 注入失败:', e?.message || e); }
+    }
 
     if (Array.isArray(options.browserStorage) && options.browserStorage.length) {
       try { resolveAuth()?.applyBrowserStorageToPage(newView.webContents, options.browserStorage); } catch (e) { logger.warn?.('BrowserStorage 注入失败:', e?.message || e); }
@@ -490,7 +556,7 @@ function createTabManager(deps = {}) {
     let initialUrl = url;
     if (!initialUrl) {
       try {
-        initialUrl = resolveDefaultTabUrl();
+        initialUrl = resolveConfiguredHomepage(browserSettings, resolveDefaultTabUrl());
       } catch (error) {
         logger.error?.('[main] 获取默认打开地址失败，使用教程页默认值:', error);
         initialUrl = DEFAULT_TUTORIAL_URL;
@@ -809,6 +875,72 @@ function createTabManager(deps = {}) {
     }
   }
 
+// 设置/更新/持久化：把可视化指纹设置应用到指定标签页。
+  async function setTabBrowserSettings(tabId, settings, options = {}) {
+    try {
+      const tabs = resolveTabs();
+      const tab = tabs.get(String(tabId || ''));
+      if (!tab) return { ok: false, message: '当前没有可配置的浏览器标签页' };
+      const normalized = normalizeAiFreeBrowserSettings(settings);
+      const hardwareRestartRequired = tab.browserSettings?.hardwareAcceleration !== undefined
+        && tab.browserSettings.hardwareAcceleration !== normalized.hardwareAcceleration;
+      const browserProfile = await resolveTabBrowserProfile({
+        browserSettings: normalized,
+        httpGetUniversal: deps.httpGetUniversal,
+        logger,
+      });
+      tab.browserSettings = { ...(tab.browserSettings || {}), ...normalized };
+      tab.browserProfile = browserProfile;
+      tabs.set(tab.id, tab);
+
+      if (isChromiumTab(tab)) {
+        const configuredProxy = resolveConfiguredBrowserProxy(normalized);
+        const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(tab.id));
+        if (instance?.profile) {
+          instance.profile.locale = browserProfile?.locale || '';
+          instance.profile.userAgent = browserProfile?.userAgent || '';
+          if (configuredProxy !== null) {
+            instance.profile.proxyServer = configuredProxy?.enabled ? configuredProxy.server : '';
+            instance.profile.proxyBypassList = configuredProxy?.bypassRules || '';
+          }
+          instance.profile.extraArgs = resolveChromiumExtraArgs(normalized);
+        }
+        const configuredCookies = parseCookieJson(normalized);
+        if (configuredCookies.length && typeof browserRuntimeManager?.setCookies === 'function') {
+          try { await browserRuntimeManager.setCookies(tab.id, configuredCookies); } catch (error) { logger.warn?.('[ChromiumRuntime] AI-FREE Cookie 更新失败:', error?.message || error); }
+        }
+        if (options.restartChromium === true && browserRuntimeManager) {
+          const state = await browserRuntimeManager.restart(tab.id);
+          tab.runtimeStatus = state?.status || tab.runtimeStatus;
+          updateTabs(true);
+          return { ok: true, applied: true, restarted: true, runtimeType: 'chromium' };
+        }
+        updateTabs(true);
+        return { ok: true, applied: false, restartRequired: true, runtimeType: 'chromium' };
+      }
+
+      const wc = tab?.view?.webContents;
+      if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) {
+        return { ok: false, message: '当前标签页已经关闭' };
+      }
+      const configuredProxy = resolveConfiguredBrowserProxy(normalized);
+      const configureOptions = {
+        logger,
+        browserProfile,
+        browserSettings: normalized,
+      };
+      if (configuredProxy !== null) configureOptions.browserProxy = configuredProxy;
+      await configureTabBrowserView(wc, configureOptions);
+      const configuredCookies = parseCookieJson(normalized);
+      if (configuredCookies.length) await resolveAuth()?.setCookiesToSession(wc.session, configuredCookies);
+      updateTabs(true);
+      return { ok: true, applied: true, restarted: false, restartRequired: hardwareRestartRequired, runtimeType: 'electron' };
+    } catch (error) {
+      logger.warn?.('[BrowserSettings] 应用标签参数失败:', error?.message || error);
+      return { ok: false, message: error?.message || String(error) };
+    }
+  }
+
 // 启动/打开/显示：openExtensionOptions的具体业务逻辑。
   async function openExtensionOptions(pluginId) {
     try {
@@ -825,6 +957,7 @@ function createTabManager(deps = {}) {
     addTab,
     applyClashMiniBrowserProxy,
     setTabBrowserProxyMode,
+    setTabBrowserSettings,
     switchTab,
     closeTab,
     reorderTab,

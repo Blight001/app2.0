@@ -39,7 +39,79 @@
       <iframe id="remote-preview-frame" class="remote-preview-frame" title="远程网页预览" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe>
     </section>
 
+    <nav class="tab-nav" aria-label="侧边栏栏目">
+      <button class="tab-button" type="button" data-tab="ai-free-settings-panel" aria-controls="ai-free-settings-panel">
+        <span class="tab-button-icon" aria-hidden="true">⚙</span>
+        <span>AI-FREE 参数</span>
+      </button>
+      <button class="tab-button active" type="button" data-tab="side-panel" aria-controls="side-panel">
+        <span class="tab-button-icon" aria-hidden="true">⌂</span>
+        <span>控制中心</span>
+      </button>
+    </nav>
+
     <div class="main-wrapper">
+      <section id="ai-free-settings-panel" class="ai-free-settings-panel panel" aria-label="AI-FREE 参数配置">
+        <form id="ai-free-settings-form" class="settings-container vb-form" autocomplete="off">
+          <header class="settings-hero"><div><div class="settings-eyebrow">Browser Profile</div><h1>AI-FREE 环境配置</h1><p>按 VirtualBrowser 的环境配置结构管理网络、身份与高级指纹。</p></div><button id="randomize-ai-free-settings" class="settings-secondary-btn" type="button">随机指纹</button></header>
+          <div id="ai-free-settings-runtime" class="settings-runtime-card">正在读取当前环境…</div>
+
+          <section class="vb-stage" aria-labelledby="basic-settings-title">
+            <h2 id="basic-settings-title">基础设置</h2>
+            <div class="vb-row"><span class="vb-label">操作系统</span><div class="segmented" data-field="os"><button type="button" data-value="win7">Win 7</button><button type="button" data-value="win8">Win 8</button><button type="button" data-value="win10">Win 10</button><button type="button" data-value="win11">Win 11</button></div></div>
+            <div class="vb-row"><label class="vb-label" for="browser-version">浏览器版本</label><select id="browser-version"><option value="">自动匹配</option></select></div>
+            <div class="vb-row"><label class="vb-label" for="kernel-version">内核版本</label><select id="kernel-version"><option value="auto">自动匹配</option></select></div>
+            <div class="vb-row vb-row-top"><span class="vb-label">代理设置</span><div class="vb-grow"><div class="segmented" data-field="proxy.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="none">不使用代理</button><button type="button" data-value="custom">自定义</button></div><div id="custom-proxy-fields" class="vb-subform">
+              <div class="vb-inline"><select id="proxy-protocol"><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks4">SOCKS4</option><option value="socks5">SOCKS5</option></select><input id="proxy-host" type="text" placeholder="代理主机"><input id="proxy-port" class="short-input" type="number" min="1" max="65535" placeholder="端口"></div>
+              <div class="vb-inline"><input id="proxy-username" type="text" placeholder="代理账号"><input id="proxy-password" type="password" placeholder="代理密码"><button id="test-ai-free-proxy" class="mini-action" type="button">检测</button></div>
+              <div class="vb-inline"><input id="proxy-api-url" type="url" placeholder="API 链接"><button id="extract-ai-free-proxy" class="mini-action" type="button">提取代理</button></div>
+            </div></div></div>
+            <div class="vb-row vb-row-top"><label class="vb-label" for="browser-cookies">Cookie</label><textarea id="browser-cookies" class="code-area" rows="6" placeholder='[{"name":"token","value":"...","domain":"example.com"}]'></textarea></div>
+            <div class="vb-row"><span class="vb-label">启动主页</span><div class="vb-grow"><div class="segmented" data-field="homepage.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="custom">自定义</button></div><input id="homepage-url" class="conditional-input" type="url" placeholder="https://example.com"></div></div>
+          </section>
+
+          <section class="vb-stage vb-stage-advanced" aria-labelledby="advanced-settings-title">
+            <h2 id="advanced-settings-title">高级设置</h2>
+            <div class="vb-row vb-row-top"><span class="vb-label">User Agent</span><div class="vb-grow"><div class="vb-inline"><div class="segmented" data-field="ua.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="custom">自定义</button></div><button id="randomize-user-agent" class="mini-action" type="button">随机</button></div><textarea id="browser-user-agent" rows="3" placeholder="默认跟随所选系统与浏览器版本"></textarea></div></div>
+            <div class="vb-row vb-row-top"><span class="vb-label">Sec-CH-UA</span><div class="vb-grow"><div class="segmented" data-field="secChUa.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="custom">自定义</button></div><textarea id="sec-ch-ua-brands" rows="3" placeholder='[{"brand":"Chromium","version":"147"}]'></textarea></div></div>
+            <div class="vb-row"><span class="vb-label">语言</span><div class="vb-grow"><label class="toggle-line"><input id="language-by-ip" type="checkbox"><span></span>基于 IP 自动匹配</label><input id="browser-locale" class="conditional-input" type="text" placeholder="zh-CN"></div></div>
+            <div class="vb-row"><span class="vb-label">时区</span><div class="vb-grow"><label class="toggle-line"><input id="timezone-by-ip" type="checkbox"><span></span>基于 IP 自动匹配</label><input id="browser-timezone" class="conditional-input" type="text" placeholder="Asia/Shanghai"></div></div>
+            <div class="vb-row"><span class="vb-label">WebRTC</span><div class="segmented" data-field="webrtc.mode"><button type="button" data-value="replace">替换</button><button type="button" data-value="allow">允许</button><button type="button" data-value="block">禁止</button></div></div>
+            <div class="vb-row vb-row-top"><span class="vb-label">地理位置</span><div class="vb-grow"><div class="segmented" data-field="geolocation.permission"><button type="button" data-value="ask">询问</button><button type="button" data-value="allow">允许</button><button type="button" data-value="block">禁止</button></div><label class="toggle-line"><input id="geolocation-by-ip" type="checkbox"><span></span>基于 IP 自动匹配</label><div id="custom-geolocation" class="vb-inline"><input id="geo-longitude" type="number" step="any" placeholder="经度"><input id="geo-latitude" type="number" step="any" placeholder="纬度"><input id="geo-accuracy" type="number" min="1" placeholder="精度"></div></div></div>
+            <div class="vb-row"><span class="vb-label">分辨率</span><div class="vb-grow"><div class="segmented" data-field="resolution.mode"><button type="button" data-value="follow">跟随电脑</button><button type="button" data-value="custom">自定义</button></div><div id="custom-resolution" class="vb-inline"><input id="resolution-width" type="number" min="800" placeholder="宽"><span>×</span><input id="resolution-height" type="number" min="600" placeholder="高"></div></div></div>
+            <div class="vb-row"><span class="vb-label">字体</span><div class="segmented" data-field="fonts.mode"><button type="button" data-value="system">系统默认</button><button type="button" data-value="random">随机匹配</button></div></div>
+            <div class="vb-row"><span class="vb-label">Canvas</span><div class="segmented" data-field="canvas.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="noise">随机</button></div></div>
+            <div class="vb-row"><span class="vb-label">WebGL 图像</span><div class="segmented" data-field="webglImage.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="noise">随机</button></div></div>
+            <div class="vb-row"><span class="vb-label">WebGL 元数据</span><div class="segmented" data-field="webglMetadata.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="custom">自定义</button></div></div>
+            <div id="webgl-metadata-fields"><div class="vb-row"><label class="vb-label" for="browser-webgl-vendor">WebGL 厂商</label><select id="browser-webgl-vendor"><option>Google Inc. (Intel)</option><option>Google Inc. (NVIDIA)</option><option>Google Inc. (AMD)</option></select></div><div class="vb-row"><label class="vb-label" for="browser-webgl-renderer">WebGL 渲染</label><input id="browser-webgl-renderer" type="text"></div></div>
+            <div class="vb-row"><span class="vb-label">WebGPU</span><div class="segmented" data-field="webgpu.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="webgl">基于 WebGL</button></div></div>
+            <div class="vb-row"><span class="vb-label">AudioContext</span><div class="segmented" data-field="audioContext.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="noise">随机</button></div></div>
+            <div class="vb-row"><span class="vb-label">ClientRects</span><div class="segmented" data-field="clientRects.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="noise">随机</button></div></div>
+            <div class="vb-row"><span class="vb-label">Speech Voices</span><div class="segmented" data-field="speechVoices.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="noise">随机</button></div></div>
+            <div class="vb-row"><label class="vb-label" for="browser-cpu">CPU</label><select id="browser-cpu" class="tiny-select"><option>2</option><option>4</option><option>6</option><option>8</option><option>12</option><option>16</option><option>32</option></select><span class="unit">核</span></div>
+            <div class="vb-row"><label class="vb-label" for="browser-memory">内存</label><select id="browser-memory" class="tiny-select"><option>2</option><option>4</option><option>8</option><option>16</option><option>32</option><option>64</option></select><span class="unit">GB</span></div>
+            <div class="vb-row"><span class="vb-label">设备名称</span><div class="vb-grow vb-inline"><div class="segmented" data-field="deviceName.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="custom">自定义</button></div><input id="device-name" type="text"><button class="link-action" type="button" data-random-target="device-name">换一换</button></div></div>
+            <div class="vb-row"><span class="vb-label">MAC 地址</span><div class="vb-grow vb-inline"><div class="segmented" data-field="macAddress.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="custom">自定义</button></div><input id="mac-address" type="text"><button class="link-action" type="button" data-random-target="mac-address">换一换</button></div></div>
+            <div class="vb-row"><span class="vb-label">Do Not Track</span><label class="switch"><input id="do-not-track" type="checkbox"><span></span></label></div>
+            <div class="vb-row"><span class="vb-label">SSL</span><div class="segmented" data-field="sslEnabled"><button type="button" data-value="true">开启</button><button type="button" data-value="false">关闭</button></div><span class="kernel-badge">内核项</span></div>
+            <div class="vb-row"><span class="vb-label">端口扫描保护</span><div class="segmented" data-field="portScanProtection.enabled"><button type="button" data-value="true">开启</button><button type="button" data-value="false">关闭</button></div></div>
+            <div class="vb-row"><label class="vb-label" for="port-scan-allow-list">扫描白名单</label><input id="port-scan-allow-list" type="text" placeholder="输入端口号，多个用英文逗号隔开"></div>
+            <div class="vb-row"><span class="vb-label">硬件加速</span><label class="switch"><input id="hardware-acceleration" type="checkbox"><span></span></label><span class="kernel-badge">重启生效</span></div>
+            <div class="vb-row vb-row-top"><span class="vb-label">启动参数</span><div class="vb-grow"><div class="segmented" data-field="launchArgs.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="custom">自定义</button></div><textarea id="launch-args" rows="3" placeholder="每行一个 --switch=value"></textarea></div></div>
+          </section>
+
+          <div class="settings-apply-options">
+            <label><input id="apply-settings-to-active" type="checkbox" checked> 同时应用到当前环境</label>
+            <label><input id="restart-chromium-settings" type="checkbox"> Chromium 环境保存后立即重启</label>
+          </div>
+          <div class="settings-actions">
+            <button id="reset-ai-free-settings" class="settings-secondary-btn" type="button">恢复默认</button>
+            <button id="save-ai-free-settings" class="settings-primary-btn" type="submit">保存参数</button>
+          </div>
+          <div id="ai-free-settings-status" class="settings-status" role="status" aria-live="polite"></div>
+        </form>
+      </section>
+
       <div id="side-panel" class="side-panel panel active">
         <div class="container">
           <div class="info-group">
@@ -205,6 +277,7 @@
   <script src="./client/app/side/controllers/pages/side-panel/modules/license.js"></script>
   <script src="./client/app/side/controllers/pages/side-panel/modules/account.js"></script>
   <script src="./client/app/side/controllers/pages/side-panel/modules/announcements.js"></script>
+  <script src="./client/app/side/controllers/pages/side-panel/modules/browser-settings.js"></script>
   <script src="./client/app/side/controllers/pages/side-panel/modules/init-core.js"></script>
   <script src="./client/app/side/controllers/pages/side-panel/modules/init-bindings.js"></script>
   <script src="./client/app/side/controllers/pages/side-panel/modules/init-runtime.js"></script>

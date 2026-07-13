@@ -1,4 +1,4 @@
-const { BrowserWindow, ipcMain } = require('electron');
+const { BrowserWindow, ipcMain, net, session: electronSession } = require('electron');
 const fs = require('fs');
 const { getStorePath } = require('../../config');
 const {
@@ -8,6 +8,29 @@ const {
   writeStoreConfigSafe,
 } = require('./store-utils');
 const { detectNetworkMagicStatus } = require('./clash-mini-core');
+const {
+  DEFAULT_AI_FREE_BROWSER_SETTINGS,
+  normalizeAiFreeBrowserSettings,
+} = require('../../utils/ai-free-browser-settings');
+
+const getBrowserRuntimeInfo = () => ({
+  chromiumVersion: String(process.versions?.chrome || ''),
+  electronVersion: String(process.versions?.electron || ''),
+});
+
+function validateBrowserSettingsPayload(input = {}) {
+  const rawCookies = input?.cookies;
+  if (rawCookies !== undefined && !Array.isArray(rawCookies)) {
+    let parsed;
+    try { parsed = JSON.parse(String(rawCookies || '[]')); } catch (_) { throw new Error('Cookie 必须是有效的 JSON 数组'); }
+    if (!Array.isArray(parsed)) throw new Error('Cookie 顶层必须是数组');
+  }
+  if (input?.secChUa?.mode === 'custom' && !Array.isArray(input?.secChUa?.brands)) throw new Error('Sec-CH-UA 必须是数组');
+  if (input?.homepage?.mode === 'custom') {
+    const parsed = new URL(String(input.homepage.url || ''));
+    if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('启动主页仅支持 HTTP/HTTPS');
+  }
+}
 
 // 获取/读取/解析：getNetworkMagicAutoStartEnabledSafe的具体业务逻辑。
 function getNetworkMagicAutoStartEnabledSafe() {
@@ -38,6 +61,149 @@ function setNetworkMagicAutoStartEnabledSafe(enabled) {
 function registerSettingsIPC(ctx) {
   const { ui, computeDeviceId, licenseCache } = ctx;
   const extensionManager = ctx.extensionManager || ui?.extensionManager || null;
+
+  ipcMain.handle('get-ai-free-browser-settings', async () => {
+    try {
+      const store = readStoreConfigSafe();
+      const saved = store?.aiFreeBrowserSettings && typeof store.aiFreeBrowserSettings === 'object'
+        ? store.aiFreeBrowserSettings
+        : DEFAULT_AI_FREE_BROWSER_SETTINGS;
+      const settings = normalizeAiFreeBrowserSettings(saved);
+      const activeTabId = typeof ui?.getActiveTabId === 'function' ? ui.getActiveTabId() : null;
+      const activeTab = typeof ui?.getTabs === 'function' ? ui.getTabs()?.get?.(activeTabId) : null;
+      return {
+        ok: true,
+        settings,
+        runtimeInfo: getBrowserRuntimeInfo(),
+        activeTab: activeTab ? {
+          id: String(activeTab.id || ''),
+          title: String(activeTab.fixedTitle || activeTab.runtimeTitle || activeTab.view?.webContents?.getTitle?.() || '当前环境'),
+          runtimeType: String(activeTab.runtimeType || 'electron'),
+        } : null,
+      };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error), settings: normalizeAiFreeBrowserSettings({}) };
+    }
+  });
+
+  ipcMain.handle('test-ai-free-proxy', async (_event, payload = {}) => {
+    const proxy = normalizeAiFreeBrowserSettings({ proxy: payload?.proxy }).proxy;
+    if (proxy.mode !== 'custom' || !proxy.host || !proxy.port) return { ok: false, error: '请先填写代理主机和端口' };
+    const startedAt = Date.now();
+    try {
+      const testSession = electronSession.fromPartition(`ai-free-proxy-test-${Date.now()}`, { cache: false });
+      const scheme = proxy.protocol;
+      await testSession.setProxy({ proxyRules: `${scheme}://${proxy.host}:${proxy.port}` });
+      const result = await new Promise((resolve, reject) => {
+        const request = net.request({ method: 'GET', url: 'https://api.ipify.org?format=json', session: testSession });
+        const timer = setTimeout(() => { request.abort(); reject(new Error('代理检测超时')); }, 12000);
+        request.on('login', (_authInfo, callback) => callback(proxy.username || '', proxy.password || ''));
+        request.on('response', (response) => {
+          let body = '';
+          response.on('data', (chunk) => { body += String(chunk); });
+          response.on('end', () => { clearTimeout(timer); resolve({ statusCode: response.statusCode, body }); });
+        });
+        request.on('error', (error) => { clearTimeout(timer); reject(error); });
+        request.end();
+      });
+      if (Number(result.statusCode) < 200 || Number(result.statusCode) >= 400) throw new Error(`代理返回 HTTP ${result.statusCode}`);
+      let ip = ''; try { ip = JSON.parse(result.body)?.ip || ''; } catch (_) { ip = result.body.trim(); }
+      return { ok: true, ip, elapsedMs: Date.now() - startedAt };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error), elapsedMs: Date.now() - startedAt };
+    }
+  });
+
+  ipcMain.handle('extract-ai-free-proxy', async (_event, payload = {}) => {
+    try {
+      const apiUrl = String(payload?.apiUrl || '').trim();
+      const parsedUrl = new URL(apiUrl);
+      if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('API 链接仅支持 HTTP/HTTPS');
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+      const response = await net.fetch(parsedUrl.href, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!response.ok) throw new Error(`API 返回 HTTP ${response.status}`);
+      const raw = (await response.text()).trim();
+      let source = raw;
+      try {
+        const json = JSON.parse(raw);
+        source = json?.data?.proxy || json?.proxy || json?.data || json;
+        if (source && typeof source === 'object') {
+          const normalized = normalizeAiFreeBrowserSettings({ proxy: {
+            mode: 'custom', protocol: source.protocol || source.type || 'http',
+            host: source.host || source.ip || source.hostname, port: source.port,
+            username: source.username || source.user, password: source.password || source.pass,
+          }}).proxy;
+          if (!normalized.host || !normalized.port) throw new Error('API 返回中没有代理主机或端口');
+          return { ok: true, proxy: normalized };
+        }
+      } catch (error) {
+        if (!(error instanceof SyntaxError)) throw error;
+      }
+      const match = String(source).match(/(?:(https?|socks[45]):\/\/)?(?:([^:@\s]+):([^@\s]+)@)?([^:\s]+):(\d+)(?::([^:\s]+):([^\s]+))?/i);
+      if (!match) throw new Error('无法识别 API 返回的代理格式');
+      const normalized = normalizeAiFreeBrowserSettings({ proxy: {
+        mode: 'custom', protocol: match[1] || 'http', host: match[4], port: match[5],
+        username: match[2] || match[6] || '', password: match[3] || match[7] || '',
+      }}).proxy;
+      return { ok: true, proxy: normalized };
+    } catch (error) {
+      return { ok: false, error: error?.name === 'AbortError' ? '代理 API 请求超时' : (error?.message || String(error)) };
+    }
+  });
+
+  ipcMain.handle('set-ai-free-browser-settings', async (_event, payload = {}) => {
+    try {
+      const rawSettings = payload?.settings || payload;
+      validateBrowserSettingsPayload(rawSettings);
+      const settings = normalizeAiFreeBrowserSettings(rawSettings);
+      const currentStore = readStoreConfigSafe();
+      const wrote = writeStoreConfigSafe({
+        ...(currentStore && typeof currentStore === 'object' ? currentStore : {}),
+        aiFreeBrowserSettings: settings,
+      });
+      if (!wrote) return { ok: false, error: '参数未能写入本地配置' };
+      if (licenseCache && typeof licenseCache.setRuntimeConfig === 'function') {
+        licenseCache.setRuntimeConfig({ browserSettings: settings });
+      }
+
+      let activeResult = null;
+      const activeTabId = typeof ui?.getActiveTabId === 'function' ? ui.getActiveTabId() : null;
+      if (payload?.applyToActive !== false && activeTabId && typeof ui?.setTabBrowserSettings === 'function') {
+        activeResult = await ui.setTabBrowserSettings(activeTabId, settings, {
+          restartChromium: payload?.restartChromium === true,
+        });
+      }
+      return { ok: true, settings, activeResult, runtimeInfo: getBrowserRuntimeInfo() };
+    } catch (error) {
+      console.error('[IPC] 保存 AI-FREE 浏览器参数失败:', error);
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle('reset-ai-free-browser-settings', async (_event, payload = {}) => {
+    try {
+      const settings = normalizeAiFreeBrowserSettings({});
+      const currentStore = readStoreConfigSafe();
+      const wrote = writeStoreConfigSafe({
+        ...(currentStore && typeof currentStore === 'object' ? currentStore : {}),
+        aiFreeBrowserSettings: settings,
+      });
+      if (!wrote) return { ok: false, error: '默认参数未能写入本地配置' };
+      licenseCache?.setRuntimeConfig?.({ browserSettings: settings });
+      let activeResult = null;
+      const activeTabId = typeof ui?.getActiveTabId === 'function' ? ui.getActiveTabId() : null;
+      if (payload?.applyToActive !== false && activeTabId && typeof ui?.setTabBrowserSettings === 'function') {
+        activeResult = await ui.setTabBrowserSettings(activeTabId, settings, {
+          restartChromium: payload?.restartChromium === true,
+        });
+      }
+      return { ok: true, settings, activeResult, runtimeInfo: getBrowserRuntimeInfo() };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
 
   ipcMain.handle('get-plugin-settings', async () => {
     try {

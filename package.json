@@ -19,6 +19,8 @@
     "check:announcements": "node scripts/check-announcement-polling.js",
     "check:extension-compat": "node scripts/check-extension-compat.js",
     "check:browser-runtime": "node scripts/check-browser-runtime.js",
+    "check:browser-settings": "node scripts/check-browser-settings.js",
+    "check:browser-settings-ui": "node scripts/run-electron.js scripts/check-browser-settings-ui.js",
     "check:chromium-handshake": "node scripts/check-chromium-handshake.js",
     "check:chromium-embedded-policy": "node scripts/check-chromium-embedded-policy.js",
     "build:native-host": "node scripts/build-native-host.js",
