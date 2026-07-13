@@ -6,11 +6,21 @@
   "main": "src/app/main/main.js",
   "workspaces": [],
   "scripts": {
-    "start": "node scripts/run-electron.js .",
+    "start": "node scripts/run-chromium-fork.js .",
+    "start:electron": "node scripts/run-electron.js .",
     "start:dev": "node scripts/run-electron.js .",
+    "start:chromium": "node scripts/run-chromium-fork.js .",
+    "start:prototype": "node scripts/run-chromium-runtime.js .",
+    "smoke:chromium": "node scripts/run-electron.js scripts/smoke-chromium-embed.js",
+    "accept:chromium-phase2": "node scripts/run-electron.js scripts/accept-chromium-phase2.js",
+    "accept:chromium-input": "node scripts/run-electron.js scripts/accept-chromium-input.js",
+    "accept:chromium-phase3": "node scripts/run-electron.js scripts/accept-chromium-phase3.js",
     "check:http-routing": "node scripts/check-http-tenant-routing.js",
     "check:announcements": "node scripts/check-announcement-polling.js",
     "check:extension-compat": "node scripts/check-extension-compat.js",
+    "check:browser-runtime": "node scripts/check-browser-runtime.js",
+    "check:chromium-handshake": "node scripts/check-chromium-handshake.js",
+    "build:native-host": "node scripts/build-native-host.js",
     "build": "electron-builder",
     "build:win": "node scripts/build-windows.js",
     "build:portable": "electron-builder --win portable"
@@ -50,6 +60,7 @@
     },
     "files": [
       "src/**/*",
+      "native/browser-host/build/Release/browser_host.node",
       "!src/DEV_MAP.md",
       "!src/assets/extensions/clash-mini/core/**/*",
       "!src/assets/extensions/remove_watermark/**/*.map",
@@ -65,6 +76,14 @@
       "!node_modules/onnxruntime-node/**"
     ],
     "extraResources": [
+      {
+        "from": "native/browser-host/build/Release/browser_host.node",
+        "to": "native/browser-host/browser_host.node"
+      },
+      {
+        "from": "resources/chromium",
+        "to": "chromium"
+      },
       {
         "from": "src/assets/extensions/clash-mini/core",
         "to": "resource/extensions/clash-mini/core"

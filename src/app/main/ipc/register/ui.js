@@ -27,6 +27,29 @@ function registerUiIPC(ctx) {
 
   const normalizeAppTheme = (theme) => (String(theme || '').trim() === 'light' ? 'light' : 'dark');
 
+  ipcMain.handle('get-browser-runtime-state', async (_event, payload = {}) => {
+    const manager = ui?.browserRuntimeManager;
+    if (!manager) return { ok: false, message: 'Browser Runtime 不可用' };
+    const profileId = String(payload?.profileId || '').trim();
+    return {
+      ok: true,
+      nativeHostAvailable: manager.isChromiumAvailable(),
+      state: profileId ? manager.getState(profileId) : null,
+      states: manager.listStates(),
+    };
+  });
+
+  ipcMain.handle('restart-browser-runtime', async (_event, payload = {}) => {
+    const profileId = String(payload?.profileId || '').trim();
+    if (!profileId || !ui?.browserRuntimeManager) return { ok: false, message: '缺少 Chromium Profile ID' };
+    try {
+      const state = await ui.browserRuntimeManager.restart(profileId);
+      return { ok: true, state };
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error) };
+    }
+  });
+
   const sendAppThemeToWebContents = (webContents, theme) => {
     try {
       if (webContents && !webContents.isDestroyed()) {

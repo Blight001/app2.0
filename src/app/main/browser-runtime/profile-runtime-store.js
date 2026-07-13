@@ -1,0 +1,151 @@
+const fs = require('fs');
+const path = require('path');
+const { canTransition, createRuntimeState, normalizeBounds } = require('./runtime-types');
+
+function safeProfileId(value) {
+  const normalized = String(value || '').trim().replace(/[^a-zA-Z0-9._-]/g, '_');
+  if (!normalized || normalized === '.' || normalized === '..') {
+    throw new Error('无效的 Profile ID');
+  }
+  return normalized;
+}
+
+class ProfileRuntimeStore {
+  constructor(options = {}) {
+    this.rootDir = path.resolve(String(options.rootDir || 'chromium-profiles'));
+    this.logger = options.logger || console;
+    this.states = new Map();
+    this.locks = new Map();
+  }
+
+  getProfilePaths(profileId) {
+    const id = safeProfileId(profileId);
+    const root = path.join(this.rootDir, id);
+    return {
+      id,
+      root,
+      config: path.join(root, 'profile.json'),
+      chromiumData: path.join(root, 'chromium-data'),
+      extensions: path.join(root, 'extensions.json'),
+      proxy: path.join(root, 'proxy.enc'),
+      fingerprint: path.join(root, 'fingerprint.json'),
+      downloads: path.join(root, 'downloads'),
+      crashpad: path.join(root, 'crashpad'),
+      logs: path.join(root, 'logs'),
+      lock: path.join(root, '.runtime.lock'),
+    };
+  }
+
+  ensureProfile(profile = {}) {
+    const paths = this.getProfilePaths(profile.profileId || profile.id);
+    for (const dir of [paths.root, paths.chromiumData, paths.downloads, paths.crashpad, paths.logs]) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const previous = this.readProfile(paths.id);
+    const config = {
+      profileId: paths.id,
+      runtimeType: profile.runtimeType || previous.runtimeType || 'electron',
+      createdAt: previous.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      displayName: String(profile.displayName || previous.displayName || '').trim(),
+    };
+    fs.writeFileSync(paths.config, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+    return { ...paths, config: paths.config, profile: config };
+  }
+
+  readProfile(profileId) {
+    const paths = this.getProfilePaths(profileId);
+    try {
+      return JSON.parse(fs.readFileSync(paths.config, 'utf8'));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  acquireLock(profileId, metadata = {}) {
+    const paths = this.ensureProfile({ profileId });
+    if (this.locks.has(paths.id)) return this.locks.get(paths.id);
+    let fd;
+    try {
+      fd = fs.openSync(paths.lock, 'wx');
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      let lock = {};
+      try { lock = JSON.parse(fs.readFileSync(paths.lock, 'utf8')); } catch (_) {}
+      const pid = Number(lock.pid || 0);
+      let alive = false;
+      if (pid > 0) {
+        try { process.kill(pid, 0); alive = true; } catch (_) {}
+      }
+      if (alive) throw new Error(`Profile ${paths.id} 已被进程 ${pid} 使用`);
+      try { fs.unlinkSync(paths.lock); } catch (_) {}
+      fd = fs.openSync(paths.lock, 'wx');
+    }
+    const lockData = { pid: process.pid, acquiredAt: Date.now(), ...metadata };
+    fs.writeFileSync(fd, JSON.stringify(lockData), 'utf8');
+    const lock = { fd, path: paths.lock, profileId: paths.id };
+    this.locks.set(paths.id, lock);
+    return lock;
+  }
+
+  releaseLock(profileId) {
+    const id = safeProfileId(profileId);
+    const lock = this.locks.get(id);
+    if (!lock) return false;
+    try { fs.closeSync(lock.fd); } catch (_) {}
+    try { fs.unlinkSync(lock.path); } catch (_) {}
+    this.locks.delete(id);
+    return true;
+  }
+
+  createState(profileId, runtimeType, patch = {}) {
+    const id = safeProfileId(profileId);
+    const state = createRuntimeState(id, runtimeType, patch);
+    this.states.set(id, state);
+    return state;
+  }
+
+  getState(profileId) {
+    return this.states.get(safeProfileId(profileId)) || null;
+  }
+
+  patchState(profileId, patch = {}) {
+    const id = safeProfileId(profileId);
+    const current = this.states.get(id);
+    if (!current) throw new Error(`Profile ${id} 没有运行状态`);
+    const next = { ...current, ...patch };
+    if (patch.bounds) next.bounds = normalizeBounds(patch.bounds);
+    this.states.set(id, next);
+    return next;
+  }
+
+  transition(profileId, status, patch = {}) {
+    const current = this.getState(profileId);
+    if (!current) throw new Error(`Profile ${profileId} 没有运行状态`);
+    if (!canTransition(current.status, status)) {
+      throw new Error(`非法运行时状态迁移: ${current.status} -> ${status}`);
+    }
+    return this.patchState(profileId, { ...patch, status });
+  }
+
+  listStates() {
+    return Array.from(this.states.values()).map((state) => ({ ...state }));
+  }
+
+  clearState(profileId) {
+    return this.states.delete(safeProfileId(profileId));
+  }
+
+  deleteProfile(profileId) {
+    const id = safeProfileId(profileId);
+    if (this.locks.has(id)) throw new Error(`Profile ${id} 仍在运行，不能删除`);
+    const paths = this.getProfilePaths(id);
+    const relative = path.relative(this.rootDir, paths.root);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Profile 删除路径越界');
+    fs.rmSync(paths.root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    this.states.delete(id);
+    return true;
+  }
+}
+
+module.exports = { ProfileRuntimeStore, safeProfileId };

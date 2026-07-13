@@ -264,6 +264,7 @@ function buildTabTooltip(tab) {
     `accountId: ${accountId}`,
     `当前激活: ${activeText}`,
     `代理模式: ${browserProxyMode}`,
+    `运行时: ${String(tab?.runtimeType || 'electron')} (${String(tab?.runtimeStatus || 'ready')})`,
     `浏览器: ${browserBrand}${browserType ? ` (${browserType})` : ''}`,
     `来源IP: ${sourceIp || '自动'}`,
     `来源国家: ${sourceCountry || sourceCountryCode || '自动'}`,
@@ -313,12 +314,38 @@ function createTabElement(tab) {
   tabElement.dataset.browserLocale = String(tab?.browserProfile?.locale || '');
   tabElement.dataset.browserTimezone = String(tab?.browserProfile?.timezoneId || '');
   tabElement.dataset.browserAcceptLanguage = String(tab?.browserProfile?.acceptLanguage || '');
+  tabElement.dataset.runtimeType = String(tab?.runtimeType || 'electron');
+  tabElement.dataset.runtimeStatus = String(tab?.runtimeStatus || 'ready');
 
   const titleSpan = document.createElement('span');
   titleSpan.className = 'tab-title';
   titleSpan.textContent = tab.title;
   titleSpan.title = buildTabTooltip(tab);
   tabElement.appendChild(titleSpan);
+
+  if (tab?.runtimeType === 'chromium') {
+    const runtimeBadge = document.createElement('button');
+    const crashed = tab.runtimeStatus === 'crashed';
+    runtimeBadge.type = 'button';
+    runtimeBadge.className = `tab-runtime-badge${crashed ? ' crashed' : ''}`;
+    runtimeBadge.textContent = crashed ? '重启' : 'C';
+    runtimeBadge.title = crashed ? 'AI-FREE 浏览器已退出，点击重新启动环境' : `AI-FREE 浏览器: ${tab.runtimeStatus || 'ready'}`;
+    runtimeBadge.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      if (!crashed || typeof IPC.invoke !== 'function' || runtimeBadge.disabled) return;
+      runtimeBadge.disabled = true;
+      runtimeBadge.textContent = '…';
+      try {
+        const result = await IPC.invoke('restart-browser-runtime', { profileId: tab.id });
+        if (!result?.ok) throw new Error(result?.message || '重启失败');
+      } catch (error) {
+        showControllerError('重启 AI-FREE 浏览器环境失败', error);
+        runtimeBadge.disabled = false;
+        runtimeBadge.textContent = '重启';
+      }
+    });
+    tabElement.appendChild(runtimeBadge);
+  }
 
   const closeBtn = document.createElement('span');
   closeBtn.className = 'tab-close';

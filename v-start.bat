@@ -30,7 +30,7 @@ if not exist "node_modules\electron\path.txt" (
 )
 
 echo ========================================
-echo   AI-FREE Launcher  ^(npm start^)
+echo   AI-FREE Chromium Runtime Launcher  ^(npm start^)
 echo ========================================
 echo.
 

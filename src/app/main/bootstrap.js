@@ -6,6 +6,7 @@ const { createLicenseCache } = require('./runtime/license-cache');
 const { createUiBridge } = require('./composition/create-ui-bridge');
 const { acquireSingleInstance, applyWindowsAppUserModelId } = require('./composition/startup-guards');
 const { createAppUpdater } = require('./services/app-updater');
+const { createBrowserRuntimeManager } = require('./browser-runtime');
 
 // 启动/打开/显示：startMainApp的具体业务逻辑。
 function startMainApp() {
@@ -43,9 +44,6 @@ const { createTabHelpers } = require('./services/tab-helpers');
 const { createRuntimeHelpers } = require('./services/runtime-helpers');
 const { createExtensionManager } = require('./services/extension-manager');
 const { buildTabBrowserPreferences, configureTabBrowserView, resolveTabBrowserProfile, applyTabBrowserProxy } = require('./utils/browser-disguise');
-
-// 放宽证书（避免部分环境下自签/中间证书导致的验证失败）
-app.commandLine.appendSwitch('ignore-certificate-errors');
 
 // 自动化任务必须与窗口可见性解耦。Chromium 默认会冻结最小化、被遮挡
 // 或移出 BrowserWindow 的页面，导致扩展定时器、Socket 和脚本执行中断。
@@ -94,6 +92,26 @@ acquireSingleInstance({
 
 // ---- 全局状态 ----
 const appRuntime = createAppState();
+// In development, Electron's process.resourcesPath points at
+// node_modules/electron/dist/resources rather than this application's resources
+// directory. Packaged builds, however, stage the Chromium fork directly under
+// process.resourcesPath/chromium.
+const chromiumResourcesPath = app.isPackaged
+  ? process.resourcesPath
+  : path.resolve(__dirname, '../../..', 'resources');
+const browserRuntimeManager = createBrowserRuntimeManager({
+  userDataDir: app.getPath('userData'),
+  resourcesPath: chromiumResourcesPath,
+  getParentWindow: appRuntime.getMainWindow,
+  logger: console,
+});
+try {
+  if (process.platform === 'win32' && browserRuntimeManager.isChromiumAvailable()) {
+    browserRuntimeManager.windowBridge.setPerMonitorDpiAwareness();
+  }
+} catch (error) {
+  console.warn('[ChromiumRuntime] 无法初始化 Per-Monitor DPI V2:', error?.message || error);
+}
   const licenseCache = createLicenseCache();
   if (typeof accountStorage.setLicenseCache === 'function') {
     accountStorage.setLicenseCache(licenseCache);
@@ -364,6 +382,7 @@ const appShellDeps = {
   path,
   BrowserWindow,
   BrowserView,
+  browserRuntimeManager,
   dialog,
   Menu,
   logger: console,
@@ -477,6 +496,7 @@ const {
 const tabManager = createTabManager({
   BrowserWindow,
   BrowserView,
+  browserRuntimeManager,
   path,
   fs,
   logger: console,
@@ -552,6 +572,7 @@ registerAppLifecycle({
   sendToSide,
   cleanupAllBrowserSessionData,
   cleanupBrowserPartitionsRootDir,
+  browserRuntimeManager,
 
   shortcutManager,
   resolveServerConfigForKey: serverResolver.resolveServerConfigForKey,

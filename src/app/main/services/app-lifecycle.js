@@ -427,6 +427,15 @@ function registerAppLifecycle(deps = {}) {
 
       try {
         try {
+          if (deps.browserRuntimeManager && typeof deps.browserRuntimeManager.stopAll === 'function') {
+            logger.log?.('[退出] 正在优雅关闭 Chromium Profile...');
+            await deps.browserRuntimeManager.stopAll({ timeoutMs: isUpdateExit ? 2000 : 5000 });
+          }
+        } catch (e) {
+          logger.warn?.('[退出] Chromium Profile 关闭失败:', e?.message || e);
+        }
+
+        try {
           logger.log?.('[退出] 关闭所有窗口...');
           for (const win of BrowserWindow.getAllWindows()) {
             try { win.close(); } catch (_) {}

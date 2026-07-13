@@ -315,6 +315,15 @@ function registerAccountIPC(ctx) {
       }
     }
 
+    try {
+      if (ui?.browserRuntimeManager?.deleteProfile) {
+        ui.browserRuntimeManager.deleteProfile(normalizedAccountId);
+      }
+    } catch (error) {
+      console.warn('[delete-accounts] 删除 Chromium Profile 失败:', normalizedAccountId, error?.message || error);
+      return { ok: false, error: error?.message || '删除 Chromium Profile 失败' };
+    }
+
     return { ok: true };
   }
 
@@ -790,15 +799,23 @@ function registerAccountIPC(ctx) {
         tabId = await ui.addTab(targetUrl, {
           accountId: launchAccountId,
           browserStorage: hasBrowserStorage ? account.browserStorage : [],
+          deferChromiumNavigation: true,
         });
       } catch (addTabError) {
         console.warn('[switch-account] 使用账号ID创建标签页失败，尝试降级为普通标签页:', addTabError?.message || addTabError);
-        tabId = await ui.addTab(targetUrl, { browserStorage: hasBrowserStorage ? account.browserStorage : [] });
+        tabId = await ui.addTab(targetUrl, {
+          browserStorage: hasBrowserStorage ? account.browserStorage : [],
+          deferChromiumNavigation: true,
+        });
       }
 
       if (!tabId) {
         throw new Error('创建标签页失败');
       }
+      const openedTab = ui.getTabs && typeof ui.getTabs === 'function'
+        ? ui.getTabs().get(tabId)
+        : null;
+      const isChromiumTab = String(openedTab?.runtimeType || '') === 'chromium';
       const wc = ui.getActiveWC();
 
       if (targetUrl && targetUrl !== savedTargetUrl && !isPlaceholderTargetUrl(targetUrl)) {
@@ -958,6 +975,20 @@ function registerAccountIPC(ctx) {
           }
         }
 
+        if (isChromiumTab) {
+          const importResult = await ui.browserRuntimeManager.importSession(tabId, {
+            cookies: Array.isArray(cookies) ? cookies : [],
+            browserStorage: Array.isArray(browserStorageToInject) ? browserStorageToInject : [],
+            targetUrl,
+          });
+          console.log('[switch-account] 独立 Chromium Profile 会话导入完成:', {
+            tabId,
+            cookiesImported: importResult.cookiesImported,
+            storageOriginsImported: importResult.storageOriginsImported,
+          });
+          return { ok: true, tabId };
+        }
+
         if (!wc) throw new Error('webContents 不可用');
         const sessionHasCookies = auth && typeof auth.hasSessionCookies === 'function'
           ? await auth.hasSessionCookies(wc.session)
@@ -977,6 +1008,10 @@ function registerAccountIPC(ctx) {
           try { wc.loadURL(targetUrl); } catch (_) {}
         }
       } catch (e) {
+        if (isChromiumTab) {
+          try { await ui.closeTab(tabId); } catch (_) {}
+          throw e;
+        }
         console.warn('[switch-account] cookie 导入/打开网页失败:', e?.message || e);
       }
 

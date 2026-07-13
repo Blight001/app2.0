@@ -11,6 +11,8 @@ function resolveTabTitle(tab = {}) {
   if (fixedTitle) {
     return fixedTitle;
   }
+  const runtimeTitle = String(tab?.runtimeTitle || '').trim();
+  if (runtimeTitle) return runtimeTitle;
   return String(tab?.view?.webContents?.getTitle?.() || '').trim();
 }
 

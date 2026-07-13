@@ -672,7 +672,30 @@ function registerLicenseIPC(ctx) {
         accountId: launchAccountId,
         fixedTitle: platformName,
         tabTitle: platformName,
+        deferChromiumNavigation: true,
       });
+      const openedTab = ui.getTabs && typeof ui.getTabs === 'function'
+        ? ui.getTabs().get(tabId)
+        : null;
+      const isChromiumTab = String(openedTab?.runtimeType || '') === 'chromium';
+      if (isChromiumTab) {
+        try {
+          const importResult = await ui.browserRuntimeManager.importSession(tabId, {
+            cookies: launchCookies,
+            browserStorage: launchBrowserStorage,
+            targetUrl,
+          });
+          console.log('[open-dream-page] 独立 Chromium Profile 会话导入完成:', {
+            tabId,
+            cookiesImported: importResult.cookiesImported,
+            storageOriginsImported: importResult.storageOriginsImported,
+          });
+          return { ok: true, tabId };
+        } catch (error) {
+          try { await ui.closeTab(tabId); } catch (_) {}
+          throw error;
+        }
+      }
       const wc = ui.getActiveWC();
 
       const syncDreamTitle = () => {

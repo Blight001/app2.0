@@ -38,6 +38,8 @@ function createTabHelpers(deps = {}) {
       isActive: t.id === resolveActiveTabId(),
       accountId: String(t.accountId || '').trim(),
       browserProxyMode: String(t.browserProxyMode || 'inherit').trim(),
+      runtimeType: String(t.runtimeType || 'electron').trim(),
+      runtimeStatus: String(t.runtimeStatus || (t.runtimeType === 'chromium' ? 'starting' : 'ready')).trim(),
       browserProfile: t.browserProfile ? {
         browserBrand: String(t.browserProfile.browserBrand || '').trim(),
         browserType: String(t.browserProfile.browserType || '').trim(),
@@ -63,6 +65,8 @@ function createTabHelpers(deps = {}) {
         item.isActive ? 1 : 0,
         item.accountId || '',
         item.browserProxyMode || '',
+        item.runtimeType || '',
+        item.runtimeStatus || '',
         item.browserProfile?.browserBrand || '',
         item.browserProfile?.region || '',
         item.browserProfile?.sourceIp || '',

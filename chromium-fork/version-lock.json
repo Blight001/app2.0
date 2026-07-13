@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "product": {
+    "fullName": "AI-FREE 浏览器",
+    "shortName": "AI-FREE",
+    "executableName": "ai-free-browser.exe",
+    "iconSource": "chromium-fork/assets/AI-FREE.png",
+    "iconSourceSha256": "7DE6D55129624801E2BC2BAC18B3A2D34DE48698FE0788C98EFF47AFA4F95E61",
+    "windowsIconSha256": "A4E7E0A4F0460FC1020E6E9785DD1954666BF6C51249B414294F1B1328E9FC3",
+    "windowsIconSizes": [16, 32, 48, 64, 128, 256]
+  },
+  "chromium": {
+    "version": "150.0.7871.114",
+    "tag": "refs/tags/150.0.7871.114",
+    "commit": "f405107495a07cb1bfcf687d4af8d91117098db6",
+    "sourceRoot": "E:\\chromium-ai-free\\src",
+    "remote": "https://chromium.googlesource.com/chromium/src.git"
+  },
+  "depotTools": {
+    "root": "E:\\depot_tools",
+    "commit": "953e42245133578f3af7abebe9f929f2cfc549cf"
+  },
+  "toolchain": {
+    "visualStudio": "Visual Studio Build Tools 2026 18.7.11925.98",
+    "visualStudioInstallPath": "C:\\VSBuildTools",
+    "msvc": "19.51.36248",
+    "windowsSdk": "10.0.26100.8249",
+    "debuggingToolsMinimum": "10.0.26100.3323",
+    "debuggingToolsInstalled": true,
+    "debugSymbols": false
+  },
+  "build": {
+    "output": "out/AI-Free",
+    "target": "chrome",
+    "gnArgsFile": "chromium-fork/args.gn",
+    "command": "autoninja -C out/AI-Free -j 16 chrome"
+  }
+}

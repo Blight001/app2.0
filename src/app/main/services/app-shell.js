@@ -512,6 +512,12 @@ function createAppShell(deps = {}) {
         logger.warn?.('[启动] 返回首页时关闭 Clash Mini 失败:', clashErr?.message || clashErr);
       }
 
+      try {
+        await deps.browserRuntimeManager?.stopAll({ timeoutMs: 4000 });
+      } catch (runtimeError) {
+        logger.warn?.('[ChromiumRuntime] 返回首页时关闭 Profile 失败:', runtimeError?.message || runtimeError);
+      }
+
       resetMainRuntimeForRelicense();
       const licenseWindow = resolveLicenseWindow();
       if (!licenseWindow || licenseWindow.isDestroyed()) {
@@ -649,6 +655,7 @@ function createAppShell(deps = {}) {
           applyClashMiniBrowserProxy: typeof deps.applyClashMiniBrowserProxy === 'function'
             ? deps.applyClashMiniBrowserProxy
             : null,
+          browserRuntimeManager: deps.browserRuntimeManager || null,
         },
         auth: resolveAuth(),
         log: deps.log,
@@ -937,8 +944,15 @@ function createAppShell(deps = {}) {
       const mainViewWidth = width - sideViewWidth;
       const activeTab = resolveTabs().get(resolveActiveTabId());
       if (activeTab) {
-        activeTab.view.setBounds({ x: 0, y: tabBarHeight, width: mainViewWidth, height: tabContentHeight });
-        mainWindow.setTopBrowserView(activeTab.view);
+        const bounds = { x: 0, y: tabBarHeight, width: mainViewWidth, height: tabContentHeight };
+        if (activeTab.runtimeType === 'chromium') {
+          void deps.browserRuntimeManager?.resize(activeTab.id, 'chromium', bounds).catch((error) => {
+            logger.warn?.('[ChromiumRuntime] 同步窗口尺寸失败:', error?.message || error);
+          });
+        } else if (activeTab.view) {
+          activeTab.view.setBounds(bounds);
+          mainWindow.setTopBrowserView(activeTab.view);
+        }
       }
       if (getSideView?.()) {
         getSideView().setBounds({ x: mainViewWidth, y: tabBarHeight, width: sideViewWidth, height: tabContentHeight });

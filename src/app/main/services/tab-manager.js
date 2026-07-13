@@ -17,6 +17,7 @@ function createTabManager(deps = {}) {
   const {
     BrowserWindow,
     BrowserView,
+    browserRuntimeManager,
     path,
     fs,
     logger = console,
@@ -65,6 +66,31 @@ function createTabManager(deps = {}) {
   const resolveAuth = () => (typeof getAuth === 'function' ? getAuth() : null);
 // 获取/读取/解析：resolveIsSidebarVisible的具体业务逻辑。
   const resolveIsSidebarVisible = () => (typeof getIsSidebarVisible === 'function' ? getIsSidebarVisible() : true);
+  const isChromiumTab = (tab) => String(tab?.runtimeType || '') === 'chromium';
+
+  if (browserRuntimeManager?.chromium?.on) {
+    browserRuntimeManager.chromium.on('state-changed', (runtimeState) => {
+      const tab = resolveTabs().get(String(runtimeState?.profileId || ''));
+      if (!tab) return;
+      tab.runtimeStatus = runtimeState.status;
+      tab.runtimeError = runtimeState.lastError || null;
+      updateTabs(true);
+    });
+    browserRuntimeManager.chromium.on('crashed', (runtimeState) => {
+      const tab = resolveTabs().get(String(runtimeState?.profileId || ''));
+      if (!tab) return;
+      tab.runtimeStatus = 'crashed';
+      tab.runtimeError = runtimeState.lastError || null;
+      updateTabs(true);
+    });
+    browserRuntimeManager.chromium.on('runtime-event', (event) => {
+      const tab = resolveTabs().get(String(event?.profileId || ''));
+      if (!tab) return;
+      if (event.type === 'title-changed') tab.runtimeTitle = String(event.title || '').trim();
+      if (event.type === 'url-changed') tab.runtimeUrl = String(event.url || '').trim();
+      updateTabs();
+    });
+  }
 // 校验/保护：ensureManagedExtensionsLoaded的具体业务逻辑。
   const ensureManagedExtensionsLoaded = async (wc, label = '') => {
     if (!wc || wc.isDestroyed()) {
@@ -234,6 +260,60 @@ function createTabManager(deps = {}) {
           bypassRules: '<local>;127.0.0.1;localhost;::1',
         }
       : null;
+    const requestedRuntimeType = browserRuntimeManager
+      ? browserRuntimeManager.resolveType({ runtimeType: options.runtimeType || browserSettings.runtimeType })
+      : 'electron';
+    if (requestedRuntimeType === 'chromium') {
+      let initialUrl = options.deferChromiumNavigation === true
+        ? 'about:blank'
+        : (url || resolveDefaultTabUrl());
+      const effectiveProxy = resolveTabBrowserProxy({ browserProxyMode }, browserProxy, true);
+      const [contentWidth, contentHeight] = mainWindow.getContentSize();
+      const sidebarWidth = resolveIsSidebarVisible() ? Math.floor(contentWidth * 0.3) : 0;
+      const bounds = { x: 0, y: 41, width: contentWidth - sidebarWidth, height: Math.max(0, contentHeight - 41) };
+      const chromiumTab = {
+        id: newTabId,
+        view: null,
+        zoomFactor: 1,
+        partition,
+        accountId,
+        fixedTitle,
+        runtimeTitle: fixedTitle || 'AI-FREE 浏览器',
+        runtimeType: 'chromium',
+        runtimeStatus: 'starting',
+        browserProxyMode,
+        browserProfile,
+      };
+      resolveTabs().set(newTabId, chromiumTab);
+      try {
+        const runtimeState = await browserRuntimeManager.launchProfile({
+          profileId: newTabId,
+          runtimeType: 'chromium',
+          displayName: fixedTitle,
+          initialUrl,
+          locale: browserProfile?.locale,
+          userAgent: browserProfile?.userAgent,
+          proxyServer: effectiveProxy?.enabled ? effectiveProxy.server : '',
+          proxyBypassList: effectiveProxy?.bypassRules || '',
+          executablePath: browserSettings.chromiumExecutablePath,
+          extensionPaths: browserSettings.chromiumExtensionPaths,
+          allowPrototypeWindowDiscovery: browserSettings.allowPrototypeWindowDiscovery === true,
+          remoteDebuggingPipe: browserSettings.remoteDebuggingPipe === true,
+        }, bounds);
+        chromiumTab.runtimeStatus = runtimeState.status;
+        switchTab(newTabId);
+        return newTabId;
+      } catch (error) {
+        resolveTabs().delete(newTabId);
+        const prototypeMode = String(process.env.AI_FREE_CHROMIUM_HANDSHAKE || '').trim().toLowerCase() === 'prototype';
+        const runtimeRequiredByEnv = /^(1|true|yes|on)$/i.test(String(process.env.AI_FREE_CHROMIUM_REQUIRED || '').trim());
+        if (!prototypeMode || options.runtimeRequired === true || browserSettings.runtimeRequired === true || runtimeRequiredByEnv) {
+          logger.error?.('[ChromiumRuntime] 正式 Fork 启动失败，禁止回退到 Electron/System Chrome:', error?.message || error);
+          throw error;
+        }
+        logger.warn?.('[ChromiumRuntime] prototype 启动失败，回退到 Electron BrowserView:', error?.message || error);
+      }
+    }
     const newView = new BrowserView({
       webPreferences: typeof buildTabBrowserPreferences === 'function'
         ? buildTabBrowserPreferences(partition)
@@ -252,6 +332,8 @@ function createTabManager(deps = {}) {
       partition,
       accountId,
       fixedTitle,
+      runtimeType: 'electron',
+      runtimeStatus: 'ready',
       browserProxyMode,
       browserProfile: browserProfile ? {
         browserBrand: browserProfile.browserBrand || '',
@@ -484,7 +566,12 @@ function createTabManager(deps = {}) {
 
     const activeTabId = resolveActiveTabId();
     if (activeTabId && tabs.has(activeTabId)) {
-      try { mainWindow.removeBrowserView(tabs.get(activeTabId).view); } catch (_) {}
+      const previousTab = tabs.get(activeTabId);
+      if (isChromiumTab(previousTab)) {
+        void browserRuntimeManager?.hide(previousTab.id, 'chromium');
+      } else {
+        try { mainWindow.removeBrowserView(previousTab.view); } catch (_) {}
+      }
     }
 
     if (typeof setActiveTabId === 'function') {
@@ -492,6 +579,14 @@ function createTabManager(deps = {}) {
     }
 
     const activeTab = tabs.get(tabId);
+    if (isChromiumTab(activeTab)) {
+      void browserRuntimeManager?.show(activeTab.id, 'chromium').then(() => browserRuntimeManager.focus(activeTab.id, 'chromium')).catch((error) => {
+        logger.warn?.('[ChromiumRuntime] 显示环境失败:', error?.message || error);
+      });
+      mainWindow.emit('resize');
+      updateTabs(true);
+      return;
+    }
     const activeTabView = activeTab.view;
     mainWindow.addBrowserView(activeTabView);
     mainWindow.setTopBrowserView(activeTabView);
@@ -517,6 +612,9 @@ function createTabManager(deps = {}) {
     const closePartition = tabToClose?.partition || '';
     const closeSession = tabToClose?.view?.webContents?.session || null;
     const closedAccountId = String(tabToClose?.accountId || '').trim();
+    if (isChromiumTab(tabToClose)) {
+      try { await browserRuntimeManager?.stop(tabToClose.id, 'chromium', { timeoutMs: 4000 }); } catch (error) { logger.warn?.('[ChromiumRuntime] 关闭失败:', error?.message || error); }
+    }
     try { if (tabToClose?.view?.webContents && !tabToClose.view.webContents.isDestroyed()) tabToClose.view.webContents.destroy(); } catch (_) {}
     try { mainWindow.removeBrowserView(tabToClose.view); } catch (_) {}
     tabs.delete(tabId);
@@ -581,7 +679,7 @@ function createTabManager(deps = {}) {
 // 设置/更新/持久化：setZoom的具体业务逻辑。
   function setZoom(zoomFactor) {
     const activeTab = resolveTabs().get(resolveActiveTabId());
-    if (activeTab) {
+    if (activeTab && !isChromiumTab(activeTab)) {
       activeTab.view.webContents.setZoomFactor(zoomFactor);
       activeTab.zoomFactor = zoomFactor;
       try {
@@ -594,6 +692,12 @@ function createTabManager(deps = {}) {
 // 渲染/刷新：refreshActiveTabToUrl的具体业务逻辑。
   async function refreshActiveTabToUrl(url) {
     try {
+      const activeTab = resolveTabs().get(resolveActiveTabId());
+      if (isChromiumTab(activeTab)) {
+        await browserRuntimeManager.navigate(activeTab.id, 'chromium', url);
+        sendToSide('active-tab-refreshed', { ok: true, url, runtimeType: 'chromium' });
+        return;
+      }
       const wc = getActiveWC();
       if (wc) {
         const targetUrl = url;
@@ -614,6 +718,12 @@ function createTabManager(deps = {}) {
 // 渲染/刷新：refreshActiveTab的具体业务逻辑。
   async function refreshActiveTab() {
     try {
+      const activeTab = resolveTabs().get(resolveActiveTabId());
+      if (isChromiumTab(activeTab)) {
+        await browserRuntimeManager.reload(activeTab.id, 'chromium');
+        sendToSide('active-tab-refreshed', { ok: true, runtimeType: 'chromium' });
+        return;
+      }
       const wc = getActiveWC();
       if (wc) {
         const rawUrl = String(wc.getURL() || '');
@@ -644,6 +754,10 @@ function createTabManager(deps = {}) {
         return { ok: false, message: '标签页不存在' };
       }
       const targetTab = tabs.get(tabId);
+      if (isChromiumTab(targetTab)) {
+        await browserRuntimeManager.reload(targetTab.id, 'chromium');
+        return { ok: true };
+      }
       const wc = targetTab?.view?.webContents;
       if (!wc || wc.isDestroyed()) {
         return { ok: false, message: '网页不可用' };
