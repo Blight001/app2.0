@@ -39,28 +39,20 @@ async function initPluginSwitches() {
         : `<span class="extension-plugin-icon-fallback">${escapeHtml((plugin.name || '?').trim().slice(0, 1).toUpperCase() || '?')}</span>`;
       const disabledClass = plugin.enabled === true ? '' : ' is-disabled';
       const missingClass = plugin.missing === true ? ' is-missing' : '';
-      const removable = plugin.builtin !== true;
-      const popupTitle = plugin.enabled === true
-        ? '打开插件弹窗'
-        : '插件已禁用';
 
       return `
         <div class="extension-plugin-row${disabledClass}${missingClass}" data-extension-id="${id}">
-          <button class="extension-plugin-main" type="button" title="${popupTitle}">
+          <div class="extension-plugin-info">
             <span class="extension-plugin-icon">${icon}</span>
             <span class="extension-plugin-meta">
               <span class="extension-plugin-name">${name}${version}</span>
               ${hint ? `<span class="extension-plugin-hint">${hint}</span>` : ''}
             </span>
-          </button>
-          <div class="extension-plugin-actions">
-            ${plugin.hasOptions ? '<button class="extension-plugin-action-btn extension-plugin-options-btn" type="button">设置</button>' : ''}
-            ${removable ? '<button class="extension-plugin-action-btn extension-plugin-remove-btn" type="button">删除</button>' : ''}
-            <label class="plugin-switch extension-plugin-enable" title="启用/禁用插件">
-              <input type="checkbox" class="extension-plugin-enabled-switch" ${plugin.enabled === true ? 'checked' : ''} ${plugin.missing === true ? 'disabled' : ''} />
-              <span class="plugin-switch-slider"></span>
-            </label>
           </div>
+          <label class="plugin-switch extension-plugin-enable" title="启用/禁用插件">
+            <input type="checkbox" class="extension-plugin-enabled-switch" ${plugin.enabled === true ? 'checked' : ''} ${plugin.missing === true ? 'disabled' : ''} />
+            <span class="plugin-switch-slider"></span>
+          </label>
         </div>
       `;
     }).join('');
@@ -100,79 +92,12 @@ async function initPluginSwitches() {
     }
   };
 
-  const removeExtension = async (id) => {
-    if (!id) return;
-    try {
-      const resp = await window.electronAPI.invoke('remove-extension-plugin', { id });
-      if (!resp?.ok) {
-        throw new Error(resp?.message || resp?.error || '删除插件失败');
-      }
-      extensionState = normalizeExtensionState(resp.state);
-      renderExtensionList();
-      showSuccess('插件已删除');
-    } catch (e) {
-      showError(e?.message || String(e));
-    }
-  };
-
-  const openExtensionPopup = async (id) => {
-    if (!id) return;
-    const plugin = extensionState.plugins.find((item) => item.id === id);
-    if (plugin && plugin.enabled !== true) {
-      showError('请先打开插件开关');
-      return;
-    }
-    try {
-      const resp = await window.electronAPI.invoke('open-extension-popup-by-id', { id });
-      if (!resp?.ok) {
-        throw new Error(resp?.message || resp?.error || '打开插件弹窗失败');
-      }
-    } catch (e) {
-      showError(e?.message || String(e));
-    }
-  };
-
-  const openExtensionOptions = async (id) => {
-    if (!id) return;
-    const plugin = extensionState.plugins.find((item) => item.id === id);
-    if (plugin && plugin.enabled !== true) {
-      showError('请先打开插件开关');
-      return;
-    }
-    try {
-      const resp = await window.electronAPI.invoke('open-extension-options-by-id', { id });
-      if (!resp?.ok) {
-        throw new Error(resp?.message || resp?.error || '打开插件设置失败');
-      }
-    } catch (e) {
-      showError(e?.message || String(e));
-    }
-  };
-
   if (extensionList) {
     extensionList.addEventListener('change', (event) => {
       const target = event.target;
       if (!target || !target.classList?.contains('extension-plugin-enabled-switch')) return;
       const row = target.closest('.extension-plugin-row');
       setExtensionEnabled(row?.dataset?.extensionId || '', !!target.checked, target);
-    });
-    extensionList.addEventListener('click', (event) => {
-      const target = event.target;
-      const row = target?.closest?.('.extension-plugin-row');
-      const id = row?.dataset?.extensionId || '';
-      if (!row || !id) return;
-      if (target.closest('.extension-plugin-enabled-switch') || target.closest('.extension-plugin-enable')) return;
-      if (target.closest('.extension-plugin-remove-btn')) {
-        removeExtension(id);
-        return;
-      }
-      if (target.closest('.extension-plugin-options-btn')) {
-        openExtensionOptions(id);
-        return;
-      }
-      if (target.closest('.extension-plugin-main')) {
-        openExtensionPopup(id);
-      }
     });
   }
 

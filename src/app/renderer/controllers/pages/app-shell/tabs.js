@@ -69,7 +69,6 @@ if (IPC && typeof IPC.on === 'function') {
 let tabsContainer = document.getElementById('tabs-container');
 let addTabBtn = document.getElementById('add-tab-btn');
 let backToLicenseBtn = document.getElementById('back-to-license-btn');
-let extensionToolbar = document.getElementById('extension-toolbar');
 
 // 监听/绑定：onReady的具体业务逻辑。
 function onReady(fn) {
@@ -83,94 +82,6 @@ let dragHoverTabId = null;
 let dragHoverPosition = null;
 let currentContextMenuTabId = null;
 const tabElementById = new Map();
-
-function normalizeExtensionState(state = {}) {
-  return {
-    plugins: Array.isArray(state?.plugins) ? state.plugins : [],
-  };
-}
-
-async function openToolbarExtension(plugin, button) {
-  if (!plugin?.id || button?.dataset?.opening === '1') return;
-  const channel = plugin.hasPopup
-    ? 'open-extension-popup-by-id'
-    : plugin.hasOptions
-      ? 'open-extension-options-by-id'
-      : '';
-  if (!channel) return;
-
-  if (button) {
-    button.dataset.opening = '1';
-    button.classList.add('is-opening');
-  }
-  try {
-    if (typeof IPC.invoke !== 'function') throw new Error('当前环境不支持打开插件界面');
-    const resp = await IPC.invoke(channel, { id: plugin.id, collapseSidebar: true });
-    if (!resp || resp.ok !== true) {
-      throw new Error((resp && (resp.message || resp.error)) || '打开插件界面失败');
-    }
-  } catch (err) {
-    showControllerError(`打开插件「${plugin.name || '未命名插件'}」失败`, err);
-  } finally {
-    if (button) {
-      delete button.dataset.opening;
-      button.classList.remove('is-opening');
-    }
-  }
-}
-
-function renderExtensionToolbar(rawState = {}) {
-  extensionToolbar = document.getElementById('extension-toolbar');
-  if (!extensionToolbar) return;
-
-  const state = normalizeExtensionState(rawState);
-  const enabledPlugins = state.plugins.filter((plugin) => plugin?.enabled === true && plugin?.missing !== true);
-  const fragment = document.createDocumentFragment();
-
-  enabledPlugins.forEach((plugin) => {
-    const button = document.createElement('button');
-    const canOpen = plugin.hasPopup === true || plugin.hasOptions === true;
-    const pageLabel = plugin.hasPopup === true ? '弹窗' : plugin.hasOptions === true ? '设置页' : '界面';
-    button.type = 'button';
-    button.className = 'extension-toolbar-btn';
-    button.dataset.extensionId = String(plugin.id || '');
-    button.title = canOpen
-      ? `${plugin.name || '未命名插件'}：点击打开${pageLabel}`
-      : `${plugin.name || '未命名插件'}：该插件没有可打开的界面`;
-    button.setAttribute('aria-label', button.title);
-    button.disabled = !canOpen;
-
-    if (plugin.iconDataUrl) {
-      const image = document.createElement('img');
-      image.className = 'extension-toolbar-icon';
-      image.src = plugin.iconDataUrl;
-      image.alt = '';
-      button.appendChild(image);
-    } else {
-      const fallback = document.createElement('span');
-      fallback.className = 'extension-toolbar-fallback';
-      fallback.textContent = String(plugin.name || '?').trim().slice(0, 1).toUpperCase() || '?';
-      button.appendChild(fallback);
-    }
-
-    if (canOpen) {
-      button.addEventListener('click', () => void openToolbarExtension(plugin, button));
-    }
-    fragment.appendChild(button);
-  });
-
-  extensionToolbar.replaceChildren(fragment);
-}
-
-async function loadExtensionToolbarState() {
-  if (typeof IPC.invoke !== 'function') return;
-  try {
-    const resp = await IPC.invoke('get-extension-manager-state');
-    if (resp?.ok === true) renderExtensionToolbar(resp.state);
-  } catch (err) {
-    console.warn('[标签栏] 获取插件状态失败:', err?.message || err);
-  }
-}
 
 // 停止/关闭/清理：clearDragIndicators的具体业务逻辑。
 function clearDragIndicators() {
@@ -504,17 +415,11 @@ function bindBackToLicenseBtnOnce() {
 
 onReady(() => {
   tabsContainer = document.getElementById('tabs-container');
-  extensionToolbar = document.getElementById('extension-toolbar');
   bindAddTabBtnOnce();
   bindBackToLicenseBtnOnce();
-  void loadExtensionToolbarState();
 
   // 初始化设置按钮动画监听器
   initSettingsBtnAnimation();
-});
-
-IPC.on('extension-manager-state', (state) => {
-  renderExtensionToolbar(state);
 });
 
 // 设置按钮动画监听器

@@ -1,0 +1,217 @@
+diff --git a/chrome/browser/ui/toolbar/toolbar_actions_model.cc b/chrome/browser/ui/toolbar/toolbar_actions_model.cc
+index 150788ee..c596ddd2 100644
+--- a/chrome/browser/ui/toolbar/toolbar_actions_model.cc
++++ b/chrome/browser/ui/toolbar/toolbar_actions_model.cc
+@@ -9,6 +9,7 @@
+ #include <string>
+ #include <vector>
+ 
++#include "base/command_line.h"
+ #include "base/functional/bind.h"
+ #include "base/location.h"
+ #include "base/metrics/histogram_base.h"
+@@ -27,6 +28,7 @@
+ #include "chrome/browser/ui/extensions/extension_action_view_model.h"
+ #include "chrome/browser/ui/toolbar/toolbar_action_view_model.h"
+ #include "chrome/browser/ui/toolbar/toolbar_actions_model_factory.h"
++#include "chrome/common/chrome_switches.h"
+ #include "components/prefs/pref_service.h"
+ #include "content/public/browser/web_contents.h"
+ #include "extensions/browser/extension_action_manager.h"
+@@ -44,6 +46,15 @@
+ #include "chrome/browser/ui/web_applications/app_browser_controller.h"
+ #endif
+ 
++namespace {
++
++bool IsAiFreeEmbeddedChildWindow() {
++  return base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
++             switches::kHsEmbedMode) == "child-window";
++}
++
++}  // namespace
++
+ ToolbarActionsModel::ToolbarActionsModel(
+     Profile* profile,
+     extensions::ExtensionPrefs* extension_prefs)
+@@ -589,6 +600,9 @@ void ToolbarActionsModel::IncognitoPopulate() {
+ 
+ void ToolbarActionsModel::SetActionVisibility(const ActionId& action_id,
+                                               bool is_now_visible) {
++  if (IsAiFreeEmbeddedChildWindow()) {
++    return;
++  }
+   DCHECK_NE(is_now_visible, IsActionPinned(action_id));
+   DCHECK(!IsActionForcePinned(action_id));
+   DCHECK(!profile_->IsOffTheRecord())
+@@ -618,6 +632,10 @@ const extensions::Extension* ToolbarActionsModel::GetExtensionById(
+ 
+ std::vector<ToolbarActionsModel::ActionId>
+ ToolbarActionsModel::GetFilteredPinnedActionIds() const {
++  if (IsAiFreeEmbeddedChildWindow()) {
++    return std::vector<ActionId>(action_ids_.begin(), action_ids_.end());
++  }
++
+   // Force-pinned extensions should always be present in the output vector.
+   extensions::ExtensionIdList pinned = extension_prefs_->GetPinnedExtensions();
+ 
+diff --git a/chrome/browser/ui/ui_features.cc b/chrome/browser/ui/ui_features.cc
+index 5de1dce2..10f65383 100644
+--- a/chrome/browser/ui/ui_features.cc
++++ b/chrome/browser/ui/ui_features.cc
+@@ -4,12 +4,14 @@
+ 
+ #include "chrome/browser/ui/ui_features.h"
+ 
++#include "base/command_line.h"
+ #include "base/feature_list.h"
+ #include "base/metrics/field_trial_params.h"
+ #include "base/time/time.h"
+ #include "build/build_config.h"
+ #include "chrome/browser/browser_process.h"
+ #include "chrome/common/chrome_features.h"
++#include "chrome/common/chrome_switches.h"
+ #include "components/search/ntp_features.h"
+ #include "components/variations/service/variations_service.h"
+ #include "components/webui/flags/feature_entry.h"
+@@ -19,6 +21,11 @@
+ #if !BUILDFLAG(IS_ANDROID)
+ namespace {
+ 
++bool IsAiFreeEmbeddedChildWindow() {
++  return base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
++             switches::kHsEmbedMode) == "child-window";
++}
++
+ bool IsProcessOverheadExperimentActive() {
+   return base::FeatureList::IsEnabled(
+       features::kWebUIToolbarProcessOverheadExperiment);
+@@ -485,7 +492,8 @@ bool IsWebUISplitTabsButtonEnabled() {
+ }
+ 
+ bool IsWebUIAvatarButtonEnabled() {
+-  return !IsProcessOverheadExperimentActive() &&
++  return !IsAiFreeEmbeddedChildWindow() &&
++         !IsProcessOverheadExperimentActive() &&
+          base::FeatureList::IsEnabled(features::kInitialWebUI) &&
+          base::FeatureList::IsEnabled(features::kWebUIAvatarButton);
+ }
+@@ -498,7 +506,8 @@ bool IsWebUIPerformanceInterventionButtonEnabled() {
+ }
+ 
+ bool IsWebUILocationBarEnabled() {
+-  return !IsProcessOverheadExperimentActive() &&
++  return !IsAiFreeEmbeddedChildWindow() &&
++         !IsProcessOverheadExperimentActive() &&
+          base::FeatureList::IsEnabled(features::kInitialWebUI) &&
+          base::FeatureList::IsEnabled(features::kWebUILocationBar);
+ }
+diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.cc b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+index f3e2031c..b3f090e5 100644
+--- a/chrome/browser/ui/views/location_bar/location_bar_view.cc
++++ b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+@@ -10,6 +10,7 @@
+ #include <string_view>
+ #include <utility>
+ 
++#include "base/command_line.h"
+ #include "base/containers/adapters.h"
+ #include "base/feature_list.h"
+ #include "base/functional/bind.h"
+@@ -109,6 +110,7 @@
+ #include "chrome/browser/ui/webui/omnibox_popup/omnibox_popup_ui.h"
+ #include "chrome/browser/web_applications/link_capturing_features.h"
+ #include "chrome/common/chrome_features.h"
++#include "chrome/common/chrome_switches.h"
+ #include "chrome/grit/generated_resources.h"
+ #include "components/autofill/core/common/autofill_features.h"
+ #include "components/autofill/core/common/autofill_payments_features.h"
+@@ -208,6 +210,17 @@
+ 
+ namespace {
+ 
++bool IsAiFreeEmbeddedChildWindow() {
++  return base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
++             switches::kHsEmbedMode) == "child-window";
++}
++
++void HideAiFreeEmbeddedLocationBarContents(views::View* location_bar) {
++  for (views::View* child : location_bar->children()) {
++    child->SetVisible(false);
++  }
++}
++
+ int IncrementalMinimumWidth(const views::View* view) {
+   return (view && view->GetVisible()) ? view->GetMinimumSize().width() : 0;
+ }
+@@ -614,6 +627,11 @@ void LocationBarView::Init() {
+   // visible when the location entry has just been initialized.
+   Update(nullptr);
+ 
++  if (IsAiFreeEmbeddedChildWindow()) {
++    SetCanProcessEventsWithinSubtree(false);
++    HideAiFreeEmbeddedLocationBarContents(this);
++  }
++
+   hover_animation_.SetSlideDuration(base::Milliseconds(200));
+ 
+   is_initialized_ = true;
+@@ -856,6 +874,11 @@ void LocationBarView::Layout(PassKey) {
+     return;
+   }
+ 
++  if (IsAiFreeEmbeddedChildWindow()) {
++    HideAiFreeEmbeddedLocationBarContents(this);
++    return;
++  }
++
+   selected_keyword_view_->SetVisible(false);
+ 
+   // TODO(manukh): Move constants to layout_constants.cc.
+@@ -1578,6 +1601,12 @@ gfx::Rect LocationBarView::GetLocalBoundsWithoutEndcaps() const {
+ }
+ 
+ void LocationBarView::RefreshBackground() {
++  if (IsAiFreeEmbeddedChildWindow()) {
++    SetBackground(nullptr);
++    SchedulePaint();
++    return;
++  }
++
+   const double opacity = hover_animation_.GetCurrentValue();
+   const bool is_caret_visible =
+       GetOmniboxController()->edit_model()->is_caret_visible();
+diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.cc b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+index 9f1ad065..628d3204 100644
+--- a/chrome/browser/ui/views/toolbar/toolbar_view.cc
++++ b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+@@ -114,6 +114,7 @@
+ #include "chrome/browser/ui/web_applications/app_browser_controller.h"
+ #include "chrome/browser/web_applications/link_capturing_features.h"
+ #include "chrome/common/chrome_features.h"
++#include "chrome/common/chrome_switches.h"
+ #include "chrome/common/pref_names.h"
+ #include "chrome/common/webui_url_constants.h"
+ #include "chrome/grit/branded_strings.h"
+@@ -178,6 +179,11 @@ DEFINE_UI_CLASS_PROPERTY_KEY(bool, kActionItemUnderlineIndicatorKey, false)
+ 
+ namespace {
+ 
++bool IsAiFreeEmbeddedChildWindow() {
++  return base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
++             switches::kHsEmbedMode) == "child-window";
++}
++
+ // Gets the display mode for a given browser.
+ ToolbarView::DisplayMode GetDisplayMode(Browser* browser) {
+   // Checked in this order because even tabbed PWAs use the CUSTOM_TAB
+@@ -603,6 +609,9 @@ void ToolbarView::Init() {
+                                  browser_->profile()->IsGuestSession() ||
+                                  browser_->profile()->IsRegularProfile();
+ #endif
++    if (IsAiFreeEmbeddedChildWindow()) {
++      show_avatar_toolbar_button = false;
++    }
+     avatar_->SetVisible(show_avatar_toolbar_button);
+   }
+ 
