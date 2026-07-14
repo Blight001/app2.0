@@ -95,7 +95,7 @@ function assertSafeChromiumArgs(args = []) {
   }
 }
 
-function applyChromiumSessionStartupPolicy(paths = {}, logger = console) {
+function applyChromiumSessionStartupPolicy(paths = {}, logger = console, profile = {}) {
   const userDataDir = String(paths.chromiumData || '').trim();
   if (!userDataDir) return false;
   const preferencesPath = path.join(userDataDir, 'Default', 'Preferences');
@@ -120,6 +120,18 @@ function applyChromiumSessionStartupPolicy(paths = {}, logger = console) {
     : {};
   preferences.profile.exit_type = 'Normal';
   preferences.profile.exited_cleanly = true;
+  const acceptedLanguages = String(profile.acceptLanguage || profile.locale || '')
+    .split(',')
+    .map((item) => item.split(';')[0].trim())
+    .filter(Boolean)
+    .join(',');
+  if (acceptedLanguages) {
+    preferences.intl = preferences.intl && typeof preferences.intl === 'object'
+      ? preferences.intl
+      : {};
+    preferences.intl.accept_languages = acceptedLanguages;
+    preferences.intl.selected_languages = acceptedLanguages;
+  }
 
   try {
     fs.mkdirSync(path.dirname(preferencesPath), { recursive: true });
@@ -152,6 +164,7 @@ function buildChromiumArgs(options = {}) {
   if (profile.proxyServer) args.push(`--proxy-server=${profile.proxyServer}`);
   if (profile.proxyBypassList) args.push(`--proxy-bypass-list=${profile.proxyBypassList}`);
   if (profile.locale) args.push(`--lang=${profile.locale}`);
+  if (profile.timezoneId) args.push(`--hs-timezone-id=${profile.timezoneId}`);
   if (profile.userAgent) args.push(`--user-agent=${profile.userAgent}`);
   if (Number(bounds.width) > 0 && Number(bounds.height) > 0) {
     args.push(`--window-size=${Math.round(bounds.width)},${Math.round(bounds.height)}`);
@@ -171,7 +184,7 @@ function buildChromiumArgs(options = {}) {
 
 function launchChromium(options = {}) {
   const executablePath = resolveChromiumExecutable(options);
-  applyChromiumSessionStartupPolicy(options.paths, options.logger);
+  applyChromiumSessionStartupPolicy(options.paths, options.logger, options.profile);
   const args = buildChromiumArgs(options);
   const child = spawn(executablePath, args, {
     cwd: path.dirname(executablePath),
@@ -180,7 +193,10 @@ function launchChromium(options = {}) {
     windowsHide: true,
     detached: false,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: buildChromiumEnvironment(process.env, options.env || {}),
+    env: buildChromiumEnvironment(process.env, {
+      ...(options.env || {}),
+      ...(options.profile?.timezoneId ? { TZ: String(options.profile.timezoneId) } : {}),
+    }),
   });
   options.logger?.info?.(`[AI-FREE] 已启动外部浏览器内核: ${executablePath}`);
   options.logger?.info?.(`[ChromiumRuntime] PID=${child.pid} Profile=${options.profile?.profileId || ''}`);

@@ -118,6 +118,56 @@ async function main() {
   });
   assert.equal(cachedProfile.region, 'sg');
 
+  const proxiedGeoCalls = [];
+  const proxiedProfile = await resolveTabBrowserProfile({
+    browserSettings: {},
+    geoProxyServer: 'http://127.0.0.1:7890',
+    forceGeoLookup: true,
+    httpGetUniversal: async (endpoint, timeoutMs, requestOptions) => {
+      proxiedGeoCalls.push({ endpoint, timeoutMs, requestOptions });
+      return {
+        ok: true,
+        body: {
+          ip: '203.0.113.9',
+          country_code: 'JP',
+          timezone: { id: 'Asia/Tokyo' },
+        },
+      };
+    },
+  });
+  assert.equal(proxiedProfile.region, 'jp');
+  assert.equal(proxiedProfile.locale, 'ja-JP');
+  assert.equal(proxiedProfile.timezoneId, 'Asia/Tokyo');
+  assert.equal(proxiedGeoCalls.length, 3);
+  assert.ok(proxiedGeoCalls.every((call) => call.requestOptions.proxyServer === 'http://127.0.0.1:7890'));
+
+  let legacyRegionGeoCalls = 0;
+  const legacyRegionProfile = await resolveTabBrowserProfile({
+    browserSettings: {
+      region: 'cn',
+      language: { mode: 'ip', value: '' },
+      timezone: { mode: 'ip', value: '' },
+      geolocation: { mode: 'ip' },
+    },
+    geoProxyServer: 'http://127.0.0.1:7891',
+    forceGeoLookup: true,
+    httpGetUniversal: async () => {
+      legacyRegionGeoCalls += 1;
+      return {
+        ok: true,
+        body: {
+          ip: '203.0.113.10',
+          country_code: 'SG',
+          timezone: 'Asia/Singapore',
+        },
+      };
+    },
+  });
+  assert.equal(legacyRegionProfile.region, 'sg', 'IP 模式不能被历史 region=cn 短路');
+  assert.equal(legacyRegionProfile.locale, 'en-SG');
+  assert.equal(legacyRegionProfile.timezoneId, 'Asia/Singapore');
+  assert.equal(legacyRegionGeoCalls, 3);
+
   const profile = buildBrowserProfileFromRegion('cn', settings);
   assert.equal(profile.browserBrand, 'AI-FREE');
   assert.equal(profile.userAgent, 'AI-FREE-Test-UA');

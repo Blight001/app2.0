@@ -44,6 +44,18 @@ try {
   assert(args.includes('--hs-profile-id=profile_001'));
   assert(args.includes('https://example.com'));
   assert(args.includes('--window-position=-32000,-32000'));
+  const localizedArgs = buildChromiumArgs({
+    profile: {
+      profileId: 'localized-profile',
+      locale: 'ja-JP',
+      timezoneId: 'Asia/Tokyo',
+    },
+    paths: rebuiltPaths,
+    pipeName: '\\\\.\\pipe\\localized-profile-test',
+    launchToken: 'one-time',
+  });
+  assert(localizedArgs.includes('--lang=ja-JP'));
+  assert(localizedArgs.includes('--hs-timezone-id=Asia/Tokyo'));
   const unicodeProfilePaths = store.ensureProfile({ profileId: '豆包::account@example.com', runtimeType: 'chromium' });
   assert.match(unicodeProfilePaths.id, /^[\x21-\x7e]+$/, '握手 Profile ID 必须是可见 ASCII');
   const unicodeProfileArgs = buildChromiumArgs({
@@ -67,12 +79,17 @@ try {
   const preferencesPath = path.join(rebuiltPaths.chromiumData, 'Default', 'Preferences');
   fs.mkdirSync(path.dirname(preferencesPath), { recursive: true });
   fs.writeFileSync(preferencesPath, JSON.stringify({ session: { restore_on_startup: 1 }, preserved: { value: true } }));
-  assert.equal(applyChromiumSessionStartupPolicy(rebuiltPaths, { warn() {} }), true);
+  assert.equal(applyChromiumSessionStartupPolicy(rebuiltPaths, { warn() {} }, {
+    locale: 'en-SG',
+    acceptLanguage: 'en-SG,en;q=0.9,en-US;q=0.8',
+  }), true);
   const preferences = JSON.parse(fs.readFileSync(preferencesPath, 'utf8'));
   assert.equal(preferences.session.restore_on_startup, 5);
   assert.deepEqual(preferences.session.startup_urls, []);
   assert.equal(preferences.profile.exit_type, 'Normal');
   assert.equal(preferences.profile.exited_cleanly, true);
+  assert.equal(preferences.intl.accept_languages, 'en-SG,en,en-US');
+  assert.equal(preferences.intl.selected_languages, 'en-SG,en,en-US');
   assert.equal(preferences.preserved.value, true);
   const managedExtension = path.join(root, 'managed-extension');
   const configuredExtension = path.join(root, 'configured-extension');
@@ -103,6 +120,7 @@ try {
     GOOGLE_API_KEY: 'native-key',
     AI_FREE_GOOGLE_API_KEY: 'branded-key',
   }).GOOGLE_API_KEY, 'native-key');
+  assert.equal(buildChromiumEnvironment({}, { TZ: 'Asia/Tokyo' }).TZ, 'Asia/Tokyo');
   assert(getSystemChromiumCandidates({
     ProgramFiles: 'C:\\Program Files',
     'ProgramFiles(x86)': 'C:\\Program Files (x86)',
@@ -326,6 +344,56 @@ try {
   tutorialTabManager.switchTab(firstTutorialId);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(tutorialFocusCalls, 1);
+
+  const magicTabs = new Map([
+    ['magic-direct', {
+      id: 'magic-direct',
+      browserProxyMode: 'direct',
+      browserSettings: { proxy: { mode: 'none' } },
+    }],
+    ['magic-custom', {
+      id: 'magic-custom',
+      browserProxyMode: 'proxy',
+      browserSettings: { proxy: { mode: 'custom', protocol: 'http', host: '10.0.0.2', port: 8888 } },
+    }],
+  ]);
+  const magicInstances = new Map(Array.from(magicTabs.keys()).map((id) => [id, { profile: {} }]));
+  const magicGeoLookups = [];
+  const magicRestarts = [];
+  const magicManager = createTabManager({
+    browserRuntimeManager: {
+      chromium: { instances: magicInstances, on() {} },
+      async restart(id) {
+        magicRestarts.push({ id, proxyServer: magicInstances.get(id).profile.proxyServer });
+        return { status: 'ready' };
+      },
+    },
+    getTabs: () => magicTabs,
+    updateTabs() {},
+    resolveTabBrowserProfile: async (options) => {
+      magicGeoLookups.push(options.geoProxyServer);
+      return {
+        locale: 'ja-JP',
+        acceptLanguage: 'ja-JP,ja;q=0.9',
+        timezoneId: 'Asia/Tokyo',
+        userAgent: 'AI-FREE-Test-UA',
+      };
+    },
+    logger: { warn() {}, error() {} },
+  });
+  const magicEnabled = await magicManager.applyClashMiniBrowserProxy(true);
+  assert.equal(magicEnabled.updated, 2);
+  const enabledProxyServers = Array.from(magicInstances.values()).map((instance) => instance.profile.proxyServer);
+  assert.ok(enabledProxyServers.every((server) => /^http:\/\/127\.0\.0\.1:\d+$/.test(server)));
+  assert.equal(new Set(enabledProxyServers).size, 1);
+  assert.ok(magicGeoLookups.slice(0, 2).every((server) => server === enabledProxyServers[0]));
+  const magicDisabled = await magicManager.applyClashMiniBrowserProxy(false);
+  assert.equal(magicDisabled.updated, 2);
+  assert.ok(Array.from(magicInstances.values()).every((instance) => instance.profile.proxyServer === ''));
+  assert.ok(magicGeoLookups.slice(2).every((server) => server === ''));
+  assert.deepEqual(magicRestarts.map((item) => item.proxyServer), [
+    enabledProxyServers[0], enabledProxyServers[0], '', '',
+  ]);
   console.log('browser runtime checks passed');
 } finally {
   fs.rmSync(root, { recursive: true, force: true });

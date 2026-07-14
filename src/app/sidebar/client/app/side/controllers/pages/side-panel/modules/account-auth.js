@@ -101,6 +101,8 @@ function renderSidebarAccountSession(session = {}) {
   const registerButton = safeGetEl('account-register-open-btn');
   const giftInput = safeGetEl('ai-chat-gift-code');
   const giftButton = safeGetEl('ai-chat-redeem-gift');
+  const trafficGiftInput = safeGetEl('proxy-traffic-gift-code');
+  const trafficGiftButton = safeGetEl('proxy-traffic-redeem-gift');
   const username = authenticated ? String(session.username || '').trim() : '';
 
   if (profile) profile.dataset.authenticated = authenticated ? 'true' : 'false';
@@ -116,6 +118,12 @@ function renderSidebarAccountSession(session = {}) {
     if (!authenticated) giftInput.value = '';
   }
   if (giftButton) giftButton.disabled = !authenticated;
+  if (trafficGiftInput) {
+    trafficGiftInput.disabled = !authenticated;
+    trafficGiftInput.placeholder = authenticated ? '输入流量礼品码' : '登录后输入流量礼品码';
+    if (!authenticated) trafficGiftInput.value = '';
+  }
+  if (trafficGiftButton) trafficGiftButton.disabled = !authenticated;
 
   if (!authenticated && typeof setWoolPlatformRemainingUsage === 'function') {
     setWoolPlatformRemainingUsage('');
@@ -128,6 +136,11 @@ function renderSidebarAccountSession(session = {}) {
       displayExpirationInfo({ ...account, ...validation });
     }
     closeSidebarAccountAuth();
+    window.electronAPI?.invoke?.('get-proxy-traffic-quota').then((result) => {
+      if (result?.ok && result.quota && typeof renderProxyTrafficQuota === 'function') {
+        renderProxyTrafficQuota(result.quota);
+      }
+    }).catch(() => {});
   }
 }
 
@@ -202,6 +215,32 @@ async function logoutSidebarAccount() {
   }
 }
 
+async function redeemProxyTrafficGiftCode() {
+  const input = safeGetEl('proxy-traffic-gift-code');
+  const button = safeGetEl('proxy-traffic-redeem-gift');
+  const code = String(input?.value || '').trim();
+  if (!code || !button || button.dataset.busy === '1') {
+    if (!code) window.MessageModal?.showErrorMessage?.('请输入流量礼品码');
+    return;
+  }
+  const originalText = button.textContent;
+  button.dataset.busy = '1';
+  button.disabled = true;
+  button.textContent = '兑换中...';
+  try {
+    const result = await window.electronAPI.invoke('redeem-proxy-traffic-gift-code', { code });
+    if (!result?.ok) throw new Error(result?.message || result?.error || '兑换流量失败');
+    if (input) input.value = '';
+    window.MessageModal?.showSuccessMessage?.(result.message || '流量兑换成功');
+  } catch (error) {
+    window.MessageModal?.showErrorMessage?.(error?.message || String(error));
+  } finally {
+    button.dataset.busy = '0';
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
 function bindSidebarAccountAuth() {
   const modal = safeGetEl('sidebar-account-auth');
   if (!modal || modal.dataset.bound === '1') return;
@@ -220,6 +259,10 @@ function bindSidebarAccountAuth() {
   safeGetEl('account-register-open-btn')?.addEventListener('click', () => openSidebarAccountAuth('register'));
   safeGetEl('sidebar-auth-submit')?.addEventListener('click', submitSidebarAccountAuth);
   safeGetEl('account-logout-btn')?.addEventListener('click', logoutSidebarAccount);
+  safeGetEl('proxy-traffic-redeem-gift')?.addEventListener('click', redeemProxyTrafficGiftCode);
+  safeGetEl('proxy-traffic-gift-code')?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') void redeemProxyTrafficGiftCode();
+  });
   ['sidebar-auth-username', 'sidebar-auth-password', 'sidebar-auth-password-confirm'].forEach((id) => {
     safeGetEl(id)?.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') void submitSidebarAccountAuth();

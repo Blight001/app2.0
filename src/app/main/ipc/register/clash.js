@@ -15,6 +15,7 @@ const {
   setRuntimeLicenseCache,
   startClashMiniProcess,
   stopClashMiniProcess,
+  invokeClashMiniControl,
 } = require('./clash-mini-core');
 const { httpGetUniversal } = require('../../lib/http');
 const { getServerBase } = require('../../config');
@@ -27,6 +28,7 @@ const {
   decodeBase64Preview,
   previewText,
 } = require('../../../shared/text-preview-utils');
+const { createProxyTrafficMonitor } = require('./proxy-traffic-monitor');
 
 // 监听/绑定：registerClashIPC的具体业务逻辑。
 function registerClashIPC(ctx) {
@@ -37,9 +39,29 @@ function registerClashIPC(ctx) {
     }
   } catch (_) {}
 
+  const readCredentials = () => (
+    licenseCache && typeof licenseCache.getCredentials === 'function'
+      ? licenseCache.getCredentials()
+      : {}
+  );
+  const trafficMonitor = createProxyTrafficMonitor({
+    httpClient,
+    ui,
+    readCredentials,
+    readTotals: async () => invokeClashMiniControl(getClashMiniRuntimeRoot(), 'get', '/connections', { timeoutMs: 5000 }),
+    onExhausted: async (quota) => {
+      ui?.sendToSide?.('proxy-traffic-exhausted', quota || {});
+      await stopClashMiniProcess(ui);
+    },
+  });
+
   ipcMain.handle('start-clash-mini', async (_event, options = {}) => {
     try {
-      return await startClashMiniProcess(ui, options || {});
+      const authorization = await trafficMonitor.authorize();
+      if (!authorization?.ok) return authorization || { ok: false, error: '流量额度校验失败' };
+      const result = await startClashMiniProcess(ui, options || {});
+      if (result?.ok) trafficMonitor.start();
+      return { ...result, quota: authorization.quota || null };
     } catch (error) {
       return { ok: false, error: error?.message || String(error) };
     }
@@ -79,9 +101,38 @@ function registerClashIPC(ctx) {
 
   ipcMain.handle('stop-clash-mini', async () => {
     try {
+      await trafficMonitor.stop();
       return await stopClashMiniProcess(ui);
     } catch (error) {
       return { ok: false, error: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle('get-proxy-traffic-quota', async () => {
+    try {
+      const credentials = readCredentials();
+      const key = String(credentials?.key || '').trim();
+      const deviceId = String(credentials?.deviceId || '').trim();
+      if (!key || !deviceId) return { ok: false, message: '请先在个人中心登录账号' };
+      return await httpClient.getProxyTrafficQuota(key, deviceId);
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle('redeem-proxy-traffic-gift-code', async (_event, input = {}) => {
+    try {
+      const credentials = readCredentials();
+      const key = String(credentials?.key || '').trim();
+      const deviceId = String(credentials?.deviceId || '').trim();
+      const code = String(input.code || '').trim();
+      if (!key || !deviceId) return { ok: false, message: '请先在个人中心登录账号' };
+      if (!code) return { ok: false, message: '请输入流量礼品码' };
+      const result = await httpClient.redeemProxyTrafficGiftCode(key, deviceId, code);
+      if (result?.quota) ui?.sendToSide?.('proxy-traffic-quota', result.quota);
+      return result;
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error) };
     }
   });
 

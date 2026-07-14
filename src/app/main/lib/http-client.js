@@ -388,6 +388,43 @@ class HttpClient {
         });
     }
 
+    async getProxyTrafficQuota(key, deviceId) {
+        return this._request({
+            actionLabel: 'getProxyTrafficQuota',
+            path: '/api/proxy/client/quota',
+            method: 'POST',
+            data: { key, device_id: deviceId },
+        });
+    }
+
+    async createProxyTrafficSession(key, deviceId) {
+        return this._request({
+            actionLabel: 'createProxyTrafficSession',
+            path: '/api/proxy/client/session',
+            method: 'POST',
+            data: { key, device_id: deviceId },
+        });
+    }
+
+    async reportProxyTraffic(data) {
+        return this._request({
+            actionLabel: 'reportProxyTraffic',
+            path: '/api/proxy/client/usage',
+            method: 'POST',
+            data,
+            timeoutMs: 15000,
+        });
+    }
+
+    async redeemProxyTrafficGiftCode(key, deviceId, code) {
+        return this._request({
+            actionLabel: 'redeemProxyTrafficGiftCode',
+            path: '/api/proxy/gift-codes/redeem',
+            method: 'POST',
+            data: { key, device_id: deviceId, code },
+        });
+    }
+
     async sendAIControlMessage(key, deviceId, modelId, messages, options = {}) {
         return this._request({
             actionLabel: 'sendAIControlMessage',

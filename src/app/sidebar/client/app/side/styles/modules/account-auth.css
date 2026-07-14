@@ -191,6 +191,10 @@
   padding: 15px 16px 17px;
 }
 
+.account-profile-card .sidebar-quota-redeem + .sidebar-quota-redeem {
+  border-top: 1px solid rgba(128, 159, 202, .14);
+}
+
 .sidebar-account-auth {
   position: fixed;
   inset: 0;

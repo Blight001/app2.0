@@ -1,5 +1,33 @@
 // 侧边栏 VPN / Clash Mini 相关逻辑
 const TextPreviewUtils = window.AiFreeTextPreviewUtils || {};
+let proxyTrafficQuotaSnapshot = null;
+
+function formatProxyTrafficBytes(value) {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (bytes >= 1024 ** 3) return `${(bytes / (1024 ** 3)).toFixed(bytes >= 10 * 1024 ** 3 ? 1 : 2)}GB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / (1024 ** 2)).toFixed(1)}MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${Math.round(bytes)}B`;
+}
+
+function getProxyTrafficButtonText() {
+  const quota = proxyTrafficQuotaSnapshot;
+  if (!quota) return '流量待同步';
+  const direction = `↑${formatProxyTrafficBytes(quota.upload_used_bytes)} ↓${formatProxyTrafficBytes(quota.download_used_bytes)}`;
+  return quota.unlimited
+    ? `不限量 · ${direction}`
+    : `剩余${formatProxyTrafficBytes(quota.remaining_bytes)} · ${direction}`;
+}
+
+function renderProxyTrafficQuota(quota) {
+  proxyTrafficQuotaSnapshot = quota && typeof quota === 'object' ? quota : null;
+  if (vpnSwitchBtn) {
+    vpnSwitchBtn.textContent = `${isVpnEnabled ? '关闭网络魔法' : '开启网络魔法'} · ${getProxyTrafficButtonText()}`;
+    vpnSwitchBtn.title = proxyTrafficQuotaSnapshot?.unlimited
+      ? `网络魔法流量不限量，已用 ${formatProxyTrafficBytes(proxyTrafficQuotaSnapshot.used_bytes)}`
+      : `网络魔法剩余 ${formatProxyTrafficBytes(proxyTrafficQuotaSnapshot?.remaining_bytes)}`;
+  }
+}
 const decodeBase64Preview = TextPreviewUtils.decodeBase64Preview || (() => '');
 const previewText = TextPreviewUtils.previewText || ((value, maxLen = 220) => {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -796,7 +824,7 @@ function applyClashMiniStatus(status, { startBtn, vpnBtn } = {}) {
       startBtn.disabled = running || isBusy;
     }
     if (vpnBtn) {
-      vpnBtn.textContent = enabled ? '关闭网络魔法' : '开启网络魔法';
+      vpnBtn.textContent = `${enabled ? '关闭网络魔法' : '开启网络魔法'} · ${getProxyTrafficButtonText()}`;
       vpnBtn.title = enabled ? '点击关闭网络魔法' : '点击开启网络魔法';
       if (isBusy) {
         vpnBtn.disabled = true;
@@ -1009,7 +1037,7 @@ async function autoStartClashMiniAfterValidation({ startBtn, vpnBtn } = {}) {
       vpnBtn.disabled = false;
     }
     console.log('[侧边栏][Clash] 验证完成，开始启用网络魔法');
-    await syncClashMiniConfigFromServer({ key, deviceId });
+    await syncClashMiniConfigFromServer();
     await startClashMiniFlow({ startBtn, vpnBtn, fetchConfig: false });
     hideAutoStartLoading();
   } catch (error) {
@@ -1110,6 +1138,15 @@ function bindClashMiniControls() {
       applyClashMiniStatus(status, { startBtn, vpnBtn });
     });
 
+    window.electronAPI.on('proxy-traffic-quota', (quota) => {
+      renderProxyTrafficQuota(quota);
+    });
+
+    window.electronAPI.on('proxy-traffic-exhausted', (quota) => {
+      renderProxyTrafficQuota(quota);
+      window.MessageModal?.showErrorMessage?.('网络魔法流量已用完，代理已自动关闭。请到个人中心兑换流量。');
+    });
+
     window.electronAPI.on('clash-mini-latency-progress', (payload) => {
       applyClashMiniLatencyProgress(payload);
     });
@@ -1121,6 +1158,12 @@ function bindClashMiniControls() {
     window.electron.getClashMiniStatus()
       .then((status) => applyClashMiniStatus(status, { startBtn, vpnBtn }))
       .catch(() => {});
+  }
+
+  if (window.electronAPI && typeof window.electronAPI.invoke === 'function') {
+    window.electronAPI.invoke('get-proxy-traffic-quota').then((result) => {
+      if (result?.ok && result.quota) renderProxyTrafficQuota(result.quota);
+    }).catch(() => {});
   }
 
   if (window.electronAPI && typeof window.electronAPI.invoke === 'function') {

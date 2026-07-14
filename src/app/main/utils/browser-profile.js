@@ -15,9 +15,8 @@ const GEO_IP_REQUEST_TIMEOUT_MS = 3000;
 const GEO_IP_OVERALL_TIMEOUT_MS = 4000;
 const GEO_IP_CACHE_TTL_MS = 5 * 60 * 1000;
 
-let cachedGeoProfile = null;
-let cachedGeoProfileAt = 0;
-let pendingGeoProfile = null;
+const cachedGeoProfiles = new Map();
+const pendingGeoProfiles = new Map();
 
 function getChromiumVersion() {
   return String(process.versions?.chrome || '122.0.0.0').trim() || '122.0.0.0';
@@ -45,6 +44,12 @@ function normalizeLocale(locale) {
 
 function normalizeRegionKey(region) {
   return String(region || '').trim().toLowerCase().replace(/\s+/g, '');
+}
+
+function shouldResolveProfileFromIp(settings = {}) {
+  return settings.language?.mode === 'ip'
+    || settings.timezone?.mode === 'ip'
+    || settings.geolocation?.mode === 'ip';
 }
 
 function inferRegionFromCountry(countryCode) {
@@ -79,6 +84,13 @@ function buildGeoProfile(response, endpoint) {
   const normalizedCountry = String(country || '').trim();
   const countryCode = String(body.country_code || body.countryCode
     || (/^[a-z]{2}$/i.test(normalizedCountry) ? normalizedCountry : '')).trim();
+  const rawTimezone = body.timezone;
+  const timezoneId = String(
+    (rawTimezone && typeof rawTimezone === 'object'
+      ? (rawTimezone.id || rawTimezone.name || rawTimezone.timezone)
+      : rawTimezone)
+    || body.timezone_id || body.timezoneId || '',
+  ).trim();
 
   return {
     regionKey,
@@ -87,6 +99,7 @@ function buildGeoProfile(response, endpoint) {
     sourceCountry: String(body.country_name || body.countryName || body.country || '').trim(),
     sourceRegion: String(body.region || body.region_name || body.regionName || '').trim(),
     sourceCity: String(body.city || '').trim(),
+    timezoneId,
     endpoint,
     raw: body,
   };
@@ -124,7 +137,8 @@ function buildBrowserProfileFromRegion(regionKey, settings = {}, geoInfo = {}) {
     || preset?.locale || getDefaultLocale(),
   );
   const timezoneId = String(
-    settings.timezone_id || settings.timezoneId || preset?.timezoneId
+    settings.timezone_id || settings.timezoneId || geoInfo.timezoneId
+    || preset?.timezoneId
     || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
   ).trim() || 'UTC';
   const acceptLanguage = String(
@@ -220,14 +234,19 @@ function buildBrowserProfileFromRegion(regionKey, settings = {}, geoInfo = {}) {
   };
 }
 
-async function resolveGeoIpInfo(httpGetUniversal, logger = console) {
-  if (cachedGeoProfile && Date.now() - cachedGeoProfileAt < GEO_IP_CACHE_TTL_MS) {
-    return cachedGeoProfile;
+async function resolveGeoIpInfo(httpGetUniversal, logger = console, options = {}) {
+  const proxyServer = String(options.proxyServer || '').trim();
+  const cacheKey = proxyServer || 'direct';
+  const cached = cachedGeoProfiles.get(cacheKey);
+  if (options.forceRefresh !== true && cached && Date.now() - cached.cachedAt < GEO_IP_CACHE_TTL_MS) {
+    return cached.profile;
   }
-  if (pendingGeoProfile) return pendingGeoProfile;
+  if (pendingGeoProfiles.has(cacheKey)) return pendingGeoProfiles.get(cacheKey);
   if (typeof httpGetUniversal !== 'function') return null;
 
-  pendingGeoProfile = new Promise((resolve) => {
+  logger?.info?.(`[BrowserProfile] 开始按出口 IP 探测地区（${proxyServer ? `代理 ${proxyServer}` : '直连'}）`);
+
+  const pendingGeoProfile = new Promise((resolve) => {
     let completedCount = 0;
     let resolved = false;
     const failures = [];
@@ -236,10 +255,18 @@ async function resolveGeoIpInfo(httpGetUniversal, logger = console) {
       resolved = true;
       clearTimeout(overallTimer);
       if (profile) {
-        cachedGeoProfile = profile;
-        cachedGeoProfileAt = Date.now();
+        cachedGeoProfiles.set(cacheKey, { profile, cachedAt: Date.now() });
+        logger?.info?.('[BrowserProfile] 出口 IP 地区探测成功:', {
+          ip: profile.sourceIp,
+          countryCode: profile.sourceCountryCode,
+          country: profile.sourceCountry,
+          region: profile.regionKey,
+          timezoneId: profile.timezoneId,
+          endpoint: profile.endpoint,
+          proxyServer: proxyServer || 'direct',
+        });
       } else {
-        logger?.debug?.(
+        logger?.warn?.(
           '[BrowserProfile] IP 地区探测不可用，已回退到系统地区:',
           failures.filter(Boolean).join('; ') || `超过 ${GEO_IP_OVERALL_TIMEOUT_MS}ms`,
         );
@@ -250,7 +277,7 @@ async function resolveGeoIpInfo(httpGetUniversal, logger = console) {
 
     for (const endpoint of GEO_IP_ENDPOINTS) {
       Promise.resolve()
-        .then(() => httpGetUniversal(endpoint, GEO_IP_REQUEST_TIMEOUT_MS))
+        .then(() => httpGetUniversal(endpoint, GEO_IP_REQUEST_TIMEOUT_MS, { proxyServer }))
         .then((response) => {
           const profile = buildGeoProfile(response, endpoint);
           if (profile) {
@@ -267,7 +294,9 @@ async function resolveGeoIpInfo(httpGetUniversal, logger = console) {
           if (completedCount === GEO_IP_ENDPOINTS.length) finish(null);
         });
     }
-  }).finally(() => { pendingGeoProfile = null; });
+  }).finally(() => { pendingGeoProfiles.delete(cacheKey); });
+
+  pendingGeoProfiles.set(cacheKey, pendingGeoProfile);
 
   return pendingGeoProfile;
 }
@@ -278,7 +307,9 @@ async function resolveTabBrowserProfile(options = {}) {
   const explicitRegion = normalizeRegionKey(
     settings.region || settings.browser_region || settings.browserRegion || '',
   );
-  if (explicitRegion && REGION_PRESETS[explicitRegion]) {
+  // 历史窗口可能保留旧的 region 字段。只要任一配置要求跟随 IP，
+  // 就必须重新探测当前出口，不能让旧地区提前短路整个解析流程。
+  if (!shouldResolveProfileFromIp(settings) && explicitRegion && REGION_PRESETS[explicitRegion]) {
     return buildBrowserProfileFromRegion(explicitRegion, settings);
   }
 
@@ -289,7 +320,10 @@ async function resolveTabBrowserProfile(options = {}) {
     return buildBrowserProfileFromRegion(localeRegion || 'us', settings);
   }
 
-  const ipInfo = await resolveGeoIpInfo(options.httpGetUniversal, options.logger);
+  const ipInfo = await resolveGeoIpInfo(options.httpGetUniversal, options.logger, {
+    proxyServer: options.geoProxyServer,
+    forceRefresh: options.forceGeoLookup === true,
+  });
   return buildBrowserProfileFromRegion(ipInfo?.regionKey || localeRegion || 'us', settings, ipInfo || {});
 }
 

@@ -148,6 +148,8 @@ function createTabManager(deps = {}) {
         const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(tab.id));
         if (instance?.profile) {
           instance.profile.locale = resolvedProfile.locale || instance.profile.locale;
+          instance.profile.acceptLanguage = resolvedProfile.acceptLanguage || instance.profile.acceptLanguage;
+          instance.profile.timezoneId = resolvedProfile.timezoneId || instance.profile.timezoneId;
           instance.profile.userAgent = resolvedProfile.userAgent || instance.profile.userAgent;
         }
       }
@@ -347,9 +349,27 @@ function createTabManager(deps = {}) {
     const browserProxy = getBrowserProxyEndpoint();
 
     const results = await Promise.all(entries.map(async (tab) => {
-      const tabProxy = resolveTabBrowserProxy(tab, browserProxy, enabled === true);
+      // 网络魔法是全局开关：开启时所有 Chromium 统一走 Clash Mini，
+      // 关闭时统一清空，不能被单标签模式或历史代理配置覆盖。
+      const tabProxy = enabled === true ? (browserProxy || { enabled: false }) : { enabled: false };
       const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(tab.id));
       if (!instance?.profile) return false;
+      if (typeof resolveTabBrowserProfile === 'function') {
+        const resolvedProfile = await resolveTabBrowserProfile({
+          browserSettings: tab.browserSettings || {},
+          httpGetUniversal: deps.httpGetUniversal,
+          logger,
+          geoProxyServer: tabProxy?.enabled ? String(tabProxy.server || '') : '',
+          forceGeoLookup: true,
+        });
+        if (resolvedProfile) {
+          tab.browserProfile = resolvedProfile;
+          instance.profile.locale = resolvedProfile.locale || instance.profile.locale;
+          instance.profile.acceptLanguage = resolvedProfile.acceptLanguage || instance.profile.acceptLanguage;
+          instance.profile.timezoneId = resolvedProfile.timezoneId || instance.profile.timezoneId;
+          instance.profile.userAgent = resolvedProfile.userAgent || instance.profile.userAgent;
+        }
+      }
       instance.profile.proxyServer = tabProxy?.enabled ? String(tabProxy.server || '') : '';
       instance.profile.proxyBypassList = tabProxy?.enabled ? String(tabProxy.bypassRules || '') : '';
       const runtimeState = await browserRuntimeManager.restart(tab.id);
@@ -406,16 +426,8 @@ function createTabManager(deps = {}) {
       ...(options.browserSettings && typeof options.browserSettings === 'object' ? options.browserSettings : {}),
     };
     const browserSettings = { ...rawBrowserSettings, ...normalizeAiFreeBrowserSettings(rawBrowserSettings) };
-    const browserProfile = typeof resolveTabBrowserProfile === 'function'
-      ? await resolveTabBrowserProfile({
-          browserSettings,
-          httpGetUniversal: deps.httpGetUniversal,
-          logger,
-          skipGeoLookup: options.resolveProfileInBackground === true,
-        })
-      : null;
     const clashMiniStatus = typeof getClashMiniStatus === 'function' ? getClashMiniStatus() : null;
-    const shouldApplyClashMiniProxy = clashMiniStatus && clashMiniStatus.running === true;
+    const shouldApplyClashMiniProxy = clashMiniStatus?.running === true && clashMiniStatus?.enabled === true;
     const clashMiniProxy = shouldApplyClashMiniProxy && typeof getClashMiniProxyEndpoint === 'function'
       ? getClashMiniProxyEndpoint(clashMiniStatus.coreDir || (typeof getClashMiniRuntimeRoot === 'function' ? getClashMiniRuntimeRoot() : ''))
       : null;
@@ -427,6 +439,19 @@ function createTabManager(deps = {}) {
         }
       : null;
     const configuredBrowserProxy = resolveConfiguredBrowserProxy(browserSettings);
+    const effectiveProxy = shouldApplyClashMiniProxy
+      ? (browserProxy || { enabled: false })
+      : (configuredBrowserProxy || resolveTabBrowserProxy({ browserProxyMode }, null, false));
+    const browserProfile = typeof resolveTabBrowserProfile === 'function'
+      ? await resolveTabBrowserProfile({
+          browserSettings,
+          httpGetUniversal: deps.httpGetUniversal,
+          logger,
+          skipGeoLookup: options.resolveProfileInBackground === true && effectiveProxy?.enabled !== true,
+          geoProxyServer: effectiveProxy?.enabled ? effectiveProxy.server : '',
+          forceGeoLookup: effectiveProxy?.enabled === true,
+        })
+      : null;
     // 主网页标签只允许走编译好的 AI-FREE Chromium Fork，不接受其他网页运行时。
     const requestedRuntimeType = 'chromium';
     if (requestedRuntimeType === 'chromium') {
@@ -437,7 +462,6 @@ function createTabManager(deps = {}) {
       const initialUrl = options.showLoadingPage === true
         ? buildBrowserStatusPageUrl(fixedTitle || '新建窗口', '正在启动独立浏览器…')
         : targetInitialUrl;
-      const effectiveProxy = configuredBrowserProxy || resolveTabBrowserProxy({ browserProxyMode }, browserProxy, true);
       const [contentWidth, contentHeight] = mainWindow.getContentSize();
       const sidebarWidth = resolveIsSidebarVisible() ? Math.floor(contentWidth * 0.3) : 0;
       const bounds = { x: 0, y: 41, width: contentWidth - sidebarWidth, height: Math.max(0, contentHeight - 41) };
@@ -465,6 +489,8 @@ function createTabManager(deps = {}) {
           displayName: fixedTitle,
           initialUrl,
           locale: browserProfile?.locale,
+          acceptLanguage: browserProfile?.acceptLanguage,
+          timezoneId: browserProfile?.timezoneId,
           userAgent: browserProfile?.userAgent,
           proxyServer: effectiveProxy?.enabled ? effectiveProxy.server : '',
           proxyBypassList: effectiveProxy?.bypassRules || '',
@@ -490,7 +516,7 @@ function createTabManager(deps = {}) {
             ).catch(() => {});
           });
         }
-        if (options.resolveProfileInBackground === true) {
+        if (options.resolveProfileInBackground === true && effectiveProxy?.enabled !== true) {
           refreshBrowserProfileInBackground(newTabId, browserSettings);
         }
         return newTabId;
@@ -530,7 +556,11 @@ function createTabManager(deps = {}) {
 
       const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(tab.id));
       if (instance?.profile) {
-        const tabProxy = resolveTabBrowserProxy(tab, getBrowserProxyEndpoint(), true);
+        const clashStatus = typeof getClashMiniStatus === 'function' ? getClashMiniStatus() : null;
+        const globalMagicEnabled = clashStatus?.running === true && clashStatus?.enabled === true;
+        const tabProxy = globalMagicEnabled
+          ? (getBrowserProxyEndpoint() || { enabled: false })
+          : resolveTabBrowserProxy(tab, null, false);
         instance.profile.proxyServer = tabProxy?.enabled ? String(tabProxy.server || '') : '';
         instance.profile.proxyBypassList = tabProxy?.enabled ? String(tabProxy.bypassRules || '') : '';
         const runtimeState = await browserRuntimeManager.restart(tab.id);
@@ -748,24 +778,31 @@ function createTabManager(deps = {}) {
       const tab = tabs.get(String(tabId || ''));
       if (!tab) return { ok: false, message: '当前没有可配置的浏览器标签页' };
       const normalized = normalizeAiFreeBrowserSettings(settings);
+      const configuredProxy = resolveConfiguredBrowserProxy(normalized);
+      const clashStatus = typeof getClashMiniStatus === 'function' ? getClashMiniStatus() : null;
+      const globalMagicEnabled = clashStatus?.running === true && clashStatus?.enabled === true;
+      const effectiveProxy = globalMagicEnabled
+        ? (getBrowserProxyEndpoint() || { enabled: false })
+        : (configuredProxy || resolveTabBrowserProxy(tab, null, false));
       const browserProfile = await resolveTabBrowserProfile({
         browserSettings: normalized,
         httpGetUniversal: deps.httpGetUniversal,
         logger,
+        geoProxyServer: effectiveProxy?.enabled ? effectiveProxy.server : '',
+        forceGeoLookup: true,
       });
       tab.browserSettings = { ...(tab.browserSettings || {}), ...normalized };
       tab.browserProfile = browserProfile;
       tabs.set(tab.id, tab);
 
-      const configuredProxy = resolveConfiguredBrowserProxy(normalized);
       const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(tab.id));
       if (instance?.profile) {
         instance.profile.locale = browserProfile?.locale || '';
+        instance.profile.acceptLanguage = browserProfile?.acceptLanguage || '';
+        instance.profile.timezoneId = browserProfile?.timezoneId || '';
         instance.profile.userAgent = browserProfile?.userAgent || '';
-        if (configuredProxy !== null) {
-          instance.profile.proxyServer = configuredProxy?.enabled ? configuredProxy.server : '';
-          instance.profile.proxyBypassList = configuredProxy?.bypassRules || '';
-        }
+        instance.profile.proxyServer = effectiveProxy?.enabled ? effectiveProxy.server : '';
+        instance.profile.proxyBypassList = effectiveProxy?.enabled ? (effectiveProxy.bypassRules || '') : '';
         instance.profile.extraArgs = resolveChromiumExtraArgs(normalized);
       }
       const configuredCookies = parseCookieJson(normalized);

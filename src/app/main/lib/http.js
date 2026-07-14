@@ -3,12 +3,126 @@
 
 const https = require('https');
 const http = require('http');
+const tls = require('tls');
+
+function getProxyAuthorization(proxyUrl) {
+  if (!proxyUrl?.username && !proxyUrl?.password) return '';
+  return `Basic ${Buffer.from(`${decodeURIComponent(proxyUrl.username)}:${decodeURIComponent(proxyUrl.password)}`).toString('base64')}`;
+}
+
+function requestJsonOverHttpProxy(method, targetUrl, proxyUrl, options = {}) {
+  return new Promise((resolve, reject) => {
+    const timeoutMs = Number(options.timeoutMs) || 15000;
+    const upperMethod = String(method || 'GET').toUpperCase();
+    const payload = ['GET', 'HEAD'].includes(upperMethod)
+      ? null
+      : Buffer.from(JSON.stringify(options.data ?? {}));
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(options.headers && typeof options.headers === 'object' ? options.headers : {}),
+      ...(payload ? { 'Content-Length': payload.length } : {}),
+    };
+    const proxyAuthorization = getProxyAuthorization(proxyUrl);
+    const proxyLib = proxyUrl.protocol === 'https:' ? https : http;
+
+    const readResponse = (res, request) => {
+      const chunks = [];
+      res.on('data', d => chunks.push(d));
+      res.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        let body = null;
+        try { body = JSON.parse(raw); } catch (_) {}
+        resolve({ status: res.statusCode, ok: res.statusCode >= 200 && res.statusCode < 300, body, raw });
+      });
+      res.on('aborted', () => reject(new Error('代理响应连接已中断')));
+      res.on('error', reject);
+      request?.on?.('error', reject);
+    };
+    const handleTimeout = (request) => {
+      try { request.destroy(); } catch (_) {}
+      reject(new Error(`请求超时（${timeoutMs / 1000 | 0}秒）`));
+    };
+
+    if (targetUrl.protocol === 'http:') {
+      const request = proxyLib.request({
+        hostname: proxyUrl.hostname,
+        port: proxyUrl.port || (proxyUrl.protocol === 'https:' ? 443 : 80),
+        path: targetUrl.href,
+        method: upperMethod,
+        timeout: timeoutMs,
+        ...(proxyUrl.protocol === 'https:' ? { rejectUnauthorized: false } : {}),
+        headers: {
+          ...headers,
+          Host: targetUrl.host,
+          ...(proxyAuthorization ? { 'Proxy-Authorization': proxyAuthorization } : {}),
+        },
+      }, (res) => readResponse(res, request));
+      request.on('error', reject);
+      request.on('timeout', () => handleTimeout(request));
+      if (payload) request.write(payload);
+      request.end();
+      return;
+    }
+
+    const connectRequest = proxyLib.request({
+      hostname: proxyUrl.hostname,
+      port: proxyUrl.port || (proxyUrl.protocol === 'https:' ? 443 : 80),
+      method: 'CONNECT',
+      path: `${targetUrl.hostname}:${targetUrl.port || 443}`,
+      timeout: timeoutMs,
+      ...(proxyUrl.protocol === 'https:' ? { rejectUnauthorized: false } : {}),
+      headers: {
+        Host: `${targetUrl.hostname}:${targetUrl.port || 443}`,
+        ...(proxyAuthorization ? { 'Proxy-Authorization': proxyAuthorization } : {}),
+      },
+    });
+    connectRequest.on('connect', (res, socket, head) => {
+      if (res.statusCode !== 200) {
+        socket.destroy();
+        reject(new Error(`代理隧道连接失败（HTTP ${res.statusCode}）`));
+        return;
+      }
+      if (head?.length) socket.unshift(head);
+      const request = https.request({
+        hostname: targetUrl.hostname,
+        port: targetUrl.port || 443,
+        path: targetUrl.pathname + (targetUrl.search || ''),
+        method: upperMethod,
+        timeout: timeoutMs,
+        rejectUnauthorized: false,
+        agent: false,
+        createConnection: () => tls.connect({
+          socket,
+          servername: targetUrl.hostname,
+          rejectUnauthorized: false,
+        }),
+        headers,
+      }, (response) => readResponse(response, request));
+      request.on('error', reject);
+      request.on('timeout', () => handleTimeout(request));
+      if (payload) request.write(payload);
+      request.end();
+    });
+    connectRequest.on('error', reject);
+    connectRequest.on('timeout', () => handleTimeout(connectRequest));
+    connectRequest.end();
+  });
+}
 
 // 处理：requestJson的具体业务逻辑。
 function requestJson(method, url, options = {}) {
   return new Promise((resolve, reject) => {
     try {
       const u = new URL(url);
+      const proxyServer = String(options.proxyServer || '').trim();
+      if (proxyServer) {
+        const proxyUrl = new URL(proxyServer);
+        if (!['http:', 'https:'].includes(proxyUrl.protocol)) {
+          throw new Error(`IP 探测暂不支持此代理协议: ${proxyUrl.protocol}`);
+        }
+        requestJsonOverHttpProxy(method, u, proxyUrl, options).then(resolve, reject);
+        return;
+      }
       const isHttps = u.protocol === 'https:';
       const timeoutMs = Number(options.timeoutMs) || 15000;
       const headers = options.headers && typeof options.headers === 'object'
@@ -160,10 +274,11 @@ function postEventStream(url, data, onEvent, timeoutMs = 180000) {
 }
 
 // 处理：httpGetUniversal的具体业务逻辑。
-function httpGetUniversal(urlStr, timeoutMs = 10000) {
+function httpGetUniversal(urlStr, timeoutMs = 10000, options = {}) {
   return requestJson('GET', urlStr, {
+    ...options,
     timeoutMs,
-    headers: { Accept: 'application/json' },
+    headers: { Accept: 'application/json', ...(options.headers || {}) },
   });
 }
 

@@ -27,6 +27,13 @@ const pinnedActionsPatch = fs.readFileSync(path.join(
   'patches',
   '0011-ai-free-embedded-extension-actions-pinned.patch',
 ), 'utf8');
+const timezonePatch = fs.readFileSync(path.join(
+  root,
+  'native',
+  'chromium-fork',
+  'patches',
+  '0012-ai-free-profile-timezone.patch',
+), 'utf8');
 const series = fs.readFileSync(
   path.join(root, 'native', 'chromium-fork', 'patches', 'series'),
   'utf8',
@@ -39,6 +46,7 @@ const nativeHost = fs.readFileSync(
 assert(series.includes('0007-ai-free-embedded-window-lockdown.patch'));
 assert(series.includes('0008-ai-free-extension-popup-auto-dismiss.patch'));
 assert(series.includes('0011-ai-free-embedded-extension-actions-pinned.patch'));
+assert(series.includes('0012-ai-free-profile-timezone.patch'));
 assert(!series.includes('0009-ai-free-embedded-omnibox-read-only.patch'));
 assert(!series.includes('0010-ai-free-embedded-toolbar-simplification.patch'));
 for (const marker of [
@@ -111,6 +119,14 @@ for (const forbiddenMarker of [
 ]) {
   assert(!pinnedActionsPatch.includes(forbiddenMarker),
     `default-pinned extension patch must not alter the address bar: ${forbiddenMarker}`);
+}
+
+for (const marker of [
+  'hs-timezone-id',
+  'String::FromUtf8(base::as_byte_span(timezone_id))',
+  'g_command_line_timezone_override',
+]) {
+  assert(timezonePatch.includes(marker), `timezone patch is missing: ${marker}`);
 }
 
 for (const style of [
