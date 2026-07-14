@@ -168,6 +168,9 @@
       if (!options.preserveTextAfterResolve) {
         btn.textContent = originalText;
       }
+      if (typeof options.onRestore === 'function') {
+        options.onRestore(btn);
+      }
 
       allButtons.slice(1).forEach((el) => {
         if (el.dataset.prevDisabled === '0') {

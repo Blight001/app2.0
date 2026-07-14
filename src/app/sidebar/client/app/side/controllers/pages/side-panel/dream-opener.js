@@ -31,6 +31,7 @@
         btn.dataset.busy = '0';
         btn.disabled = false;
         btn.textContent = originalText;
+        options.onRestore?.(btn);
         companions.forEach((el) => {
           const prev = el.dataset.prevDisabled === '1';
           el.disabled = prev;
@@ -95,6 +96,11 @@
             window.MessageModal.showErrorMessage('操作失败：' + msg);
           } else {
             console.error(msg);
+          }
+        },
+        onRestore: (button) => {
+          if (typeof applyWoolPlatformButtonLabel === 'function') {
+            applyWoolPlatformButtonLabel(button);
           }
         },
       }).catch(() => {});

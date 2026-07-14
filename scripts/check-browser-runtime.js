@@ -44,6 +44,18 @@ try {
   assert(args.includes('--hs-profile-id=profile_001'));
   assert(args.includes('https://example.com'));
   assert(args.includes('--window-position=-32000,-32000'));
+  const unicodeProfilePaths = store.ensureProfile({ profileId: '豆包::account@example.com', runtimeType: 'chromium' });
+  assert.match(unicodeProfilePaths.id, /^[\x21-\x7e]+$/, '握手 Profile ID 必须是可见 ASCII');
+  const unicodeProfileArgs = buildChromiumArgs({
+    profile: { profileId: '豆包::account@example.com' },
+    runtimeProfileId: unicodeProfilePaths.id,
+    paths: unicodeProfilePaths,
+    pipeName: '\\\\.\\pipe\\unicode-profile-test',
+    launchToken: 'one-time',
+    hostHwnd: '123',
+  });
+  assert(unicodeProfileArgs.includes(`--hs-profile-id=${unicodeProfilePaths.id}`));
+  assert(!unicodeProfileArgs.includes('--hs-profile-id=豆包::account@example.com'));
   const restoreArgs = buildChromiumArgs({
     profile: { profileId: 'profile_001', initialUrl: '', restoreLastSession: true },
     paths: rebuiltPaths,
@@ -178,13 +190,16 @@ try {
   const navigationTimeoutRuntime = new ChromiumRuntime({
     logger: { info() {}, warn() {} },
   });
-  const navigationTimeoutCodes = ['NAVIGATION_TIMEOUT', 'RUNTIME_COMMAND_TIMEOUT'];
+  const navigationTimeoutCodes = ['NAVIGATION_TIMEOUT', 'RUNTIME_COMMAND_TIMEOUT', 'NAVIGATION_FAILED'];
   navigationTimeoutRuntime.getReadyInstance = () => ({
     commandClient: {
       async send(command) {
         if (command === 'navigate') {
-          const error = new Error('Runtime Bridge 命令超时: navigate');
-          error.code = navigationTimeoutCodes.shift();
+          const errorCode = navigationTimeoutCodes.shift();
+          const error = new Error(errorCode === 'NAVIGATION_FAILED'
+            ? '页面加载失败: -3 https://www.dola.com/chat/'
+            : 'Runtime Bridge 命令超时: navigate');
+          error.code = errorCode;
           throw error;
         }
         return { result: { imported: 0 } };
@@ -203,6 +218,13 @@ try {
   assert.equal(bridgeTimeoutImport.ok, true);
   assert.equal(bridgeTimeoutImport.navigation.pending, true);
   assert.equal(bridgeTimeoutImport.navigation.timedOut, true);
+  const redirectedNavigationImport = await navigationTimeoutRuntime.importSession('redirected-profile', {
+    targetUrl: 'https://www.dola.com/chat/',
+  });
+  assert.equal(redirectedNavigationImport.ok, true);
+  assert.equal(redirectedNavigationImport.navigation.pending, true);
+  assert.equal(redirectedNavigationImport.navigation.interrupted, true);
+  assert.equal(redirectedNavigationImport.navigation.timedOut, false);
   const restartRuntime = new ChromiumRuntime({ logger: { info() {}, warn() {} } });
   const originalProfile = { profileId: 'restart-profile', initialUrl: 'https://example.com/work', extensionPaths: ['extension-a'] };
   restartRuntime.store = { getState: () => ({ bounds: { x: 0, y: 0, width: 800, height: 600 } }) };

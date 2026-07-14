@@ -21,8 +21,8 @@ function bounds(seed = 0) {
   return { x: 0, y: 41, width: Math.max(640, width - (seed % 3)), height: Math.max(480, height - 41 - (seed % 2)) };
 }
 
-function assertReady(state, profileId) {
-  if (!state || state.profileId !== profileId || state.status !== 'ready' ||
+function assertReady(state, profileId, storedProfileId = profileId) {
+  if (!state || state.profileId !== storedProfileId || state.status !== 'ready' ||
       state.bridgeConnected !== true || !state.sessionId || !state.browserHwnd ||
       state.embedded !== true) {
     throw new Error(`Profile ${profileId} runtime state invalid: ${JSON.stringify(state)}`);
@@ -45,7 +45,8 @@ app.whenReady().then(async () => {
     logger: console,
   });
 
-  const profiles = ['phase2_a', 'phase2_b'];
+  // 覆盖真实账号场景：中文平台名不能直接交给 Fork 的 ASCII switch API。
+  const profiles = ['phase2_a', '豆包::phase2_b'];
   for (const profileId of profiles) {
     const state = await manager.launchProfile({
       profileId,
@@ -53,7 +54,7 @@ app.whenReady().then(async () => {
       initialUrl: 'https://example.com',
       launchTimeoutMs: 30000,
     }, bounds());
-    assertReady(state, profileId);
+    assertReady(state, profileId, manager.store.getProfilePaths(profileId).id);
     await manager.hide(profileId, 'chromium');
   }
 

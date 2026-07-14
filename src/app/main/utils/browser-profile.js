@@ -11,8 +11,12 @@ const GEO_IP_ENDPOINTS = [
   'https://ipwho.is/',
   'https://ipinfo.io/json',
 ];
+const GEO_IP_REQUEST_TIMEOUT_MS = 3000;
+const GEO_IP_OVERALL_TIMEOUT_MS = 4000;
+const GEO_IP_CACHE_TTL_MS = 5 * 60 * 1000;
 
 let cachedGeoProfile = null;
+let cachedGeoProfileAt = 0;
 let pendingGeoProfile = null;
 
 function getChromiumVersion() {
@@ -61,6 +65,31 @@ function inferRegionFromIpInfo(info = {}) {
     || info.country_name || info.countryName || '';
   return inferRegionFromCountry(country)
     || inferBrowserRegionKeyFromLocale(info.locale || info.language || '');
+}
+
+function buildGeoProfile(response, endpoint) {
+  const body = response?.body && typeof response.body === 'object' ? response.body : null;
+  if (!body || response?.ok === false || body.success === false || body.error === true) return null;
+
+  const regionKey = inferRegionFromIpInfo(body);
+  if (!regionKey) return null;
+
+  const country = body.country_code || body.countryCode || body.country
+    || body.country_name || body.countryName || '';
+  const normalizedCountry = String(country || '').trim();
+  const countryCode = String(body.country_code || body.countryCode
+    || (/^[a-z]{2}$/i.test(normalizedCountry) ? normalizedCountry : '')).trim();
+
+  return {
+    regionKey,
+    sourceIp: String(body.ip || body.query || body.ip_address || body.ipAddress || '').trim(),
+    sourceCountryCode: countryCode,
+    sourceCountry: String(body.country_name || body.countryName || body.country || '').trim(),
+    sourceRegion: String(body.region || body.region_name || body.regionName || '').trim(),
+    sourceCity: String(body.city || '').trim(),
+    endpoint,
+    raw: body,
+  };
 }
 
 function getAcceptLanguage(locale) {
@@ -192,35 +221,53 @@ function buildBrowserProfileFromRegion(regionKey, settings = {}, geoInfo = {}) {
 }
 
 async function resolveGeoIpInfo(httpGetUniversal, logger = console) {
-  if (cachedGeoProfile) return cachedGeoProfile;
+  if (cachedGeoProfile && Date.now() - cachedGeoProfileAt < GEO_IP_CACHE_TTL_MS) {
+    return cachedGeoProfile;
+  }
   if (pendingGeoProfile) return pendingGeoProfile;
   if (typeof httpGetUniversal !== 'function') return null;
 
-  pendingGeoProfile = (async () => {
-    for (const endpoint of GEO_IP_ENDPOINTS) {
-      try {
-        const response = await httpGetUniversal(endpoint, 8000);
-        const body = response?.body && typeof response.body === 'object' ? response.body : null;
-        if (!body) continue;
-        const regionKey = inferRegionFromIpInfo(body);
-        if (!regionKey) continue;
-        cachedGeoProfile = {
-          regionKey,
-          sourceIp: String(body.ip || body.query || body.ip_address || body.ipAddress || '').trim(),
-          sourceCountryCode: String(body.country_code || body.countryCode || '').trim(),
-          sourceCountry: String(body.country_name || body.countryName || body.country || '').trim(),
-          sourceRegion: String(body.region || body.region_name || body.regionName || '').trim(),
-          sourceCity: String(body.city || '').trim(),
-          endpoint,
-          raw: body,
-        };
-        return cachedGeoProfile;
-      } catch (error) {
-        logger?.warn?.('[BrowserProfile] IP 地区探测失败:', error?.message || error);
+  pendingGeoProfile = new Promise((resolve) => {
+    let completedCount = 0;
+    let resolved = false;
+    const failures = [];
+    const finish = (profile) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(overallTimer);
+      if (profile) {
+        cachedGeoProfile = profile;
+        cachedGeoProfileAt = Date.now();
+      } else {
+        logger?.debug?.(
+          '[BrowserProfile] IP 地区探测不可用，已回退到系统地区:',
+          failures.filter(Boolean).join('; ') || `超过 ${GEO_IP_OVERALL_TIMEOUT_MS}ms`,
+        );
       }
+      resolve(profile);
+    };
+    const overallTimer = setTimeout(() => finish(null), GEO_IP_OVERALL_TIMEOUT_MS);
+
+    for (const endpoint of GEO_IP_ENDPOINTS) {
+      Promise.resolve()
+        .then(() => httpGetUniversal(endpoint, GEO_IP_REQUEST_TIMEOUT_MS))
+        .then((response) => {
+          const profile = buildGeoProfile(response, endpoint);
+          if (profile) {
+            finish(profile);
+          } else {
+            failures.push(`${new URL(endpoint).hostname}: 无有效地区数据`);
+          }
+        })
+        .catch((error) => {
+          failures.push(`${new URL(endpoint).hostname}: ${error?.message || error}`);
+        })
+        .finally(() => {
+          completedCount += 1;
+          if (completedCount === GEO_IP_ENDPOINTS.length) finish(null);
+        });
     }
-    return null;
-  })().finally(() => { pendingGeoProfile = null; });
+  }).finally(() => { pendingGeoProfile = null; });
 
   return pendingGeoProfile;
 }

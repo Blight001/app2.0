@@ -75,6 +75,49 @@ async function main() {
   assert.ok(fastProfile && fastProfile.locale);
   assert.equal(geoLookupCalls, 0);
 
+  const geoStartedAt = Date.now();
+  const geoCalls = [];
+  const geoProfilePromise = resolveTabBrowserProfile({
+    browserSettings: {},
+    httpGetUniversal: async (endpoint, timeoutMs) => {
+      geoCalls.push({ endpoint, timeoutMs });
+      if (endpoint.includes('ipapi.co')) return new Promise(() => {});
+      if (endpoint.includes('ipwho.is')) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return {
+          ok: true,
+          body: {
+            success: true,
+            ip: '203.0.113.8',
+            country_code: 'SG',
+            country: 'Singapore',
+            region: 'Singapore',
+            city: 'Singapore',
+          },
+        };
+      }
+      throw new Error('service unavailable');
+    },
+  });
+  const sharedGeoProfilePromise = resolveTabBrowserProfile({
+    browserSettings: {},
+    httpGetUniversal: async () => { throw new Error('并发探测应复用同一请求'); },
+  });
+  const [geoProfile, sharedGeoProfile] = await Promise.all([geoProfilePromise, sharedGeoProfilePromise]);
+  assert.equal(geoProfile.region, 'sg');
+  assert.equal(sharedGeoProfile.region, 'sg');
+  assert.equal(geoProfile.sourceCountryCode, 'SG');
+  assert.equal(geoProfile.sourceIp, '203.0.113.8');
+  assert.ok(Date.now() - geoStartedAt < 1000, 'IP 地区探测不应等待悬挂的服务');
+  assert.equal(geoCalls.length, 3);
+  assert.ok(geoCalls.every((call) => call.timeoutMs === 3000));
+
+  const cachedProfile = await resolveTabBrowserProfile({
+    browserSettings: {},
+    httpGetUniversal: async () => { throw new Error('缓存命中时不应发起请求'); },
+  });
+  assert.equal(cachedProfile.region, 'sg');
+
   const profile = buildBrowserProfileFromRegion('cn', settings);
   assert.equal(profile.browserBrand, 'AI-FREE');
   assert.equal(profile.userAgent, 'AI-FREE-Test-UA');

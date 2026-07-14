@@ -47,6 +47,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/reload_type.h"
+#include "net/base/net_errors.h"
 #include "net/cookies/canonical_cookie.h"
 #include "net/cookies/cookie_access_result.h"
 #include "net/cookies/cookie_constants.h"
@@ -309,6 +310,10 @@ class NavigationResponseObserver : public content::WebContentsObserver {
         render_frame_host != web_contents()->GetPrimaryMainFrame()) {
       return;
     }
+    // ERR_ABORTED means another navigation replaced this one, which is normal
+    // for login redirects and client-side routers. Keep observing so the final
+    // primary document can complete or the existing timeout can decide.
+    if (error_code == net::ERR_ABORTED) return;
     FinishError("NAVIGATION_FAILED",
                 base::StrCat({"页面加载失败: ", base::NumberToString(error_code),
                               " ", validated_url.spec()}));

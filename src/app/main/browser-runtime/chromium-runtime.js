@@ -69,6 +69,10 @@ class ChromiumRuntime extends BrowserRuntime {
     }
     const bounds = normalizeBounds(rawBounds);
     const paths = this.store.ensureProfile({ ...rawProfile, profileId, runtimeType: RUNTIME_TYPES.CHROMIUM });
+    // Chromium Fork uses an ASCII-only switch API for the handshake Profile ID.
+    // Business IDs may contain Chinese text (for example, "豆包::account"), so
+    // use the store's normalized filesystem ID only for the bridge protocol.
+    const runtimeProfileId = String(paths.id || '').trim();
     this.store.acquireLock(profileId, { runtimeType: RUNTIME_TYPES.CHROMIUM });
     this.store.createState(profileId, RUNTIME_TYPES.CHROMIUM, { bounds, status: RUNTIME_STATUS.STARTING, startedAt: Date.now() });
 
@@ -84,19 +88,19 @@ class ChromiumRuntime extends BrowserRuntime {
       this.windowBridge.hideHostWindow(hostHwnd);
       const pipeName = createPipeName(profileId);
       const launchToken = crypto.randomBytes(32).toString('hex');
-      commandClient = new ChromiumCommandClient({ profileId, pipeName, launchToken, logger: this.logger });
+      commandClient = new ChromiumCommandClient({ profileId: runtimeProfileId, pipeName, launchToken, logger: this.logger });
       await commandClient.listen();
       this.store.transition(profileId, RUNTIME_STATUS.WAITING_PIPE, { hostHwnd, pipeName });
 
       const profile = { ...rawProfile, profileId };
       const launched = launchChromium({
-        profile, paths, bounds, hostHwnd, pipeName, launchToken,
+        profile, paths, bounds, hostHwnd, pipeName, launchToken, runtimeProfileId,
         resourcesPath: this.resourcesPath, executablePath: profile.executablePath, logger: this.logger,
       });
       const child = launched.child;
       commandClient.setExpectedPid(child.pid);
       const instance = {
-        profile, paths, child, commandClient, hostHwnd, parentWindow,
+        profile, paths, child, commandClient, hostHwnd, parentWindow, runtimeProfileId,
         expectedExit: false, monitor: null, parentFocusHandler: null,
         visualSyncTimers: new Set(),
       };
@@ -180,7 +184,8 @@ class ChromiumRuntime extends BrowserRuntime {
       this.store.patchState(profileId, { bridgeConnected: true, sessionId: message.sessionId, lastHeartbeatAt: Date.now() });
     });
     instance.commandClient.on('heartbeat', () => this.store.patchState(profileId, { lastHeartbeatAt: Date.now() }));
-    instance.commandClient.on('event', (message) => this.emit('runtime-event', { profileId, ...message }));
+    // Keep the transport-only ASCII ID out of application-facing runtime events.
+    instance.commandClient.on('event', (message) => this.emit('runtime-event', { ...message, profileId }));
     instance.child.once('error', (error) => this.markCrashed(profileId, { code: 'CHROMIUM_PROCESS_ERROR', message: error.message }));
     instance.child.once('exit', (code, signal) => {
       if (!instance.expectedExit) this.markCrashed(profileId, { code: 'CHROMIUM_PROCESS_EXITED', message: `Chromium 已退出 (${code ?? signal})`, exitCode: code });
@@ -320,18 +325,29 @@ class ChromiumRuntime extends BrowserRuntime {
         url: prepared.targetUrl,
       }, { timeoutMs: 30000 });
     } catch (error) {
-      if (!['NAVIGATION_TIMEOUT', 'RUNTIME_COMMAND_TIMEOUT'].includes(error?.code)) throw error;
+      const message = String(error?.message || '');
+      const navigationTimedOut = ['NAVIGATION_TIMEOUT', 'RUNTIME_COMMAND_TIMEOUT'].includes(error?.code);
+      const navigationInterrupted = error?.code === 'NAVIGATION_FAILED'
+        && (/页面加载失败:\s*-3(?:\s|$)/.test(message) || /ERR_ABORTED/i.test(message));
+      if (!navigationTimedOut && !navigationInterrupted) throw error;
       // navigate has already been delivered to Chromium. A slow page can keep
-      // loading after the bridge response deadline, so a timeout must not tear
-      // down the tab/Profile or turn a valid session import into a hard failure.
+      // loading after the bridge response deadline. ERR_ABORTED (-3) also means
+      // that the site replaced this navigation (usually a redirect), not that
+      // the destination is unreachable. Neither condition should tear down a
+      // valid imported session or turn browser startup into a hard failure.
       this.logger?.warn?.(
-        `[ChromiumRuntime] importSession ${profileId}: 页面加载超过等待时间，保留浏览器并继续加载`,
+        navigationInterrupted
+          ? `[ChromiumRuntime] importSession ${profileId}: 页面导航被站点重定向，保留浏览器并等待最终页面`
+          : `[ChromiumRuntime] importSession ${profileId}: 页面加载超过等待时间，保留浏览器并继续加载`,
       );
       navigation = {
         result: {
           pending: true,
-          timedOut: true,
-          message: '页面仍在加载，已保留浏览器窗口',
+          timedOut: navigationTimedOut,
+          interrupted: navigationInterrupted,
+          message: navigationInterrupted
+            ? '页面正在重定向，已保留浏览器窗口'
+            : '页面仍在加载，已保留浏览器窗口',
         },
       };
     }

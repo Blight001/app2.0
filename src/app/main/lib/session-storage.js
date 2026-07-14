@@ -65,6 +65,26 @@ function normalizeKeyFolderName(key) {
   return `${prefix}_${hash}`;
 }
 
+// 账号 ID 来自服务端，可能包含 Windows 文件名不允许的字符（例如“平台::邮箱”）。
+// 业务层仍保留原始 ID；只有落盘文件名使用稳定哈希，避免破坏账号匹配、去重和切换逻辑。
+function getSessionFileName(accountId) {
+  const value = String(accountId || '').trim();
+  const reservedWindowsName = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+  const isPortableFileName = value
+    && value !== '.'
+    && value !== '..'
+    && Buffer.byteLength(value, 'utf8') <= 180
+    && !/[<>:"/\\|?*\x00-\x1f]/.test(value)
+    && !/[. ]$/.test(value)
+    && !reservedWindowsName.test(value);
+
+  if (isPortableFileName) {
+    return value;
+  }
+
+  return `account-${crypto.createHash('sha256').update(value, 'utf8').digest('hex')}`;
+}
+
 // 获取/读取/解析：getKeyFolderPath的具体业务逻辑。
 function getKeyFolderPath(key) {
   return path.join(getSessionsDir(), normalizeKeyFolderName(key));
@@ -73,15 +93,16 @@ function getKeyFolderPath(key) {
 // 获取/读取/解析：getSessionFilePath的具体业务逻辑。
 function getSessionFilePath(accountId, key, storageType = 'server', storageGroup = '') {
   const rootDir = getStorageRootDir(storageType, storageGroup);
+  const fileName = getSessionFileName(accountId);
   if (normalizeStorageType(storageType) === 'server') {
-    return path.join(getKeyFolderPath(key), `${accountId}`);
+    return path.join(getKeyFolderPath(key), fileName);
   }
-  return path.join(rootDir, normalizeKeyFolderName(key), `${accountId}`);
+  return path.join(rootDir, normalizeKeyFolderName(key), fileName);
 }
 
 // 获取/读取/解析：getLegacyRootSessionPath的具体业务逻辑。
 function getLegacyRootSessionPath(accountId) {
-  return path.join(getSessionsDir(), `${accountId}`);
+  return path.join(getSessionsDir(), getSessionFileName(accountId));
 }
 
 // 获取/读取/解析：getLegacyRootSessionJsonPath的具体业务逻辑。
@@ -325,6 +346,8 @@ function walkSessionFiles(dir, out = []) {
 function findSessionPaths(accountId) {
   const results = [];
   try {
+    const normalizedAccountId = String(accountId || '').trim();
+    const sessionFileName = getSessionFileName(normalizedAccountId);
     const legacyFlat = getLegacyRootSessionPath(accountId);
     const legacyFlatJson = getLegacyRootSessionJsonPath(accountId);
     if (fs.existsSync(legacyFlat)) results.push(legacyFlat);
@@ -332,8 +355,20 @@ function findSessionPaths(accountId) {
 
     const allFiles = walkSessionFiles(getSessionsDir(), []);
     for (const filePath of allFiles) {
-      if (path.basename(filePath) === String(accountId)) {
+      const baseName = path.basename(filePath).replace(/\.json$/, '');
+      if (baseName === normalizedAccountId || baseName === sessionFileName) {
         results.push(filePath);
+        continue;
+      }
+
+      // 新格式的文件名不可逆，因此以文件内保存的原始 ID 作为最终匹配依据。
+      try {
+        const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        if (parsed && !Array.isArray(parsed) && String(parsed.id || '').trim() === normalizedAccountId) {
+          results.push(filePath);
+        }
+      } catch (_) {
+        // 损坏或旧式文件由 loadSession 统一处理，这里只跳过 ID 内容匹配。
       }
     }
   } catch (_) {}
@@ -669,10 +704,17 @@ function getAllSessionIds() {
     if (!fs.existsSync(sessionsDir)) {
       return [];
     }
-    return walkSessionFiles(sessionsDir, [])
+    const ids = walkSessionFiles(sessionsDir, [])
       .filter(filePath => fs.existsSync(filePath) && fs.lstatSync(filePath).isFile())
-      .map(filePath => path.basename(filePath).replace(/\.json$/, ''))
-      .sort((a, b) => b.localeCompare(a)); // 按ID降序排列（时间戳大的在前）
+      .map((filePath) => {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+          const storedId = parsed && !Array.isArray(parsed) ? String(parsed.id || '').trim() : '';
+          if (storedId) return storedId;
+        } catch (_) {}
+        return path.basename(filePath).replace(/\.json$/, '');
+      });
+    return Array.from(new Set(ids)).sort((a, b) => b.localeCompare(a)); // 按ID降序排列（时间戳大的在前）
   } catch (e) {
     console.error('[SessionStorage] 获取会话文件列表失败:', e?.message || e);
     return [];
