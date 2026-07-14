@@ -94,7 +94,8 @@ async function main() {
     && injectSessionAt > openPageAt
     && reloadAt > injectSessionAt,
   );
-  assert.ok(serverAccountFlow.includes('deferChromiumNavigation: true'));
+  assert.ok(serverAccountFlow.includes('deferChromiumNavigation: !restoreProfileOnly'));
+  assert.ok(serverAccountFlow.includes('restoreLastSession: restoreProfileOnly'));
   assert.ok(serverAccountFlow.includes('navigateAfterImport: false'));
   assert.ok(sidebarSettingsScript.includes("electronAPI.invoke('delete-browser-history'"));
   assert.ok(sidebarSettingsScript.includes('browser-history-auto-delete'));
@@ -154,7 +155,7 @@ async function main() {
   assert.equal(geoProfile.sourceIp, '203.0.113.8');
   assert.ok(Date.now() - geoStartedAt < 1000, 'IP 地区探测不应等待悬挂的服务');
   assert.equal(geoCalls.length, 3);
-  assert.ok(geoCalls.every((call) => call.timeoutMs === 3000));
+  assert.ok(geoCalls.every((call) => call.timeoutMs === 5000));
 
   const cachedProfile = await resolveTabBrowserProfile({
     browserSettings: {},

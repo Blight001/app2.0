@@ -587,7 +587,7 @@ function initServerMessageListener() {
         // 转发到侧边栏的账号处理逻辑
         // 模拟触发server-account-cookie-received事件
         if (window.electronAPI && window.electronAPI.send) {
-          console.log('[消息弹窗] 发送账号cookie数据到侧边栏:', messageData.data);
+          console.log('[消息弹窗] 正在发送账号 Cookie 数据到侧边栏');
           window.electronAPI.send('server-account-cookie-received', messageData.data);
         } else {
           console.error('[消息弹窗] electronAPI.send不可用，无法转发账号cookie数据');

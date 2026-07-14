@@ -9,6 +9,7 @@ const {
   buildChromiumEnvironment,
   getSystemChromiumCandidates,
   resolveChromiumExecutable,
+  shouldIgnoreChromiumDiagnostic,
 } = require('../src/app/main/browser-runtime/chromium-launcher');
 const { encodeFrame, MAX_MESSAGE_BYTES, PROTOCOL_VERSION } = require('../src/app/main/browser-runtime/chromium-command-client');
 const { ProfileRuntimeStore } = require('../src/app/main/browser-runtime/profile-runtime-store');
@@ -16,10 +17,14 @@ const { RUNTIME_STATUS } = require('../src/app/main/browser-runtime/runtime-type
 const { prepareSessionImport } = require('../src/app/main/browser-runtime/session-import');
 const { ChromiumRuntime } = require('../src/app/main/browser-runtime/chromium-runtime');
 const { createTabManager, resolveChromiumExtensionPaths } = require('../src/app/main/services/tab-manager');
+const { cleanupAccountProfile } = require('../src/app/main/services/account-profile-cleanup');
+const { initializeAccountCleanup } = require('../src/app/main/utils/accountCleanup');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-runtime-test-'));
 (async () => {
 try {
+  assert.equal(shouldIgnoreChromiumDiagnostic('WSALookupServiceBegin failed with: 10108'), true);
+  assert.equal(shouldIgnoreChromiumDiagnostic('WSALookupServiceBegin failed with: 10022'), false);
   const store = new ProfileRuntimeStore({ rootDir: root, logger: { warn() {} } });
   const paths = store.ensureProfile({ profileId: 'profile_001', runtimeType: 'chromium' });
   assert(fs.existsSync(paths.chromiumData));
@@ -33,6 +38,62 @@ try {
   store.releaseLock('profile_001');
   assert.equal(store.deleteProfile('profile_001'), true);
   assert.equal(fs.existsSync(paths.root), false);
+
+  const sharedPaths = store.ensureProfile({ profileId: 'shared-account', runtimeType: 'chromium' });
+  const configPath = path.join(root, 'store.json');
+  fs.writeFileSync(configPath, JSON.stringify({
+    browserHistory: [
+      { id: 'account-history', accountId: 'shared-account' },
+      { id: 'independent-history', accountId: '' },
+    ],
+  }), 'utf8');
+  let closedTabId = '';
+  const cleanupResult = await cleanupAccountProfile('shared-account', {
+    browserRuntimeManager: {
+      getState: () => null,
+      deleteProfile: (profileId) => store.deleteProfile(profileId),
+    },
+    getTabs: () => new Map([['shared-account', { id: 'shared-account', accountId: 'shared-account' }]]),
+    closeTab: async (tabId) => { closedTabId = tabId; },
+    fs,
+    getStorePath: () => configPath,
+    logger: { log() {}, warn() {} },
+  });
+  assert.equal(cleanupResult.ok, true);
+  assert.equal(closedTabId, 'shared-account');
+  assert.equal(fs.existsSync(sharedPaths.root), false, '循环账号清理必须删除整个 Chromium Profile');
+  assert.deepEqual(JSON.parse(fs.readFileSync(configPath, 'utf8')).browserHistory, [
+    { id: 'independent-history', accountId: '' },
+  ]);
+
+  const expiredPaths = store.ensureProfile({ profileId: 'expired-shared-account', runtimeType: 'chromium' });
+  let deletedExpiredMetadata = false;
+  const cleanupSummary = await initializeAccountCleanup({
+    getAllAccounts: () => [{
+      id: 'expired-shared-account',
+      currentAccountType: 'shared',
+      serverRecycleTimeTs: Date.now() - 1000,
+    }],
+    deleteAccount: (accountId) => {
+      deletedExpiredMetadata = accountId === 'expired-shared-account';
+      return { ok: true };
+    },
+  }, {
+    cleanupAccountArtifacts: (accountId) => cleanupAccountProfile(accountId, {
+      browserRuntimeManager: {
+        getState: () => null,
+        deleteProfile: (profileId) => store.deleteProfile(profileId),
+      },
+      getTabs: () => new Map(),
+      closeTab: async () => {},
+      fs,
+      getStorePath: () => configPath,
+      logger: { log() {}, warn() {} },
+    }),
+  });
+  assert.equal(cleanupSummary.removed, 1);
+  assert.equal(deletedExpiredMetadata, true);
+  assert.equal(fs.existsSync(expiredPaths.root), false, '到期循环账号必须先删除 Profile 再删除元数据');
 
   const rebuiltPaths = store.ensureProfile({ profileId: 'profile_001', runtimeType: 'chromium' });
 

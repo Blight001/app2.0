@@ -9,6 +9,86 @@ function normalizeCounter(value) {
   return Number.isFinite(number) && number >= 0 ? Math.floor(number) : 0;
 }
 
+const NON_BILLABLE_CHAINS = new Set([
+  'DIRECT',
+  'PASS',
+  'REJECT',
+  'REJECT-DROP',
+]);
+
+function normalizeChainName(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function isBillableProxyConnection(connection) {
+  const chains = Array.isArray(connection?.chains)
+    ? connection.chains.map(normalizeChainName).filter(Boolean)
+    : [];
+  if (chains.length === 0) return false;
+  return !chains.some((name) => NON_BILLABLE_CHAINS.has(name));
+}
+
+function createBillableTrafficTracker() {
+  let initialized = false;
+  let previousConnections = new Map();
+
+  const reset = () => {
+    initialized = false;
+    previousConnections = new Map();
+  };
+
+  const sample = (snapshot) => {
+    if (!snapshot || !Array.isArray(snapshot.connections)) {
+      throw new Error('Mihomo 连接流量响应格式无效');
+    }
+
+    const currentConnections = new Map();
+    let upload = 0;
+    let download = 0;
+
+    for (const connection of snapshot.connections) {
+      const id = String(connection?.id || '').trim();
+      if (!id) continue;
+
+      const current = {
+        upload: normalizeCounter(connection?.upload),
+        download: normalizeCounter(connection?.download),
+        billable: isBillableProxyConnection(connection),
+      };
+      currentConnections.set(id, current);
+
+      if (!initialized || !current.billable) continue;
+
+      const previous = previousConnections.get(id);
+      if (!previous) {
+        // This connection was created after the previous poll, so all bytes
+        // observed so far belong to the current metering session.
+        upload += current.upload;
+        download += current.download;
+        continue;
+      }
+      if (!previous.billable) {
+        // Do not retroactively charge bytes if Mihomo changes a connection
+        // from a non-proxy chain to a proxy chain.
+        continue;
+      }
+
+      upload += current.upload >= previous.upload
+        ? current.upload - previous.upload
+        : current.upload;
+      download += current.download >= previous.download
+        ? current.download - previous.download
+        : current.download;
+    }
+
+    initialized = true;
+    previousConnections = currentConnections;
+    return { upload, download };
+  };
+
+  return { reset, sample };
+}
+
 function signReport(secret, fields) {
   const message = [
     fields.session_id,
@@ -37,7 +117,7 @@ function describeAuthorizationFailure(result) {
 function createProxyTrafficMonitor({ httpClient, ui, readCredentials, readTotals, onExhausted, onUnavailable, logger = console } = {}) {
   let timer = null;
   let session = null;
-  let previous = null;
+  const trafficTracker = createBillableTrafficTracker();
   let pendingUpload = 0;
   let pendingDownload = 0;
   let sequence = 0;
@@ -72,7 +152,7 @@ function createProxyTrafficMonitor({ httpClient, ui, readCredentials, readTotals
       reportIntervalMs: Math.max(10000, Number(result.report_interval_seconds || 30) * 1000),
     };
     sequence = 0;
-    previous = null;
+    trafficTracker.reset();
     pendingUpload = 0;
     pendingDownload = 0;
     lastReportAt = Date.now();
@@ -131,15 +211,9 @@ function createProxyTrafficMonitor({ httpClient, ui, readCredentials, readTotals
     try {
       const totals = await readTotals();
       consecutiveReadFailures = 0;
-      const current = {
-        upload: normalizeCounter(totals?.uploadTotal ?? totals?.upload_total),
-        download: normalizeCounter(totals?.downloadTotal ?? totals?.download_total),
-      };
-      if (previous) {
-        pendingUpload += current.upload >= previous.upload ? current.upload - previous.upload : current.upload;
-        pendingDownload += current.download >= previous.download ? current.download - previous.download : current.download;
-      }
-      previous = current;
+      const delta = trafficTracker.sample(totals);
+      pendingUpload += delta.upload;
+      pendingDownload += delta.download;
       const due = Date.now() - lastReportAt >= (session.reportIntervalMs || DEFAULT_REPORT_INTERVAL_MS);
       if (due || pendingUpload + pendingDownload >= EARLY_REPORT_BYTES) await flush();
     } catch (error) {
@@ -180,11 +254,17 @@ function createProxyTrafficMonitor({ httpClient, ui, readCredentials, readTotals
     await sample().catch(() => {});
     if (reporting) await reporting.catch(() => {});
     await flush({ force: true }).catch(() => {});
-    previous = null;
+    trafficTracker.reset();
     session = null;
   };
 
   return { authorize, start, stop, flush, sample, signReport };
 }
 
-module.exports = { createProxyTrafficMonitor, describeAuthorizationFailure, signReport };
+module.exports = {
+  createBillableTrafficTracker,
+  createProxyTrafficMonitor,
+  describeAuthorizationFailure,
+  isBillableProxyConnection,
+  signReport,
+};

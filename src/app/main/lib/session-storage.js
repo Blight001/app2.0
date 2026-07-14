@@ -1,19 +1,14 @@
-// 会话存储模块：专门处理服务器会话数据的存储（cookies等，cookie内容加密落盘）
+// 会话存储模块：只保存账号元数据。Cookie/Storage 由独立 Chromium Profile 持久化。
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { app, safeStorage } = require('electron');
-const { machineIdSync } = require('node-machine-id');
+const { app } = require('electron');
 const {
   getCurrentAccountTypeLabel,
   resolveCurrentAccountType,
 } = require('../utils/normalizers');
 
-const COOKIE_ENCRYPTION_VERSION = 'v1';
-const COOKIE_ENCRYPTION_METHOD_SAFE_STORAGE = 'safeStorage';
-const COOKIE_ENCRYPTION_METHOD_AES_GCM = 'aes-256-gcm';
-let cookieMigrationDone = false;
-let fallbackCookieKeyCache = null;
+let metadataMigrationDone = false;
 let sessionsDirCache = null;
 
 // 获取/读取/解析：getSessionsDir的具体业务逻辑。
@@ -45,7 +40,7 @@ function ensureSessionsDir() {
       fs.mkdirSync(sessionsDir, { recursive: true });
       console.log('[SessionStorage] 创建会话目录:', sessionsDir);
     }
-    migratePlaintextCookieSessions();
+    migrateSessionMetadataOnly();
   } catch (e) {
     console.error('[SessionStorage] 创建会话目录失败:', e?.message || e);
   }
@@ -141,119 +136,21 @@ function isProtectedSession(sessionInfo) {
   return sessionInfo?.cleanupProtected === true;
 }
 
-// 处理：isCookieEncryptionAvailable的具体业务逻辑。
-function isCookieEncryptionAvailable() {
+const SESSION_CREDENTIAL_FIELDS = [
+  'cookies',
+  'cookiesEncrypted',
+  'cookiesEncryptionMethod',
+  'cookiesEncryptionVersion',
+  'browserStorage',
+  'key',
+  'deviceId',
+];
+
+// 旧版本曾在 account_sessions 中保存 Cookie/Storage；升级时统一收敛为纯元数据。
+function migrateSessionMetadataOnly() {
   try {
-    return !!(safeStorage && typeof safeStorage.isEncryptionAvailable === 'function' && safeStorage.isEncryptionAvailable());
-  } catch (_) {
-    return false;
-  }
-}
-
-// 获取/读取/解析：getFallbackCookieKey的具体业务逻辑。
-function getFallbackCookieKey() {
-  if (fallbackCookieKeyCache) {
-    return fallbackCookieKeyCache;
-  }
-
-  let machineId = '';
-  try {
-    machineId = machineIdSync({ original: true }) || '';
-  } catch (_) {}
-
-  const seed = [
-    'ai-free-cookie-key',
-    machineId,
-    app.getPath('userData'),
-    app.getName ? app.getName() : 'ai-free',
-    process.platform,
-    process.arch
-  ].filter(Boolean).join('|');
-
-  fallbackCookieKeyCache = crypto.createHash('sha256').update(seed, 'utf8').digest();
-  return fallbackCookieKeyCache;
-}
-
-// 处理：encryptCookieArray的具体业务逻辑。
-function encryptCookieArray(cookies) {
-  const payload = JSON.stringify(Array.isArray(cookies) ? cookies : []);
-
-  if (isCookieEncryptionAvailable()) {
-    const encrypted = safeStorage.encryptString(payload);
-    return {
-      cookiesEncrypted: encrypted.toString('base64'),
-      cookiesEncryptionMethod: COOKIE_ENCRYPTION_METHOD_SAFE_STORAGE,
-      cookiesEncryptionVersion: COOKIE_ENCRYPTION_VERSION
-    };
-  }
-
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', getFallbackCookieKey(), iv);
-  const ciphertext = Buffer.concat([cipher.update(payload, 'utf8'), cipher.final()]);
-  const authTag = cipher.getAuthTag();
-
-  return {
-    cookiesEncrypted: Buffer.concat([iv, authTag, ciphertext]).toString('base64'),
-    cookiesEncryptionMethod: COOKIE_ENCRYPTION_METHOD_AES_GCM,
-    cookiesEncryptionVersion: COOKIE_ENCRYPTION_VERSION
-  };
-}
-
-// 处理：decryptCookieArray的具体业务逻辑。
-function decryptCookieArray(sessionInfo) {
-  const fallbackCookies = Array.isArray(sessionInfo?.cookies) ? sessionInfo.cookies : [];
-  const encryptedPayload = String(sessionInfo?.cookiesEncrypted || '').trim();
-  if (!encryptedPayload) {
-    return fallbackCookies;
-  }
-
-  const method = String(sessionInfo?.cookiesEncryptionMethod || '').trim();
-// 处理：trySafeStorage的具体业务逻辑。
-  const trySafeStorage = () => {
-    if (!isCookieEncryptionAvailable()) return null;
-    const decrypted = safeStorage.decryptString(Buffer.from(encryptedPayload, 'base64'));
-    const parsed = JSON.parse(decrypted);
-    if (Array.isArray(parsed)) return parsed;
-    if (parsed && Array.isArray(parsed.cookies)) return parsed.cookies;
-    return null;
-  };
-
-// 处理：tryAesGcm的具体业务逻辑。
-  const tryAesGcm = () => {
-    const blob = Buffer.from(encryptedPayload, 'base64');
-    if (blob.length <= 28) return null;
-    const iv = blob.subarray(0, 12);
-    const authTag = blob.subarray(12, 28);
-    const ciphertext = blob.subarray(28);
-    const decipher = crypto.createDecipheriv('aes-256-gcm', getFallbackCookieKey(), iv);
-    decipher.setAuthTag(authTag);
-    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
-    const parsed = JSON.parse(decrypted);
-    if (Array.isArray(parsed)) return parsed;
-    if (parsed && Array.isArray(parsed.cookies)) return parsed.cookies;
-    return null;
-  };
-
-  try {
-    if (method === COOKIE_ENCRYPTION_METHOD_SAFE_STORAGE) {
-      return trySafeStorage() || fallbackCookies;
-    }
-    if (method === COOKIE_ENCRYPTION_METHOD_AES_GCM) {
-      return tryAesGcm() || fallbackCookies;
-    }
-
-    return trySafeStorage() || tryAesGcm() || fallbackCookies;
-  } catch (e) {
-    console.error('[SessionStorage] 解密 cookies 失败:', e?.message || e);
-    return fallbackCookies;
-  }
-}
-
-// 处理：migratePlaintextCookieSessions的具体业务逻辑。
-function migratePlaintextCookieSessions() {
-  try {
-    if (cookieMigrationDone) return;
-    cookieMigrationDone = true;
+    if (metadataMigrationDone) return;
+    metadataMigrationDone = true;
 
     const sessionsDir = getSessionsDir();
     if (!fs.existsSync(sessionsDir)) {
@@ -271,57 +168,47 @@ function migratePlaintextCookieSessions() {
         if (!trimmed) continue;
 
         const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) {
-          const accountId = path.basename(filePath).replace(/\.json$/, '');
-          const sessionInfo = {
-            id: accountId,
-            cookies: parsed,
-            savedAt: null,
-            lastUsedAt: null,
-            serverRecycleTime: '',
-            serverRecycleTimeTs: null,
-            serverRecycleTimeIso: '',
-            key: '',
-            deviceId: '',
-            accountName: '',
-            currentPlatform: '',
-            currentUrl: '',
-            storageType: 'server',
-            storageGroup: '',
-            storageGroupLabel: '',
-            cleanupProtected: false,
-            currentAccountType: '',
-            currentAccountTypeLabel: ''
-          };
-          const encrypted = encryptCookieArray(parsed);
-          const migrated = {
-            ...sessionInfo,
-            ...encrypted
-          };
-          delete migrated.cookies;
-          fs.writeFileSync(filePath, JSON.stringify(migrated, null, 2), 'utf8');
-          continue;
+        const metadata = Array.isArray(parsed)
+          ? {
+              id: path.basename(filePath).replace(/\.json$/, ''),
+              savedAt: null,
+              lastUsedAt: null,
+              serverRecycleTime: '',
+              serverRecycleTimeTs: null,
+              serverRecycleTimeIso: '',
+              platform: '',
+              currentPlatform: '',
+              currentUrl: '',
+              account: '',
+              cleanupProtected: false,
+              currentAccountType: '',
+              currentAccountTypeLabel: '',
+            }
+          : { ...parsed };
+        let changed = Array.isArray(parsed);
+        if (!String(metadata.account || '').trim() && String(metadata.accountName || '').trim()) {
+          metadata.account = String(metadata.accountName).trim();
+          changed = true;
         }
-
-        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.cookies) && !parsed.cookiesEncrypted) {
-          const encrypted = encryptCookieArray(parsed.cookies);
-        const migrated = {
-          ...parsed,
-          ...encrypted
-        };
-        delete migrated.cookies;
-        if (!Object.prototype.hasOwnProperty.call(migrated, 'currentAccountType')) {
-          migrated.currentAccountType = '';
+        for (const field of [
+          ...SESSION_CREDENTIAL_FIELDS,
+          'accountName',
+          'storageType',
+          'storageGroup',
+          'storageGroupLabel',
+        ]) {
+          if (Object.prototype.hasOwnProperty.call(metadata, field)) {
+            delete metadata[field];
+            changed = true;
+          }
         }
-        if (!Object.prototype.hasOwnProperty.call(migrated, 'currentAccountTypeLabel')) {
-          migrated.currentAccountTypeLabel = '';
+        if (changed) {
+          fs.writeFileSync(filePath, JSON.stringify(metadata, null, 2), 'utf8');
         }
-        fs.writeFileSync(filePath, JSON.stringify(migrated, null, 2), 'utf8');
-      }
       } catch (_) {}
     }
   } catch (e) {
-    console.warn('[SessionStorage] 迁移明文 cookie 失败:', e?.message || e);
+    console.warn('[SessionStorage] 迁移账号元数据失败:', e?.message || e);
   }
 }
 
@@ -424,13 +311,11 @@ function pruneEmptyDir(dirPath) {
   } catch (_) {}
 }
 
-// 保存会话数据（cookies等）
+// 保存账号元数据。即使调用方意外传入 Cookie/Storage，也绝不写入磁盘。
 function saveSession(accountId, sessionData) {
   try {
     ensureSessionsDir();
     const {
-      cookies,
-      browserStorage,
       lastUsedAt,
       serverRecycleTime,
       serverRecycleTimeTs,
@@ -438,7 +323,6 @@ function saveSession(accountId, sessionData) {
       platform,
       currentPlatform,
       currentUrl,
-      key,
       account,
       storageType,
       storageGroup,
@@ -452,7 +336,6 @@ function saveSession(accountId, sessionData) {
     if (!existingSession) {
       existingSession = {
         id: accountId,
-        cookies: [],
         savedAt: null,
         lastUsedAt: null,
         serverRecycleTime: '',
@@ -468,7 +351,6 @@ function saveSession(accountId, sessionData) {
         cleanupProtected: false,
         currentAccountType: '',
         currentAccountTypeLabel: '',
-        browserStorage: [],
       };
     }
 
@@ -497,7 +379,7 @@ function saveSession(accountId, sessionData) {
 
     const sessionInfo = {
       id: accountId,
-      savedAt: cookies !== undefined ? new Date().toISOString() : existingSession.savedAt,
+      savedAt: existingSession.savedAt || new Date().toISOString(),
       lastUsedAt: lastUsedAt !== undefined ? lastUsedAt : existingSession.lastUsedAt,
       serverRecycleTime: serverRecycleTime !== undefined ? serverRecycleTime : existingSession.serverRecycleTime,
       serverRecycleTimeTs: serverRecycleTimeTs !== undefined ? serverRecycleTimeTs : existingSession.serverRecycleTimeTs,
@@ -506,27 +388,16 @@ function saveSession(accountId, sessionData) {
       currentPlatform: currentPlatform !== undefined ? String(currentPlatform || '').trim() : String(existingSession.currentPlatform || '').trim(),
       currentUrl: currentUrl !== undefined ? String(currentUrl || '').trim() : String(existingSession.currentUrl || '').trim(),
       account: account !== undefined ? String(account || '').trim() : String(existingSession.account || '').trim(),
-      key: key !== undefined ? key : (existingSession.key || ''),
       cleanupProtected: finalCleanupProtected,
       currentAccountType: finalCurrentAccountType,
       currentAccountTypeLabel: finalCurrentAccountTypeLabel,
-      browserStorage: browserStorage !== undefined
-        ? browserStorage
-        : (Array.isArray(existingSession.browserStorage) ? existingSession.browserStorage : []),
     };
 
-    const cookiesToPersist = cookies !== undefined ? cookies : existingSession.cookies;
-    const encryptedCookies = encryptCookieArray(cookiesToPersist);
-    sessionInfo.cookiesEncrypted = encryptedCookies.cookiesEncrypted;
-    sessionInfo.cookiesEncryptionMethod = encryptedCookies.cookiesEncryptionMethod;
-    sessionInfo.cookiesEncryptionVersion = encryptedCookies.cookiesEncryptionVersion;
-
-    const finalKey = sessionInfo.key || '';
-    const targetDir = path.dirname(getSessionFilePath(accountId, finalKey, finalStorageType, finalStorageGroup));
+    const targetDir = path.dirname(getSessionFilePath(accountId, '', finalStorageType, finalStorageGroup));
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
     }
-    const filePath = getSessionFilePath(accountId, finalKey, finalStorageType, finalStorageGroup);
+    const filePath = getSessionFilePath(accountId, '', finalStorageType, finalStorageGroup);
 
     // 如果旧位置存在同一份会话，先清理掉，避免同一账号散落在多个目录
     for (const candidate of findSessionPaths(accountId)) {
@@ -556,7 +427,7 @@ function loadSession(accountId) {
       return null;
     }
     const content = fs.readFileSync(actualFilePath, 'utf8');
-    const sessionInfo = JSON.parse(content);
+    let sessionInfo = JSON.parse(content);
     const locationInfo = inferSessionLocationInfo(actualFilePath);
     if (actualFilePath === getLegacyRootSessionJsonPath(accountId) || actualFilePath === getLegacyRootSessionPath(accountId)) {
       try {
@@ -579,7 +450,13 @@ function loadSession(accountId) {
     if (sessionInfo && typeof sessionInfo === 'object' && !Array.isArray(sessionInfo)) {
       const stripped = { ...sessionInfo };
       let changed = false;
-      for (const field of ['deviceId', 'accountName', 'storageType', 'storageGroup', 'storageGroupLabel']) {
+      for (const field of [
+        ...SESSION_CREDENTIAL_FIELDS,
+        'accountName',
+        'storageType',
+        'storageGroup',
+        'storageGroupLabel',
+      ]) {
         if (Object.prototype.hasOwnProperty.call(stripped, field)) {
           delete stripped[field];
           changed = true;
@@ -590,14 +467,14 @@ function loadSession(accountId) {
           fs.writeFileSync(actualFilePath, JSON.stringify(stripped, null, 2), 'utf8');
         } catch (_) {}
       }
+      sessionInfo = stripped;
     }
 
-    // 兼容旧格式（只有cookies数组）
+    // 极旧格式只有 Cookie 数组；不再返回凭证，只保留账号占位元数据。
     if (Array.isArray(sessionInfo)) {
-      const encrypted = encryptCookieArray(sessionInfo);
       return {
         id: accountId,
-        cookies: sessionInfo,
+        cookies: [],
         savedAt: null,
         lastUsedAt: null,
         serverRecycleTime: '',
@@ -618,9 +495,7 @@ function loadSession(accountId) {
         currentAccountTypeLabel: locationInfo.storageType === 'custom' ? '绑定账号' : '',
         current_account_type: '',
         current_account_type_label: '',
-        cookiesEncrypted: encrypted.cookiesEncrypted,
-        cookiesEncryptionMethod: encrypted.cookiesEncryptionMethod,
-        cookiesEncryptionVersion: encrypted.cookiesEncryptionVersion
+        browserStorage: []
       };
     }
 
@@ -635,7 +510,7 @@ function loadSession(accountId) {
 
     return {
       id: accountId,
-      cookies: decryptCookieArray(sessionInfo),
+      cookies: [],
       savedAt: sessionInfo.savedAt,
       lastUsedAt: sessionInfo.lastUsedAt,
       serverRecycleTime: sessionInfo.serverRecycleTime || '',
@@ -645,8 +520,8 @@ function loadSession(accountId) {
       currentPlatform: String(sessionInfo.currentPlatform || '').trim(),
       currentUrl: String(sessionInfo.currentUrl || '').trim(),
       account: String(sessionInfo.account || sessionInfo.accountName || '').trim(),
-      key: sessionInfo.key || '',
-      deviceId: sessionInfo.deviceId || '',
+      key: '',
+      deviceId: '',
       accountName: sessionInfo.accountName || '',
       storageType: resolvedStorageType,
       storageGroup: String(sessionInfo.storageGroup || locationInfo.storageGroup || '').trim(),
@@ -660,10 +535,7 @@ function loadSession(accountId) {
       currentAccountTypeLabel: finalCurrentAccountTypeLabel,
       current_account_type: finalCurrentAccountType,
       current_account_type_label: finalCurrentAccountTypeLabel,
-      browserStorage: Array.isArray(sessionInfo.browserStorage) ? sessionInfo.browserStorage : [],
-      cookiesEncrypted: sessionInfo.cookiesEncrypted || '',
-      cookiesEncryptionMethod: sessionInfo.cookiesEncryptionMethod || '',
-      cookiesEncryptionVersion: sessionInfo.cookiesEncryptionVersion || ''
+      browserStorage: []
     };
   } catch (e) {
     console.error('[SessionStorage] 读取会话文件失败:', e?.message || e);

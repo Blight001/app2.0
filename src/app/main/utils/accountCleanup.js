@@ -8,6 +8,7 @@ const {
 let recycleTimers = new Map();
 
 const MAX_TIMEOUT_MS = 2147483647;
+const CLEANUP_RETRY_DELAY_MS = 10000;
 
 // 获取/读取/解析：resolveRecycleTimestamp的具体业务逻辑。
 function resolveRecycleTimestamp(account) {
@@ -96,8 +97,8 @@ function notifyAccountListUpdated(options = {}) {
   } catch (_) {}
 }
 
-// 移除/删除：deleteAccountNow的具体业务逻辑。
-function deleteAccountNow(accountStorage, accountId, options = {}) {
+// 先删除 Chromium Profile，再删除账号元数据，避免留下无法追踪的登录态。
+async function deleteAccountNow(accountStorage, accountId, options = {}) {
   clearRecycleTimer(accountId);
 
   if (!accountStorage || typeof accountStorage.deleteAccount !== 'function') {
@@ -105,9 +106,22 @@ function deleteAccountNow(accountStorage, accountId, options = {}) {
   }
 
   try {
+    if (typeof options.cleanupAccountArtifacts === 'function') {
+      const cleanupResult = await options.cleanupAccountArtifacts(accountId);
+      if (!cleanupResult || cleanupResult.ok !== true) {
+        console.warn(`[AccountCleanup] 清理账号浏览器环境失败(${accountId}):`, cleanupResult?.error || '未知错误');
+        return false;
+      }
+    }
+
     const result = accountStorage.deleteAccount(accountId);
     if (result && result.ok) {
       console.log(`[AccountCleanup] 已删除到期账号: ${accountId}`);
+      notifyAccountListUpdated(options);
+      return true;
+    }
+
+    if (result?.error === '账号不存在') {
       notifyAccountListUpdated(options);
       return true;
     }
@@ -120,6 +134,17 @@ function deleteAccountNow(accountStorage, accountId, options = {}) {
     console.error('[AccountCleanup] 删除到期账号失败:', e?.message || e);
     return false;
   }
+}
+
+function scheduleCleanupRetry(accountStorage, accountId, options) {
+  clearRecycleTimer(accountId);
+  const timer = setTimeout(async () => {
+    recycleTimers.delete(accountId);
+    const deleted = await deleteAccountNow(accountStorage, accountId, options);
+    if (!deleted) scheduleCleanupRetry(accountStorage, accountId, options);
+  }, CLEANUP_RETRY_DELAY_MS);
+  recycleTimers.set(accountId, timer);
+  console.warn(`[AccountCleanup] 将在 ${CLEANUP_RETRY_DELAY_MS / 1000} 秒后重试清理账号: ${accountId}`);
 }
 
 // 处理：scheduleAccountDeletion的具体业务逻辑。
@@ -140,13 +165,10 @@ function scheduleAccountDeletion(accountStorage, account, options = {}) {
     return false;
   }
 
-  const delayMs = recycleAt - Date.now();
-  if (delayMs <= 0) {
-    return deleteAccountNow(accountStorage, accountId, options);
-  }
+  const delayMs = Math.max(0, recycleAt - Date.now());
 
   const timeoutMs = Math.min(delayMs, MAX_TIMEOUT_MS);
-  const timer = setTimeout(() => {
+  const timer = setTimeout(async () => {
     recycleTimers.delete(accountId);
 
     if (timeoutMs < delayMs) {
@@ -177,7 +199,8 @@ function scheduleAccountDeletion(accountStorage, account, options = {}) {
       return;
     }
 
-    deleteAccountNow(accountStorage, accountId, options);
+    const deleted = await deleteAccountNow(accountStorage, accountId, options);
+    if (!deleted) scheduleCleanupRetry(accountStorage, accountId, options);
   }, timeoutMs);
 
   recycleTimers.set(accountId, timer);
@@ -186,7 +209,7 @@ function scheduleAccountDeletion(accountStorage, account, options = {}) {
 }
 
 // 渲染/刷新：refreshAccountRecycleTimers的具体业务逻辑。
-function refreshAccountRecycleTimers(accountStorage, options = {}) {
+async function refreshAccountRecycleTimers(accountStorage, options = {}) {
   if (!accountStorage || typeof accountStorage.getAllAccounts !== 'function') {
     return { scheduled: 0, removed: 0 };
   }
@@ -213,9 +236,11 @@ function refreshAccountRecycleTimers(accountStorage, options = {}) {
     }
 
     if (recycleAt <= Date.now()) {
-      const deleted = deleteAccountNow(accountStorage, accountId, options);
+      const deleted = await deleteAccountNow(accountStorage, accountId, options);
       if (deleted) {
         removed += 1;
+      } else {
+        scheduleCleanupRetry(accountStorage, accountId, options);
       }
       continue;
     }
@@ -235,8 +260,8 @@ function refreshAccountRecycleTimers(accountStorage, options = {}) {
 }
 
 // 创建/初始化：initializeAccountCleanup的具体业务逻辑。
-function initializeAccountCleanup(accountStorage, options = {}) {
-  const result = refreshAccountRecycleTimers(accountStorage, options);
+async function initializeAccountCleanup(accountStorage, options = {}) {
+  const result = await refreshAccountRecycleTimers(accountStorage, options);
   console.log('[AccountCleanup] 服务器回收定时器已刷新:', result);
   return result;
 }

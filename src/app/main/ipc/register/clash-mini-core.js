@@ -769,6 +769,16 @@ function resolveClashMiniProfileFile(coreDir, profilesIndex) {
 const MIN_USABLE_GEO_DATABASE_SIZE = 1024 * 1024;
 const CLASH_MINI_RULE_MODE = 'rule';
 const CLASH_MINI_DOMESTIC_DIRECT_RULES = [
+  // AI-FREE owns the embedded Chromium version. Keep Chromium component and
+  // model update traffic away from paid proxy nodes even if a subscription
+  // contains broader Google proxy rules later in the rule list.
+  'DOMAIN-SUFFIX,gvt1.com,DIRECT',
+  'DOMAIN,dl.google.com,DIRECT',
+  'DOMAIN,clients2.google.com,DIRECT',
+  'DOMAIN,update.googleapis.com,DIRECT',
+  'DOMAIN,android.clients.google.com,DIRECT',
+  'DOMAIN,content-autofill.googleapis.com,DIRECT',
+  'DOMAIN,optimizationguide-pa.googleapis.com,DIRECT',
   'DOMAIN-SUFFIX,baidu.com,DIRECT',
   'DOMAIN-SUFFIX,baidubce.com,DIRECT',
   'DOMAIN-SUFFIX,bdstatic.com,DIRECT',

@@ -238,6 +238,9 @@ function buildBrowserProfileFromRegion(regionKey, settings = {}, geoInfo = {}) {
 
 async function resolveGeoIpInfo(httpGetUniversal, logger = console, options = {}) {
   const proxyServer = String(options.proxyServer || '').trim();
+  // 校验出口用：经代理探测若返回的 IP 等于直连基线 IP，说明该端点被 Clash
+  // 直连规则（如 MATCH,DIRECT）路由，根本没走节点，必须丢弃、继续等其他端点。
+  const rejectDirectIp = String(options.rejectDirectIp || '').trim();
   const cacheKey = proxyServer || 'direct';
   const cached = cachedGeoProfiles.get(cacheKey);
   if (options.forceRefresh !== true && cached && Date.now() - cached.cachedAt < GEO_IP_CACHE_TTL_MS) {
@@ -282,11 +285,15 @@ async function resolveGeoIpInfo(httpGetUniversal, logger = console, options = {}
         .then(() => httpGetUniversal(endpoint, GEO_IP_REQUEST_TIMEOUT_MS, { proxyServer }))
         .then((response) => {
           const profile = buildGeoProfile(response, endpoint);
-          if (profile) {
-            finish(profile);
-          } else {
+          if (!profile) {
             failures.push(`${new URL(endpoint).hostname}: 无有效地区数据`);
+            return;
           }
+          if (rejectDirectIp && String(profile.sourceIp || '').trim() === rejectDirectIp) {
+            failures.push(`${new URL(endpoint).hostname}: 出口=直连IP(${rejectDirectIp})，未过代理节点`);
+            return;
+          }
+          finish(profile);
         })
         .catch((error) => {
           failures.push(`${new URL(endpoint).hostname}: ${error?.message || error}`);
@@ -322,11 +329,43 @@ async function resolveTabBrowserProfile(options = {}) {
     return buildBrowserProfileFromRegion(localeRegion || 'us', settings);
   }
 
-  const ipInfo = await resolveGeoIpInfo(options.httpGetUniversal, options.logger, {
-    proxyServer: options.geoProxyServer,
+  const httpGetUniversal = options.httpGetUniversal;
+  const logger = options.logger;
+  const proxyServer = String(options.geoProxyServer || '').trim();
+
+  // 无代理：直连探测，返回的就是本机真实出口，无需校验。
+  if (!proxyServer) {
+    const ipInfo = await resolveGeoIpInfo(httpGetUniversal, logger, {
+      proxyServer: '',
+      forceRefresh: options.forceGeoLookup === true,
+    });
+    return buildBrowserProfileFromRegion(ipInfo?.regionKey || localeRegion || 'us', settings, ipInfo || {});
+  }
+
+  // 有代理：先取直连基线 IP，再经代理探测，只采纳“出口 IP ≠ 直连 IP”的结果，
+  // 避免 Clash 直连规则把 IP 查询走本地出口、导致误显示 CN。基线走缓存，不强刷，省一次往返。
+  const directBaseline = await resolveGeoIpInfo(httpGetUniversal, logger, { proxyServer: '' });
+  const baselineIp = String(directBaseline?.sourceIp || '').trim();
+  const proxiedInfo = await resolveGeoIpInfo(httpGetUniversal, logger, {
+    proxyServer,
     forceRefresh: options.forceGeoLookup === true,
+    rejectDirectIp: baselineIp,
   });
-  return buildBrowserProfileFromRegion(ipInfo?.regionKey || localeRegion || 'us', settings, ipInfo || {});
+  if (proxiedInfo) {
+    return buildBrowserProfileFromRegion(proxiedInfo.regionKey || localeRegion || 'us', settings, proxiedInfo);
+  }
+
+  // 所有端点的出口都等于直连 IP（或探测失败）：代理并未改变出口，如实按直连出口显示并标注。
+  logger?.warn?.(
+    '[BrowserProfile] 代理已启用，但所有探测端点均从直连出口返回，判定代理未改变出口',
+    { proxyServer, baselineIp: baselineIp || '未知' },
+  );
+  const fallback = buildBrowserProfileFromRegion(
+    directBaseline?.regionKey || localeRegion || 'us', settings, directBaseline || {},
+  );
+  fallback.regionLabel = `${fallback.regionLabel || '直连'}（代理未改变出口）`;
+  fallback.proxyExitVerified = false;
+  return fallback;
 }
 
 module.exports = {

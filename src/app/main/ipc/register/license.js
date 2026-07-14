@@ -1,4 +1,5 @@
 const { ipcMain } = require('electron');
+const fs = require('fs');
 const accountStorage = require('../../lib/account-storage');
 const { getStorePath, getServerBase } = require('../../config');
 const {
@@ -21,6 +22,7 @@ const {
   writeStoreConfigSafe,
 } = require('./store-utils');
 const { initializeAccountCleanup, updateAccountRecycleTimer } = require('../../utils/accountCleanup');
+const { cleanupAccountProfile } = require('../../services/account-profile-cleanup');
 
 // 监听/绑定：registerLicenseIPC的具体业务逻辑。
 function registerLicenseIPC(ctx) {
@@ -40,6 +42,20 @@ function registerLicenseIPC(ctx) {
   } = ctx;
 
   const resolveDreamTargetUrl = () => resolveConfiguredDreamTargetUrl(getDreamTargetUrl, DREAM_TARGET_URL);
+
+  const cleanupAccountBrowserArtifacts = (accountId) => cleanupAccountProfile(accountId, {
+    browserRuntimeManager: ui?.browserRuntimeManager,
+    getTabs: ui?.getTabs,
+    closeTab: ui?.closeTab,
+    fs,
+    getStorePath,
+    sendToSide: ui?.sendToSide,
+    logger: console,
+  });
+  const buildAccountCleanupOptions = () => ({
+    sendToSide: ui && typeof ui.sendToSide === 'function' ? ui.sendToSide : null,
+    cleanupAccountArtifacts: cleanupAccountBrowserArtifacts,
+  });
 
 // 获取/读取/解析：resolveDreamWindowTitle的具体业务逻辑。
   const resolveDreamWindowTitle = (fallback = '') => {
@@ -95,7 +111,7 @@ function registerLicenseIPC(ctx) {
       ).trim().toLowerCase();
       const normalizedPreferredKey = String(preferredKey || '').trim();
       const normalizedPreferredAccountId = String(preferredAccountId || '').trim();
-      const accountSummaries = Array.isArray(accountStorage.getAllAccounts?.())
+      const accountSummaries = typeof accountStorage.getAllAccounts === 'function'
         ? accountStorage.getAllAccounts()
         : [];
       const candidates = [];
@@ -135,12 +151,6 @@ function registerLicenseIPC(ctx) {
           }
         }
 
-        const hasCookies = Array.isArray(account.cookies) && account.cookies.length > 0;
-        const hasBrowserStorage = Array.isArray(account.browserStorage) && account.browserStorage.length > 0;
-        if (!hasCookies && !hasBrowserStorage) {
-          continue;
-        }
-
         candidates.push(account);
       }
 
@@ -178,6 +188,17 @@ function registerLicenseIPC(ctx) {
       }
     } catch (_) {}
     return null;
+  };
+
+  const hasPersistedDreamProfile = (accountId = '') => {
+    try {
+      const store = ui?.browserRuntimeManager?.store;
+      if (!store || typeof store.readProfile !== 'function') return false;
+      const profile = store.readProfile(String(accountId || '').trim());
+      return !!(profile && profile.createdAt);
+    } catch (_) {
+      return false;
+    }
   };
 
 // 处理：importServerFetchedDreamAccount的具体业务逻辑。
@@ -224,17 +245,14 @@ function registerLicenseIPC(ctx) {
       throw new Error(saveResult.error || '账号保存失败');
     }
 
-    const savedAccountId = String(saveResult.account.id || '').trim();
-    const savedAccountResult = savedAccountId ? accountStorage.getAccount(savedAccountId) : null;
-    const importAccount = savedAccountResult && savedAccountResult.ok && savedAccountResult.account
-      ? savedAccountResult.account
-      : saveResult.account;
+    const importAccount = saveResult.account;
+    const savedAccountId = String(importAccount.id || '').trim();
 
     return {
       account: importAccount,
       accountId: String(importAccount.id || savedAccountId || fetchedAccountId || '').trim(),
-      cookies: Array.isArray(importAccount.cookies) ? importAccount.cookies : Array.isArray(fetchedCookies) ? fetchedCookies : [],
-      browserStorage: Array.isArray(importAccount.browserStorage) ? importAccount.browserStorage : browserStoragePayload,
+      cookies: Array.isArray(fetchedCookies) ? fetchedCookies : [],
+      browserStorage: browserStoragePayload,
     };
   };
 
@@ -373,9 +391,7 @@ function registerLicenseIPC(ctx) {
           console.log('[验证] 卡密状态已写入运行时缓存');
           try {
             if (typeof initializeAccountCleanup === 'function') {
-              initializeAccountCleanup(accountStorage, {
-                sendToSide: ui && typeof ui.sendToSide === 'function' ? ui.sendToSide : null,
-              });
+              await initializeAccountCleanup(accountStorage, buildAccountCleanupOptions());
             }
           } catch (cleanupErr) {
             console.warn('[验证] 刷新账号回收定时器失败:', cleanupErr?.message || cleanupErr);
@@ -563,6 +579,7 @@ function registerLicenseIPC(ctx) {
       let launchAccount = null;
       let launchCookies = [];
       let launchBrowserStorage = [];
+      let restoreProfileOnly = false;
       const sourceAccountIsPermanent = isPermanentDreamAccount(accountId, key);
 
       if (!key) throw new Error('缺少卡密');
@@ -623,8 +640,13 @@ function registerLicenseIPC(ctx) {
           key = historicalAccount.key || key;
           deviceId = historicalAccount.deviceId || deviceId;
           launchAccount = historicalAccount;
-          launchCookies = Array.isArray(historicalAccount.cookies) ? historicalAccount.cookies : [];
-          launchBrowserStorage = Array.isArray(historicalAccount.browserStorage) ? historicalAccount.browserStorage : [];
+          restoreProfileOnly = true;
+          if (!hasPersistedDreamProfile(launchAccountId)) {
+            const error = new Error('本地账号浏览器环境不存在');
+            error.businessError = true;
+            error.errorCode = 'ACCOUNT_PROFILE_EMPTY';
+            throw error;
+          }
           console.log('[open-dream-page] 绑定账号服务器次数已用尽，直接改用本地历史账号:', launchAccountId);
         } else {
           throw fetchErr;
@@ -636,21 +658,20 @@ function registerLicenseIPC(ctx) {
         if (historicalAccount) {
           launchAccount = historicalAccount;
           launchAccountId = String(historicalAccount.id || launchAccountId || fetchedAccountId || '').trim();
-          // 服务器本次成功下发的会话优先于历史快照；账号历史按钮本身不会再
-          // 触发拉取或注入，但服务器入口必须把最新会话写入原账号 Profile。
-          launchCookies = fetchedCookies.length > 0
-            ? fetchedCookies
-            : (Array.isArray(historicalAccount.cookies) ? historicalAccount.cookies : []);
-          launchBrowserStorage = fetchedBrowserStorage.length > 0
-            ? fetchedBrowserStorage
-            : (Array.isArray(historicalAccount.browserStorage) ? historicalAccount.browserStorage : []);
+          // 服务器入口只使用本次响应中的会话并直接注入 Chromium；
+          // account_sessions 不再作为 Cookie/Storage 快照来源。
+          launchCookies = fetchedCookies;
+          launchBrowserStorage = fetchedBrowserStorage;
           if (fetchResult) {
             const updated = accountStorage.updateAccount(launchAccountId, {
-              cookies: launchCookies,
-              browserStorage: launchBrowserStorage,
               currentUrl: targetUrl,
               platform: fetchResult.platform || historicalAccount.platform,
               currentPlatform: fetchResult.currentPlatform || platformName || historicalAccount.currentPlatform,
+              currentAccountType: fetchResult.currentAccountType,
+              currentAccountTypeLabel: fetchResult.currentAccountTypeLabel,
+              serverRecycleTime: fetchResult.serverRecycleTime,
+              serverRecycleTimeTs: fetchResult.serverRecycleTimeTs,
+              serverRecycleTimeIso: fetchResult.serverRecycleTimeIso,
             });
             if (updated?.ok && updated.account) launchAccount = updated.account;
           }
@@ -687,26 +708,24 @@ function registerLicenseIPC(ctx) {
         launchBrowserStorage = Array.isArray(importedAccount.browserStorage) ? importedAccount.browserStorage : fetchedBrowserStorage;
 
         console.log('[open-dream-page] 账号保存成功并改从历史账号启动:', launchAccountId);
-        updateAccountRecycleTimer(accountStorage, launchAccount, {
-          sendToSide: ui && typeof ui.sendToSide === 'function' ? ui.sendToSide : null,
-        });
         try { ui.sendToSide('account-list-updated', {}); } catch (_) {}
       } else {
         console.log('[open-dream-page] 使用历史账号启动:', launchAccount.id);
         accountStorage.updateLastUsedTime(launchAccount.id);
         try { ui.sendToSide('account-list-updated', {}); } catch (_) {}
       }
+      updateAccountRecycleTimer(accountStorage, launchAccount, buildAccountCleanupOptions());
 
       if (!launchAccountId) {
         throw new Error('缺少可用账号ID');
       }
-      if (
-        !launchAccount
-        || (
+      if (!launchAccount || (
+        !restoreProfileOnly
+        && (
           (!Array.isArray(launchCookies) || launchCookies.length === 0)
           && (!Array.isArray(launchBrowserStorage) || launchBrowserStorage.length === 0)
         )
-      ) {
+      )) {
         throw new Error('本地无账号');
       }
 
@@ -721,8 +740,14 @@ function registerLicenseIPC(ctx) {
         accountId: launchAccountId,
         fixedTitle: browserName,
         tabTitle: browserName,
-        deferChromiumNavigation: true,
+        deferChromiumNavigation: !restoreProfileOnly,
+        restoreLastSession: restoreProfileOnly,
       });
+      if (restoreProfileOnly) {
+        accountStorage.updateLastUsedTime(launchAccountId);
+        try { ui.sendToSide?.('browser-history-changed'); } catch (_) {}
+        return { ok: true, tabId, accountId: launchAccountId, restored: true };
+      }
       try {
         try {
           await ui.browserRuntimeManager.navigate(tabId, 'chromium', targetUrl);

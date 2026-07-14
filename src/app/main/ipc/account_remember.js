@@ -9,7 +9,7 @@ const {
   resolveDreamTargetUrl: resolveConfiguredDreamTargetUrl,
 } = require('../utils/account-records');
 const { normalizeBrowserStorageEntries } = require('../utils/browser-storage');
-const { buildManagedTabPartitionName: buildFallbackManagedTabPartitionName } = require('../services/tab-common');
+const { cleanupAccountProfile } = require('../services/account-profile-cleanup');
 
 // 监听/绑定：registerAccountIPC的具体业务逻辑。
 function registerAccountIPC(ctx) {
@@ -260,65 +260,58 @@ function registerAccountIPC(ctx) {
     return false;
   }
 
-// 创建/初始化：buildManagedTabPartitionName的具体业务逻辑。
-  function buildManagedTabPartitionName(accountId) {
-    if (ui && typeof ui.buildManagedTabPartitionName === 'function') {
-      return String(ui.buildManagedTabPartitionName(accountId) || '').trim();
-    }
-
-    const raw = String(accountId || '').trim();
-    return raw ? buildFallbackManagedTabPartitionName(raw) : '';
-  }
-
 // 处理：cleanupAccountBrowserArtifacts的具体业务逻辑。
   async function cleanupAccountBrowserArtifacts(accountId) {
-    const normalizedAccountId = String(accountId || '').trim();
-    if (!normalizedAccountId) {
-      return { ok: false, error: '缺少账号ID' };
+    return cleanupAccountProfile(accountId, {
+      browserRuntimeManager: ui?.browserRuntimeManager,
+      getTabs: ui?.getTabs,
+      closeTab: ui?.closeTab,
+      fs,
+      getStorePath,
+      sendToSide: ui?.sendToSide,
+      logger: console,
+    });
+  }
+
+  function buildAccountCleanupOptions() {
+    return {
+      sendToSide: ui && typeof ui.sendToSide === 'function' ? ui.sendToSide : null,
+      cleanupAccountArtifacts: cleanupAccountBrowserArtifacts,
+    };
+  }
+
+  async function injectAccountSessionIntoProfile(account, cookies, browserStorage, targetUrl) {
+    const accountId = String(account?.id || '').trim();
+    const resolvedTargetUrl = String(targetUrl || account?.currentUrl || resolveDreamTargetUrl() || '').trim();
+    if (!accountId || !resolvedTargetUrl) throw new Error('缺少账号 Profile 或目标地址');
+    if (!ui?.addTab || !ui?.browserRuntimeManager?.importSession) {
+      throw new Error('Chromium 会话注入能力不可用');
     }
 
-    const tabs = ui && typeof ui.getTabs === 'function' ? ui.getTabs() : new Map();
-    const tabList = Array.from(tabs && typeof tabs.values === 'function' ? tabs.values() : []);
-    const matchedTabs = tabList.filter((tab) => String(tab?.accountId || '').trim() === normalizedAccountId);
-    const fallbackPartition = buildManagedTabPartitionName(normalizedAccountId);
+    const browserName = String(
+      account.currentPlatform
+      || account.platform
+      || account.accountName
+      || account.account
+      || accountId
+    ).trim();
+    const tabId = await ui.addTab(resolvedTargetUrl, {
+      accountId,
+      fixedTitle: browserName,
+      tabTitle: browserName,
+      deferChromiumNavigation: true,
+    });
+    if (!tabId) throw new Error('创建账号 Chromium Profile 失败');
 
-    const targets = matchedTabs.length > 0
-      ? matchedTabs
-      : [{ id: null, partition: fallbackPartition }];
-
-    for (const tab of targets) {
-      const partition = String(tab?.partition || fallbackPartition || '').trim();
-      try {
-        if (ui && typeof ui.purgeBrowserSessionData === 'function' && partition) {
-          await ui.purgeBrowserSessionData({
-            partition,
-            session: null,
-            source: '账号删除',
-          });
-        }
-      } catch (error) {
-        console.warn('[delete-accounts] 清理账号浏览器数据失败:', normalizedAccountId, error?.message || error);
-      }
-
-      try {
-        if (ui && typeof ui.closeTab === 'function' && tab?.id) {
-          await ui.closeTab(tab.id);
-        }
-      } catch (error) {
-        console.warn('[delete-accounts] 关闭账号标签失败:', normalizedAccountId, error?.message || error);
-      }
-    }
-
-    try {
-      if (ui?.browserRuntimeManager?.deleteProfile) {
-        ui.browserRuntimeManager.deleteProfile(normalizedAccountId);
-      }
-    } catch (error) {
-      console.warn('[delete-accounts] 删除 Chromium Profile 失败:', normalizedAccountId, error?.message || error);
-      return { ok: false, error: error?.message || '删除 Chromium Profile 失败' };
-    }
-
-    return { ok: true };
+    await ui.browserRuntimeManager.importSession(tabId, {
+      cookies: Array.isArray(cookies) ? cookies : [],
+      browserStorage: Array.isArray(browserStorage) ? browserStorage : [],
+      targetUrl: resolvedTargetUrl,
+      navigateAfterImport: true,
+    });
+    await ui.browserRuntimeManager.reload(tabId, 'chromium');
+    accountStorage.updateLastUsedTime(accountId);
+    return tabId;
   }
 
 // 获取/读取/解析：getCurrentServerPlatformLabel的具体业务逻辑。
@@ -544,14 +537,25 @@ function registerAccountIPC(ctx) {
         browserStorage: Array.isArray(finalBrowserStorage) ? finalBrowserStorage : undefined,
         accountName,
         platform: accountPlatform || '',
+        currentUrl: resolveDreamTargetUrl(),
         ...fetchAccountTypeInfo,
         ...fetchRecycleTimeInfo,
       });
       if (result.ok) {
-        console.log('[save-account] 账号保存成功:', result.account.id);
-        updateAccountRecycleTimer(accountStorage, result.account, {
-          sendToSide: ui && typeof ui.sendToSide === 'function' ? ui.sendToSide : null,
-        });
+        try {
+          await injectAccountSessionIntoProfile(
+            result.account,
+            finalCookies,
+            finalBrowserStorage,
+            result.account.currentUrl || resolveDreamTargetUrl(),
+          );
+          console.log('[save-account] 账号 Profile 创建并注入成功:', result.account.id);
+          updateAccountRecycleTimer(accountStorage, result.account, buildAccountCleanupOptions());
+        } catch (injectError) {
+          const cleanupResult = await cleanupAccountBrowserArtifacts(result.account.id);
+          if (cleanupResult?.ok) accountStorage.deleteAccount(result.account.id);
+          return { ok: false, error: injectError?.message || '账号会话注入失败' };
+        }
       } else {
         console.error('[save-account] 账号保存失败:', result.error);
       }
@@ -634,9 +638,21 @@ function registerAccountIPC(ctx) {
             continue;
           }
 
-          updateAccountRecycleTimer(accountStorage, result.account, {
-            sendToSide: ui && typeof ui.sendToSide === 'function' ? ui.sendToSide : null,
-          });
+          try {
+            await injectAccountSessionIntoProfile(
+              result.account,
+              cookies,
+              browserStorage,
+              result.account.currentUrl || selectedCurrentUrl || serverTargetUrl || firstImportedTargetUrl || defaultUrl,
+            );
+          } catch (injectError) {
+            const cleanupResult = await cleanupAccountBrowserArtifacts(result.account.id);
+            if (cleanupResult?.ok) accountStorage.deleteAccount(result.account.id);
+            failures.push({ filePath, error: injectError?.message || 'Cookie 注入 Chromium 失败' });
+            continue;
+          }
+
+          updateAccountRecycleTimer(accountStorage, result.account, buildAccountCleanupOptions());
 
           results.push({
             filePath,
@@ -746,6 +762,10 @@ function registerAccountIPC(ctx) {
       const accountResult = accountStorage.getAccount(normalizedAccountId);
       if (!accountResult.ok || !accountResult.account) {
         return { ok: false, error: '账号不存在' };
+      }
+      const profile = ui?.browserRuntimeManager?.store?.readProfile?.(normalizedAccountId) || null;
+      if (!profile?.createdAt) {
+        return { ok: false, error: '账号浏览器环境不存在，请重新获取或导入账号' };
       }
       const account = accountResult.account;
       const serverTargetUrl = String(resolveDreamTargetUrl() || '').trim();

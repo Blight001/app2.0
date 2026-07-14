@@ -9,6 +9,36 @@ const {
 } = require('../utils/normalizers');
 
 let runtimeLicenseCache = null;
+let storageInitialized = false;
+let accountsCache = null;
+
+// 账号记录全部来自 JSON，可安全复制后交给调用方，避免排序或修改数组时污染缓存。
+function cloneAccount(account) {
+  if (!account || typeof account !== 'object') return account;
+  return JSON.parse(JSON.stringify(account));
+}
+
+function cloneAccounts(accounts) {
+  return Array.isArray(accounts) ? accounts.map(cloneAccount) : [];
+}
+
+function upsertCachedAccount(account) {
+  if (!Array.isArray(accountsCache) || !account?.id) return;
+  const nextAccount = cloneAccount(account);
+  // Cookie/Storage 只允许在服务器响应到 Chromium 注入之间短暂存在，
+  // 账号索引缓存同样只保存元数据。
+  nextAccount.cookies = [];
+  nextAccount.browserStorage = [];
+  const index = accountsCache.findIndex((item) => item.id === nextAccount.id);
+  if (index >= 0) accountsCache[index] = nextAccount;
+  else accountsCache.push(nextAccount);
+}
+
+function removeCachedAccount(accountId) {
+  if (!Array.isArray(accountsCache)) return;
+  const normalizedId = String(accountId || '').trim();
+  accountsCache = accountsCache.filter((item) => String(item?.id || '').trim() !== normalizedId);
+}
 
 // 设置/更新/持久化：setLicenseCache的具体业务逻辑。
 function setLicenseCache(next) {
@@ -138,13 +168,16 @@ function extractAccountNameFromCookies(cookies) {
 
 // 初始化存储目录
 function initStorageDirs() {
+  if (storageInitialized) return;
+
   try {
     const storePath = getStorePath();
     console.log('[AccountStorage] 用户凭证存储路径:', storePath);
     console.log('[AccountStorage] 会话数据目录路径:', sessionStorage.getSessionsDir());
 
-    // 每次启动都检查是否需要从旧的saved_accounts.json迁移数据
+    // 每次进程启动只检查一次旧数据迁移；账号列表刷新不应重复初始化。
     migrateFromOldStorage();
+    storageInitialized = true;
   } catch (e) {
     console.error('[AccountStorage] 初始化存储目录失败:', e?.message || e);
   }
@@ -194,7 +227,6 @@ function migrateFromOldStorage() {
 
         // 保存会话数据
         const sessionSaved = sessionStorage.saveSession(oldAccount.id, {
-          cookies: oldAccount.cookies || [],
           storageType: 'server',
           cleanupProtected: false
         });
@@ -224,6 +256,10 @@ function loadAccounts() {
   try {
     initStorageDirs();
 
+    if (Array.isArray(accountsCache)) {
+      return cloneAccounts(accountsCache);
+    }
+
     // 获取所有会话ID
     const accountIds = sessionStorage.getAllSessionIds();
 
@@ -236,8 +272,9 @@ function loadAccounts() {
       }
     }
 
-    console.log(`[AccountStorage] 从分离存储结构加载了 ${accounts.length} 个账号`);
-    return accounts;
+    accountsCache = cloneAccounts(accounts);
+    console.log(`[AccountStorage] 首次加载了 ${accounts.length} 个账号，后续读取使用内存缓存`);
+    return cloneAccounts(accountsCache);
   } catch (e) {
     console.error('[AccountStorage] 读取账号失败:', e?.message || e);
     return [];
@@ -331,14 +368,10 @@ function addAccount(accountData) {
     const resolvedServerRecycleTimeTs = inputServerRecycleTimeTs !== undefined ? inputServerRecycleTimeTs : null;
     const resolvedServerRecycleTimeIso = inputServerRecycleTimeIso !== undefined ? inputServerRecycleTimeIso : '';
 
-    // 保存会话数据（cookies）并标记最后使用时间
+    // account_sessions 只保存元数据；Cookie/Storage 由返回值直接交给 Chromium 注入。
     const lastUsedAt = new Date().toISOString();
     const sessionSaved = sessionStorage.saveSession(accountId, {
-      cookies: finalCookies,
-      browserStorage: Array.isArray(browserStorage) ? browserStorage : undefined,
       lastUsedAt: lastUsedAt,
-      key: finalKey,
-      deviceId: finalDeviceId,
       account: resolvedAccount,
       accountName: resolvedAccountName,
       platform: resolvedPlatform,
@@ -361,31 +394,34 @@ function addAccount(accountData) {
     }
 
     console.log('[AccountStorage] 添加账号成功:', { id: accountId, hasKey: !!finalKey, hasDeviceId: !!finalDeviceId && finalDeviceId !== 'unknown' });
+    const savedAccount = {
+      id: accountId,
+      key: finalKey,
+      deviceId: finalDeviceId,
+      account: resolvedAccount,
+      cookies: [],
+      browserStorage: [],
+      accountName: resolvedAccountName,
+      platform: resolvedPlatform,
+      currentPlatform: resolvedCurrentPlatform,
+      currentUrl: resolvedCurrentUrl,
+      storageType: resolvedStorageType,
+      storageGroup: resolvedStorageGroup,
+      storageGroupLabel: resolvedStorageGroupLabel,
+      cleanupProtected: resolvedCleanupProtected,
+      currentAccountType: resolvedCurrentAccountType,
+      currentAccountTypeLabel: resolvedCurrentAccountTypeLabel,
+      current_account_type: resolvedCurrentAccountType,
+      current_account_type_label: resolvedCurrentAccountTypeLabel,
+      lastUsedAt,
+      serverRecycleTime: resolvedServerRecycleTime,
+      serverRecycleTimeTs: resolvedServerRecycleTimeTs,
+      serverRecycleTimeIso: resolvedServerRecycleTimeIso
+    };
+    upsertCachedAccount(savedAccount);
     return {
       ok: true,
-      account: {
-        id: accountId,
-        key: finalKey,
-        deviceId: finalDeviceId,
-        account: resolvedAccount,
-        cookies: finalCookies,
-        browserStorage: Array.isArray(browserStorage) ? browserStorage : [],
-        accountName: resolvedAccountName,
-        platform: resolvedPlatform,
-        currentPlatform: resolvedCurrentPlatform,
-        currentUrl: resolvedCurrentUrl,
-        storageType: resolvedStorageType,
-        storageGroup: resolvedStorageGroup,
-        storageGroupLabel: resolvedStorageGroupLabel,
-        cleanupProtected: resolvedCleanupProtected,
-        currentAccountType: resolvedCurrentAccountType,
-        currentAccountTypeLabel: resolvedCurrentAccountTypeLabel,
-        current_account_type: resolvedCurrentAccountType,
-        current_account_type_label: resolvedCurrentAccountTypeLabel,
-        serverRecycleTime: resolvedServerRecycleTime,
-        serverRecycleTimeTs: resolvedServerRecycleTimeTs,
-        serverRecycleTimeIso: resolvedServerRecycleTimeIso
-      }
+      account: cloneAccount(savedAccount)
     };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
@@ -401,7 +437,7 @@ function updateAccount(accountId, updates) {
       return { ok: false, error: '账号不存在' };
     }
 
-    // 只更新会话数据（cookies）
+    // Cookie/Storage 参数只用于兼容调用方，不会写入 account_sessions。
     const {
       cookies,
       browserStorage,
@@ -429,11 +465,7 @@ function updateAccount(accountId, updates) {
 
     if (cookies !== undefined || browserStorage !== undefined || key !== undefined || deviceId !== undefined || accountName !== undefined || platform !== undefined || currentPlatform !== undefined || currentUrl !== undefined || storageType !== undefined || storageGroup !== undefined || storageGroupLabel !== undefined || cleanupProtected !== undefined || currentAccountType !== undefined || currentAccountTypeLabel !== undefined || current_account_type !== undefined || current_account_type_label !== undefined || serverRecycleTime !== undefined || serverRecycleTimeTs !== undefined || serverRecycleTimeIso !== undefined || server_recycle_time !== undefined || ai_account_expiry_time !== undefined || aiAccountExpiryTime !== undefined) {
       const sessionUpdates = {
-        cookies: cookies,
-        browserStorage: Array.isArray(browserStorage) ? browserStorage : undefined,
-        key: key,
-        deviceId: deviceId,
-        accountName: accountName,
+        account: accountName,
         platform: platform,
         currentPlatform: currentPlatform,
         currentUrl: currentUrl,
@@ -457,7 +489,8 @@ function updateAccount(accountId, updates) {
 
     // 返回更新后的完整账号信息
     const updatedAccount = loadAccountFromFile(accountId);
-    return { ok: true, account: updatedAccount };
+    upsertCachedAccount(updatedAccount);
+    return { ok: true, account: cloneAccount(updatedAccount) };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
@@ -476,6 +509,7 @@ function deleteAccount(accountId) {
       return { ok: false, error: '删除账号失败' };
     }
 
+    removeCachedAccount(accountId);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
@@ -500,12 +534,8 @@ function migrateAccountId(oldAccountId, newAccountId) {
     }
 
     const saved = sessionStorage.saveSession(targetId, {
-      cookies: existingAccount.cookies || [],
-      browserStorage: Array.isArray(existingAccount.browserStorage) ? existingAccount.browserStorage : [],
       lastUsedAt: existingAccount.lastUsedAt || new Date().toISOString(),
-      key: existingAccount.key || '',
-      deviceId: existingAccount.deviceId || '',
-      accountName: existingAccount.accountName || '',
+      account: existingAccount.account || existingAccount.accountName || '',
       platform: existingAccount.platform || '',
       currentPlatform: existingAccount.currentPlatform || '',
       currentUrl: existingAccount.currentUrl || '',
@@ -528,7 +558,10 @@ function migrateAccountId(oldAccountId, newAccountId) {
       return { ok: false, error: '迁移成功但删除旧账号失败' };
     }
 
-    return { ok: true, account: loadAccountFromFile(targetId) };
+    const migratedAccount = loadAccountFromFile(targetId);
+    removeCachedAccount(sourceId);
+    upsertCachedAccount(migratedAccount);
+    return { ok: true, account: cloneAccount(migratedAccount) };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
@@ -585,6 +618,7 @@ function updateLastUsedTime(accountId) {
     });
 
     if (result) {
+      upsertCachedAccount({ ...account, lastUsedAt });
       console.log('[AccountStorage] 账号最后使用时间已更新:', accountId, lastUsedAt);
       return { ok: true };
     } else {

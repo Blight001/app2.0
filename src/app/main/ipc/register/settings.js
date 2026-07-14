@@ -47,7 +47,9 @@ function readBrowserHistorySafe() {
   })).filter((item) => item.id);
   let changed = source.some((item) => String(item?.runtimeType || '').trim() !== 'chromium');
   try {
-    const summaries = Array.isArray(accountStorage.getAllAccounts?.()) ? accountStorage.getAllAccounts() : [];
+    const summaries = typeof accountStorage.getAllAccounts === 'function'
+      ? accountStorage.getAllAccounts()
+      : [];
     const accountByPartition = new Map(summaries.map((summary) => [
       `persist:${buildManagedTabPartitionName(summary?.id)}`,
       summary,
@@ -199,7 +201,7 @@ function serializeBrowserHistory(history, ui) {
   const activeTabId = String(typeof ui?.getActiveTabId === 'function' ? ui.getActiveTabId() || '' : '');
   const tabs = Array.from((typeof ui?.getTabs === 'function' ? ui.getTabs() : new Map()).values());
   const accountMetaById = new Map(
-    (Array.isArray(accountStorage.getAllAccounts?.()) ? accountStorage.getAllAccounts() : [])
+    (typeof accountStorage.getAllAccounts === 'function' ? accountStorage.getAllAccounts() : [])
       .map((account) => [String(account?.id || '').trim(), buildBrowserHistoryAccountMeta(account)])
       .filter(([accountId, meta]) => accountId && meta),
   );
@@ -862,7 +864,7 @@ function registerSettingsIPC(ctx) {
 
   ipcMain.on('server-account-cookie-received', (_event, data) => {
     try {
-      console.log('[IPC] 收到来自渲染进程的账号cookie消息，转发到侧边栏:', data);
+      console.log('[IPC] 收到账号 Cookie 消息，正在转发到侧边栏');
       if (ui && ui.sendToSide) {
         ui.sendToSide('server-account-cookie-received', data);
         console.log('[IPC] 已转发账号cookie消息到侧边栏');

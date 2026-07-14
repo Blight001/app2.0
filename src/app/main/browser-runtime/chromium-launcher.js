@@ -157,6 +157,11 @@ function buildChromiumArgs(options = {}) {
     '--hs-embed-mode=child-window',
     '--no-first-run',
     '--no-default-browser-check',
+    // The embedded runtime is updated by AI-FREE itself. Chromium's own
+    // component/model updater can otherwise download hundreds of megabytes
+    // through the currently selected proxy while every page is idle.
+    '--disable-background-networking',
+    '--disable-component-update',
     '--disable-session-crashed-bubble',
     '--disable-backgrounding-occluded-windows',
   ];
@@ -200,9 +205,41 @@ function launchChromium(options = {}) {
   });
   options.logger?.info?.(`[AI-FREE] 已启动外部浏览器内核: ${executablePath}`);
   options.logger?.info?.(`[ChromiumRuntime] PID=${child.pid} Profile=${options.profile?.profileId || ''}`);
-  child.stdout?.on('data', (chunk) => options.logger?.log?.(`[Chromium:${child.pid}] ${String(chunk).trimEnd()}`));
-  child.stderr?.on('data', (chunk) => options.logger?.warn?.(`[Chromium:${child.pid}] ${String(chunk).trimEnd()}`));
+  forwardChromiumOutput(child.stdout, (line) => options.logger?.log?.(`[Chromium:${child.pid}] ${line}`));
+  forwardChromiumOutput(
+    child.stderr,
+    (line) => options.logger?.warn?.(`[Chromium:${child.pid}] ${line}`),
+    shouldIgnoreChromiumDiagnostic,
+  );
   return { child, executablePath, args };
+}
+
+// Windows 未安装特定 Winsock 服务提供程序时 Chromium 会反复输出该诊断，
+// 但它不会影响 DNS、页面加载或 Runtime Bridge，避免将它淹没有效日志。
+function shouldIgnoreChromiumDiagnostic(line) {
+  return /WSALookupServiceBegin failed with:\s*10108\b/.test(String(line || ''));
+}
+
+function forwardChromiumOutput(stream, emit, shouldIgnore = () => false) {
+  if (!stream || typeof stream.on !== 'function') return;
+  let pending = '';
+
+  const flushLine = (line) => {
+    const text = String(line || '').trimEnd();
+    if (!text || shouldIgnore(text)) return;
+    emit(text);
+  };
+
+  stream.on('data', (chunk) => {
+    pending += String(chunk || '');
+    const lines = pending.split(/\r?\n/);
+    pending = lines.pop() || '';
+    for (const line of lines) flushLine(line);
+  });
+  stream.on('end', () => {
+    flushLine(pending);
+    pending = '';
+  });
 }
 
 module.exports = {
@@ -211,7 +248,9 @@ module.exports = {
   assertSafeChromiumArgs,
   buildChromiumArgs,
   buildChromiumEnvironment,
+  forwardChromiumOutput,
   getSystemChromiumCandidates,
   launchChromium,
   resolveChromiumExecutable,
+  shouldIgnoreChromiumDiagnostic,
 };

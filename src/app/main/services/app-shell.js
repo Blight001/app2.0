@@ -1,5 +1,6 @@
 const { createAnnouncementPoller } = require('../lib/announcement-poller');
 const { removeDirectoryWithRetries } = require('../utils/fs-cleanup');
+const { cleanupAccountProfile } = require('./account-profile-cleanup');
 
 // 创建/初始化：createAppShell的具体业务逻辑。
 function createAppShell(deps = {}) {
@@ -615,13 +616,21 @@ function createAppShell(deps = {}) {
           logger.warn?.('[启动] 默认教程页打开失败:', e?.message || e);
         }
 
-        // 账号回收定时器：卡密已验证时启动。
+        // 启动时无条件清理已到期循环账号，避免未重新验证卡密时旧 Profile 仍可恢复。
         try {
-          const validationSnapshot = licenseCache && typeof licenseCache.getSnapshot === 'function'
-            ? licenseCache.getSnapshot()
-            : null;
-          if (typeof initializeAccountCleanup === 'function' && validationSnapshot && validationSnapshot.validated === true) {
-            initializeAccountCleanup(accountStorage, { sendToSide });
+          if (typeof initializeAccountCleanup === 'function') {
+            await initializeAccountCleanup(accountStorage, {
+              sendToSide,
+              cleanupAccountArtifacts: (accountId) => cleanupAccountProfile(accountId, {
+                browserRuntimeManager: deps.browserRuntimeManager,
+                getTabs: () => resolveTabs(),
+                closeTab: resolveCloseTab(),
+                fs,
+                getStorePath,
+                sendToSide,
+                logger,
+              }),
+            });
           }
         } catch (e) {
           logger.warn?.('[启动] 刷新账号回收定时器失败:', e?.message || e);
