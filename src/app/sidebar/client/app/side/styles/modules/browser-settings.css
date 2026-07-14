@@ -93,7 +93,6 @@ body.browser-settings-dialog-open { overflow: hidden; }
 .wool-resource-inline { margin-bottom: 13px; padding-bottom: 13px; border-bottom: 1px solid rgba(113, 130, 160, .18); }
 .wool-resource-title { margin-bottom: 8px; }
 .wool-resource-title[hidden] { display: none !important; }
-.wool-resource-inline .account-launch-row { margin-bottom: 0; }
 .browser-history-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .browser-history-heading h2 { margin: 0; color: #eef3ff; font-size: 14px; }
 .browser-history-heading-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
@@ -108,6 +107,8 @@ body.browser-settings-dialog-open { overflow: hidden; }
 .browser-history-item.has-error { border-color: rgba(217, 76, 76, .42); background: rgba(217, 76, 76, .12); }
 .browser-history-main { display: block; width: 100%; min-width: 0; overflow: hidden; border: 0; padding: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .browser-history-name { position: relative; display: block; min-width: 0; overflow: hidden; padding-left: 14px; color: #e7edf7; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.browser-history-account-meta { display: block; min-width: 0; overflow: hidden; padding: 3px 0 0 14px; color: #91a0b5; font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.browser-history-auto-delete { color: #e7aa61; }
 .browser-history-name::before { position: absolute; left: 1px; top: 50%; content: ''; width: 7px; height: 7px; border-radius: 50%; background: #6f7d91; box-shadow: 0 0 0 2px rgba(111, 125, 145, .14); transform: translateY(-50%); }
 .browser-history-item.is-open .browser-history-name { color: #8bbcff; }
 .browser-history-item.is-open .browser-history-name::before { background: #409eff; box-shadow: 0 0 0 2px rgba(64, 158, 255, .18); }
@@ -220,6 +221,8 @@ html.theme-light .settings-network-tools .plugin-switch-group { border-color: rg
 html.theme-light .browser-history-inline { border-color: rgba(86, 121, 165, .14); }
 html.theme-light .wool-resource-inline { border-color: rgba(86, 121, 165, .14); }
 html.theme-light .browser-history-heading h2, html.theme-light .browser-history-name { color: #253b54; }
+html.theme-light .browser-history-account-meta { color: #657d96; }
+html.theme-light .browser-history-auto-delete { color: #a86418; }
 html.theme-light .browser-history-refresh, html.theme-light .browser-history-action { border-color: rgba(88, 126, 173, .24); color: #48647f; background: rgba(245, 249, 253, .96); }
 html.theme-light .browser-history-delete { border-color: rgba(190, 62, 62, .3); color: #b34545; }
 html.theme-light .browser-history-item { border-color: rgba(88, 126, 173, .2); background: rgba(247, 250, 254, .82); }

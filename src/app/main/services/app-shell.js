@@ -598,11 +598,15 @@ function createAppShell(deps = {}) {
           applyPluginSettings({ translateExtEnabled: false });
         }
 
-        // 教程是软件首页，不依赖账号登录或平台配置同步。
-        // 已登录时优先使用缓存的 tutorialUrl，否则复用历史教程窗口或内置默认页。
+        // 每次软件启动都创建一次教程浏览器，与登录状态无关。后续登录只
+        // 更新账号和平台配置，不再次触发教程导航。
         try {
-          if (resolveTabs().size === 0 && typeof resolveOpenTutorialTab() === 'function') {
+          if (
+            resolveTabs().size === 0
+            && typeof resolveOpenTutorialTab() === 'function'
+          ) {
             await resolveOpenTutorialTab()('', {
+              auto: true,
               focusBrowser: false,
               restoreSideFocus: true,
             });

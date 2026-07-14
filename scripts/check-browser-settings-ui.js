@@ -19,7 +19,19 @@ for (const [channel, response] of [
   ['get-tutorial-url', 'https://www.baidu.com/'],
   ['consume-auto-validate-flag', { pending: false }],
   ['get-network-magic-auto-start-enabled', { ok: true, enabled: false }],
-  ['get-browser-history', { ok: true, history: [] }],
+  ['get-browser-history', {
+    ok: true,
+    history: [{
+      id: 'shared-browser',
+      name: '平台 A',
+      accountDisplayName: '账号123456',
+      accountType: 'shared',
+      accountTypeLabel: '循环账号',
+      autoDeleteAt: 2_000_000_000_000,
+      isOpen: false,
+      isActive: false,
+    }],
+  }],
   ['focus-sidebar-input', { ok: true }],
 ]) ipcMain.handle(channel, () => response);
 
@@ -31,8 +43,10 @@ app.whenReady().then(async () => {
     webPreferences: { contextIsolation: true, preload: path.join(__dirname, '../src/app/main/preload.js') },
   });
   await win.loadFile(path.join(__dirname, '../src/app/sidebar/index.html'));
-  const result = await win.webContents.executeJavaScript(`(() => {
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  const result = await win.webContents.executeJavaScript(`(async () => {
     document.querySelector('[data-tab="ai-free-settings-panel"]').click();
+    await new Promise((resolve) => setTimeout(resolve, 120));
     const panel = document.getElementById('ai-free-settings-panel');
     const labels = Array.from(panel.querySelectorAll('.vb-label')).map((item) => item.textContent.trim());
     return {
@@ -41,12 +55,25 @@ app.whenReady().then(async () => {
       rows: panel.querySelectorAll('.vb-row').length,
       labels,
       browserHistoryVisible: !!document.getElementById('browser-history-list'),
+      browserHistoryText: document.getElementById('browser-history-list')?.textContent || '',
+      accountHistoryRemoved: !document.getElementById('account-history-toggle-btn') && !document.getElementById('account-panel'),
       removedNetworkHeading: !document.getElementById('network-tools-title') && !panel.querySelector('.settings-network-tools-hint'),
       overflowY: getComputedStyle(document.querySelector('.main-wrapper')).overflowY,
     };
   })()`);
   const required = ['操作系统', '代理设置', 'User Agent', 'WebRTC', 'Canvas', 'WebGL 图像', 'AudioContext', 'CPU', 'MAC 地址', '端口扫描保护', '启动参数'];
-  if (!result.active || !result.controlInactive || !result.browserHistoryVisible || !result.removedNetworkHeading || result.rows < 30 || required.some((label) => !result.labels.includes(label))) {
+  if (
+    !result.active
+    || !result.controlInactive
+    || !result.browserHistoryVisible
+    || !result.browserHistoryText.includes('账号123456')
+    || !result.browserHistoryText.includes('循环账号')
+    || !result.browserHistoryText.includes('自动删除：')
+    || !result.accountHistoryRemoved
+    || !result.removedNetworkHeading
+    || result.rows < 30
+    || required.some((label) => !result.labels.includes(label))
+  ) {
     throw new Error(`AI-FREE 参数面板校验失败: ${JSON.stringify(result)}`);
   }
   const promptResult = await win.webContents.executeJavaScript(`new Promise((resolve) => {

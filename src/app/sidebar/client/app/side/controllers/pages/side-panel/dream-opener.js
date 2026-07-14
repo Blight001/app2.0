@@ -77,13 +77,6 @@
 
         console.log('[前端] 网页打开请求成功，标签页ID:', result.tabId);
 
-        window.dispatchEvent(new CustomEvent('account-history-panel-open-request'));
-
-        // 打开成功后，延迟刷新账号列表（等待账号保存完成）
-        // 通过自定义事件通知 side-panel.js 刷新列表
-        setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('account-list-should-refresh'));
-        }, 2000);
       }, {
         companions: [
           document.getElementById('validate-key-btn'),

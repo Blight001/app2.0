@@ -10,7 +10,7 @@ const {
   buildBrowserProfileFromRegion,
   resolveTabBrowserProfile,
 } = require('../src/app/main/utils/browser-profile');
-const { makeUniqueBrowserName } = require('../src/app/main/ipc/register/settings');
+const { buildBrowserHistoryAccountMeta, makeUniqueBrowserName } = require('../src/app/main/ipc/register/settings');
 
 async function main() {
   const settings = normalizeAiFreeBrowserSettings({
@@ -45,6 +45,18 @@ async function main() {
   assert.equal(makeUniqueBrowserName('新建窗口', [{ id: '1', name: '新建窗口' }]), '新建窗口[2]');
   assert.equal(makeUniqueBrowserName('新建窗口', [{ id: '1', name: '新建窗口' }, { id: '2', name: '新建窗口[2]' }]), '新建窗口[3]');
   assert.equal(makeUniqueBrowserName('已命名', [{ id: '1', name: '已命名' }], '1'), '已命名');
+  const rotatingAccountMeta = buildBrowserHistoryAccountMeta({
+    id: 'shared-account',
+    displayName: '账号123456',
+    platform: '平台 A',
+    currentAccountType: 'shared',
+    currentAccountTypeLabel: '循环账号',
+    serverRecycleTimeTs: 2_000_000_000_000,
+  });
+  assert.equal(rotatingAccountMeta.accountDisplayName, '账号123456');
+  assert.equal(rotatingAccountMeta.accountType, 'shared');
+  assert.equal(rotatingAccountMeta.accountTypeLabel, '循环账号');
+  assert.equal(rotatingAccountMeta.autoDeleteAt, 2_000_000_000_000);
   const shellHtml = fs.readFileSync(path.join(__dirname, '../src/app/views/app-shell.html'), 'utf8');
   const shellTabsScript = fs.readFileSync(path.join(__dirname, '../src/app/renderer/controllers/pages/app-shell/tabs.js'), 'utf8');
   assert.ok(shellHtml.includes('id="new-browser-window-btn"'));
@@ -52,6 +64,9 @@ async function main() {
   assert.ok(shellTabsScript.includes("IPC.invoke('rename-browser-history'"));
   const settingsIpcScript = fs.readFileSync(path.join(__dirname, '../src/app/main/ipc/register/settings.js'), 'utf8');
   const sidebarSettingsScript = fs.readFileSync(path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/browser-settings.js'), 'utf8');
+  const sidebarHtml = fs.readFileSync(path.join(__dirname, '../src/app/sidebar/index.html'), 'utf8');
+  assert.ok(!sidebarHtml.includes('id="account-history-toggle-btn"'));
+  assert.ok(!sidebarHtml.includes('id="account-panel"'));
   assert.ok(settingsIpcScript.includes("ipcMain.handle('delete-browser-history'"));
   assert.match(
     settingsIpcScript,
@@ -82,6 +97,7 @@ async function main() {
   assert.ok(serverAccountFlow.includes('deferChromiumNavigation: true'));
   assert.ok(serverAccountFlow.includes('navigateAfterImport: false'));
   assert.ok(sidebarSettingsScript.includes("electronAPI.invoke('delete-browser-history'"));
+  assert.ok(sidebarSettingsScript.includes('browser-history-auto-delete'));
   const messageModalScript = fs.readFileSync(path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/shared/message-modal.js'), 'utf8');
   assert.ok(sidebarSettingsScript.includes('MessageModal.showConfirmDialog'));
   assert.ok(sidebarSettingsScript.includes('MessageModal.showPromptDialog'));

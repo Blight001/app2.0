@@ -54,23 +54,8 @@
 .btn-large-teal { background: linear-gradient(135deg, var(--teal), #34c5b6); box-shadow: 0 8px 20px rgba(23, 169, 159, 0.24); }
 .btn-large-yellow { background: #ffec99; color: #8a6d3b; }
 
-/* 一键启动（平台）与历史账号始终同一行 */
-.account-launch-row {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  gap: 10px;
-  align-items: stretch;
-  margin-bottom: 10px;
-  min-width: 0;
-}
-
-.account-launch-row .main-button {
-  margin-bottom: 0;
-}
-
 .wool-platform-buttons {
-  flex: 1 1 auto;
+  width: 100%;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -93,38 +78,6 @@
   font-size: .5em;
   font-weight: 400;
   opacity: .82;
-}
-
-.account-history-shell {
-  position: relative;
-  flex: 0 0 auto;
-  width: 108px;
-  min-width: 96px;
-  max-width: 120px;
-  align-self: flex-start;
-  z-index: 40;
-}
-
-/* 历史账号与一键启动同款式同高度（btn-large-blue 渐变，40px） */
-.account-history-shell > .main-button,
-.account-history-toggle-btn {
-  width: 100%;
-  min-width: 0;
-  min-height: 40px;
-  height: auto;
-  padding-top: 7px;
-  padding-bottom: 7px;
-  line-height: 1.35;
-  white-space: nowrap;
-}
-
-.account-history-shell > .main-button.is-disabled,
-.account-history-shell > .main-button[aria-disabled='true'],
-.account-history-toggle-btn.is-disabled,
-.account-history-toggle-btn[aria-disabled='true'] {
-  opacity: 0.5;
-  cursor: not-allowed;
-  box-shadow: none;
 }
 
 .main-button:disabled {

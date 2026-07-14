@@ -78,7 +78,7 @@ function buildBrowserStatusPageUrl(title, message, tone = 'loading') {
 
 // 创建/初始化：createTabManager的具体业务逻辑。
 function createTabManager(deps = {}) {
-  const DEFAULT_TUTORIAL_URL = 'https://www.baidu.com/';
+  const DEFAULT_TUTORIAL_URL = 'https://www.yuque.com/kelingaishipindian/tx5gwq/xbsl692ls9xope0e?singleDoc#';
   const TUTORIAL_TAB_TITLE = '使用教程[AI-FREE]';
   const {
     browserRuntimeManager,
@@ -297,7 +297,9 @@ function createTabManager(deps = {}) {
         browserHistoryId: historyId,
         partition: historyRecord?.partition || undefined,
         browserProxyMode: 'direct',
-        restoreLastSession: true,
+        // 教程窗口每次启动都必须进入教程地址，不能恢复到上次关闭前的
+        // 空白页、跳转页或其它浏览记录。
+        restoreLastSession: false,
         focusBrowser,
         browserSettings: {
           ...(historyRecord?.settings || {}),
@@ -667,13 +669,12 @@ function createTabManager(deps = {}) {
 
     const remaining = Array.from(tabs.keys());
     if (remaining.length === 0) {
-      // 以实际标签数量为准，不依赖可能尚未同步的 activeTabId。
-      // 这样无论通过关闭按钮、中键还是其它 IPC 路径关闭最后一页，
-      // 主窗口都会立即恢复为教程页，不会留下空白内容区。
+      // 未登录时关闭最后一页会恢复教程首页；登录后保持空白，避免再次
+      // 自动加载教程。用户仍可从侧边栏手动打开教程。
       if (typeof setActiveTabId === 'function') {
         setActiveTabId(null);
       }
-      await openTutorialTab();
+      await openTutorialTab('', { auto: true });
     } else if (resolveActiveTabId() === tabId) {
       const preferredLeftId = orderedTabIds[closeIndex - 1];
       const preferredRightId = orderedTabIds[closeIndex + 1];

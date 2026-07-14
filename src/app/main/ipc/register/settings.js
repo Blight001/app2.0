@@ -3,6 +3,11 @@ const fs = require('fs');
 const { getStorePath } = require('../../config');
 const accountStorage = require('../../lib/account-storage');
 const { buildManagedTabPartitionName } = require('../../services/tab-common');
+const { resolveRecycleTimestamp } = require('../../utils/accountCleanup');
+const {
+  getCurrentAccountTypeLabel,
+  resolveCurrentAccountType,
+} = require('../../utils/normalizers');
 const {
   readStoreConfigSafe,
   saveLicenseCredentialsSafe,
@@ -47,14 +52,19 @@ function readBrowserHistorySafe() {
       `persist:${buildManagedTabPartitionName(summary?.id)}`,
       summary,
     ]));
+    const accountById = new Map(summaries.map((summary) => [
+      String(summary?.id || '').trim(),
+      summary,
+    ]));
     for (const record of history) {
-      if (record.profileId || !record.partition) continue;
-      const summary = accountByPartition.get(record.partition);
+      if (record.accountId) continue;
+      const summary = accountById.get(record.profileId)
+        || accountByPartition.get(record.partition);
       const accountId = String(summary?.id || '').trim();
       if (!accountId) continue;
       const accountResult = accountStorage.getAccount(accountId);
       const account = accountResult?.ok ? accountResult.account : null;
-      record.profileId = accountId;
+      if (!record.profileId) record.profileId = accountId;
       record.accountId = accountId;
       if (!record.url && account?.currentUrl) record.url = String(account.currentUrl).trim();
       changed = true;
@@ -163,15 +173,43 @@ function syncOpenTabsToBrowserHistory(ui) {
   return history;
 }
 
+function buildBrowserHistoryAccountMeta(account = {}) {
+  const accountId = String(account?.id || '').trim();
+  if (!accountId) return null;
+  const accountType = resolveCurrentAccountType(
+    account?.currentAccountType || account?.current_account_type,
+    account?.currentAccountTypeLabel || account?.current_account_type_label,
+  );
+  const accountTypeLabel = String(
+    account?.currentAccountTypeLabel
+    || account?.current_account_type_label
+    || getCurrentAccountTypeLabel(accountType)
+    || '',
+  ).trim();
+  return {
+    accountDisplayName: String(account?.displayName || account?.accountName || accountId).trim() || accountId,
+    accountPlatform: String(account?.platform || account?.platformName || '').trim(),
+    accountType,
+    accountTypeLabel,
+    autoDeleteAt: accountType === 'shared' ? resolveRecycleTimestamp(account) : null,
+  };
+}
+
 function serializeBrowserHistory(history, ui) {
   const activeTabId = String(typeof ui?.getActiveTabId === 'function' ? ui.getActiveTabId() || '' : '');
   const tabs = Array.from((typeof ui?.getTabs === 'function' ? ui.getTabs() : new Map()).values());
+  const accountMetaById = new Map(
+    (Array.isArray(accountStorage.getAllAccounts?.()) ? accountStorage.getAllAccounts() : [])
+      .map((account) => [String(account?.id || '').trim(), buildBrowserHistoryAccountMeta(account)])
+      .filter(([accountId, meta]) => accountId && meta),
+  );
   return history
     .map((record) => {
       const openTab = tabs.find((tab) => String(tab?.browserHistoryId || '') === record.id) || null;
       const liveUrl = openTab ? getManagedTabUrl(openTab) : '';
       return {
         ...record,
+        ...(accountMetaById.get(String(record.accountId || '').trim()) || {}),
         url: liveUrl || record.url,
         tabId: openTab ? String(openTab.id || '') : '',
         isOpen: !!openTab,
@@ -838,6 +876,7 @@ function registerSettingsIPC(ctx) {
 }
 
 module.exports = {
+  buildBrowserHistoryAccountMeta,
   makeUniqueBrowserName,
   registerSettingsIPC,
 };

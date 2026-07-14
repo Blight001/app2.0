@@ -77,6 +77,21 @@
       name.className = 'browser-history-name';
       name.textContent = item.name || '未命名浏览器';
       main.append(name);
+      const accountMetaParts = [];
+      if (item.accountDisplayName) accountMetaParts.push(`账号：${item.accountDisplayName}`);
+      if (item.accountTypeLabel) accountMetaParts.push(item.accountTypeLabel);
+      if (accountMetaParts.length) {
+        const accountMeta = document.createElement('span');
+        accountMeta.className = 'browser-history-account-meta';
+        accountMeta.textContent = accountMetaParts.join(' · ');
+        main.append(accountMeta);
+      }
+      if (item.accountType === 'shared') {
+        const autoDelete = document.createElement('span');
+        autoDelete.className = 'browser-history-account-meta browser-history-auto-delete';
+        autoDelete.textContent = `自动删除：${formatBrowserHistoryDateTime(item.autoDeleteAt) || '等待服务器同步'}`;
+        main.append(autoDelete);
+      }
       main.addEventListener('click', () => void selectBrowserHistory(item.id, { openDialog: true }));
 
       const actions = document.createElement('div');
@@ -107,6 +122,15 @@
       row.append(main, actions);
       list.appendChild(row);
     });
+  }
+
+  function formatBrowserHistoryDateTime(value) {
+    const timestamp = Number(value);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return '';
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return '';
+    const pad = (part) => String(part).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
 
   async function refreshBrowserHistory(options = {}) {
@@ -367,6 +391,7 @@
     document.querySelector('[data-tab="ai-free-settings-panel"]')?.addEventListener('click',()=>void loadSettings());
     window.electronAPI?.on?.('update-tabs', scheduleBrowserHistoryRefresh);
     window.electronAPI?.on?.('browser-history-changed', scheduleBrowserHistoryRefresh);
+    window.electronAPI?.on?.('account-list-updated', scheduleBrowserHistoryRefresh);
     document.addEventListener('keydown',(event)=>{if(event.key==='Escape'&&!el('browser-settings-dialog')?.hidden)closeBrowserSettingsDialog();});
   });
 }());

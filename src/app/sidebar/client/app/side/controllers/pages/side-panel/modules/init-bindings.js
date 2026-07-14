@@ -14,7 +14,6 @@ function initSidePanelBindings() {
   bindClashMiniControls();
   bindLicenseValidationControls();
   bindServerAccountCookieListener();
-  bindAccountPanel();
   bindSidebarAccountAuth();
   bindTutorialLink();
   bindSecondaryEntryButtons();

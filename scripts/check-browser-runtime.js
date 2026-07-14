@@ -373,6 +373,7 @@ try {
   });
   const [firstTutorialId, duplicateTutorialId] = await Promise.all([
     tutorialTabManager.openTutorialTab('https://server.example.com/tutorial', {
+      auto: true,
       focusBrowser: false,
       restoreSideFocus: true,
     }),
@@ -385,8 +386,8 @@ try {
   assert.equal(tutorialTabs.size, 1);
   assert.equal(tutorialLaunches.length, 1);
   assert.equal(tutorialLaunches[0].profileId, 'browser-tab-tutorial-history');
-  assert.equal(tutorialLaunches[0].initialUrl, '');
-  assert.equal(tutorialLaunches[0].restoreLastSession, true);
+  assert.equal(tutorialLaunches[0].initialUrl, 'https://server.example.com/tutorial');
+  assert.equal(tutorialLaunches[0].restoreLastSession, false);
   assert.equal(tutorialTabs.get(firstTutorialId).browserHistoryId, 'tutorial-history');
   assert.equal(tutorialTabs.get(firstTutorialId).isTutorialTab, true);
   assert.equal(tutorialFocusCalls, 0);

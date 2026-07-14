@@ -124,7 +124,7 @@ try {
 } catch (error) {
   console.warn('[ChromiumRuntime] 无法初始化 Per-Monitor DPI V2:', error?.message || error);
 }
-  const licenseCache = createLicenseCache();
+const licenseCache = createLicenseCache();
   if (typeof accountStorage.setLicenseCache === 'function') {
     accountStorage.setLicenseCache(licenseCache);
   }
@@ -307,12 +307,9 @@ const extensionManager = createExtensionManager({
 // 注意：服务器→客户端的 TCP 推送已移除（公告现由客户端轮询）。
 
 let platformRefreshInFlight = false;
-let runtimeTutorialUrlOpened = false;
-let runtimeTutorialUrlOpening = false;
-
 // 停止/关闭/清理：resetRuntimeTutorialUrlState的具体业务逻辑。
 function resetRuntimeTutorialUrlState() {
-  runtimeTutorialUrlOpened = false;
+  // 教程只在应用启动阶段自动打开一次；登录后的配置刷新不重置该行为。
 }
 
 // 渲染/刷新：refreshAllowedPlatformsAndNotify的具体业务逻辑。
@@ -355,28 +352,8 @@ async function refreshAllowedPlatformsAndNotify() {
     if (tutorialUrl) {
       try {
         sendToSide('tutorial-url-updated', { tutorialUrl });
-        if (!runtimeTutorialUrlOpened && !runtimeTutorialUrlOpening) {
-          if (typeof openTutorialTab === 'function') {
-            runtimeTutorialUrlOpening = true;
-            // 教程页在后台打开，不阻塞账号登录 IPC。
-            void (async () => {
-              try {
-                const openedTabId = await openTutorialTab(tutorialUrl, { focusBrowser: false });
-                if (openedTabId) {
-                  runtimeTutorialUrlOpened = true;
-                } else {
-                  console.warn('[启动] 教程页未能打开，稍后将重试:', tutorialUrl);
-                }
-              } catch (error) {
-                console.warn('[启动] 后台打开教程地址失败:', error?.message || error);
-              } finally {
-                runtimeTutorialUrlOpening = false;
-              }
-            })();
-          }
-        }
       } catch (e) {
-        console.warn('[启动] 打开教程地址失败:', e?.message || e);
+        console.warn('[启动] 同步教程地址失败:', e?.message || e);
       }
     }
     sendToSide('platform-name-updated', { platformName, allowedPlatforms, woolPlatforms });
@@ -527,7 +504,7 @@ const {
   revealMainWindow,
 } = appShell;
 
-tabManager = createTabManager({
+  tabManager = createTabManager({
   browserRuntimeManager,
   fs,
   logger: console,

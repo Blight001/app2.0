@@ -750,6 +750,7 @@ function registerLicenseIPC(ctx) {
           storageOriginsImported: importResult.storageOriginsImported,
           storageOriginsSkipped: importResult.storageOriginsSkipped,
         });
+        try { ui.sendToSide?.('browser-history-changed'); } catch (_) {}
         return { ok: true, tabId };
       } catch (error) {
         console.warn('[open-dream-page] Chromium 会话导入失败，保留浏览器供用户重试:', error?.message || error);
