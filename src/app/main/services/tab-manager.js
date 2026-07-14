@@ -146,12 +146,26 @@ function createTabManager(deps = {}) {
   }
   const isChromiumTab = (tab) => String(tab?.runtimeType || '') === 'chromium';
 
-  function refreshBrowserProfileInBackground(tabId, browserSettings) {
+  // 首探 + 最多 2 次重探；仅在“IP 跟随”模式且出口 IP 落空时重试。
+  const MAX_PROFILE_REFRESH_ATTEMPTS = 3;
+  const PROFILE_REFRESH_RETRY_DELAY_MS = 4000;
+  function refreshBrowserProfileInBackground(tabId, browserSettings, attempt = 0) {
     if (typeof resolveTabBrowserProfile !== 'function') return;
+    // 非 IP 跟随（固定地区）本就不带出口 IP，重探无意义，避免无谓请求。
+    const wantsIpFollow = ['language', 'timezone', 'geolocation']
+      .some((key) => browserSettings?.[key]?.mode === 'ip');
+    const scheduleRetry = () => {
+      if (!wantsIpFollow || attempt + 1 >= MAX_PROFILE_REFRESH_ATTEMPTS) return;
+      setTimeout(
+        () => refreshBrowserProfileInBackground(tabId, browserSettings, attempt + 1),
+        PROFILE_REFRESH_RETRY_DELAY_MS,
+      );
+    };
     void resolveTabBrowserProfile({
       browserSettings,
       httpGetUniversal: deps.httpGetUniversal,
       logger,
+      forceGeoLookup: attempt > 0, // 重试时跳过成功缓存，真正重新探测出口
     }).then(async (resolvedProfile) => {
       const tab = resolveTabs().get(String(tabId || ''));
       if (!tab || !resolvedProfile) return;
@@ -167,8 +181,11 @@ function createTabManager(deps = {}) {
         }
       }
       updateTabs(true);
+      // 直连出口探测可能瞬时超时导致来源 IP 落空，延时重探，避免整场会话停留在“自动”。
+      if (!String(resolvedProfile.sourceIp || '').trim()) scheduleRetry();
     }).catch((error) => {
       logger.warn?.('[BrowserMask] 后台更新浏览器地区参数失败:', error?.message || error);
+      scheduleRetry();
     });
   }
 

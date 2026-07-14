@@ -49,9 +49,9 @@ function createServerResolver(deps = {}) {
   function readPlatformsConfigSafe() {
     try {
       const candidates = [
+        path.join(__dirname, '../../../../platforms-config.json'),
         path.join(__dirname, '../../../../docs/config/platforms-config.json'),
         path.join(__dirname, '../../../../config/platforms-config.json'),
-        path.join(__dirname, '../../../../platforms-config.json'),
       ];
       for (const configPath of candidates) {
         if (!fs.existsSync(configPath)) continue;

@@ -176,7 +176,8 @@ function renderAccountProxyTrafficUsage(quota) {
 }
 
 function renderAccountAiUsage(quota) {
-  const usage = quota && typeof quota === 'object' ? quota : null;
+  const normalized = window.AiFreeQuotaDisplay?.normalizeAIQuota?.(quota) || quota;
+  const usage = normalized && typeof normalized === 'object' ? normalized : null;
   const unlimited = Boolean(usage?.unlimited);
   const total = usage ? Number(usage.quota) : NaN;
   const used = usage ? Number(usage.used) : NaN;
@@ -375,8 +376,12 @@ async function redeemUnifiedGiftCode() {
     const aiResult = await window.electronAPI.invoke('ai-control-redeem-gift-code', { code })
       .catch((error) => ({ ok: false, message: error?.message || String(error) }));
     if (aiResult?.ok) {
-      if (aiResult.quota) {
-        window.dispatchEvent(new CustomEvent('ai-control-quota-updated', { detail: aiResult.quota }));
+      const displayQuota = window.AiFreeQuotaDisplay?.recordAIResetAfterRedeem?.(
+        aiResult.quota,
+        aiResult.added_quota,
+      ) || aiResult.quota;
+      if (displayQuota) {
+        window.dispatchEvent(new CustomEvent('ai-control-quota-updated', { detail: displayQuota }));
       }
       if (input) input.value = '';
       window.MessageModal?.showSuccessMessage?.(aiResult.message || '对话额度兑换成功');
@@ -387,8 +392,12 @@ async function redeemUnifiedGiftCode() {
       .catch((error) => ({ ok: false, message: error?.message || String(error) }));
     if (!trafficResult?.ok) throw new Error(unifiedGiftFailureMessage(woolResult, aiResult, trafficResult));
     if (input) input.value = '';
-    if (trafficResult.quota && typeof renderProxyTrafficQuota === 'function') {
-      renderProxyTrafficQuota(trafficResult.quota);
+    const displayQuota = window.AiFreeQuotaDisplay?.recordTrafficResetAfterRedeem?.(
+      trafficResult.quota,
+      trafficResult.added_bytes,
+    ) || trafficResult.quota;
+    if (displayQuota && typeof renderProxyTrafficQuota === 'function') {
+      renderProxyTrafficQuota(displayQuota);
     }
     window.MessageModal?.showSuccessMessage?.(trafficResult.message || '流量兑换成功');
   } catch (error) {

@@ -74,7 +74,7 @@
       "!assets/extensions/remove_watermark/**/*.map",
       "!assets/extensions/remove_watermark/**/*.LICENSE.txt",
       "!assets/extensions/remove_watermark/remove_watermark.crx",
-      "docs/config/platforms-config.json",
+      "platforms-config.json",
       "package.json",
       "package-lock.json",
       "!node_modules/onnxruntime-node/**"

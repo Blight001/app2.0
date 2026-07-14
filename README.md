@@ -6,7 +6,7 @@ Current package version: `2.5.7`
 
 ## What It Does
 
-- Connects to the configured single-platform account service through `docs/config/platforms-config.json`
+- Connects to the configured single-platform account service through the root-level `platforms-config.json`
 - Boots the app through the Electron main process under `src/app/main`
 - Ships bundled extensions and helper modules under `src/assets/extensions`
 - Uses lightweight startup scripts in `scripts/` and `scripts/windows/`
@@ -80,7 +80,7 @@ Build output is written to `appbuild/`.
 
 ## Configuration
 
-The main runtime settings live in `config/platforms-config.json`.
+The main runtime settings live in the root-level `platforms-config.json`.
 
 Important fields:
 

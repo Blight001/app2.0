@@ -44,13 +44,15 @@ function normalizeTcpPort(port, fallback = 58113) {
 function readPlatformsConfigSafe() {
   try {
     const candidates = [
+      path.join(app?.getAppPath ? app.getAppPath() : '', 'platforms-config.json'),
+      path.join(process.cwd(), 'platforms-config.json'),
+      path.join(__dirname, '../../../../platforms-config.json'),
       path.join(app?.getAppPath ? app.getAppPath() : '', 'docs', 'config', 'platforms-config.json'),
       path.join(process.cwd(), 'docs', 'config', 'platforms-config.json'),
       path.join(__dirname, '../../../../docs/config/platforms-config.json'),
       path.join(app?.getAppPath ? app.getAppPath() : '', 'config', 'platforms-config.json'),
       path.join(process.cwd(), 'config', 'platforms-config.json'),
       path.join(__dirname, '../../../../config/platforms-config.json'),
-      path.join(__dirname, '../../../../platforms-config.json'),
     ].filter(Boolean);
 
     for (const configPath of candidates) {

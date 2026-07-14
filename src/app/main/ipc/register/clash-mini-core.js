@@ -281,17 +281,9 @@ function getClashMiniConfigProxyNames(coreDir, groupName) {
   const config = readYamlIfExists(path.join(coreDir, 'config.yaml'))
     || readYamlIfExists(path.join(coreDir, 'self.yaml'))
     || {};
-  const groups = Array.isArray(config['proxy-groups']) ? config['proxy-groups'] : [];
-  const targetGroupName = String(groupName || '').trim();
-  const group = groups.find((item) => String(item?.name || '').trim() === targetGroupName)
-    || groups.find((item) => item && item.type === 'select')
-    || groups[0]
-    || null;
-  const fromGroup = Array.isArray(group?.proxies) ? group.proxies : [];
-  const fromProxies = Array.isArray(config.proxies)
+  return Array.isArray(config.proxies)
     ? config.proxies.map((item) => String(item?.name || '').trim()).filter(Boolean)
     : [];
-  return Array.from(new Set([...fromGroup, ...fromProxies].map((item) => String(item || '').trim()).filter(Boolean)));
 }
 
 // 创建/初始化：buildClashMiniControlUrl的具体业务逻辑。
@@ -385,10 +377,32 @@ async function fetchClashMiniProxyNames(coreDir, groupName) {
     console.warn('[IPC] 获取 Clash Mini 节点列表失败，改用本地配置兜底:', error?.message || error);
   }
 
-  const apiNames = normalizeProxyNameList(response?.all || response?.proxies || response);
   const configNames = getClashMiniConfigProxyNames(coreDir, groupName);
+  const configNameSet = new Set(configNames);
+  const apiNames = normalizeProxyNameList(response?.all || response?.proxies || response)
+    .filter((name) => configNameSet.has(name));
   const names = Array.from(new Set([...apiNames, ...configNames]));
-  const current = String(response?.now || response?.name || '').trim();
+  let current = String(response?.now || response?.name || '').trim();
+
+  // A select group may currently point at a nested url-test/select group.
+  // Resolve that chain for UI highlighting, but never expose the group name
+  // itself as if it were a real proxy node.
+  const visited = new Set();
+  while (current && !configNameSet.has(current) && !visited.has(current)) {
+    visited.add(current);
+    try {
+      const nested = await invokeClashMiniControl(coreDir, 'get', `/proxies/${encodeURIComponent(current)}`, {
+        timeoutMs: 5000,
+      });
+      const next = String(nested?.now || '').trim();
+      if (!next || next === current) break;
+      current = next;
+    } catch (_) {
+      current = '';
+      break;
+    }
+  }
+  if (!configNameSet.has(current)) current = '';
   return {
     raw: response,
     names,
@@ -699,6 +713,25 @@ async function invokeClashMiniControl(coreDir, method, pathname, { data = null, 
   return response.data;
 }
 
+// Mihomo 的运行模式可以通过控制接口被其他客户端临时切换。每次接管核心时
+// 都重新确认 rule，避免磁盘配置正确但当前进程仍停留在 global/direct。
+async function ensureClashMiniRuleMode(coreDir) {
+  try {
+    const current = await invokeClashMiniControl(coreDir, 'get', '/configs', { timeoutMs: 5000 });
+    const currentMode = String(current?.mode || '').trim().toLowerCase();
+    if (currentMode === CLASH_MINI_RULE_MODE) {
+      return { ok: true, changed: false, mode: CLASH_MINI_RULE_MODE };
+    }
+    await invokeClashMiniControl(coreDir, 'patch', '/configs', {
+      data: { mode: CLASH_MINI_RULE_MODE },
+      timeoutMs: 5000,
+    });
+    return { ok: true, changed: true, mode: CLASH_MINI_RULE_MODE, previousMode: currentMode };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+}
+
 // 获取/读取/解析：getClashMiniProfileRoots的具体业务逻辑。
 function getClashMiniProfileRoots() {
   const roots = [];
@@ -734,6 +767,16 @@ function resolveClashMiniProfileFile(coreDir, profilesIndex) {
 }
 
 const MIN_USABLE_GEO_DATABASE_SIZE = 1024 * 1024;
+const CLASH_MINI_RULE_MODE = 'rule';
+const CLASH_MINI_DOMESTIC_DIRECT_RULES = [
+  'DOMAIN-SUFFIX,baidu.com,DIRECT',
+  'DOMAIN-SUFFIX,baidubce.com,DIRECT',
+  'DOMAIN-SUFFIX,bdstatic.com,DIRECT',
+  'DOMAIN-SUFFIX,bdimg.com,DIRECT',
+  'DOMAIN-SUFFIX,cn,DIRECT',
+  'GEOSITE,CN,DIRECT',
+  'GEOIP,CN,DIRECT,no-resolve',
+];
 
 // Mihomo 会在控制端口监听前同步初始化 GEOIP/GEOSITE 数据。首次启动时如果
 // 本地没有数据库且 GitHub 不可达，进程会卡在下载阶段，形成“代理尚未启动，
@@ -782,8 +825,11 @@ function normalizeClashMiniStartupConfig(config, coreDir) {
   const stats = {
     changed: false,
     controlFieldAdded: false,
+    ruleModeForced: false,
+    domesticDirectRulesAdded: 0,
     fixedUrls: 0,
     removedGeoRules: 0,
+    offlineMatchDirectRulesRewritten: 0,
     disabledDnsGeoFilter: false,
     geoDatabaseAvailable: false,
     geoIpDatabaseAvailable: false,
@@ -794,26 +840,64 @@ function normalizeClashMiniStartupConfig(config, coreDir) {
   }
 
   let next = repairMalformedHttpsUrls(config, stats);
-  stats.controlFieldAdded = !String(next['external-controller'] || next.external_controller || '').trim();
-  next = ensureClashMiniControlFields(next);
+  if (String(next.mode || '').trim().toLowerCase() !== CLASH_MINI_RULE_MODE) {
+    next = { ...next, mode: CLASH_MINI_RULE_MODE };
+    stats.ruleModeForced = true;
+  }
+
   const geoAvailability = getClashMiniGeoDatabaseAvailability(coreDir, next);
   stats.geoIpDatabaseAvailable = geoAvailability.geoIp;
   stats.geoSiteDatabaseAvailable = geoAvailability.geoSite;
   stats.geoDatabaseAvailable = geoAvailability.geoIp && geoAvailability.geoSite;
 
+  const currentRules = Array.isArray(next.rules) ? next.rules.slice() : [];
+  const normalizedRules = new Set(
+    currentRules
+      .filter((rule) => typeof rule === 'string')
+      .map((rule) => rule.replace(/\s+/g, '').toUpperCase()),
+  );
+  const missingDomesticRules = CLASH_MINI_DOMESTIC_DIRECT_RULES
+    .filter((rule) => geoAvailability.geoSite || !/^GEOSITE,/i.test(rule))
+    .filter((rule) => geoAvailability.geoIp || !/^GEOIP,/i.test(rule))
+    .filter((rule) => !normalizedRules.has(rule.replace(/\s+/g, '').toUpperCase()));
+  if (missingDomesticRules.length > 0) {
+    // 国内直连规则必须位于订阅中的 MATCH/兜底规则之前，否则 rule 模式
+    // 仍会表现成所有请求都走节点。
+    next = { ...next, rules: [...missingDomesticRules, ...currentRules] };
+    stats.domesticDirectRulesAdded = missingDomesticRules.length;
+  }
+
+  stats.controlFieldAdded = !String(next['external-controller'] || next.external_controller || '').trim();
+  next = ensureClashMiniControlFields(next);
+
   if (!stats.geoDatabaseAvailable) {
     if (Array.isArray(next.rules)) {
-      const rules = next.rules.filter((rule) => {
-        const dependsOnMissingGeoIp = !geoAvailability.geoIp
-          && typeof rule === 'string'
-          && /(?:^|[,(])\s*GEOIP\s*,/i.test(rule);
-        const dependsOnMissingGeoSite = !geoAvailability.geoSite
-          && typeof rule === 'string'
-          && /(?:^|[,(])\s*GEOSITE\s*,/i.test(rule);
-        const dependsOnGeoData = dependsOnMissingGeoIp || dependsOnMissingGeoSite;
-        if (dependsOnGeoData) stats.removedGeoRules += 1;
-        return !dependsOnGeoData;
-      });
+      const rules = next.rules
+        .filter((rule) => {
+          const dependsOnMissingGeoIp = !geoAvailability.geoIp
+            && typeof rule === 'string'
+            && /(?:^|[,(])\s*GEOIP\s*,/i.test(rule);
+          const dependsOnMissingGeoSite = !geoAvailability.geoSite
+            && typeof rule === 'string'
+            && /(?:^|[,(])\s*GEOSITE\s*,/i.test(rule);
+          const dependsOnGeoData = dependsOnMissingGeoIp || dependsOnMissingGeoSite;
+          if (dependsOnGeoData) stats.removedGeoRules += 1;
+          return !dependsOnGeoData;
+        })
+        .map((rule) => {
+          // GeoIP 缺失时无法判断未列入域名规则的网站是否位于中国大陆。
+          // 若继续保留订阅的 MATCH,代理组，所有无法判断的国内网站都会
+          // 落入远程节点，表现得与全局代理相同。明确列出的海外/AI 域名
+          // 规则仍在 MATCH 之前，因此离线兜底应让未知流量优先直连。
+          if (!geoAvailability.geoIp
+            && typeof rule === 'string'
+            && /^\s*MATCH\s*,/i.test(rule)
+            && !/^\s*MATCH\s*,\s*DIRECT(?:\s*,|\s*$)/i.test(rule)) {
+            stats.offlineMatchDirectRulesRewritten += 1;
+            return 'MATCH,DIRECT';
+          }
+          return rule;
+        });
       next = { ...next, rules };
     }
 
@@ -852,8 +936,11 @@ function normalizeClashMiniStartupConfig(config, coreDir) {
   }
 
   stats.changed = stats.controlFieldAdded
+    || stats.ruleModeForced
+    || stats.domesticDirectRulesAdded > 0
     || stats.fixedUrls > 0
     || stats.removedGeoRules > 0
+    || stats.offlineMatchDirectRulesRewritten > 0
     || stats.disabledDnsGeoFilter;
   return { config: next, ...stats };
 }
@@ -867,10 +954,15 @@ function normalizeAndWriteClashMiniRuntimeConfig(coreDir, runtimeConfigPath, con
   const normalized = normalizeClashMiniStartupConfig(config, coreDir);
   if (normalized.changed) {
     fs.writeFileSync(runtimeConfigPath, YAML.stringify(normalized.config), 'utf8');
-    if (!normalized.geoDatabaseAvailable && (normalized.removedGeoRules > 0 || normalized.disabledDnsGeoFilter)) {
+    if (!normalized.geoDatabaseAvailable && (
+      normalized.removedGeoRules > 0
+      || normalized.offlineMatchDirectRulesRewritten > 0
+      || normalized.disabledDnsGeoFilter
+    )) {
       console.warn(
         '[IPC] Clash Mini 未找到可用 Geo 数据库，已启用离线启动兼容配置:',
-        `移除 ${normalized.removedGeoRules} 条 Geo 规则`,
+        `移除 ${normalized.removedGeoRules} 条 Geo 规则，`
+          + `将 ${normalized.offlineMatchDirectRulesRewritten} 条最终 MATCH 改为直连`,
       );
     }
     if (normalized.fixedUrls > 0) {
@@ -1390,6 +1482,12 @@ async function startClashMiniProcessOnce(ui, options = {}) {
       await stopClashMiniProcess(ui);
       return { ok: false, error: message, controlApiReady: false };
     }
+    const ruleModeResult = await ensureClashMiniRuleMode(runningCoreDir);
+    if (!ruleModeResult.ok) {
+      const message = `Mihomo 无法切换到规则模式：${ruleModeResult.error || '未知错误'}`;
+      emitClashMiniLog(ui, 'error', message);
+      return { ok: false, error: message, controlApiReady: true };
+    }
     let browserProxySyncResult = null;
     if (ui && typeof ui.applyClashMiniBrowserProxy === 'function') {
       browserProxySyncResult = await Promise.resolve(ui.applyClashMiniBrowserProxy(true)).catch(() => null);
@@ -1467,7 +1565,9 @@ async function startClashMiniProcessOnce(ui, options = {}) {
       if (!intentionalStop && !isClashMiniProcessRunning() && ui && typeof ui.applyClashMiniBrowserProxy === 'function') {
         Promise.resolve(ui.applyClashMiniBrowserProxy(false)).catch(() => {});
       }
-      emitClashMiniLog(ui, code === 0 ? 'info' : 'warn', `Clash Mini 进程已退出，退出码: ${code}${signal ? `, 信号: ${signal}` : ''}`);
+      const exitLevel = intentionalStop || code === 0 ? 'info' : 'warn';
+      const exitReason = intentionalStop ? '已按请求停止' : '进程已退出';
+      emitClashMiniLog(ui, exitLevel, `Clash Mini ${exitReason}，退出码: ${code}${signal ? `, 信号: ${signal}` : ''}`);
     });
 
     spawnedProcess.on('error', (error) => {
@@ -1497,6 +1597,14 @@ async function startClashMiniProcessOnce(ui, options = {}) {
       emitClashMiniLog(ui, 'error', message);
       await stopClashMiniProcess(ui);
       return { ok: false, error: message, controlApiReady: false };
+    }
+
+    const ruleModeResult = await ensureClashMiniRuleMode(runtimePrep.runtimeDir);
+    if (!ruleModeResult.ok) {
+      const message = `Mihomo 无法切换到规则模式：${ruleModeResult.error || '未知错误'}`;
+      emitClashMiniLog(ui, 'error', message);
+      await stopClashMiniProcess(ui);
+      return { ok: false, error: message, controlApiReady: true };
     }
 
     let browserProxySyncResult = null;
@@ -1611,11 +1719,13 @@ module.exports = {
   extractDirectClashConfigContent,
   fetchClashMiniProxyNames,
   formatClashMiniDelayText,
+  getClashMiniConfigProxyNames,
   getClashMiniManualGroupName,
   getClashMiniProxyEndpoint,
   getClashMiniRuntimeRoot,
   getClashMiniStatus,
   importDirectClashRuntimeConfig,
+  ensureClashMiniRuleMode,
   invokeClashMiniControl,
   normalizeClashMiniStartupConfig,
   normalizeDirectClashRuntimeConfig,

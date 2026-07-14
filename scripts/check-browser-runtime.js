@@ -311,6 +311,56 @@ try {
   assert.equal(restartRuntime.instances.get('restart-profile').profile.initialUrl, 'https://example.com/work');
   assert.equal(restartRuntime.instances.get('restart-profile').profile.restoreLastSession, false);
 
+  // 代理启停触发的 Profile 重启必须等正在执行的导航结束；导航完成后才提交
+  // 的会话导入又必须排在重启之后，不能在 stopping/starting 状态中失败。
+  const serializedRuntime = new ChromiumRuntime({ logger: { info() {}, warn() {} } });
+  const serializedOrder = [];
+  let finishNavigation;
+  const navigationGate = new Promise((resolve) => { finishNavigation = resolve; });
+  serializedRuntime.store = { getState: () => ({ status: RUNTIME_STATUS.READY, bounds: { x: 0, y: 0, width: 800, height: 600 } }) };
+  serializedRuntime.instances.set('serialized-profile', {
+    profile: { profileId: 'serialized-profile', initialUrl: 'about:blank' },
+    commandClient: {
+      async send(command) {
+        serializedOrder.push(`${command}:start`);
+        if (command === 'navigate') await navigationGate;
+        serializedOrder.push(`${command}:end`);
+        return { result: { imported: 0 } };
+      },
+    },
+  });
+  serializedRuntime.stop = async () => { serializedOrder.push('restart:stop'); };
+  serializedRuntime.launchProfile = async (profile) => {
+    serializedOrder.push('restart:launch');
+    serializedRuntime.instances.set('serialized-profile', {
+      profile: { ...profile },
+      commandClient: {
+        async send(command) {
+          serializedOrder.push(command);
+          return { result: { imported: 0 } };
+        },
+      },
+    });
+    return { status: 'ready' };
+  };
+  const serializedNavigation = serializedRuntime.navigate('serialized-profile', 'https://example.com/work');
+  await new Promise((resolve) => setImmediate(resolve));
+  const serializedRestart = serializedRuntime.restart('serialized-profile');
+  finishNavigation();
+  await serializedNavigation;
+  const serializedImport = serializedRuntime.importSession('serialized-profile', {
+    targetUrl: 'https://example.com/work',
+    navigateAfterImport: false,
+  });
+  await Promise.all([serializedRestart, serializedImport]);
+  assert.deepEqual(serializedOrder, [
+    'navigate:start',
+    'navigate:end',
+    'restart:stop',
+    'restart:launch',
+    'clear-session',
+  ]);
+
   const tutorialStorePath = path.join(root, 'tutorial-store.json');
   fs.writeFileSync(tutorialStorePath, JSON.stringify({
     browserHistory: [{

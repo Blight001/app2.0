@@ -11,7 +11,8 @@ function formatProxyTrafficBytes(value) {
 }
 
 function renderProxyTrafficQuota(quota) {
-  proxyTrafficQuotaSnapshot = quota && typeof quota === 'object' ? quota : null;
+  const normalized = window.AiFreeQuotaDisplay?.normalizeTrafficQuota?.(quota) || quota;
+  proxyTrafficQuotaSnapshot = normalized && typeof normalized === 'object' ? normalized : null;
   if (typeof renderAccountProxyTrafficUsage === 'function') {
     renderAccountProxyTrafficUsage(proxyTrafficQuotaSnapshot);
   }
@@ -351,6 +352,7 @@ const clashMiniWarmupState = {
 };
 
 let autoStartClashMiniInFlight = false;
+let clashMiniStartFlowPromise = null;
 let vpnNodeSelectorRenderScheduled = false;
 let vpnNodeSelectorRenderRaf = null;
 let vpnNodeSelectorOptionNodes = new Map();
@@ -548,7 +550,11 @@ async function warmupClashMiniProcess() {
 }
 
 // 启动/打开/显示：runBestRouteSelection的具体业务逻辑。
-async function runBestRouteSelection({ keepPanelOpen = false } = {}) {
+async function runBestRouteSelection({
+  keepPanelOpen = false,
+  showPanel = true,
+  refreshOptions = true,
+} = {}) {
   if (!window.electronAPI || typeof window.electronAPI.invoke !== 'function') {
     throw new Error('当前环境不支持最低延时测试');
   }
@@ -556,8 +562,12 @@ async function runBestRouteSelection({ keepPanelOpen = false } = {}) {
     throw new Error('请先开启网络魔法');
   }
 
-  await loadVpnNodeSelectorOptions({ force: true, probeDelays: false }).catch(() => {});
-  setVpnNodeSelectorOpen(true, { force: true });
+  if (refreshOptions) {
+    await loadVpnNodeSelectorOptions({ force: true, probeDelays: false }).catch(() => {});
+  }
+  if (showPanel) {
+    setVpnNodeSelectorOpen(true, { force: true });
+  }
 
   const result = await window.electronAPI.invoke('test-min-latency', {
     names: Array.isArray(clashMiniProxyState.names) ? clashMiniProxyState.names : [],
@@ -585,8 +595,10 @@ async function runBestRouteSelection({ keepPanelOpen = false } = {}) {
     scheduleVpnNodeSelectorRender({ forceFull: true });
   }
 
-  if (keepPanelOpen) {
+  if (keepPanelOpen && showPanel) {
     setVpnNodeSelectorOpen(true);
+  } else if (!showPanel) {
+    setVpnNodeSelectorOpen(false);
   }
 
   return { bestName, bestDelay, result };
@@ -877,7 +889,7 @@ async function stopClashMiniFlow({ startBtn, vpnBtn } = {}) {
 }
 
 // 启动/打开/显示：startClashMiniFlow的具体业务逻辑。
-async function startClashMiniFlow({ startBtn, vpnBtn, fetchConfig = true, silent = false } = {}) {
+async function startClashMiniFlowOnce({ startBtn, vpnBtn, fetchConfig = true, silent = false } = {}) {
   if (typeof window.electron.startClashMini !== 'function') {
     throw new Error('当前环境不支持启动 Clash Mini');
   }
@@ -915,7 +927,13 @@ async function startClashMiniFlow({ startBtn, vpnBtn, fetchConfig = true, silent
       window.MessageModal.showLoadingMessage('网络魔法已开启，正在自动选择最佳路线...');
       autoSelectLoadingVisible = true;
     }
-    await runBestRouteSelection({ keepPanelOpen: true });
+    // 开启魔法时只自动选路一次，不弹出节点选择面板。节点面板及完成提示
+    // 仅保留给用户主动点击“最低延时测试”的流程。
+    await runBestRouteSelection({
+      keepPanelOpen: false,
+      showPanel: false,
+      refreshOptions: false,
+    });
   } finally {
     if (autoSelectLoadingVisible && window.MessageModal && typeof window.MessageModal.hideLoadingMessage === 'function') {
       window.MessageModal.hideLoadingMessage();
@@ -924,6 +942,22 @@ async function startClashMiniFlow({ startBtn, vpnBtn, fetchConfig = true, silent
   }
 
   return '关闭网络魔法';
+}
+
+// 恢复状态、验证后自动开启和手动点击可能在相邻时刻同时触发。共享同一个
+// 完整启动任务，避免核心虽然只启动一次，但后续自动选路被每个调用方各跑一次。
+function startClashMiniFlow(options = {}) {
+  if (clashMiniStartFlowPromise) {
+    return clashMiniStartFlowPromise;
+  }
+
+  const sharedPromise = startClashMiniFlowOnce(options).finally(() => {
+    if (clashMiniStartFlowPromise === sharedPromise) {
+      clashMiniStartFlowPromise = null;
+    }
+  });
+  clashMiniStartFlowPromise = sharedPromise;
+  return sharedPromise;
 }
 
 // 设置/更新/持久化：toggleClashMini的具体业务逻辑。

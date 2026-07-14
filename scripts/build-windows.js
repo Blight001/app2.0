@@ -4,7 +4,7 @@ const { build, Platform } = require('electron-builder');
 
 const projectDir = path.resolve(__dirname, '..');
 const extensionsDir = path.join(projectDir, 'src', 'assets', 'extensions');
-const configPath = path.join(projectDir, 'docs', 'config', 'platforms-config.json');
+const configPath = path.join(projectDir, 'platforms-config.json');
 const packagePath = path.join(projectDir, 'package.json');
 const alwaysPackagedExtensions = new Set(['clash-mini']);
 

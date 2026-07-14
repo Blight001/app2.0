@@ -6,13 +6,15 @@ const {
 } = require('./browser-region');
 
 const TAB_PLATFORM = 'Win32';
+// ipapi.co 直连在国内会被 Cloudflare 拦成 403 人机验证页，永远探测不到，已移除。
+// api.ip.sb/geoip 国内直连可达，返回 ip/country_code/timezone(IANA)/经纬度，字段与 buildGeoProfile 兼容。
 const GEO_IP_ENDPOINTS = [
-  'https://ipapi.co/json/',
   'https://ipwho.is/',
   'https://ipinfo.io/json',
+  'https://api.ip.sb/geoip',
 ];
-const GEO_IP_REQUEST_TIMEOUT_MS = 3000;
-const GEO_IP_OVERALL_TIMEOUT_MS = 4000;
+const GEO_IP_REQUEST_TIMEOUT_MS = 5000;
+const GEO_IP_OVERALL_TIMEOUT_MS = 6000;
 const GEO_IP_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const cachedGeoProfiles = new Map();

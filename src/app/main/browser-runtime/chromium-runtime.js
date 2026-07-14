@@ -56,6 +56,23 @@ class ChromiumRuntime extends BrowserRuntime {
     this.getParentWindow = options.getParentWindow;
     this.resourcesPath = options.resourcesPath;
     this.instances = new Map();
+    // 代理切换会重启 Chromium；账号打开流程同时会导航、注入会话并刷新。
+    // 同一个 Profile 的这些操作必须排队，否则重启到一半会被误判为“尚未就绪”。
+    this.profileOperationQueues = new Map();
+  }
+
+  enqueueProfileOperation(profileId, operation) {
+    const id = String(profileId || '').trim();
+    const previous = this.profileOperationQueues.get(id) || Promise.resolve();
+    const queued = previous.catch(() => {}).then(operation);
+    let tracked = null;
+    tracked = queued.finally(() => {
+      if (this.profileOperationQueues.get(id) === tracked) {
+        this.profileOperationQueues.delete(id);
+      }
+    });
+    this.profileOperationQueues.set(id, tracked);
+    return tracked;
   }
 
   async launchProfile(rawProfile = {}, rawBounds = {}) {
@@ -286,6 +303,10 @@ class ChromiumRuntime extends BrowserRuntime {
   }
 
   async reload(profileId) {
+    return this.enqueueProfileOperation(profileId, () => this.reloadNow(profileId));
+  }
+
+  async reloadNow(profileId) {
     try {
       return await this.getReadyInstance(profileId).commandClient.send('reload');
     } catch (error) {
@@ -307,10 +328,16 @@ class ChromiumRuntime extends BrowserRuntime {
     }
   }
   async navigate(profileId, url) {
-    return this.getReadyInstance(profileId).commandClient.send('navigate', { url: String(url || '') }, { timeoutMs: 30000 });
+    return this.enqueueProfileOperation(profileId, () => (
+      this.getReadyInstance(profileId).commandClient.send('navigate', { url: String(url || '') }, { timeoutMs: 30000 })
+    ));
   }
 
   async importSession(profileId, rawSession = {}) {
+    return this.enqueueProfileOperation(profileId, () => this.importSessionNow(profileId, rawSession));
+  }
+
+  async importSessionNow(profileId, rawSession = {}) {
     const instance = this.getReadyInstance(profileId);
     const prepared = prepareSessionImport(rawSession);
     const commandClient = instance.commandClient;
@@ -389,6 +416,10 @@ class ChromiumRuntime extends BrowserRuntime {
   }
 
   async setCookies(profileId, rawCookies = []) {
+    return this.enqueueProfileOperation(profileId, () => this.setCookiesNow(profileId, rawCookies));
+  }
+
+  async setCookiesNow(profileId, rawCookies = []) {
     const instance = this.getReadyInstance(profileId);
     const groups = new Map();
     for (const cookie of Array.isArray(rawCookies) ? rawCookies : []) {
@@ -418,6 +449,10 @@ class ChromiumRuntime extends BrowserRuntime {
   }
 
   async restart(profileId, options = {}) {
+    return this.enqueueProfileOperation(profileId, () => this.restartNow(profileId, options));
+  }
+
+  async restartNow(profileId, options = {}) {
     const id = String(profileId);
     const instance = this.instances.get(id);
     const state = this.store.getState(id);

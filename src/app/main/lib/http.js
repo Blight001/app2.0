@@ -155,6 +155,10 @@ function requestJson(method, url, options = {}) {
           try { json = JSON.parse(body); } catch (_) {}
           resolve({ status: res.statusCode, ok: res.statusCode >= 200 && res.statusCode < 300, body: json, raw: body });
         });
+        // 连接可能在响应头已经到达后才被对端重置。此时错误由响应流而不是
+        // ClientRequest 发出；若不监听，会变成主进程里的裸 ECONNRESET。
+        res.on('aborted', () => reject(new Error('响应连接已中断')));
+        res.on('error', reject);
       });
       req.on('error', reject);
       req.on('timeout', () => { try { req.destroy(); } catch (_) {} reject(new Error(`请求超时（${timeoutMs/1000|0}秒）`)); });

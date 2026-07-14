@@ -414,7 +414,7 @@
 
   /* ---------------- 额度圆环 ---------------- */
   function renderQuota(quota) {
-    state.quota = quota || null;
+    state.quota = window.AiFreeQuotaDisplay?.normalizeAIQuota?.(quota) || quota || null;
     window.renderAccountAiUsage?.(state.quota);
     const widget = el('ai-chat-quota');
     const ring = el('ai-chat-quota-ring');
@@ -1566,7 +1566,11 @@
       if (!result?.ok) throw new Error(result?.message || result?.error || '礼品码兑换失败');
       if (input) input.value = '';
       state.lastQuotaCost = null;
-      renderQuota(result.quota);
+      const displayQuota = window.AiFreeQuotaDisplay?.recordAIResetAfterRedeem?.(
+        result.quota,
+        result.added_quota,
+      ) || result.quota;
+      renderQuota(displayQuota);
       setStatus(result.message || '礼品码兑换成功', 'success');
     } catch (error) {
       setStatus(error?.message || String(error), 'warning');
