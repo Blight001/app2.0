@@ -86,6 +86,7 @@ function syncOpenTabsToBrowserHistory(ui) {
       record = {
         id: historyId,
         name: makeUniqueBrowserName(resolvedTitle || DEFAULT_BROWSER_WINDOW_NAME, history),
+        kind: tab?.isTutorialTab === true ? 'tutorial' : '',
         url: getManagedTabUrl(tab),
         partition: String(tab?.partition || '').trim(),
         runtimeType: 'chromium',
@@ -95,6 +96,9 @@ function syncOpenTabsToBrowserHistory(ui) {
       };
       history.push(record);
       tab.browserHistoryId = historyId;
+      changed = true;
+    } else if (tab?.isTutorialTab === true && record.kind !== 'tutorial') {
+      record.kind = 'tutorial';
       changed = true;
     }
   }
@@ -221,6 +225,9 @@ function registerSettingsIPC(ctx) {
         browserSettings: record.settings,
         resolveProfileInBackground: true,
         showLoadingPage: true,
+        // 新建后标签栏立即进入重命名状态。浏览器就绪时只切换画面，
+        // 不得把键盘焦点从名称编辑框/侧栏交给 Chromium。
+        focusBrowser: false,
       });
       void Promise.resolve(creation).then((createdTabId) => {
         if (!createdTabId) throw new Error('新建浏览器窗口失败');

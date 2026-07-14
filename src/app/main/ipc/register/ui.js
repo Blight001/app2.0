@@ -665,24 +665,57 @@ function registerUiIPC(ctx) {
   ipcMain.handle('focus-sidebar-input', async (event) => {
     try {
       const mainWindow = ui?.getMainWindow?.();
+      const sideView = typeof ui?.getSideView === 'function' ? ui.getSideView() : null;
+      const sideWc = (sideView?.webContents && !sideView.webContents.isDestroyed?.())
+        ? sideView.webContents
+        : (event.sender && !event.sender.isDestroyed?.() ? event.sender : null);
+      const sideAlreadyFocused = !!(sideWc && typeof sideWc.isFocused === 'function' && sideWc.isFocused());
+
       if (mainWindow && !mainWindow.isDestroyed?.()) {
-        if (mainWindow.isMinimized?.()) mainWindow.restore?.();
-        mainWindow.focus?.();
+        if (mainWindow.isMinimized?.()) {
+          try { mainWindow.restore?.(); } catch (_) {}
+        }
+        // 侧栏 webContents 已真正持有键盘焦点时，不要再 mainWindow.focus()，
+        // 否则容易把焦点打到 shell webContents，出现 textarea 假聚焦。
+        // 侧栏未持有焦点（常见于 Chromium 子窗口抢键）时，需要先 activate 主窗口。
+        if (!sideAlreadyFocused) {
+          try { mainWindow.focus?.(); } catch (_) {}
+        } else if (!mainWindow.isFocused?.()) {
+          try { mainWindow.focus?.(); } catch (_) {}
+        }
       }
-      if (event.sender && !event.sender.isDestroyed?.()) {
-        event.sender.focus();
-      }
-      return { ok: true };
+
+      const focusSide = () => {
+        try {
+          if (sideWc && !sideWc.isDestroyed?.()) {
+            sideWc.focus();
+            return true;
+          }
+          if (event.sender && !event.sender.isDestroyed?.()) {
+            event.sender.focus();
+            return true;
+          }
+        } catch (_) {}
+        return false;
+      };
+
+      // 立刻 + 延迟补焦，覆盖 Chromium 子窗口/布局同步抢焦点的时序。
+      focusSide();
+      await new Promise((resolve) => setImmediate(resolve));
+      focusSide();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      focusSide();
+
+      return { ok: true, sideFocused: !!(sideWc && typeof sideWc.isFocused === 'function' && sideWc.isFocused()) };
     } catch (error) {
       return { ok: false, error: error?.message || String(error) };
     }
   });
 
   ipcMain.on('open-tutorial', (event, url) => {
-    ui.addTab(url, {
-      fixedTitle: '使用教程[AI-FREE]',
-      browserProxyMode: 'direct',
-    });
+    if (typeof ui?.openTutorialTab === 'function') {
+      void ui.openTutorialTab(url);
+    }
   });
 }
 

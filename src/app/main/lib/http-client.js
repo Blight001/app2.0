@@ -1,6 +1,6 @@
 // 客户端与服务器之间仅使用 HTTP 通信。
 const { NETWORK_DIAG_CONFIG, getServerBase, setRuntimeServerBase } = require('../config');
-const { postJson, getJson } = require('./http');
+const { postJson, postEventStream, getJson } = require('./http');
 const { executeHttpRequest } = require('./http-client/transport-request');
 
 // HTTP 客户端：负责把客户端请求通过 HTTP 发送到服务器。
@@ -392,6 +392,25 @@ class HttpClient {
             },
             timeoutMs: 120000,
         });
+    }
+
+    async streamAIControlMessage(key, deviceId, modelId, messages, options = {}, onEvent) {
+        const base = this._getPreferredHttpBase();
+        if (!base) return { ok: false, message: 'HTTP服务器地址未配置' };
+        const url = `${base.replace(/\/+$/, '')}/api/ai-control/chat/stream`;
+        try {
+            return await postEventStream(url, {
+                key,
+                device_id: deviceId,
+                model_id: modelId,
+                messages,
+                tools: Array.isArray(options.tools) ? options.tools : [],
+                run_id: String(options.runId || ''),
+            }, onEvent, 240000);
+        } catch (error) {
+            console.warn('[HTTP] streamAIControlMessage 请求失败:', error?.message || error);
+            return { ok: false, message: error?.message || String(error) };
+        }
     }
 
     /**

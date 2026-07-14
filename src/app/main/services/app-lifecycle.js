@@ -248,29 +248,87 @@ function registerAppLifecycle(deps = {}) {
         const modelId = String(input.modelId || '').trim();
         const initialMessages = Array.isArray(input.messages) ? input.messages : [];
         const connectionId = String(input.browserConnectionId || '').trim();
+        const disableTools = input.disableTools === true;
+        const useStream = input.stream === true;
+        const requestId = String(input.requestId || '').trim();
+        const emit = (payload) => {
+          if (!useStream || !requestId || !_event.sender || _event.sender.isDestroyed()) return;
+          _event.sender.send('ai-control-chat-event', { requestId, ...payload });
+        };
         const bridge = deps.browserAutomationBridge;
-        const connection = connectionId && bridge?.getConnection?.(connectionId);
-        if (connectionId && !connection) {
+        const connection = !disableTools && connectionId ? bridge?.getConnection?.(connectionId) : null;
+        if (!disableTools && connectionId && !connection) {
           return { ok: false, message: '所选浏览器插件已离线，请刷新后重新选择' };
         }
 
         const tools = connection?.tools || [];
         const modelMessages = [...initialMessages];
+        const compactToolValue = (value) => {
+          let serialized = '';
+          try { serialized = JSON.stringify(value ?? null); } catch (_) { serialized = String(value ?? ''); }
+          return serialized.length > 12000 ? `${serialized.slice(0, 12000)}…` : value;
+        };
         let runId = '';
         let latestQuota = null;
+        let reasoningLog = '';
+        const toolEvents = [];
+        const traceEvents = [];
         for (let round = 0; round < 12; round += 1) {
-          const result = await httpClient.sendAIControlMessage(
-            key,
-            deviceId,
-            modelId,
-            modelMessages,
-            { tools, runId },
-          );
-          if (!result?.ok) return result;
+          emit({ type: 'round_start', round });
+          const result = useStream && typeof httpClient.streamAIControlMessage === 'function'
+            ? await httpClient.streamAIControlMessage(
+              key,
+              deviceId,
+              modelId,
+              modelMessages,
+              { tools, runId },
+              (streamEvent) => {
+                if (!['result', 'error'].includes(streamEvent?.type)) {
+                  emit({ ...streamEvent, round });
+                }
+              },
+            )
+            : await httpClient.sendAIControlMessage(
+              key,
+              deviceId,
+              modelId,
+              modelMessages,
+              { tools, runId },
+            );
+          if (!result?.ok) {
+            emit({ type: 'error', message: result?.message || result?.error || '对话请求失败' });
+            return result;
+          }
           latestQuota = result.quota || latestQuota;
           runId = String(result.run_id || runId || '');
+          const roundReasoning = String(result.message?.reasoning || '');
+          if (roundReasoning) {
+            reasoningLog += `${reasoningLog ? '\n\n' : ''}${roundReasoning}`;
+            traceEvents.push({ type: 'reasoning', round, content: roundReasoning });
+          }
           const toolCalls = Array.isArray(result.message?.tool_calls) ? result.message.tool_calls : [];
-          if (!toolCalls.length) return { ...result, quota: latestQuota };
+          if (!toolCalls.length) {
+            const finalMessages = [
+              ...modelMessages,
+              {
+                role: 'assistant',
+                content: String(result.message?.content || ''),
+              },
+            ];
+            const finalResult = {
+              ...result,
+              quota: latestQuota,
+              messages: finalMessages,
+              message: {
+                ...(result.message || {}),
+                reasoning: reasoningLog,
+                tool_events: toolEvents,
+                trace_events: traceEvents,
+              },
+            };
+            emit({ type: 'done', message: finalResult.message, quota: finalResult.quota });
+            return finalResult;
+          }
           if (!connection || !bridge?.dispatch) {
             return { ok: false, message: '模型请求了浏览器工具，但当前没有选择可用的浏览器插件' };
           }
@@ -280,6 +338,8 @@ function registerAppLifecycle(deps = {}) {
             content: String(result.message?.content || ''),
             tool_calls: toolCalls,
           });
+          const roundContent = String(result.message?.content || '').trim();
+          if (roundContent) traceEvents.push({ type: 'step', round, content: roundContent });
           for (const call of toolCalls) {
             const toolName = String(call?.function?.name || '').trim();
             let args = {};
@@ -288,6 +348,15 @@ function registerAppLifecycle(deps = {}) {
             } catch (_) {
               args = {};
             }
+            const activity = {
+              id: String(call.id || ''),
+              name: toolName,
+              arguments: compactToolValue(args),
+              status: 'running',
+            };
+            toolEvents.push(activity);
+            traceEvents.push({ type: 'tool', round, tool: activity });
+            emit({ type: 'tool_start', tool: { ...activity }, round });
             let toolResult;
             try {
               const requestedSeconds = Number(args?.timeout_seconds || 0);
@@ -297,6 +366,9 @@ function registerAppLifecycle(deps = {}) {
             } catch (error) {
               toolResult = { success: false, error: error?.message || String(error) };
             }
+            activity.status = toolResult?.success === false ? 'error' : 'success';
+            activity.result = compactToolValue(toolResult ?? null);
+            emit({ type: 'tool_result', tool: { ...activity }, round });
             modelMessages.push({
               role: 'tool',
               tool_call_id: String(call.id || ''),
@@ -305,7 +377,52 @@ function registerAppLifecycle(deps = {}) {
             });
           }
         }
-        return { ok: false, message: '浏览器工具调用次数过多，已停止本轮任务', quota: latestQuota };
+        return { ok: false, message: '浏览器工具调用次数过多，已停止本轮任务', quota: latestQuota, messages: modelMessages };
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error) };
+      }
+    });
+
+    const aiChatHistory = require('../lib/ai-chat-history');
+    const historyCredentials = () => readStoreConfigSafe()?.userCredentials || {};
+
+    ipcMain.handle('ai-control-history-list', async () => {
+      try {
+        return aiChatHistory.listSessions(historyCredentials());
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error), sessions: [] };
+      }
+    });
+
+    ipcMain.handle('ai-control-history-get', async (_event, input = {}) => {
+      try {
+        return aiChatHistory.getSession(historyCredentials(), input?.id);
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error) };
+      }
+    });
+
+    ipcMain.handle('ai-control-history-save', async (_event, input = {}) => {
+      try {
+        return aiChatHistory.saveSession(historyCredentials(), input?.session || input || {}, {
+          setCurrent: input?.setCurrent !== false,
+        });
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error) };
+      }
+    });
+
+    ipcMain.handle('ai-control-history-delete', async (_event, input = {}) => {
+      try {
+        return aiChatHistory.deleteSession(historyCredentials(), input?.id);
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error) };
+      }
+    });
+
+    ipcMain.handle('ai-control-history-create', async (_event, input = {}) => {
+      try {
+        return aiChatHistory.createSession(historyCredentials(), input || {});
       } catch (error) {
         return { ok: false, message: error?.message || String(error) };
       }

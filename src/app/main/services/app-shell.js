@@ -47,6 +47,7 @@ function createAppShell(deps = {}) {
     getAuth,
     setAuth,
     getAddTab,
+    getOpenTutorialTab,
     getSwitchTab,
     getCloseTab,
     getReorderTab,
@@ -220,6 +221,7 @@ function createAppShell(deps = {}) {
   const resolveActiveTabId = () => (typeof getActiveTabId === 'function' ? getActiveTabId() : null);
 // 获取/读取/解析：resolveAddTab的具体业务逻辑。
   const resolveAddTab = () => (typeof getAddTab === 'function' ? getAddTab() : null);
+  const resolveOpenTutorialTab = () => (typeof getOpenTutorialTab === 'function' ? getOpenTutorialTab() : null);
 // 获取/读取/解析：resolveSwitchTab的具体业务逻辑。
   const resolveSwitchTab = () => (typeof getSwitchTab === 'function' ? getSwitchTab() : null);
 // 获取/读取/解析：resolveCloseTab的具体业务逻辑。
@@ -473,6 +475,7 @@ function createAppShell(deps = {}) {
         loadTranslateExtension,
         ui: {
           addTab: resolveAddTab(),
+          openTutorialTab: resolveOpenTutorialTab(),
           switchTab: resolveSwitchTab(),
           closeTab: resolveCloseTab(),
           renameTab: resolveRenameTab(),
@@ -493,6 +496,7 @@ function createAppShell(deps = {}) {
           startAppUpdate,
           getAppVersion,
           getMainWindow: () => resolveMainWindow(),
+          getSideView: () => resolveSideView(),
           openExtensionPopup: resolveOpenExtensionPopup(),
           openExtensionOptions: resolveOpenExtensionOptions(),
           applyPluginSettings,
@@ -595,17 +599,12 @@ function createAppShell(deps = {}) {
         }
 
         // 教程是软件首页，不依赖账号登录或平台配置同步。
-        // 已登录时 addTab 会优先使用缓存的 tutorialUrl，未登录时则使用内置默认页。
+        // 已登录时优先使用缓存的 tutorialUrl，否则复用历史教程窗口或内置默认页。
         try {
-          if (resolveTabs().size === 0 && typeof resolveAddTab() === 'function') {
-            await resolveAddTab()(null, {
-              fixedTitle: '使用教程[AI-FREE]',
-              browserProxyMode: 'direct',
-              browserSettings: {
-                region: 'cn',
-                locale: 'zh-CN',
-                acceptLanguage: 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-              },
+          if (resolveTabs().size === 0 && typeof resolveOpenTutorialTab() === 'function') {
+            await resolveOpenTutorialTab()('', {
+              focusBrowser: false,
+              restoreSideFocus: true,
             });
           }
         } catch (e) {

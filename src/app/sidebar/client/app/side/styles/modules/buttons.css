@@ -54,11 +54,15 @@
 .btn-large-teal { background: linear-gradient(135deg, var(--teal), #34c5b6); box-shadow: 0 8px 20px rgba(23, 169, 159, 0.24); }
 .btn-large-yellow { background: #ffec99; color: #8a6d3b; }
 
+/* 一键启动（平台）与历史账号始终同一行 */
 .account-launch-row {
   display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   gap: 10px;
   align-items: stretch;
   margin-bottom: 10px;
+  min-width: 0;
 }
 
 .account-launch-row .main-button {
@@ -66,8 +70,8 @@
 }
 
 .wool-platform-buttons {
-  flex: 1.65;
-  width: 0;
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -75,18 +79,26 @@
 
 .wool-platform-buttons .open-wool-platform-btn {
   width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .account-history-shell {
   position: relative;
-  flex: 0.645;
-  min-width: 105px;
+  flex: 0 0 auto;
+  width: 108px;
+  min-width: 96px;
+  max-width: 120px;
+  align-self: flex-start;
   z-index: 40;
 }
 
+.account-history-shell > .main-button,
 .account-history-toggle-btn {
-  width: 0;
-  min-width: 100%;
+  width: 100%;
+  min-width: 0;
   white-space: nowrap;
   background: var(--brand-soft);
   color: var(--brand);
@@ -94,11 +106,14 @@
   border: 1px solid var(--brand-border);
 }
 
+.account-history-shell > .main-button:hover:not(:disabled):not([aria-disabled='true']),
 .account-history-toggle-btn:hover:not(:disabled):not([aria-disabled='true']) {
   background: color-mix(in srgb, var(--brand) 18%, transparent);
   transform: translateY(-1px);
 }
 
+.account-history-shell > .main-button.is-disabled,
+.account-history-shell > .main-button[aria-disabled='true'],
 .account-history-toggle-btn.is-disabled,
 .account-history-toggle-btn[aria-disabled='true'] {
   opacity: 0.5;
@@ -122,22 +137,4 @@
 
 .ai-launch-buttons .main-button {
   margin-bottom: 0;
-}
-
-/* 紧凑布局（默认窗口，侧栏 <520px）：
-   「一键启动 AI-FREEAI」文案较长，与「历史账号」并排会挤，改为上下堆叠。 */
-@media (max-width: 519px) {
-  .account-launch-row {
-    flex-wrap: wrap;
-  }
-
-  .account-launch-row #open-dream-page-btn {
-    flex: 1 1 100%;
-    width: auto;
-  }
-
-  .account-history-shell {
-    flex: 1 1 100%;
-    min-width: 0;
-  }
 }

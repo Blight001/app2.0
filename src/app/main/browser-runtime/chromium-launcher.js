@@ -160,6 +160,9 @@ function buildChromiumArgs(options = {}) {
   if (profile.remoteDebuggingPipe === true) args.push('--remote-debugging-pipe');
   if (profile.restoreLastSession === true) args.push('--restore-last-session');
   args.push(...(Array.isArray(profile.extraArgs) ? profile.extraArgs : []));
+  // Chromium 在握手完成前还是独立顶层窗口。强制放到虚拟屏幕外，且放在
+  // 自定义参数之后，避免用户参数覆盖；嵌入后 native host 会重新定位。
+  args.push('--window-position=-32000,-32000');
   if (profile.initialUrl) args.push(String(profile.initialUrl));
   assertSafeChromiumArgs(args);
   return args;
@@ -171,7 +174,9 @@ function launchChromium(options = {}) {
   const args = buildChromiumArgs(options);
   const child = spawn(executablePath, args, {
     cwd: path.dirname(executablePath),
-    windowsHide: false,
+    // 让 WinMain 收到隐藏启动状态，避免 Browser HWND 在嵌入前闪现。
+    // --window-position 是额外兜底，处理忽略初始 show state 的构建。
+    windowsHide: true,
     detached: false,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: buildChromiumEnvironment(process.env, options.env || {}),

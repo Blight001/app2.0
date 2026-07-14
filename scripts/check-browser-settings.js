@@ -64,6 +64,8 @@ async function main() {
   const aiControlScript = fs.readFileSync(path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/pages/ai-control.js'), 'utf8');
   assert.ok(uiIpcScript.includes("ipcMain.handle('focus-sidebar-input'"));
   assert.ok(aiControlScript.includes("electronAPI.invoke('focus-sidebar-input'"));
+  assert.ok(settingsIpcScript.includes('focusBrowser: false'));
+  assert.ok(shellTabsScript.includes('beginTabRename(tabElement, { commitOnBlur: false })'));
   let geoLookupCalls = 0;
   const fastProfile = await resolveTabBrowserProfile({
     browserSettings: {},

@@ -88,7 +88,7 @@ let currentContextMenuTabId = null;
 const tabElementById = new Map();
 let pendingRenameTabId = null;
 
-function beginTabRename(tabElement) {
+function beginTabRename(tabElement, options = {}) {
   if (!tabElement || tabElement.querySelector('.tab-title-editor')) return;
   const historyId = String(tabElement.dataset.browserHistoryId || '').trim();
   const titleSpan = tabElement.querySelector('.tab-title');
@@ -125,7 +125,11 @@ function beginTabRename(tabElement) {
     if (event.key === 'Enter') { event.preventDefault(); void finish(true); }
     if (event.key === 'Escape') { event.preventDefault(); void finish(false); }
   });
-  input.addEventListener('blur', () => void finish(true));
+  // 新建窗口期间 Chromium HWND 正在创建/嵌入，原生焦点可能短暂变化。
+  // 自动重命名必须等用户明确按 Enter；双击编辑仍保留失焦保存习惯。
+  if (options.commitOnBlur !== false) {
+    input.addEventListener('blur', () => void finish(true));
+  }
   requestAnimationFrame(() => { input.focus(); input.select(); });
 }
 
@@ -425,7 +429,7 @@ function bindNewBrowserWindowBtnOnce() {
       pendingRenameTabId = String(response.tabId || '');
       const tabElement = tabElementById.get(pendingRenameTabId);
       if (tabElement) {
-        beginTabRename(tabElement);
+        beginTabRename(tabElement, { commitOnBlur: false });
         pendingRenameTabId = null;
       }
     } catch (error) {
@@ -538,7 +542,7 @@ IPC.on('update-tabs', (tabs) => {
   if (pendingRenameTabId) {
     const pendingTabElement = tabElementById.get(String(pendingRenameTabId));
     if (pendingTabElement) {
-      beginTabRename(pendingTabElement);
+      beginTabRename(pendingTabElement, { commitOnBlur: false });
       pendingRenameTabId = null;
     }
   }

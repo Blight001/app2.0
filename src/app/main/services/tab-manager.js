@@ -101,6 +101,7 @@ function createTabManager(deps = {}) {
     updateTabs,
     resolveTabBrowserProfile,
   } = deps;
+  let tutorialTabOpeningPromise = null;
 
 // 获取/读取/解析：resolveTabs的具体业务逻辑。
   const resolveTabs = () => (typeof getTabs === 'function' ? getTabs() : new Map());
@@ -108,6 +109,24 @@ function createTabManager(deps = {}) {
   const resolveMainWindow = () => (typeof getMainWindow === 'function' ? getMainWindow() : null);
 // 获取/读取/解析：resolveSideView的具体业务逻辑。
   const resolveSideView = () => (typeof getSideView === 'function' ? getSideView() : null);
+  const isSideViewFocused = () => {
+    const webContents = resolveSideView()?.webContents;
+    return !!(webContents && !webContents.isDestroyed?.() && webContents.isFocused?.());
+  };
+  const restoreSideViewFocus = () => {
+    const mainWindow = resolveMainWindow();
+    const webContents = resolveSideView()?.webContents;
+    if (!webContents || webContents.isDestroyed?.()) return false;
+    try {
+      if (mainWindow && !mainWindow.isDestroyed?.() && !mainWindow.isFocused?.()) {
+        mainWindow.focus?.();
+      }
+      webContents.focus();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  };
 // 获取/读取/解析：resolveActiveTabId的具体业务逻辑。
   const resolveActiveTabId = () => (typeof getActiveTabId === 'function' ? getActiveTabId() : null);
 // 获取/读取/解析：resolveIsSidebarVisible的具体业务逻辑。
@@ -174,8 +193,8 @@ function createTabManager(deps = {}) {
       updateTabs();
     });
   }
-// 获取/读取/解析：resolveDefaultTabUrl的具体业务逻辑。
-  const resolveDefaultTabUrl = () => {
+// 获取/读取/解析：读取服务器下发的教程地址。
+  const resolveConfiguredTutorialUrl = () => {
     try {
       const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
         ? licenseCache.getRuntimeConfig()
@@ -183,19 +202,101 @@ function createTabManager(deps = {}) {
       const tutorialUrl = String(runtimeConfig.tutorialUrl || '').trim();
       if (tutorialUrl) return tutorialUrl;
     } catch (_) {}
-    return DEFAULT_TUTORIAL_URL;
+    return '';
   };
 
+  const resolveDefaultTabUrl = () => resolveConfiguredTutorialUrl() || DEFAULT_TUTORIAL_URL;
+
+  function readTutorialHistoryRecord() {
+    try {
+      const storePath = typeof getStorePath === 'function' ? getStorePath() : '';
+      if (!storePath || !fs?.existsSync?.(storePath)) return null;
+      const store = JSON.parse(fs.readFileSync(storePath, 'utf8') || '{}');
+      const matches = (Array.isArray(store?.browserHistory) ? store.browserHistory : [])
+        .filter((item) => item?.kind === 'tutorial' || String(item?.name || '').trim() === TUTORIAL_TAB_TITLE)
+        .sort((left, right) => Number(right?.lastOpenedAt || 0) - Number(left?.lastOpenedAt || 0));
+      const record = matches[0];
+      if (!record?.id) return null;
+      return {
+        id: String(record.id).trim(),
+        url: String(record.url || '').trim(),
+        partition: String(record.partition || '').trim(),
+        settings: normalizeAiFreeBrowserSettings(record.settings || {}),
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
 // 启动/打开/显示：openTutorialTab 的具体业务逻辑。
-  const openTutorialTab = () => addTab(resolveDefaultTabUrl(), {
-    fixedTitle: TUTORIAL_TAB_TITLE,
-    browserProxyMode: 'direct',
-    browserSettings: {
-      region: 'cn',
-      locale: 'zh-CN',
-      acceptLanguage: 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-    },
-  });
+  async function openTutorialTab(requestedUrl = '', options = {}) {
+    const requestedTutorialUrl = String(requestedUrl || '').trim();
+    const focusBrowser = options.focusBrowser !== false;
+    // Chromium 创建顶层窗口后再嵌入，启动瞬间也可能被 Windows 激活。
+    // 仅在调用前侧栏确实持有焦点时恢复，避免打断正在操作网页的用户。
+    const shouldRestoreSideFocus = !focusBrowser
+      && (options.restoreSideFocus === true || isSideViewFocused());
+    const restorePreviousFocus = () => {
+      if (!shouldRestoreSideFocus) return;
+      restoreSideViewFocus();
+      setImmediate(restoreSideViewFocus);
+    };
+    const existingTab = Array.from(resolveTabs().values()).find(
+      (tab) => tab?.isTutorialTab === true
+        || String(tab?.fixedTitle || tab?.runtimeTitle || '').trim() === TUTORIAL_TAB_TITLE,
+    );
+    const navigateExistingTab = async (tabId) => {
+      const targetUrl = requestedTutorialUrl || resolveConfiguredTutorialUrl();
+      if (targetUrl) {
+        try {
+          await browserRuntimeManager.navigate(tabId, 'chromium', targetUrl);
+        } catch (error) {
+          logger.warn?.('[教程] 更新服务器下发地址失败:', error?.message || error);
+        }
+      }
+      switchTab(tabId, { focusBrowser });
+      restorePreviousFocus();
+      return tabId;
+    };
+
+    if (existingTab?.id) return navigateExistingTab(existingTab.id);
+    if (tutorialTabOpeningPromise) {
+      const openingTabId = await tutorialTabOpeningPromise;
+      return openingTabId ? navigateExistingTab(openingTabId) : null;
+    }
+
+    tutorialTabOpeningPromise = (async () => {
+      const historyRecord = readTutorialHistoryRecord();
+      const targetUrl = requestedTutorialUrl
+        || resolveConfiguredTutorialUrl()
+        || historyRecord?.url
+        || DEFAULT_TUTORIAL_URL;
+      const historyId = String(historyRecord?.id || '').trim();
+      return addTab(targetUrl, {
+        tabId: historyId ? `browser-tab-${historyId.replace(/[^a-z0-9_-]/gi, '_')}` : undefined,
+        fixedTitle: TUTORIAL_TAB_TITLE,
+        isTutorialTab: true,
+        browserHistoryId: historyId,
+        partition: historyRecord?.partition || undefined,
+        browserProxyMode: 'direct',
+        focusBrowser,
+        browserSettings: {
+          ...(historyRecord?.settings || {}),
+          region: 'cn',
+          locale: 'zh-CN',
+          acceptLanguage: 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+        },
+      });
+    })();
+
+    try {
+      const tabId = await tutorialTabOpeningPromise;
+      restorePreviousFocus();
+      return tabId;
+    } finally {
+      tutorialTabOpeningPromise = null;
+    }
+  }
 
 // 获取/读取/解析：resolveFixedTabTitle的具体业务逻辑。
   const resolveFixedTabTitle = (tab = {}) => String(tab?.fixedTitle || tab?.tabTitle || '').trim();
@@ -287,7 +388,7 @@ function createTabManager(deps = {}) {
       ? Array.from(resolveTabs().values()).find((tab) => String(tab?.accountId || '').trim() === accountId)
       : null;
     if (existingTab && existingTab.id) {
-      switchTab(existingTab.id);
+      switchTab(existingTab.id, { focusBrowser: options.focusBrowser !== false });
       return existingTab.id;
     }
 
@@ -346,6 +447,7 @@ function createTabManager(deps = {}) {
         partition,
         accountId,
         browserHistoryId,
+        isTutorialTab: options.isTutorialTab === true,
         fixedTitle,
         runtimeTitle: fixedTitle || 'AI-FREE',
         runtimeType: 'chromium',
@@ -377,7 +479,7 @@ function createTabManager(deps = {}) {
         if (configuredCookies.length && typeof browserRuntimeManager.setCookies === 'function') {
           try { await browserRuntimeManager.setCookies(newTabId, configuredCookies); } catch (error) { logger.warn?.('[ChromiumRuntime] AI-FREE Cookie 注入失败:', error?.message || error); }
         }
-        switchTab(newTabId);
+        switchTab(newTabId, { focusBrowser: options.focusBrowser !== false });
         if (options.showLoadingPage === true && targetInitialUrl && targetInitialUrl !== initialUrl) {
           void browserRuntimeManager.navigate(newTabId, 'chromium', targetInitialUrl).catch((error) => {
             logger.warn?.('[ChromiumRuntime] 新浏览器导航失败:', error?.message || error);
@@ -444,7 +546,7 @@ function createTabManager(deps = {}) {
   }
 
 // 处理：switchTab的具体业务逻辑。
-  function switchTab(tabId) {
+  function switchTab(tabId, options = {}) {
     const tabs = resolveTabs();
     const mainWindow = resolveMainWindow();
     if (!mainWindow || !tabs.has(tabId)) return;
@@ -460,7 +562,13 @@ function createTabManager(deps = {}) {
     }
 
     const activeTab = tabs.get(tabId);
-    void browserRuntimeManager?.show(activeTab.id, 'chromium').then(() => browserRuntimeManager.focus(activeTab.id, 'chromium')).catch((error) => {
+    const focusBrowser = options.focusBrowser !== false;
+    void browserRuntimeManager?.show(activeTab.id, 'chromium').then(() => {
+      // 后台创建/刷新教程页时只能显示 Chromium，不能把 Win32 键盘焦点
+      // 从右侧 WebContentsView 抢走。用户主动切换标签时仍正常聚焦网页。
+      if (focusBrowser) return browserRuntimeManager.focus(activeTab.id, 'chromium');
+      return false;
+    }).catch((error) => {
       logger.warn?.('[ChromiumRuntime] 显示环境失败:', error?.message || error);
     });
     mainWindow.emit('resize');
@@ -725,6 +833,7 @@ function createTabManager(deps = {}) {
 
   return {
     addTab,
+    openTutorialTab,
     applyClashMiniBrowserProxy,
     setTabBrowserProxyMode,
     setTabBrowserSettings,

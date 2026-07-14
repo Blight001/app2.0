@@ -122,6 +122,25 @@ body.expanding {
   width: 100%;
 }
 
+/* 个人中心：内容区撑满，页脚贴栏目底部 */
+.personal-center-panel {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.personal-center-panel.active {
+  display: flex;
+}
+
+.personal-center-panel .container {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
 .form-group {
   margin-bottom: 15px;
   display: flex;
@@ -292,7 +311,7 @@ body.expanding {
   margin-right: 15px;
 }
 
-/* 个人中心底部：使用教程（左） / 版本号（右） */
+/* 个人中心底部：使用教程（左） / 版本号（右），始终贴栏目最下方 */
 .personal-footer {
   position: static;
   left: auto;
@@ -302,8 +321,10 @@ body.expanding {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 14px;
+  flex: 0 0 auto;
+  margin-top: auto;
   padding-top: 12px;
+  padding-bottom: 2px;
   border-top: 1px solid rgba(120, 145, 185, 0.16);
 }
 
@@ -317,6 +338,73 @@ body.expanding {
 
 .personal-footer a:hover {
   color: var(--brand);
+}
+
+/* 有效期下方：对话额度礼品码兑换 */
+.sidebar-quota-redeem {
+  margin-top: 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.sidebar-quota-redeem-label {
+  color: #8a9bb5;
+  font-size: 12px;
+}
+
+.sidebar-quota-redeem-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sidebar-quota-redeem-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(120, 145, 185, .25);
+  border-radius: var(--r-sm);
+  color: #eaf2ff;
+  background: rgba(255, 255, 255, .04);
+  outline: none;
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.sidebar-quota-redeem-row input:focus {
+  border-color: var(--brand);
+}
+
+.sidebar-quota-redeem-row button {
+  flex: 0 0 auto;
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: #fff;
+  background: var(--brand);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sidebar-quota-redeem-row button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+html.theme-light .sidebar-quota-redeem-label {
+  color: #6a7d94;
+}
+
+html.theme-light .sidebar-quota-redeem-row input {
+  color: #243752;
+  border-color: rgba(86, 121, 165, .24);
+  background: #fff;
 }
 
 .announcement-bar {

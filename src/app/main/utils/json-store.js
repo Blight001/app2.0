@@ -55,6 +55,7 @@ function writeStoreConfigFile(getStorePath, storeConfig, options = {}) {
 
 module.exports = {
   readJsonFileSafe,
+  writeJsonFileSafe,
   readStoreConfigFile,
   writeStoreConfigFile,
 };

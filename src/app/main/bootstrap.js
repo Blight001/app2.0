@@ -134,6 +134,7 @@ const FIXED_ICON_RELATIVE_PATH = 'src/assets/seedance2.0.ico';
 global.__APP_SESSION_ID__ = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 
 let addTab;
+let openTutorialTab;
 let switchTab;
 let closeTab;
 let reorderTab;
@@ -355,28 +356,12 @@ async function refreshAllowedPlatformsAndNotify() {
       try {
         sendToSide('tutorial-url-updated', { tutorialUrl });
         if (!runtimeTutorialUrlOpened && !runtimeTutorialUrlOpening) {
-          const existingTutorialTab = Array.from(appRuntime.getTabs().values()).find(
-            (tab) => String(tab?.fixedTitle || '').trim() === '使用教程[AI-FREE]',
-          );
-          if (existingTutorialTab?.id) {
-            runtimeTutorialUrlOpened = true;
-            void browserRuntimeManager.navigate(existingTutorialTab.id, 'chromium', tutorialUrl).catch((error) => {
-              console.warn('[启动] 更新教程页地址失败:', error?.message || error);
-            });
-          } else if (typeof addTab === 'function') {
+          if (typeof openTutorialTab === 'function') {
             runtimeTutorialUrlOpening = true;
             // 教程页在后台打开，不阻塞账号登录 IPC。
             void (async () => {
               try {
-                const openedTabId = await addTab(tutorialUrl, {
-                  fixedTitle: '使用教程[AI-FREE]',
-                  browserProxyMode: 'direct',
-                  browserSettings: {
-                    region: 'cn',
-                    locale: 'zh-CN',
-                    acceptLanguage: 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-                  },
-                });
+                const openedTabId = await openTutorialTab(tutorialUrl, { focusBrowser: false });
                 if (openedTabId) {
                   runtimeTutorialUrlOpened = true;
                 } else {
@@ -466,6 +451,7 @@ const appShellDeps = {
   getAuth: () => auth,
   setAuth: (next) => { auth = next; },
   getAddTab: () => addTab,
+  getOpenTutorialTab: () => openTutorialTab,
   getSwitchTab: () => switchTab,
   getCloseTab: () => closeTab,
   getReorderTab: () => reorderTab,
@@ -570,6 +556,7 @@ tabManager = createTabManager({
 
 ({
   addTab,
+  openTutorialTab,
   applyClashMiniBrowserProxy,
   switchTab,
   closeTab,

@@ -15,7 +15,7 @@ const { ProfileRuntimeStore } = require('../src/app/main/browser-runtime/profile
 const { RUNTIME_STATUS } = require('../src/app/main/browser-runtime/runtime-types');
 const { prepareSessionImport } = require('../src/app/main/browser-runtime/session-import');
 const { ChromiumRuntime } = require('../src/app/main/browser-runtime/chromium-runtime');
-const { resolveChromiumExtensionPaths } = require('../src/app/main/services/tab-manager');
+const { createTabManager, resolveChromiumExtensionPaths } = require('../src/app/main/services/tab-manager');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-runtime-test-'));
 (async () => {
@@ -43,6 +43,7 @@ try {
   assert(args.some((arg) => arg.startsWith('--user-data-dir=')));
   assert(args.includes('--hs-profile-id=profile_001'));
   assert(args.includes('https://example.com'));
+  assert(args.includes('--window-position=-32000,-32000'));
   const restoreArgs = buildChromiumArgs({
     profile: { profileId: 'profile_001', initialUrl: '', restoreLastSession: true },
     paths: rebuiltPaths,
@@ -218,6 +219,91 @@ try {
   assert.equal(relaunchedProfile.restoreLastSession, true);
   assert.equal(restartRuntime.instances.get('restart-profile').profile.initialUrl, 'https://example.com/work');
   assert.equal(restartRuntime.instances.get('restart-profile').profile.restoreLastSession, false);
+
+  const tutorialStorePath = path.join(root, 'tutorial-store.json');
+  fs.writeFileSync(tutorialStorePath, JSON.stringify({
+    browserHistory: [{
+      id: 'tutorial-history',
+      name: '使用教程[AI-FREE]',
+      url: 'https://history.example.com/tutorial',
+      partition: 'persist:tutorial-history',
+      settings: {},
+      lastOpenedAt: 10,
+    }],
+  }));
+  const tutorialTabs = new Map();
+  let tutorialActiveTabId = null;
+  const tutorialLaunches = [];
+  const tutorialNavigations = [];
+  let tutorialFocusCalls = 0;
+  let tutorialSideFocused = false;
+  let tutorialSideFocusCalls = 0;
+  const tutorialRuntimeManager = {
+    chromium: { on() {} },
+    async launchProfile(profile) {
+      tutorialLaunches.push(profile);
+      return { status: 'ready' };
+    },
+    async navigate(profileId, _type, url) { tutorialNavigations.push({ profileId, url }); },
+    async show() {},
+    async hide() {},
+    async focus() { tutorialFocusCalls += 1; },
+    async stop() {},
+  };
+  const tutorialTabManager = createTabManager({
+    browserRuntimeManager: tutorialRuntimeManager,
+    fs,
+    getStorePath: () => tutorialStorePath,
+    getTabs: () => tutorialTabs,
+    getMainWindow: () => ({ isDestroyed: () => false, getContentSize: () => [1200, 800], emit() {} }),
+    getSideView: () => ({
+      webContents: {
+        isDestroyed: () => false,
+        isFocused: () => tutorialSideFocused,
+        focus: () => {
+          tutorialSideFocused = true;
+          tutorialSideFocusCalls += 1;
+        },
+      },
+    }),
+    getActiveTabId: () => tutorialActiveTabId,
+    setActiveTabId: (tabId) => { tutorialActiveTabId = tabId; },
+    getIsSidebarVisible: () => true,
+    updateTabs() {},
+    sendToSide() {},
+    logger: { warn() {}, error() {} },
+  });
+  const [firstTutorialId, duplicateTutorialId] = await Promise.all([
+    tutorialTabManager.openTutorialTab('https://server.example.com/tutorial', {
+      focusBrowser: false,
+      restoreSideFocus: true,
+    }),
+    tutorialTabManager.openTutorialTab('https://server.example.com/tutorial', {
+      focusBrowser: false,
+      restoreSideFocus: true,
+    }),
+  ]);
+  assert.equal(firstTutorialId, duplicateTutorialId);
+  assert.equal(tutorialTabs.size, 1);
+  assert.equal(tutorialLaunches.length, 1);
+  assert.equal(tutorialLaunches[0].initialUrl, 'https://server.example.com/tutorial');
+  assert.equal(tutorialTabs.get(firstTutorialId).browserHistoryId, 'tutorial-history');
+  assert.equal(tutorialTabs.get(firstTutorialId).isTutorialTab, true);
+  assert.equal(tutorialFocusCalls, 0);
+  assert.ok(tutorialSideFocusCalls >= 1);
+  const reopenedTutorialId = await tutorialTabManager.openTutorialTab(
+    'https://server.example.com/tutorial-v2',
+    { focusBrowser: false },
+  );
+  assert.equal(reopenedTutorialId, firstTutorialId);
+  assert.deepEqual(tutorialNavigations.at(-1), {
+    profileId: firstTutorialId,
+    url: 'https://server.example.com/tutorial-v2',
+  });
+  assert.equal(tutorialFocusCalls, 0);
+  tutorialTabManager.switchTab(firstTutorialId);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(tutorialFocusCalls, 1);
   console.log('browser runtime checks passed');
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
