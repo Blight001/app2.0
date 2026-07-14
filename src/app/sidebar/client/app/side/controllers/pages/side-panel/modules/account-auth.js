@@ -2,6 +2,7 @@
 
 let sidebarAccountAuthMode = 'login';
 let sidebarAuthPreviousFocus = null;
+let accountCenterPreviousFocus = null;
 
 function invokeSidebarAccountAuth(payload, timeoutMs = 20000) {
   let timer = null;
@@ -72,6 +73,30 @@ function closeSidebarAccountAuth() {
   sidebarAuthPreviousFocus?.focus?.();
   sidebarAuthPreviousFocus = null;
 }
+
+function openAccountCenterDialog() {
+  const dialog = safeGetEl('account-center-dialog');
+  if (!dialog || !dialog.hidden) return;
+  accountCenterPreviousFocus = document.activeElement;
+  dialog.hidden = false;
+  dialog.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('account-center-open');
+  setTimeout(() => safeGetEl('account-center-dialog-close')?.focus(), 0);
+}
+
+function closeAccountCenterDialog() {
+  const dialog = safeGetEl('account-center-dialog');
+  if (!dialog || dialog.hidden) return;
+  closeAccountProfileMenu();
+  dialog.hidden = true;
+  dialog.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('account-center-open');
+  accountCenterPreviousFocus?.focus?.();
+  accountCenterPreviousFocus = null;
+}
+
+window.openAccountCenterDialog = openAccountCenterDialog;
+window.closeAccountCenterDialog = closeAccountCenterDialog;
 
 function closeAccountProfileMenu() {
   const menu = safeGetEl('account-profile-menu');
@@ -225,6 +250,7 @@ function renderSidebarAccountSession(session = {}) {
   const username = authenticated ? String(session.username || '').trim() : '';
 
   if (profile) profile.dataset.authenticated = authenticated ? 'true' : 'false';
+  window.electronAPI?.send?.('sync-app-shell-account', { authenticated, username });
   if (usernameDisplay) usernameDisplay.value = username;
   if (usernameInput && username) usernameInput.value = username;
   if (profileName) profileName.textContent = username || '未登录';
@@ -420,6 +446,9 @@ function bindSidebarAccountAuth() {
   document.querySelectorAll('[data-auth-close]').forEach((element) => {
     element.addEventListener('click', closeSidebarAccountAuth);
   });
+  document.querySelectorAll('[data-account-center-close]').forEach((element) => {
+    element.addEventListener('click', closeAccountCenterDialog);
+  });
   safeGetEl('account-profile-avatar')?.addEventListener('click', toggleAccountProfileMenu);
   safeGetEl('account-profile-menu')?.addEventListener('click', (event) => event.stopPropagation());
   document.addEventListener('click', closeAccountProfileMenu);
@@ -437,12 +466,18 @@ function bindSidebarAccountAuth() {
     });
   });
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && !modal.hidden) closeSidebarAccountAuth();
+    if (event.key !== 'Escape') return;
+    if (!modal.hidden) {
+      closeSidebarAccountAuth();
+      return;
+    }
+    closeAccountCenterDialog();
   });
 
   window.electronAPI?.on?.('account-session-updated', (session = {}) => {
     renderSidebarAccountSession(session);
   });
+  window.electronAPI?.on?.('open-account-center', openAccountCenterDialog);
 
   setSidebarAuthMode('login');
   window.electronAPI.invoke('account-get-session').then((session) => {

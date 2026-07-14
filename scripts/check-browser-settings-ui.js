@@ -2,6 +2,9 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
+let accountCenterOpenRequests = 0;
+ipcMain.on('open-account-center', () => { accountCenterOpenRequests += 1; });
+
 ipcMain.handle('get-ai-free-browser-settings', () => ({
   ok: true,
   settings: require('../src/app/main/utils/ai-free-browser-settings').normalizeAiFreeBrowserSettings({}),
@@ -32,6 +35,11 @@ for (const [channel, response] of [
       isActive: false,
     }],
   }],
+  ['account-get-session', { authenticated: false }],
+  ['get-proxy-traffic-quota', { ok: false }],
+  ['ai-control-get-browser-connections', { ok: true, connections: [] }],
+  ['ai-control-history-list', { ok: true, sessions: [] }],
+  ['ai-control-get-models', { ok: true, models: [], quota: null }],
   ['focus-sidebar-input', { ok: true }],
 ]) ipcMain.handle(channel, () => response);
 
@@ -51,7 +59,7 @@ app.whenReady().then(async () => {
     const labels = Array.from(panel.querySelectorAll('.vb-label')).map((item) => item.textContent.trim());
     return {
       active: panel.classList.contains('active'),
-      controlInactive: !document.getElementById('personal-center-panel').classList.contains('active'),
+      controlInactive: document.getElementById('account-center-dialog').hidden,
       rows: panel.querySelectorAll('.vb-row').length,
       labels,
       browserHistoryVisible: !!document.getElementById('browser-history-list'),
@@ -95,12 +103,67 @@ app.whenReady().then(async () => {
   if (promptResult !== '新名称') {
     throw new Error(`软件重命名弹窗校验失败: ${JSON.stringify(promptResult)}`);
   }
+  const accountCenterResult = await win.webContents.executeJavaScript(`new Promise((resolve) => {
+    const dialog = document.getElementById('account-center-dialog');
+    const oldTabRemoved = !document.querySelector('[data-tab="personal-center-panel"]')
+      && !document.getElementById('personal-center-panel');
+    window.openAccountCenterDialog();
+    setTimeout(() => {
+      const opened = !dialog.hidden
+        && dialog.getAttribute('aria-hidden') === 'false';
+      const profileVisible = !!dialog.querySelector('#sidebar-account-session')
+        && !!dialog.querySelector('#announcement-bar')
+        && !!dialog.querySelector('.personal-footer');
+      const accountCard = dialog.querySelector('#sidebar-account-session');
+      const sameColumn = dialog.querySelector('#announcement-bar')?.parentElement === accountCard
+        && dialog.querySelector('.personal-footer')?.parentElement === accountCard;
+      const titleAndBackgroundRemoved = !dialog.querySelector('#account-center-dialog-title')
+        && getComputedStyle(dialog.querySelector('.account-center-dialog-backdrop')).backgroundColor === 'rgba(0, 0, 0, 0)'
+        && getComputedStyle(dialog.querySelector('.account-center-dialog-panel')).backgroundColor === 'rgba(0, 0, 0, 0)';
+      document.getElementById('account-center-dialog-close').click();
+      setTimeout(() => resolve({
+        oldTabRemoved,
+        opened,
+        profileVisible,
+        sameColumn,
+        titleAndBackgroundRemoved,
+        closed: dialog.hidden,
+      }), 30);
+    }, 30);
+  })`);
+  if (Object.values(accountCenterResult).some((value) => value !== true)) {
+    throw new Error(`个人中心头像弹窗校验失败: ${JSON.stringify(accountCenterResult)}`);
+  }
   if (process.env.AI_FREE_UI_CAPTURE) {
     await new Promise((resolve) => setTimeout(resolve, 150));
     const image = await win.webContents.capturePage();
     fs.writeFileSync(process.env.AI_FREE_UI_CAPTURE, image.toPNG());
   }
-  console.log(`browser settings UI checks passed (${result.rows} rows)`);
+  if (process.env.AI_FREE_ACCOUNT_UI_CAPTURE) {
+    await win.webContents.executeJavaScript(`window.openAccountCenterDialog()`);
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    const image = await win.webContents.capturePage();
+    fs.writeFileSync(process.env.AI_FREE_ACCOUNT_UI_CAPTURE, image.toPNG());
+  }
+  await win.loadFile(path.join(__dirname, '../src/app/views/app-shell.html'));
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const shellAccountResult = await win.webContents.executeJavaScript(`(() => {
+    const avatar = document.getElementById('account-center-btn');
+    const gear = document.getElementById('add-tab-btn');
+    const logo = avatar?.querySelector('img');
+    const avatarBeforeGear = avatar?.nextElementSibling === gear;
+    avatar?.click();
+    return {
+      avatarBeforeGear,
+      logoLoaded: !!logo?.complete && logo.naturalWidth > 0 && logo.naturalHeight > 0,
+      unauthenticated: avatar?.dataset.authenticated === 'false',
+    };
+  })()`);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  if (Object.values(shellAccountResult).some((value) => value !== true) || accountCenterOpenRequests !== 1) {
+    throw new Error(`主窗口个人中心头像校验失败: ${JSON.stringify({ ...shellAccountResult, accountCenterOpenRequests })}`);
+  }
+  console.log(`browser settings, account dialog and app-shell avatar UI checks passed (${result.rows} rows)`);
   win.destroy();
   app.quit();
 }).catch((error) => {

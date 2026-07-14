@@ -758,7 +758,7 @@ function bindAccountPanel() {
     accountToggleBtn.dataset.bound = '1';
   }
 
-  const mainPanelTabBtn = document.querySelector('[data-tab="personal-center-panel"]');
+  const mainPanelTabBtn = document.getElementById('account-profile-avatar');
   if (mainPanelTabBtn && mainPanelTabBtn.dataset.accountUnlockBound !== '1') {
     mainPanelTabBtn.addEventListener('dblclick', handleAccountRecordButtonDoubleClick);
     mainPanelTabBtn.dataset.accountUnlockBound = '1';

@@ -48,10 +48,6 @@
         <span class="tab-button-icon" aria-hidden="true">⚙</span>
         <span>浏览器配置</span>
       </button>
-      <button class="tab-button" type="button" data-tab="personal-center-panel" aria-controls="personal-center-panel">
-        <span class="tab-button-icon" aria-hidden="true">●</span>
-        <span>个人中心</span>
-      </button>
     </nav>
 
     <div class="main-wrapper">
@@ -185,8 +181,12 @@
         </form>
       </section>
 
-      <section id="personal-center-panel" class="side-panel personal-center-panel panel" aria-label="个人中心">
-        <div class="container">
+      <section id="account-center-dialog" class="account-center-dialog" role="dialog" aria-modal="true" aria-label="账号信息" aria-hidden="true" hidden>
+        <button class="account-center-dialog-backdrop" type="button" data-account-center-close aria-label="关闭个人中心"></button>
+        <div class="account-center-dialog-panel">
+          <button id="account-center-dialog-close" class="account-center-dialog-close" type="button" data-account-center-close aria-label="关闭">&times;</button>
+          <div class="account-center-dialog-body">
+            <div class="container">
           <div class="info-group account-profile-shell">
             <section id="sidebar-account-session" class="account-profile-card" aria-label="账号资料卡">
               <div class="account-profile-cover" aria-hidden="true">
@@ -194,7 +194,7 @@
               </div>
               <div class="account-profile-main">
                 <button id="account-profile-avatar" class="account-profile-avatar" type="button" aria-label="账号菜单" aria-haspopup="menu" aria-expanded="false">
-                  <img src="../../assets/logo.ico" alt="AI-FREE Logo">
+                  <img data-app-logo alt="AI-FREE Logo">
                   <span id="account-profile-presence" class="account-profile-presence"></span>
                 </button>
                 <div id="account-profile-menu" class="account-profile-menu" role="menu" hidden>
@@ -302,6 +302,50 @@
                   <button id="unified-redeem-gift" type="button" disabled>兑换</button>
                 </div>
               </div>
+
+              <!-- 公告、教程与版本统一归入账号资料卡，紧随兑换码之后。 -->
+              <div class="announcement-bar" id="announcement-bar">
+                <div class="announcement-header">
+                  <div class="announcement-title-wrap">
+                    <span id="announcement-icon" class="announcement-icon">📢</span>
+                    <span id="announcement-title" class="announcement-title">公告</span>
+                  </div>
+                  <div class="announcement-header-actions">
+                    <div id="update-widget" class="update-widget" hidden>
+                      <div class="update-widget-ring" id="update-widget-ring" style="--update-progress: 0%;">
+                        <div class="update-widget-ring-fill"></div>
+                        <span id="update-widget-percent" class="update-widget-percent">0%</span>
+                      </div>
+                      <div class="update-widget-text-wrap">
+                        <div id="update-widget-label" class="update-widget-label">更新中</div>
+                        <div id="update-widget-text" class="update-widget-text">准备更新...</div>
+                      </div>
+                    </div>
+                    <button id="theme-toggle-btn" class="theme-toggle-btn" type="button" aria-pressed="false" aria-label="切换主题" title="切换到白色模式">
+                      <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="12" cy="12" r="4.2"></circle>
+                        <path d="M12 1.8v3.1M12 19.1v3.1M4.6 4.6l2.2 2.2M17.2 17.2l2.2 2.2M1.8 12h3.1M19.1 12h3.1M4.6 19.4l2.2-2.2M17.2 6.8l2.2-2.2"></path>
+                      </svg>
+                      <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M20.4 14.2A8.5 8.5 0 0 1 9.8 3.6a9 9 0 1 0 10.6 10.6Z"></path>
+                        <path d="M18.8 5.2l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4-1.4-.5 1.4-.5.5-1.4Z"></path>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="announcement-content" id="announcement-content">
+                  <p>欢迎使用 AI-FREE，最新功能已上线！</p>
+                </div>
+              </div>
+
+              <div class="footer personal-footer">
+                <div class="footer-left">
+                  <a id="tutorial-link" target="_blank" rel="noopener noreferrer">使用教程</a>
+                </div>
+                <div class="footer-right">
+                  <span id="app-version">v2.5.1</span>
+                </div>
+              </div>
             </section>
 
             <section id="sidebar-account-auth" class="sidebar-account-auth" aria-labelledby="sidebar-account-auth-title" aria-modal="true" role="dialog" hidden>
@@ -309,7 +353,7 @@
               <div class="sidebar-auth-dialog">
                 <div class="sidebar-auth-heading">
                   <div class="sidebar-auth-brand">
-                    <img src="../../assets/logo.ico" alt="" aria-hidden="true">
+                    <img data-app-logo alt="" aria-hidden="true">
                     <div>
                       <div class="sidebar-auth-eyebrow">AI-FREE ACCOUNT</div>
                       <h2 id="sidebar-account-auth-title">登录账号</h2>
@@ -346,47 +390,6 @@
             </div>
           </div>
 
-          <!-- 公告栏 -->
-          <div class="announcement-bar" id="announcement-bar">
-            <div class="announcement-header">
-              <div class="announcement-title-wrap">
-                <span id="announcement-icon" class="announcement-icon">📢</span>
-                <span id="announcement-title" class="announcement-title">公告</span>
-              </div>
-              <div class="announcement-header-actions">
-                <div id="update-widget" class="update-widget" hidden>
-                  <div class="update-widget-ring" id="update-widget-ring" style="--update-progress: 0%;">
-                    <div class="update-widget-ring-fill"></div>
-                    <span id="update-widget-percent" class="update-widget-percent">0%</span>
-                  </div>
-                  <div class="update-widget-text-wrap">
-                    <div id="update-widget-label" class="update-widget-label">更新中</div>
-                    <div id="update-widget-text" class="update-widget-text">准备更新...</div>
-                  </div>
-                </div>
-                <button id="theme-toggle-btn" class="theme-toggle-btn" type="button" aria-pressed="false" aria-label="切换主题" title="切换到白色模式">
-                  <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true">
-                    <circle cx="12" cy="12" r="4.2"></circle>
-                    <path d="M12 1.8v3.1M12 19.1v3.1M4.6 4.6l2.2 2.2M17.2 17.2l2.2 2.2M1.8 12h3.1M19.1 12h3.1M4.6 19.4l2.2-2.2M17.2 6.8l2.2-2.2"></path>
-                  </svg>
-                  <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M20.4 14.2A8.5 8.5 0 0 1 9.8 3.6a9 9 0 1 0 10.6 10.6Z"></path>
-                    <path d="M18.8 5.2l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4-1.4-.5 1.4-.5.5-1.4Z"></path>
-                  </svg>
-                </button>
-              </div>
-            </div>
-            <div class="announcement-content" id="announcement-content">
-              <p>欢迎使用 AI-FREE，最新功能已上线！</p>
-            </div>
-          </div>
-
-          <div class="footer personal-footer">
-            <div class="footer-left">
-              <a id="tutorial-link" target="_blank" rel="noopener noreferrer">使用教程</a>
-            </div>
-            <div class="footer-right">
-              <span id="app-version">v2.5.1</span>
             </div>
           </div>
         </div>
@@ -408,7 +411,7 @@
         <div class="ai-chat-body">
           <div id="ai-chat-messages" class="ai-chat-messages" role="log" aria-live="polite">
             <div class="ai-chat-welcome">
-              <img class="ai-chat-welcome-icon" src="../../assets/logo.ico" alt="" aria-hidden="true">
+              <img class="ai-chat-welcome-icon" data-app-logo alt="" aria-hidden="true">
               <strong>有什么可以帮你？</strong>
               <p>选择管理员配置的模型，然后开始对话。</p>
             </div>
@@ -463,6 +466,7 @@
     <button id="key-paste-btn" type="button" role="menuitem">粘贴</button>
   </div>
 
+  <script src="./client/scripts/logo-assets.js"></script>
   <script src="./client/scripts/config.js"></script>
   <script src="./client/scripts/control-panel.js"></script>
 

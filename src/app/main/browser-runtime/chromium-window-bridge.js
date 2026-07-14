@@ -3,11 +3,12 @@ const path = require('path');
 
 function resolveBindingCandidates(options = {}) {
   const appRoot = path.resolve(options.appRoot || path.join(__dirname, '../../../../'));
+  const resourcesPath = String(options.resourcesPath || process.resourcesPath || '').trim();
   return [
     options.bindingPath,
+    resourcesPath && path.join(resourcesPath, 'native', 'browser-host', 'browser_host.node'),
+    resourcesPath && path.join(resourcesPath, 'app.asar.unpacked', 'native', 'browser-host', 'build', 'Release', 'browser_host.node'),
     path.join(appRoot, 'native', 'browser-host', 'build', 'Release', 'browser_host.node'),
-    process.resourcesPath && path.join(process.resourcesPath, 'native', 'browser-host', 'browser_host.node'),
-    process.resourcesPath && path.join(process.resourcesPath, 'app.asar.unpacked', 'native', 'browser-host', 'build', 'Release', 'browser_host.node'),
   ].filter(Boolean);
 }
 

@@ -122,25 +122,6 @@ body.expanding {
   width: 100%;
 }
 
-/* 个人中心：内容区撑满，页脚贴栏目底部 */
-.personal-center-panel {
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-}
-
-.personal-center-panel.active {
-  display: flex;
-}
-
-.personal-center-panel .container {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
-  box-sizing: border-box;
-}
-
 .form-group {
   margin-bottom: 15px;
   display: flex;

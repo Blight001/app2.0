@@ -11,6 +11,13 @@ const {
 } = require('./store-utils');
 
 const CLASH_MINI_DIR_NAME = 'clash-mini';
+const LOCAL_GEO_FILES = ['geoip.metadb', 'geosite.dat', 'country.mmdb'];
+const LOCAL_PROVIDER_FILES = [
+  'cn_ip.mrs',
+  'cn_domain.mrs',
+  'private_domain.mrs',
+  'geolocation-!cn.mrs',
+];
 
 // 复制/克隆：copyDirectoryRecursive的具体业务逻辑。
 function copyDirectoryRecursive(src, dest, { overwrite = false } = {}) {
@@ -116,6 +123,51 @@ function resolveClashMiniExecutable(coreDir) {
   return fs.existsSync(candidate) ? candidate : null;
 }
 
+// 内置 Geo 库/规则集必须以内置版本为准，强制覆盖到运行目录，
+// 避免旧缓存或半截下载文件导致分流不稳定。
+function syncLocalGeoAssets(runtimeDir) {
+  const bundledCore = resolveBundledClashMiniCoreDir();
+  if (!bundledCore) {
+    return { ok: false, copied: [], missing: [], error: '未找到内置 core 目录' };
+  }
+
+  const copied = [];
+  const missing = [];
+  try {
+    fs.mkdirSync(runtimeDir, { recursive: true });
+  } catch (error) {
+    return {
+      ok: false,
+      copied,
+      missing,
+      error: error?.message || String(error),
+    };
+  }
+
+  const copyAsset = (relativePath) => {
+    const src = path.join(bundledCore, relativePath);
+    const dest = path.join(runtimeDir, relativePath);
+    if (!fs.existsSync(src)) {
+      missing.push(relativePath.replace(/\\/g, '/'));
+      return;
+    }
+    try {
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      if (path.resolve(src) !== path.resolve(dest)) {
+        fs.copyFileSync(src, dest);
+      }
+      copied.push(relativePath.replace(/\\/g, '/'));
+    } catch (_) {
+      missing.push(relativePath.replace(/\\/g, '/'));
+    }
+  };
+
+  for (const name of LOCAL_GEO_FILES) copyAsset(name);
+  for (const name of LOCAL_PROVIDER_FILES) copyAsset(path.join('providers', name));
+
+  return { ok: missing.length === 0, copied, missing };
+}
+
 // 创建/初始化：prepareClashMiniRuntimeDir的具体业务逻辑。
 function prepareClashMiniRuntimeDir() {
   const sourceDir = resolveBundledClashMiniCoreDir();
@@ -138,7 +190,8 @@ function prepareClashMiniRuntimeDir() {
     return { ok: false, error: 'Clash Mini 运行目录中未找到 verge-mihomo.exe' };
   }
 
-  return { ok: true, sourceDir, runtimeDir, exePath };
+  const assetSync = syncLocalGeoAssets(runtimeDir);
+  return { ok: true, sourceDir, runtimeDir, exePath, assetSync };
 }
 
 // 移除/删除：purgeClashMiniRuntimeConfigFiles的具体业务逻辑。
@@ -831,6 +884,89 @@ function repairMalformedHttpsUrls(value, stats) {
   return value;
 }
 
+// 将服务器下发的远程 Geo/规则配置改写为随包内置文件，确保启动和分流
+// 不依赖 jsDelivr 或其它外部下载源。
+function localizeGeoAndProviders(config, coreDir, stats) {
+  const hasLocalAsset = (relativePath) => {
+    try {
+      return fs.statSync(path.join(coreDir, relativePath)).size > 0;
+    } catch (_) {
+      return false;
+    }
+  };
+  const next = { ...config };
+
+  if (next['geo-auto-update'] !== false) {
+    next['geo-auto-update'] = false;
+    stats.geoLocalized = true;
+  }
+
+  if (hasLocalAsset('geoip.metadb') && hasLocalAsset('geosite.dat') && next['geox-url']) {
+    delete next['geox-url'];
+    stats.geoLocalized = true;
+  }
+
+  const providerFileByName = {
+    cn_ip: 'providers/cn_ip.mrs',
+    cn_domain: 'providers/cn_domain.mrs',
+    private_domain: 'providers/private_domain.mrs',
+    'geolocation-!cn': 'providers/geolocation-!cn.mrs',
+  };
+  const providerFileBySourceSuffix = {
+    '/geo/geoip/cn.mrs': 'providers/cn_ip.mrs',
+    '/geo/geosite/cn.mrs': 'providers/cn_domain.mrs',
+    '/geo/geosite/private.mrs': 'providers/private_domain.mrs',
+    '/geo/geosite/geolocation-!cn.mrs': 'providers/geolocation-!cn.mrs',
+  };
+  const resolveProviderFile = (name, definition) => {
+    const byName = providerFileByName[name]
+      || providerFileByName[String(name || '').trim().toLowerCase().replace(/-/g, '_')];
+    if (byName) return byName;
+
+    // 服务器可能改 provider key，但 URL 仍指向同一份 MetaCubeX 规则。
+    // 按上游路径识别可避免因 key 别名而漏掉本地化。
+    const sourceUrl = String(definition?.url || '').trim().toLowerCase()
+      .split(/[?#]/, 1)[0].replace(/\\/g, '/');
+    const sourceSuffix = Object.keys(providerFileBySourceSuffix)
+      .find((suffix) => sourceUrl.endsWith(suffix));
+    return sourceSuffix ? providerFileBySourceSuffix[sourceSuffix] : null;
+  };
+  const providers = next['rule-providers'];
+  if (providers && typeof providers === 'object' && !Array.isArray(providers)) {
+    const localized = {};
+    for (const [name, definition] of Object.entries(providers)) {
+      const relativePath = resolveProviderFile(name, definition);
+      if (relativePath
+        && hasLocalAsset(relativePath)
+        && definition
+        && typeof definition === 'object'
+        && !Array.isArray(definition)) {
+        const { url, interval, proxy, ...rest } = definition;
+        const localDefinition = {
+          ...rest,
+          type: 'file',
+          path: `./${relativePath}`,
+          format: rest.format || 'mrs',
+        };
+        localized[name] = localDefinition;
+        if (url !== undefined
+          || interval !== undefined
+          || proxy !== undefined
+          || definition.type !== localDefinition.type
+          || definition.path !== localDefinition.path
+          || definition.format !== localDefinition.format) {
+          stats.providersLocalized += 1;
+        }
+      } else {
+        localized[name] = definition;
+      }
+    }
+    next['rule-providers'] = localized;
+  }
+
+  return next;
+}
+
 function normalizeClashMiniStartupConfig(config, coreDir) {
   const stats = {
     changed: false,
@@ -838,6 +974,8 @@ function normalizeClashMiniStartupConfig(config, coreDir) {
     ruleModeForced: false,
     domesticDirectRulesAdded: 0,
     fixedUrls: 0,
+    geoLocalized: false,
+    providersLocalized: 0,
     removedGeoRules: 0,
     offlineMatchDirectRulesRewritten: 0,
     disabledDnsGeoFilter: false,
@@ -850,6 +988,7 @@ function normalizeClashMiniStartupConfig(config, coreDir) {
   }
 
   let next = repairMalformedHttpsUrls(config, stats);
+  next = localizeGeoAndProviders(next, coreDir, stats);
   if (String(next.mode || '').trim().toLowerCase() !== CLASH_MINI_RULE_MODE) {
     next = { ...next, mode: CLASH_MINI_RULE_MODE };
     stats.ruleModeForced = true;
@@ -951,7 +1090,9 @@ function normalizeClashMiniStartupConfig(config, coreDir) {
     || stats.fixedUrls > 0
     || stats.removedGeoRules > 0
     || stats.offlineMatchDirectRulesRewritten > 0
-    || stats.disabledDnsGeoFilter;
+    || stats.disabledDnsGeoFilter
+    || stats.geoLocalized
+    || stats.providersLocalized > 0;
   return { config: next, ...stats };
 }
 
@@ -1357,6 +1498,15 @@ function normalizeDirectClashRuntimeConfig(rawContent, options = {}) {
 
 // 处理：importDirectClashRuntimeConfig的具体业务逻辑。
 function importDirectClashRuntimeConfig(coreDir, payload, sourceLabel = 'server-config') {
+  // 服务器配置可能在 Mihomo 首次启动前导入；必须先同步资产再规范化，
+  // 否则缺 Geo 的离线兜底会提前把 MATCH,节点组 固化成 MATCH,DIRECT。
+  const assetSync = syncLocalGeoAssets(coreDir);
+  if (!assetSync.ok) {
+    const details = assetSync.missing.length > 0
+      ? assetSync.missing.join(', ')
+      : (assetSync.error || '未知错误');
+    console.warn(`[IPC] Clash Mini 本地 Geo/规则资产缺失: ${details}（将回退到离线兜底）`);
+  }
   const rawContent = extractDirectClashConfigContent(payload);
   const normalized = normalizeDirectClashRuntimeConfig(rawContent, { coreDir });
   if (!normalized.ok) {
@@ -1514,6 +1664,13 @@ async function startClashMiniProcessOnce(ui, options = {}) {
   if (!runtimePrep.ok) {
     emitClashMiniLog(ui, 'error', runtimePrep.error || '准备 Clash Mini 运行目录失败');
     return { ok: false, error: runtimePrep.error || '准备 Clash Mini 运行目录失败' };
+  }
+
+  if (!runtimePrep.assetSync?.ok) {
+    const details = runtimePrep.assetSync?.missing?.length > 0
+      ? runtimePrep.assetSync.missing.join(', ')
+      : (runtimePrep.assetSync?.error || '未知错误');
+    emitClashMiniLog(ui, 'warn', `本地 Geo/规则资产缺失: ${details}（将回退到离线兜底）`);
   }
 
   const configResult = ensureClashMiniRuntimeConfig(runtimePrep.runtimeDir);
@@ -1746,6 +1903,7 @@ module.exports = {
   readClashProbeSettings,
   resolveClashMiniCoreDir,
   setRuntimeLicenseCache,
+  syncLocalGeoAssets,
   cleanupClashMiniRuntimeConfig,
   startClashMiniProcess,
   stopClashMiniProcess,

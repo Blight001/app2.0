@@ -60,6 +60,9 @@ async function main() {
   const shellHtml = fs.readFileSync(path.join(__dirname, '../src/app/views/app-shell.html'), 'utf8');
   const shellTabsScript = fs.readFileSync(path.join(__dirname, '../src/app/renderer/controllers/pages/app-shell/tabs.js'), 'utf8');
   assert.ok(shellHtml.includes('id="new-browser-window-btn"'));
+  assert.match(shellHtml, /id="account-center-btn"[\s\S]*?id="add-tab-btn"/);
+  assert.ok(shellHtml.includes('../sidebar/client/scripts/logo-assets.js'));
+  assert.ok(shellTabsScript.includes("IPC.send('open-account-center')"));
   assert.ok(shellTabsScript.includes("IPC.invoke('create-independent-browser'"));
   assert.ok(shellTabsScript.includes("IPC.invoke('rename-browser-history'"));
   const settingsIpcScript = fs.readFileSync(path.join(__dirname, '../src/app/main/ipc/register/settings.js'), 'utf8');
@@ -154,7 +157,7 @@ async function main() {
   assert.equal(geoProfile.sourceCountryCode, 'SG');
   assert.equal(geoProfile.sourceIp, '203.0.113.8');
   assert.ok(Date.now() - geoStartedAt < 1000, 'IP 地区探测不应等待悬挂的服务');
-  assert.equal(geoCalls.length, 3);
+  assert.equal(geoCalls.length, 4);
   assert.ok(geoCalls.every((call) => call.timeoutMs === 5000));
 
   const cachedProfile = await resolveTabBrowserProfile({
@@ -183,7 +186,7 @@ async function main() {
   assert.equal(proxiedProfile.region, 'jp');
   assert.equal(proxiedProfile.locale, 'ja-JP');
   assert.equal(proxiedProfile.timezoneId, 'Asia/Tokyo');
-  assert.equal(proxiedGeoCalls.length, 3);
+  assert.equal(proxiedGeoCalls.length, 4);
   assert.ok(proxiedGeoCalls.every((call) => call.requestOptions.proxyServer === 'http://127.0.0.1:7890'));
 
   let legacyRegionGeoCalls = 0;
@@ -211,7 +214,7 @@ async function main() {
   assert.equal(legacyRegionProfile.region, 'sg', 'IP 模式不能被历史 region=cn 短路');
   assert.equal(legacyRegionProfile.locale, 'en-SG');
   assert.equal(legacyRegionProfile.timezoneId, 'Asia/Singapore');
-  assert.equal(legacyRegionGeoCalls, 3);
+  assert.equal(legacyRegionGeoCalls, 4);
 
   const profile = buildBrowserProfileFromRegion('cn', settings);
   assert.equal(profile.browserBrand, 'AI-FREE');

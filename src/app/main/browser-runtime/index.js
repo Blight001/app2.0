@@ -9,7 +9,10 @@ class BrowserRuntimeManager {
     const userDataDir = options.userDataDir;
     this.logger = options.logger || console;
     this.store = options.store || new ProfileRuntimeStore({ rootDir: path.join(userDataDir, 'chromium-profiles'), logger: this.logger });
-    this.windowBridge = options.windowBridge || new ChromiumWindowBridge({ logger: this.logger });
+    this.windowBridge = options.windowBridge || new ChromiumWindowBridge({
+      logger: this.logger,
+      resourcesPath: options.resourcesPath,
+    });
     this.chromium = options.chromiumRuntime || new ChromiumRuntime({
       logger: this.logger,
       store: this.store,

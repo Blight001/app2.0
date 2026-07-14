@@ -1,8 +1,99 @@
 .sidebar-account-auth[hidden],
+.account-center-dialog[hidden],
 .sidebar-auth-field[hidden],
 .account-profile-actions button[hidden],
 .account-profile-menu[hidden] {
   display: none !important;
+}
+
+.account-center-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.account-center-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.account-center-dialog-panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: min(430px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: hidden;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
+  box-shadow: none;
+  animation: accountAuthDialogIn .18s ease-out;
+}
+
+.account-center-dialog-close {
+  position: absolute;
+  z-index: 4;
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(221, 235, 255, .3);
+  border-radius: 50%;
+  color: #dbe8f8;
+  background: rgba(9, 18, 30, .62);
+  font: inherit;
+  font-size: 21px;
+  line-height: 27px;
+  cursor: pointer;
+}
+
+.account-center-dialog-close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, .08);
+}
+
+.account-center-dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.account-center-dialog-body .container {
+  display: grid;
+  gap: 0;
+  width: 100%;
+}
+
+body.account-center-open {
+  overflow: hidden;
+}
+
+.account-center-dialog .account-profile-cover span {
+  right: 52px;
+}
+
+.account-profile-card > .announcement-bar {
+  margin: 0 16px;
+  border-radius: 10px;
+}
+
+.account-profile-card > .personal-footer {
+  margin: 0 16px;
+  padding: 12px 0 14px;
 }
 
 .account-profile-shell {
@@ -781,6 +872,21 @@ html.theme-light .account-profile-shell {
   border-color: rgba(72, 112, 164, .18);
   background: #fff;
   box-shadow: 0 16px 38px rgba(47, 75, 112, .13);
+}
+
+html.theme-light .account-center-dialog-backdrop {
+  background: transparent;
+}
+
+html.theme-light .account-center-dialog-panel {
+  background: transparent;
+  box-shadow: none;
+}
+
+html.theme-light .account-center-dialog-close {
+  color: #334a64;
+  border-color: rgba(52, 82, 120, .22);
+  background: rgba(255, 255, 255, .76);
 }
 
 html.theme-light .account-profile-card {

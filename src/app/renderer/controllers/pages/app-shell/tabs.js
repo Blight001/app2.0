@@ -68,11 +68,15 @@ if (IPC && typeof IPC.on === 'function') {
     if (String(payload?.tabId || '') === String(pendingRenameTabId || '')) pendingRenameTabId = null;
     showControllerError('新建浏览器窗口失败', new Error(payload?.error || '浏览器环境启动失败'));
   });
+  IPC.on('app-shell-account-updated', (session = {}) => {
+    renderAppShellAccount(session);
+  });
 }
 
 let tabsContainer = document.getElementById('tabs-container');
 let addTabBtn = document.getElementById('add-tab-btn');
 let newBrowserWindowBtn = document.getElementById('new-browser-window-btn');
+let accountCenterBtn = document.getElementById('account-center-btn');
 
 // 监听/绑定：onReady的具体业务逻辑。
 function onReady(fn) {
@@ -87,6 +91,34 @@ let dragHoverPosition = null;
 let currentContextMenuTabId = null;
 const tabElementById = new Map();
 let pendingRenameTabId = null;
+
+function renderAppShellAccount(session = {}) {
+  accountCenterBtn = document.getElementById('account-center-btn');
+  if (!accountCenterBtn) return;
+  const authenticated = session.authenticated === true;
+  const username = authenticated ? String(session.username || '').trim() : '';
+  accountCenterBtn.dataset.authenticated = authenticated ? 'true' : 'false';
+  accountCenterBtn.title = authenticated ? (username || '个人中心') : '个人中心（未登录）';
+  accountCenterBtn.setAttribute('aria-label', authenticated
+    ? `打开 ${username || '当前账号'} 的个人中心`
+    : '打开个人中心（未登录）');
+}
+
+function bindAccountCenterBtnOnce() {
+  accountCenterBtn = document.getElementById('account-center-btn');
+  if (!accountCenterBtn || accountCenterBtn.dataset.bound === '1') return;
+  accountCenterBtn.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    IPC.send('open-account-center');
+  });
+  accountCenterBtn.dataset.bound = '1';
+  if (typeof IPC.invoke === 'function') {
+    IPC.invoke('account-get-session')
+      .then((session) => renderAppShellAccount(session || {}))
+      .catch(() => renderAppShellAccount({ authenticated: false }));
+  }
+}
 
 function beginTabRename(tabElement, options = {}) {
   if (!tabElement || tabElement.querySelector('.tab-title-editor')) return;
@@ -477,6 +509,7 @@ function bindAddTabBtnOnce() {
 onReady(() => {
   tabsContainer = document.getElementById('tabs-container');
   bindAddTabBtnOnce();
+  bindAccountCenterBtnOnce();
   bindNewBrowserWindowBtnOnce();
 
   // 初始化设置按钮动画监听器

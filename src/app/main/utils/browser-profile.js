@@ -6,9 +6,10 @@ const {
 } = require('./browser-region');
 
 const TAB_PLATFORM = 'Win32';
-// ipapi.co 直连在国内会被 Cloudflare 拦成 403 人机验证页，永远探测不到，已移除。
-// api.ip.sb/geoip 国内直连可达，返回 ip/country_code/timezone(IANA)/经纬度，字段与 buildGeoProfile 兼容。
+// Cloudflare trace 在 Clash 国内直连/国外节点分流下会走节点，用它避免
+// api.ip.sb / ipwho.is / ipinfo.io 被 CN 规则直连后误报“代理未改变出口”。
 const GEO_IP_ENDPOINTS = [
+  'https://www.cloudflare.com/cdn-cgi/trace',
   'https://ipwho.is/',
   'https://ipinfo.io/json',
   'https://api.ip.sb/geoip',
@@ -74,8 +75,33 @@ function inferRegionFromIpInfo(info = {}) {
     || inferBrowserRegionKeyFromLocale(info.locale || info.language || '');
 }
 
+function parseCloudflareTrace(raw) {
+  const text = typeof raw === 'string'
+    ? raw
+    : (raw && typeof raw.raw === 'string' ? raw.raw : '');
+  if (!/(^|\n)\s*ip=/i.test(text) || !/(^|\n)\s*loc=/i.test(text)) return null;
+
+  const fields = {};
+  for (const line of text.split(/\r?\n/)) {
+    const separator = line.indexOf('=');
+    if (separator <= 0) continue;
+    const key = line.slice(0, separator).trim();
+    const value = line.slice(separator + 1).trim();
+    if (key) fields[key] = value;
+  }
+  if (!fields.ip || !fields.loc) return null;
+  return {
+    ip: fields.ip,
+    country_code: fields.loc,
+    country: fields.loc,
+  };
+}
+
 function buildGeoProfile(response, endpoint) {
-  const body = response?.body && typeof response.body === 'object' ? response.body : null;
+  if (response?.ok === false) return null;
+  const body = response?.body && typeof response.body === 'object'
+    ? response.body
+    : parseCloudflareTrace(response?.body || response?.raw);
   if (!body || response?.ok === false || body.success === false || body.error === true) return null;
 
   const regionKey = inferRegionFromIpInfo(body);
@@ -282,7 +308,12 @@ async function resolveGeoIpInfo(httpGetUniversal, logger = console, options = {}
 
     for (const endpoint of GEO_IP_ENDPOINTS) {
       Promise.resolve()
-        .then(() => httpGetUniversal(endpoint, GEO_IP_REQUEST_TIMEOUT_MS, { proxyServer }))
+        .then(() => httpGetUniversal(endpoint, GEO_IP_REQUEST_TIMEOUT_MS, {
+          proxyServer,
+          headers: endpoint.includes('/cdn-cgi/trace')
+            ? { Accept: 'text/plain, application/json;q=0.9' }
+            : undefined,
+        }))
         .then((response) => {
           const profile = buildGeoProfile(response, endpoint);
           if (!profile) {

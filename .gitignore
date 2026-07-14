@@ -125,5 +125,9 @@ extensions_app/
 # Clash Mini runtime files (generated dynamically; not required in source control)
 resources/clash-mini/core/cache.db
 resources/clash-mini/core/config.yaml
-resources/clash-mini/core/providers/
+resources/clash-mini/core/providers/*
+!resources/clash-mini/core/providers/cn_ip.mrs
+!resources/clash-mini/core/providers/cn_domain.mrs
+!resources/clash-mini/core/providers/private_domain.mrs
+!resources/clash-mini/core/providers/geolocation-!cn.mrs
 resources/clash-mini/core/*.log

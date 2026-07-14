@@ -1455,7 +1455,8 @@
     const browserText = state.currentBrowserId
       ? '已连接浏览器，AI 将在所选浏览器中执行操作。'
       : '当前未连接浏览器，将进行普通对话。';
-    welcome.innerHTML = `<img class="ai-chat-welcome-icon" src="../../assets/logo.ico" alt="" aria-hidden="true"><strong>有什么可以帮你？</strong><p>${browserText}</p>`;
+    const logoUrl = window.aiFreeLogoAssets?.url || '../../assets/logo.ico';
+    welcome.innerHTML = `<img class="ai-chat-welcome-icon" data-app-logo src="${logoUrl}" alt="" aria-hidden="true"><strong>有什么可以帮你？</strong><p>${browserText}</p>`;
     container.appendChild(welcome);
     updateSessionTitleUi();
   }
@@ -1691,14 +1692,7 @@
   }
 
   function openPersonalLogin() {
-    const personalTab = document.querySelector('[data-tab="personal-center-panel"]');
-    if (personalTab) {
-      personalTab.click();
-    } else {
-      document.querySelectorAll('.tab-button').forEach((tab) => tab.classList.remove('active'));
-      document.querySelectorAll('.panel').forEach((panel) => panel.classList.remove('active'));
-      el('personal-center-panel')?.classList.add('active');
-    }
+    window.openAccountCenterDialog?.();
     document.querySelector('[data-auth-mode="login"]')?.click();
     window.MessageModal?.showWarningMessage?.('请先登录');
   }

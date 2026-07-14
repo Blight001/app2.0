@@ -587,6 +587,24 @@ function registerUiIPC(ctx) {
   });
   ipcMain.on('toggle-sidebar', () => ui.toggleSidebar());
   ipcMain.on('ensure-sidebar-visible', () => ui.ensureSidebarVisible && ui.ensureSidebarVisible());
+  ipcMain.on('open-account-center', () => {
+    try {
+      ui.ensureSidebarVisible?.();
+      ui.sendToSide?.('open-account-center');
+    } catch (error) {
+      console.warn('[UI] 打开个人中心失败:', error?.message || error);
+    }
+  });
+  ipcMain.on('sync-app-shell-account', (_event, session = {}) => {
+    try {
+      const mainWindow = ui.getMainWindow?.();
+      if (!mainWindow || mainWindow.isDestroyed?.()) return;
+      mainWindow.webContents.send('app-shell-account-updated', {
+        authenticated: session.authenticated === true,
+        username: session.authenticated === true ? String(session.username || '').trim() : '',
+      });
+    } catch (_) {}
+  });
 
   ipcMain.handle('open-active-web-console', async () => {
     try {

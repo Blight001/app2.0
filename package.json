@@ -25,6 +25,7 @@
     "check:browser-settings-ui": "node scripts/run-electron.js scripts/check-browser-settings-ui.js",
     "check:chromium-handshake": "node scripts/check-chromium-handshake.js",
     "check:chromium-embedded-policy": "node scripts/check-chromium-embedded-policy.js",
+    "check:packaged-runtime": "node scripts/verify-packaged-runtime.js appbuild/win-unpacked",
     "build:native-host": "node scripts/build-native-host.js",
     "build": "electron-builder",
     "build:win": "node scripts/build-windows.js",
@@ -65,8 +66,8 @@
     },
     "files": [
       "src/**/*",
-      "native/browser-host/build/Release/browser_host.node",
       "!src/DEV_MAP.md",
+      "!src/assets/logo.ico",
       "!src/assets/extensions/remove_watermark/**/*.map",
       "!src/assets/extensions/remove_watermark/**/*.LICENSE.txt",
       "!src/assets/extensions/remove_watermark/remove_watermark.crx",

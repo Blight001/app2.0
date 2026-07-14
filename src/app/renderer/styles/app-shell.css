@@ -124,6 +124,57 @@ body, html {
   -ms-user-select: none;
 }
 
+#account-center-btn {
+  position: relative;
+  flex: 0 0 var(--shell-tab-height);
+  width: var(--shell-tab-height);
+  height: var(--shell-tab-height);
+  padding: 2px;
+  border: 1px solid rgba(126, 160, 209, 0.36);
+  border-radius: 50%;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(126, 174, 237, 0.82));
+  box-shadow: 0 4px 12px rgba(2, 8, 18, 0.24);
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+#account-center-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(95, 171, 255, 0.84);
+  box-shadow: 0 6px 16px rgba(38, 102, 202, 0.28);
+}
+
+#account-center-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(79, 151, 255, 0.24), 0 6px 16px rgba(38, 102, 202, 0.28);
+}
+
+#account-center-btn img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #0f1723;
+}
+
+#account-center-btn .account-center-status {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--shell-panel);
+  border-radius: 50%;
+  background: #7c8797;
+  box-sizing: border-box;
+}
+
+#account-center-btn[data-authenticated='true'] .account-center-status {
+  background: #43d58b;
+}
+
 #new-browser-window-btn {
   flex: 0 0 var(--shell-tab-height);
   padding: 0;
