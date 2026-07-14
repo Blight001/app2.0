@@ -247,6 +247,15 @@ function registerAppLifecycle(deps = {}) {
         }
         const modelId = String(input.modelId || '').trim();
         const initialMessages = Array.isArray(input.messages) ? input.messages : [];
+        const quota = input.quota && typeof input.quota === 'object' ? input.quota : null;
+        if (quota && quota.unlimited !== true) {
+          const total = Number(quota.quota);
+          const used = Number(quota.used || 0);
+          const remaining = Number(quota.remaining ?? (total - used));
+          if (Number.isFinite(remaining) && remaining <= 0) {
+            return { ok: false, message: 'AI 对话额度已用尽，请联系管理员', quota };
+          }
+        }
         const connectionId = String(input.browserConnectionId || '').trim();
         const disableTools = input.disableTools === true;
         const useStream = input.stream === true;

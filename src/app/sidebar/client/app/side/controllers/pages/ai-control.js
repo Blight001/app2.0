@@ -139,7 +139,15 @@
   }
 
   function isQuotaFailure(message) {
-    return /AI\s*对话额度不足|对话额度不足|额度不足.*联系管理员/.test(String(message || ''));
+    return /AI\s*对话额度(?:不足|已用尽)|对话额度(?:不足|已用尽)|额度(?:不足|已用尽).*联系管理员/.test(String(message || ''));
+  }
+
+  function isQuotaExhausted(quota = state.quota) {
+    if (!quota || quota.unlimited === true) return false;
+    const total = Number(quota.quota);
+    const used = Number(quota.used || 0);
+    const remaining = Number(quota.remaining ?? (total - used));
+    return Number.isFinite(remaining) && remaining <= 0;
   }
 
   function showChatBusinessError(message) {
@@ -780,7 +788,7 @@
 
   async function maybeGenerateTitle(modelId) {
     const session = state.currentSession;
-    if (!session || session.titleGenerated || state.generatingTitle) return;
+    if (!session || session.titleGenerated || state.generatingTitle || isQuotaExhausted()) return;
     const userMsg = currentMessages().find((m) => m.role === 'user' && String(m.content || '').trim());
     const asstMsg = currentMessages().find((m) => m.role === 'assistant' && String(m.content || '').trim());
     if (!userMsg || !asstMsg || !modelId || !window.electronAPI?.invoke) return;
@@ -795,6 +803,7 @@
     try {
       const result = await window.electronAPI.invoke('ai-control-chat', {
         modelId,
+        quota: state.quota,
         disableTools: true,
         browserConnectionId: '',
         messages: [
@@ -1225,7 +1234,8 @@
     const input = el('ai-chat-input');
     const model = el('ai-chat-model');
     const modelUnavailable = state.accountAuthenticated && !model?.value;
-    if (send) send.disabled = state.loading || modelUnavailable || !input?.value.trim();
+    const quotaExhausted = state.accountAuthenticated && isQuotaExhausted();
+    if (send) send.disabled = state.loading || modelUnavailable || quotaExhausted || !input?.value.trim();
   }
 
   async function loadModels() {
@@ -1450,6 +1460,17 @@
     if (!await ensureAuthenticatedForChat()) return;
     if (!select?.value) return;
 
+    // 每次发送前刷新服务端额度。额度查询不会请求模型，可避免使用页面里的旧额度继续发起对话。
+    try {
+      const quotaResult = await window.electronAPI?.invoke?.('ai-control-get-models');
+      if (quotaResult?.quota) renderQuota(quotaResult.quota);
+    } catch (_) {}
+    if (isQuotaExhausted()) {
+      showChatBusinessError('AI 对话额度已用尽，请联系管理员');
+      syncSendState();
+      return;
+    }
+
     ensureSessionForSend();
 
     const messages = currentMessages();
@@ -1484,6 +1505,7 @@
       const result = await window.electronAPI.invoke('ai-control-chat', {
         modelId: select.value,
         messages,
+        quota: state.quota,
         browserConnectionId: state.currentBrowserId,
         stream: true,
         requestId,
