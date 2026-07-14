@@ -15,7 +15,6 @@
     "accept:chromium-phase2": "node scripts/run-electron.js scripts/accept-chromium-phase2.js",
     "accept:chromium-input": "node scripts/run-electron.js scripts/accept-chromium-input.js",
     "accept:chromium-phase3": "node scripts/run-electron.js scripts/accept-chromium-phase3.js",
-    "check:http-routing": "node scripts/check-http-tenant-routing.js",
     "check:account-session": "node scripts/check-account-session.js",
     "check:announcements": "node scripts/check-announcement-polling.js",
     "check:extension-compat": "node scripts/check-extension-compat.js",
@@ -93,8 +92,8 @@
         "to": "clash-mini/core"
       },
       {
-        "from": "src/assets/seedance2.0.ico",
-        "to": "resource/seedance2.0.ico"
+        "from": "src/assets/logo.ico",
+        "to": "resource/logo.ico"
       }
     ],
     "win": {
@@ -109,7 +108,7 @@
           ]
         }
       ],
-      "icon": "src/assets/seedance2.0.ico",
+      "icon": "src/assets/logo.ico",
       "signtoolOptions": {
         "signingHashAlgorithms": [
           "sha256"
@@ -132,11 +131,11 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "src/assets/seedance2.0.ico",
-      "uninstallerIcon": "src/assets/seedance2.0.ico",
-      "installerHeaderIcon": "src/assets/seedance2.0.ico"
+      "installerIcon": "src/assets/logo.ico",
+      "uninstallerIcon": "src/assets/logo.ico",
+      "installerHeaderIcon": "src/assets/logo.ico"
     },
-    "icon": "src/assets/seedance2.0.ico"
+    "icon": "src/assets/logo.ico"
   },
-  "icon": "src/assets/seedance2.0.ico"
+  "icon": "src/assets/logo.ico"
 }

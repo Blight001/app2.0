@@ -1,11 +1,10 @@
 {
-  "localResolver": {
-    "url": "http://heysure.xyz:59000/api/server_main/card-status/search",
+  "accountService": {
+    "url": "http://heysure.xyz:58111/api/account",
     "urls": [
-      "http://146.196.80.203:59000/api/server_main/card-status/search",
-      "http://49.234.181.190:59000/api/server_main/card-status/search"
+      "http://146.196.80.203:58111/api/account",
+      "http://49.234.181.190:58111/api/account"
     ],
-    "method": "POST",
     "timeoutSec": 8
   },
   "packagedExtensions": [
@@ -19,10 +18,10 @@
       "appId": "com.ai-free.app",
       "productName": "AI-FREE",
       "icons": {
-        "installer": "src/assets/seedance2.0.ico",
-        "uninstaller": "src/assets/seedance2.0.ico",
-        "installerHeader": "src/assets/seedance2.0.ico",
-        "window": "src/assets/seedance2.0.ico"
+        "installer": "src/assets/logo.ico",
+        "uninstaller": "src/assets/logo.ico",
+        "installerHeader": "src/assets/logo.ico",
+        "window": "src/assets/logo.ico"
       }
     }
   },

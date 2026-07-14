@@ -9,16 +9,15 @@
 }
 .ai-control-panel.active { display: flex; }
 
-/* ---- 顶栏：浏览器 / 对话历史下拉 / 新对话 ---- */
+/* ---- 顶栏：浏览器 / 对话历史下拉（含新建对话） ---- */
 .ai-chat-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: end;
   gap: 8px;
   flex: 0 0 auto;
   min-width: 0;
 }
-.ai-chat-browser-field,
 .ai-chat-history-field {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -26,26 +25,57 @@
   gap: 6px;
   min-width: 0;
 }
-.ai-chat-browser-field > label,
 .ai-chat-history-field > label {
   color: #8a9bb5;
   font-size: 12px;
   white-space: nowrap;
 }
-.ai-chat-clear {
-  border: 1px solid var(--brand-border);
-  border-radius: var(--r-sm);
-  padding: 6px 12px;
-  color: #b7c6df;
-  background: transparent;
-  flex: 0 0 auto;
-  height: 34px;
-  font-size: 12px;
-  white-space: nowrap;
+
+/* 历史下拉顶部：新建对话 */
+.ai-select-option-new {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  color: #dfe8f5;
+  background: rgba(77, 163, 255, .1);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
   cursor: pointer;
-  transition: background .15s ease, color .15s ease;
+  transition: background .12s ease, color .12s ease;
 }
-.ai-chat-clear:hover { background: var(--brand-soft); color: #e6efff; }
+.ai-select-option-new:hover,
+.ai-select-option-new:focus-visible {
+  outline: none;
+  color: #fff;
+  background: rgba(77, 163, 255, .2);
+}
+.ai-select-option-new-icon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #8bc0ff;
+  background: rgba(77, 163, 255, .16);
+  font-size: 14px;
+  line-height: 1;
+  font-weight: 700;
+}
+.ai-select-option-divider {
+  height: 1px;
+  margin: 4px 6px 6px;
+  background: rgba(120, 145, 185, .16);
+  border: 0;
+  pointer-events: none;
+}
 
 /* 历史下拉项：标题 + 删除（覆盖通用 option 的 flex，避免长标题撑出横向滚动） */
 .ai-select-option.ai-select-option-history {
@@ -297,7 +327,7 @@
   animation-name: ai-select-pop-up;
 }
 
-/* ---- 输入框下方：模型 + 额度圆环 ---- */
+/* ---- 输入框下方：齿轮 + 额度圆环 + 右侧模型 ---- */
 .ai-chat-footer-bar {
   display: flex;
   align-items: center;
@@ -305,17 +335,101 @@
   flex: 0 0 auto;
   min-width: 0;
 }
+.ai-chat-browser-gear-field {
+  flex: 0 0 28px;
+  width: 28px;
+  min-width: 28px;
+}
+.ai-browser-gear-select {
+  width: 28px;
+}
+.ai-browser-gear-trigger.ai-select-trigger {
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 8px;
+}
+.ai-browser-gear-icon {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: #91a5c2;
+  transition: color .15s ease, transform .18s ease;
+}
+.ai-browser-gear-select.open .ai-browser-gear-icon {
+  color: #8bc0ff;
+  transform: rotate(24deg);
+}
+.ai-browser-gear-select.has-selection .ai-browser-gear-trigger {
+  border-color: rgba(77, 163, 255, .52);
+  background: rgba(77, 163, 255, .12);
+}
+.ai-browser-gear-select.has-selection .ai-browser-gear-icon {
+  color: #70b2ff;
+}
+.ai-browser-gear-value {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+.ai-browser-gear-select .ai-select-menu {
+  left: 0;
+  right: auto;
+  width: min(280px, calc(100vw - 40px));
+  min-width: 220px;
+}
 .ai-chat-model-field {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
-  max-width: 220px;
+  max-width: 280px;
+  margin-left: auto;
+}
+.ai-model-inline-select {
+  width: fit-content;
+  max-width: 100%;
+}
+.ai-model-inline-select .ai-select-trigger {
+  width: auto;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 2px 0 6px;
+  justify-content: flex-end;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.ai-model-inline-select .ai-select-trigger:hover:not(:disabled),
+.ai-model-inline-select .ai-select-trigger:focus-visible,
+.ai-model-inline-select.open .ai-select-trigger {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.ai-model-inline-select .ai-select-value {
+  flex: 0 1 auto;
+  max-width: 250px;
+  text-align: right;
+}
+.ai-model-inline-select .ai-select-menu {
+  right: 0;
+  left: auto;
+  width: min(280px, calc(100vw - 40px));
 }
 .ai-chat-quota-widget {
   display: flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  margin-left: auto;
 }
 /* 更小、更粗的圆环 */
 .ai-chat-quota-ring {
@@ -390,14 +504,12 @@
   color: #94a6c2;
 }
 .ai-chat-welcome-icon {
-  display: grid;
-  place-items: center;
+  display: block;
   width: 42px;
   height: 42px;
   margin-bottom: 12px;
   border-radius: var(--r-md);
-  color: #fff;
-  background: var(--brand);
+  object-fit: contain;
 }
 .ai-chat-welcome strong { color: #e9f1ff; font-size: 15px; }
 .ai-chat-welcome p { margin: 6px 0 0; font-size: 12px; }
@@ -768,12 +880,9 @@ details[open] > summary .ai-chat-disclosure { transform: rotate(90deg); }
 /* ---- 紧凑布局 ---- */
 @media (max-width: 519px) {
   .ai-chat-header {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: 1fr;
   }
-  .ai-chat-history-field {
-    grid-column: 1 / -1;
-  }
-  .ai-chat-model-field { max-width: none; }
+  .ai-chat-model-field { max-width: calc(100% - 68px); }
   .ai-chat-bubble { max-width: 90%; }
 }
 
@@ -786,9 +895,27 @@ details[open] > summary .ai-chat-disclosure { transform: rotate(90deg); }
 html.theme-light .ai-control-panel { color: #233451; background: #f4f7fb; }
 html.theme-light .ai-chat-header h1,
 html.theme-light .ai-chat-welcome strong { color: #1f2f47; }
-html.theme-light .ai-chat-clear { color: #4a5f7c; }
-html.theme-light .ai-chat-clear:hover { color: #20344d; }
-html.theme-light .ai-chat-browser-field > label { color: #6a7d94; }
+html.theme-light .ai-select-option-new {
+  color: #1f3f6b;
+  background: rgba(77, 140, 230, .1);
+}
+html.theme-light .ai-select-option-new:hover,
+html.theme-light .ai-select-option-new:focus-visible {
+  color: #17345f;
+  background: rgba(77, 140, 230, .18);
+}
+html.theme-light .ai-select-option-new-icon {
+  color: #2e6de6;
+  background: rgba(77, 140, 230, .14);
+}
+html.theme-light .ai-select-option-divider {
+  background: rgba(86, 121, 165, .16);
+}
+html.theme-light .ai-browser-gear-icon { color: #627b99; }
+html.theme-light .ai-browser-gear-select.has-selection .ai-browser-gear-trigger {
+  border-color: rgba(52, 123, 211, .38);
+  background: rgba(52, 123, 211, .1);
+}
 html.theme-light .ai-select-trigger {
   color: #31465f;
   border-color: rgba(86, 121, 165, .24);
@@ -797,6 +924,14 @@ html.theme-light .ai-select-trigger {
 html.theme-light .ai-select-trigger:hover:not(:disabled) {
   border-color: rgba(70, 120, 190, .42);
   background: #f8fbff;
+}
+html.theme-light .ai-model-inline-select .ai-select-trigger,
+html.theme-light .ai-model-inline-select .ai-select-trigger:hover:not(:disabled),
+html.theme-light .ai-model-inline-select .ai-select-trigger:focus-visible,
+html.theme-light .ai-model-inline-select.open .ai-select-trigger {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 html.theme-light .ai-select-chevron { border-color: #7a93b0; }
 html.theme-light .ai-select-menu {

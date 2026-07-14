@@ -248,6 +248,8 @@ function registerLicenseIPC(ctx) {
       || runtimeConfig.address_HTTP
       || runtimeConfig.addressHttp
       || runtimeConfig.address_http
+      || runtimeConfig.client_address
+      || runtimeConfig.clientAddress
       || runtimeConfig.address
       || ''
     ).trim();

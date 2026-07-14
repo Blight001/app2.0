@@ -10,6 +10,9 @@ if errorlevel 1 (
   exit /b 1
 )
 
+rem Production mode must not restore or accept a loopback backend saved by v-debug.bat.
+set "AI_FREE_SERVER_MODE=remote"
+
 where npm >nul 2>&1
 if errorlevel 1 (
   echo [ERROR] npm not found. Please install Node.js first.

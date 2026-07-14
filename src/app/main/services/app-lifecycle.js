@@ -5,6 +5,10 @@ const {
   buildStoredAccountSession,
   normalizeAccountSession,
 } = require('../utils/account-session');
+const {
+  getServerMode,
+  isServerBaseAllowedForMode,
+} = require('../utils/server-mode');
 
 // 启动/打开/显示：launchIndependentCommand的具体业务逻辑。
 function launchIndependentCommand(target, logger = console) {
@@ -165,23 +169,19 @@ function registerAppLifecycle(deps = {}) {
       return await computeDeviceId();
     });
 
-    ipcMain.handle('account-get-platforms', async () => {
-      if (typeof deps.getAccountPlatforms !== 'function') {
-        return { ok: false, message: '账号服务未就绪', platforms: [] };
-      }
-      const result = await deps.getAccountPlatforms();
-      return { ...result, platforms: Array.isArray(result?.platforms) ? result.platforms : [] };
-    });
-
     ipcMain.handle('account-get-session', async () => {
       try {
         const credentials = normalizeAccountSession(readStoreConfigSafe()?.userCredentials || {});
+        const authenticated = credentials.authenticated
+          && credentials.serverMode === getServerMode()
+          && isServerBaseAllowedForMode(credentials.serverBase);
         return {
           ok: true,
           username: credentials.username,
-          tenantId: credentials.tenantId,
           platformName: credentials.platformName,
-          authenticated: credentials.authenticated,
+          account: credentials.account,
+          validation: credentials.validation,
+          authenticated,
         };
       } catch (error) {
         return { ok: false, message: error?.message || String(error) };
@@ -444,7 +444,6 @@ function registerAppLifecycle(deps = {}) {
           mode,
           username,
           password,
-          tenant_id: String(input.tenantId || '').trim(),
           device_id: deviceId,
         });
         if (!authenticated?.ok) {
@@ -466,9 +465,30 @@ function registerAppLifecycle(deps = {}) {
         const resolved = {
           ...authenticated,
           ...validation,
-          serverBase: authenticated.serverBase || authenticated.server_base || '',
-          platformName: authenticated.platform_name || authenticated.platformName || '',
+          serverBase: authenticated.serverBase
+            || authenticated.server_base
+            || authenticated.address_HTTP
+            || authenticated.addressHttp
+            || authenticated.client_address
+            || authenticated.clientAddress
+            || validation.serverBase
+            || validation.server_base
+            || validation.address_HTTP
+            || validation.addressHttp
+            || validation.client_address
+            || validation.clientAddress
+            || '',
+          platformName: authenticated.platform_name
+            || authenticated.platformName
+            || validation.platform_name
+            || validation.platformName
+            || '',
         };
+
+        if (!isServerBaseAllowedForMode(resolved.serverBase)) {
+          const modeText = getServerMode() === 'local' ? '本地调试' : '正式远程';
+          return { ok: false, message: `账号服务返回的服务器地址与${modeText}模式不匹配` };
+        }
 
         deps.applyResolvedConfigToStore({ resolved });
         saveLicenseCredentialsSafe({
@@ -482,9 +502,9 @@ function registerAppLifecycle(deps = {}) {
           username,
           key,
           deviceId,
-          tenantId: String(authenticated.tenant_id || input.tenantId || '').trim(),
           platformName: String(resolved.platformName || '').trim(),
           serverBase: String(resolved.serverBase || '').trim(),
+          serverMode: getServerMode(),
           account: authenticated.account || {},
           validation: resolved,
         });
@@ -533,8 +553,9 @@ function registerAppLifecycle(deps = {}) {
         deps.sendToSide?.('account-session-updated', {
           authenticated: true,
           username,
-          tenantId: String(authenticated.tenant_id || input.tenantId || '').trim(),
           platformName: String(resolved.platformName || '').trim(),
+          account: authenticated.account || {},
+          validation: validationState,
         });
         return {
           ok: true,
@@ -678,108 +699,6 @@ function registerAppLifecycle(deps = {}) {
       }
     });
 
-    ipcMain.handle('license-validate-and-init', async (_event, { key, deviceId }) => {
-      try {
-        if (!key || !String(key).trim()) {
-          return { ok: false, message: '请输入卡密' };
-        }
-        key = String(key).trim();
-        if (!deviceId) {
-          deviceId = await computeDeviceId();
-        }
-
-        const resolved = await deps.resolveServerConfigForKey({ key });
-        if (!resolved.ok) {
-          const resolverError = String(resolved.error || '');
-          const emptyResultHints = [
-            '未返回可用服务器地址',
-            '未返回服务器地址',
-            '接口未返回可用服务器地址',
-            '卡密已匹配，但接口未返回可用服务器地址',
-          ];
-          const canContinue = emptyResultHints.some((hint) => resolverError.includes(hint));
-          if (!canContinue) {
-            return { ok: false, message: resolved.error || '卡密搜索失败' };
-          }
-          logger.warn?.('[卡密搜索] 未返回可用服务器地址，但未发现明确失败状态，继续进入软件:', resolverError || 'unknown');
-        } else if (resolved.data) {
-          deps.applyResolvedConfigToStore({ resolved: resolved.data });
-          if (licenseCache && typeof licenseCache.setValidationState === 'function') {
-            licenseCache.setValidationState({
-              key,
-              deviceId,
-              validated: true,
-              bound: true,
-              licenseValidated: true,
-              result: resolved.data,
-              message: resolved.data.message || '卡密有效',
-            });
-          }
-
-        }
-
-        saveLicenseCredentialsSafe({
-          readStoreConfigSafe,
-          writeStoreConfigSafe,
-          licenseCache,
-        }, key, deviceId);
-
-        try {
-          const { normalizeValidationRuntimeConfig } = require('../lib/http-client');
-          const runtimeConfig = normalizeValidationRuntimeConfig(resolved.data || {});
-          setLicenseRuntimeConfig(licenseCache, runtimeConfig);
-        } catch (refreshErr) {
-          logger.warn?.('[启动] 验证后刷新平台名称失败:', refreshErr?.message || refreshErr);
-        }
-
-        try {
-          if (licenseCache && typeof licenseCache.setRuntimeConfig === 'function') {
-            licenseCache.setRuntimeConfig({
-              autoValidatePending: true,
-            });
-          }
-        } catch (flagErr) {
-          logger.warn?.('[启动] 写入自动验证标记失败:', flagErr?.message || flagErr);
-        }
-
-        try {
-          await bootstrapMainApp();
-        } catch (bootstrapErr) {
-          try {
-            if (licenseCache && typeof licenseCache.setRuntimeConfig === 'function') {
-              licenseCache.setRuntimeConfig({
-                autoValidatePending: false,
-              });
-            }
-          } catch (_) {}
-          throw bootstrapErr;
-        }
-
-        deps.revealMainWindow?.();
-        try {
-          if (typeof deps.sendToSide === 'function') {
-            deps.sendToSide('license-credentials-updated', {
-              key,
-              deviceId,
-            });
-          }
-        } catch (_) {}
-
-        deps.appendLicenseRecord({
-          key,
-          status: 'success',
-          platformName: String(resolved.data?.platformName || '').trim(),
-        });
-
-        return {
-          ok: true,
-          message: resolved.data?.message || '卡密有效'
-        };
-      } catch (e) {
-        return { ok: false, message: e?.message || String(e) };
-      }
-    });
-
     ipcMain.handle('license-close-window', async () => {
       try {
         return { ok: true };
@@ -790,7 +709,12 @@ function registerAppLifecycle(deps = {}) {
 
     try {
       const credentials = normalizeAccountSession(readStoreConfigSafe()?.userCredentials || {});
-      if (credentials.authenticated) {
+      const currentServerMode = getServerMode();
+      if (
+        credentials.authenticated
+        && credentials.serverMode === currentServerMode
+        && isServerBaseAllowedForMode(credentials.serverBase, currentServerMode)
+      ) {
         licenseCache?.setCredentials?.({ key: credentials.key, deviceId: credentials.deviceId });
         deps.applyResolvedConfigToStore?.({
           resolved: {
@@ -811,6 +735,8 @@ function registerAppLifecycle(deps = {}) {
         setLicenseRuntimeConfig(licenseCache, credentials.validation);
         licenseCache?.setRuntimeConfig?.({ autoValidatePending: false });
         logger.log?.('[账号] 已恢复账号登录状态:', credentials.username);
+      } else if (credentials.authenticated) {
+        logger.log?.(`[账号] 已忽略 ${credentials.serverMode} 模式的历史登录状态，当前为 ${currentServerMode} 模式`);
       }
       await bootstrapMainApp();
     } catch (e) {

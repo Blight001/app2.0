@@ -166,74 +166,84 @@
 
       <section id="personal-center-panel" class="side-panel personal-center-panel panel" aria-label="个人中心">
         <div class="container">
-          <div class="info-group">
-            <section id="sidebar-account-auth" class="sidebar-account-auth" aria-labelledby="sidebar-account-auth-title">
-              <div class="sidebar-auth-heading">
-                <div>
-                  <div class="sidebar-auth-eyebrow">AI-FREE Account</div>
-                  <h2 id="sidebar-account-auth-title">登录账号</h2>
-                </div>
-                <span class="sidebar-auth-state">未登录</span>
+          <div class="info-group account-profile-shell">
+            <section id="sidebar-account-session" class="account-profile-card" aria-label="账号资料卡">
+              <div class="account-profile-cover" aria-hidden="true">
+                <span>AI-FREE</span>
               </div>
-              <div class="sidebar-auth-tabs" role="tablist" aria-label="账号操作">
-                <button class="sidebar-auth-tab active" type="button" data-auth-mode="login" role="tab" aria-selected="true">登录</button>
-                <button class="sidebar-auth-tab" type="button" data-auth-mode="register" role="tab" aria-selected="false">注册</button>
-              </div>
-              <div class="sidebar-auth-form">
-                <div id="sidebar-auth-platform-group" class="sidebar-auth-field">
-                  <label id="sidebar-auth-platform-label" for="sidebar-auth-platform">登录平台（可自动查找）</label>
-                  <select id="sidebar-auth-platform" autocomplete="off">
-                    <option value="">正在加载平台...</option>
-                  </select>
+              <div class="account-profile-main">
+                <button id="account-profile-avatar" class="account-profile-avatar" type="button" aria-label="账号菜单" aria-haspopup="menu" aria-expanded="false">
+                  <img src="../../assets/logo.ico" alt="AI-FREE Logo">
+                  <span id="account-profile-presence" class="account-profile-presence"></span>
+                </button>
+                <div id="account-profile-menu" class="account-profile-menu" role="menu" hidden>
+                  <button id="account-logout-btn" type="button" role="menuitem">退出账号</button>
                 </div>
-                <div class="sidebar-auth-field">
-                  <label for="sidebar-auth-username">用户名</label>
-                  <input id="sidebar-auth-username" type="text" maxlength="32" placeholder="请输入用户名" autocomplete="username">
+                <div class="account-profile-identity">
+                  <input type="hidden" id="account-username-display" value="">
+                  <h2 id="account-profile-name">未登录</h2>
                 </div>
-                <div class="sidebar-auth-field">
-                  <label for="sidebar-auth-password">密码</label>
-                  <input id="sidebar-auth-password" type="password" maxlength="128" placeholder="请输入密码（至少 6 位）" autocomplete="current-password">
-                </div>
-                <div id="sidebar-auth-confirm-group" class="sidebar-auth-field" hidden>
-                  <label for="sidebar-auth-password-confirm">确认密码</label>
-                  <input id="sidebar-auth-password-confirm" type="password" maxlength="128" placeholder="请再次输入密码" autocomplete="new-password">
-                </div>
-                <button id="sidebar-auth-submit" class="sidebar-auth-submit" type="button" data-loading-text="登录中...">登录</button>
-              </div>
-              <div id="sidebar-auth-status" class="sidebar-auth-status" role="status" aria-live="polite"></div>
-            </section>
-
-            <section id="sidebar-account-session" class="sidebar-account-session" aria-label="当前账号" hidden>
-              <div class="form-group device-id-row">
-                <label for="device-id">设备号:</label>
-                <input type="text" id="device-id" value="" readonly>
-              </div>
-              <div class="form-group key-row account-session-row">
-                <label for="account-username-display">账号:</label>
-                <div class="key-input-shell">
-                  <input type="text" id="account-username-display" value="" placeholder="已登录账号" readonly>
-                  <button id="account-logout-btn" class="btn-blue" type="button">退出登录</button>
+                <div class="account-profile-actions">
+                  <button id="account-login-open-btn" class="account-profile-primary" type="button">登录账号</button>
+                  <button id="account-register-open-btn" class="account-profile-secondary" type="button">注册</button>
                 </div>
               </div>
-              <div class="info-line license-summary-line">
-                <div class="license-summary-item">
-                  <span>有效期: </span>
-                  <span id="expire-time">同步中</span>
+              <div class="account-profile-stats" aria-label="账号权益">
+                <div class="account-profile-stat">
+                  <span>有效期</span>
+                  <strong id="expire-time">登录后显示</strong>
                 </div>
-                <div class="license-summary-item">
-                  <span>剩余: </span>
-                  <span id="usage-times">同步中</span>
+                <div class="account-profile-stat">
+                  <span>剩余次数</span>
+                  <strong id="usage-times">登录后显示</strong>
                 </div>
               </div>
               <div class="sidebar-quota-redeem" aria-label="对话额度兑换">
-                <label class="sidebar-quota-redeem-label" for="ai-chat-gift-code">兑换额度</label>
+                <label class="sidebar-quota-redeem-label" for="ai-chat-gift-code">兑换码</label>
                 <div class="sidebar-quota-redeem-row">
-                  <input id="ai-chat-gift-code" maxlength="64" autocomplete="off" placeholder="输入礼品码充值对话额度" />
-                  <button id="ai-chat-redeem-gift" type="button">兑换</button>
+                  <input id="ai-chat-gift-code" maxlength="64" autocomplete="off" placeholder="登录后输入兑换码" disabled />
+                  <button id="ai-chat-redeem-gift" type="button" disabled>兑换</button>
                 </div>
               </div>
             </section>
+
+            <section id="sidebar-account-auth" class="sidebar-account-auth" aria-labelledby="sidebar-account-auth-title" aria-modal="true" role="dialog" hidden>
+              <button class="sidebar-auth-backdrop" type="button" data-auth-close aria-label="关闭账号窗口"></button>
+              <div class="sidebar-auth-dialog">
+                <div class="sidebar-auth-heading">
+                  <div class="sidebar-auth-brand">
+                    <img src="../../assets/logo.ico" alt="" aria-hidden="true">
+                    <div>
+                      <div class="sidebar-auth-eyebrow">AI-FREE ACCOUNT</div>
+                      <h2 id="sidebar-account-auth-title">登录账号</h2>
+                    </div>
+                  </div>
+                  <button id="sidebar-auth-close" class="sidebar-auth-close" type="button" data-auth-close aria-label="关闭">&times;</button>
+                </div>
+                <div class="sidebar-auth-tabs" role="tablist" aria-label="账号操作">
+                  <button class="sidebar-auth-tab active" type="button" data-auth-mode="login" role="tab" aria-selected="true">登录</button>
+                  <button class="sidebar-auth-tab" type="button" data-auth-mode="register" role="tab" aria-selected="false">注册</button>
+                </div>
+                <div class="sidebar-auth-form">
+                  <div class="sidebar-auth-field">
+                    <label for="sidebar-auth-username">用户名</label>
+                    <input id="sidebar-auth-username" type="text" maxlength="32" placeholder="请输入用户名" autocomplete="username">
+                  </div>
+                  <div class="sidebar-auth-field">
+                    <label for="sidebar-auth-password">密码</label>
+                    <input id="sidebar-auth-password" type="password" maxlength="128" placeholder="请输入密码（至少 6 位）" autocomplete="current-password">
+                  </div>
+                  <div id="sidebar-auth-confirm-group" class="sidebar-auth-field" hidden>
+                    <label for="sidebar-auth-password-confirm">确认密码</label>
+                    <input id="sidebar-auth-password-confirm" type="password" maxlength="128" placeholder="请再次输入密码" autocomplete="new-password">
+                  </div>
+                  <button id="sidebar-auth-submit" class="sidebar-auth-submit" type="button" data-loading-text="登录中...">登录</button>
+                </div>
+                <div id="sidebar-auth-status" class="sidebar-auth-status" role="status" aria-live="polite"></div>
+              </div>
+            </section>
             <div hidden aria-hidden="true">
+              <input type="text" id="device-id" value="" readonly>
               <input type="password" id="key-input" value="" tabindex="-1" autocomplete="off">
               <button id="validate-key-btn" type="button" tabindex="-1">同步账号状态</button>
             </div>
@@ -306,19 +316,6 @@
 
       <section id="ai-control-panel" class="ai-control-panel panel active" aria-label="AI 控制">
         <header class="ai-chat-header">
-          <div class="ai-chat-select-field ai-chat-browser-field">
-            <label for="ai-chat-browser">浏览器</label>
-            <div class="ai-select" data-ai-select="browser">
-              <select id="ai-chat-browser" class="ai-select-native" tabindex="-1" aria-hidden="true">
-                <option value="">不连接浏览器</option>
-              </select>
-              <button type="button" class="ai-select-trigger" id="ai-chat-browser-trigger" aria-haspopup="listbox" aria-expanded="false">
-                <span class="ai-select-value">不连接浏览器</span>
-                <span class="ai-select-chevron" aria-hidden="true"></span>
-              </button>
-              <ul class="ai-select-menu" role="listbox" hidden></ul>
-            </div>
-          </div>
           <div class="ai-chat-select-field ai-chat-history-field">
             <label for="ai-chat-history-trigger">对话</label>
             <div class="ai-select" data-ai-select="history" id="ai-chat-history-select">
@@ -329,12 +326,11 @@
               <ul class="ai-select-menu" id="ai-chat-history-menu" role="listbox" hidden></ul>
             </div>
           </div>
-          <button id="ai-chat-clear" class="ai-chat-clear" type="button" title="新建对话">新对话</button>
         </header>
         <div class="ai-chat-body">
           <div id="ai-chat-messages" class="ai-chat-messages" role="log" aria-live="polite">
             <div class="ai-chat-welcome">
-              <span class="ai-chat-welcome-icon">✦</span>
+              <img class="ai-chat-welcome-icon" src="../../assets/logo.ico" alt="" aria-hidden="true">
               <strong>有什么可以帮你？</strong>
               <p>选择管理员配置的模型，然后开始对话。</p>
             </div>
@@ -345,14 +341,17 @@
           <button id="ai-chat-send" type="submit" disabled aria-label="发送消息">↑</button>
         </form>
         <div class="ai-chat-footer-bar">
-          <div class="ai-chat-select-field ai-chat-model-field">
-            <div class="ai-select ai-select-sm ai-select-dropup" data-ai-select="model">
-              <select id="ai-chat-model" class="ai-select-native" disabled tabindex="-1" aria-hidden="true">
-                <option value="">正在读取可用模型...</option>
+          <div class="ai-chat-browser-gear-field">
+            <div class="ai-select ai-select-sm ai-select-dropup ai-browser-gear-select" data-ai-select="browser">
+              <select id="ai-chat-browser" class="ai-select-native" tabindex="-1" aria-hidden="true">
+                <option value="">不连接浏览器</option>
               </select>
-              <button type="button" class="ai-select-trigger" id="ai-chat-model-trigger" aria-haspopup="listbox" aria-expanded="false" disabled aria-label="选择模型">
-                <span class="ai-select-value">正在读取可用模型...</span>
-                <span class="ai-select-chevron" aria-hidden="true"></span>
+              <button type="button" class="ai-select-trigger ai-browser-gear-trigger" id="ai-chat-browser-trigger" aria-haspopup="listbox" aria-expanded="false" aria-label="选择浏览器插件" title="选择浏览器插件">
+                <svg class="ai-browser-gear-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 8.4a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2Z"></path>
+                  <path d="M19.2 13.4a7.7 7.7 0 0 0 0-2.8l2-1.5-2-3.4-2.4 1a8 8 0 0 0-2.4-1.4L14 2.8h-4l-.4 2.5a8 8 0 0 0-2.4 1.4l-2.4-1-2 3.4 2 1.5a7.7 7.7 0 0 0 0 2.8l-2 1.5 2 3.4 2.4-1a8 8 0 0 0 2.4 1.4l.4 2.5h4l.4-2.5a8 8 0 0 0 2.4-1.4l2.4 1 2-3.4-2-1.5Z"></path>
+                </svg>
+                <span class="ai-select-value ai-browser-gear-value">不连接浏览器</span>
               </button>
               <ul class="ai-select-menu" role="listbox" hidden></ul>
             </div>
@@ -361,6 +360,18 @@
             <div class="ai-chat-quota-ring" id="ai-chat-quota-ring" style="--quota-progress: 0%;">
               <div class="ai-chat-quota-ring-fill"></div>
               <span id="ai-chat-quota-value" class="ai-chat-quota-value">--</span>
+            </div>
+          </div>
+          <div class="ai-chat-select-field ai-chat-model-field">
+            <div class="ai-select ai-select-sm ai-select-dropup ai-model-inline-select" data-ai-select="model">
+              <select id="ai-chat-model" class="ai-select-native" disabled tabindex="-1" aria-hidden="true">
+                <option value="">正在读取可用模型...</option>
+              </select>
+              <button type="button" class="ai-select-trigger" id="ai-chat-model-trigger" aria-haspopup="listbox" aria-expanded="false" disabled aria-label="选择模型">
+                <span class="ai-select-value">正在读取可用模型...</span>
+                <span class="ai-select-chevron" aria-hidden="true"></span>
+              </button>
+              <ul class="ai-select-menu" role="listbox" hidden></ul>
             </div>
           </div>
         </div>

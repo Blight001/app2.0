@@ -4,6 +4,8 @@
     sessionList: [],
     currentSession: null,
     currentBrowserId: '',
+    browserSelectionInitialized: false,
+    accountAuthenticated: false,
     loading: false,
     generatingTitle: false,
     quota: null,
@@ -260,6 +262,10 @@
     const options = Array.from(select.options || []);
     const selected = options.find((opt) => opt.selected) || options[0] || null;
     valueEl.textContent = optionDisplayText(selected);
+    if (shell.dataset.aiSelect === 'browser') {
+      shell.classList.toggle('has-selection', Boolean(select.value));
+      trigger.title = selected?.textContent || '选择浏览器插件';
+    }
 
     menu.innerHTML = '';
     options.forEach((option) => {
@@ -459,18 +465,37 @@
     const currentId = String(state.currentSession?.id || '');
     const hasCurrentInList = sessions.some((item) => String(item.id) === currentId);
 
+    // 顶部固定：新建对话
+    const newBtn = document.createElement('button');
+    newBtn.type = 'button';
+    newBtn.className = 'ai-select-option-new';
+    newBtn.setAttribute('role', 'option');
+    newBtn.innerHTML = '<span class="ai-select-option-new-icon" aria-hidden="true">+</span><span>新建对话</span>';
+    newBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      closeSelect(shell);
+      void startNewConversation();
+    });
+    menu.appendChild(newBtn);
+
+    const divider = document.createElement('div');
+    divider.className = 'ai-select-option-divider';
+    divider.setAttribute('role', 'separator');
+    menu.appendChild(divider);
+
     // 当前草稿（尚未出现在历史列表）
-    if (currentId && !hasCurrentInList) {
+    if (currentId && !hasCurrentInList && currentMessages().length) {
       const draft = document.createElement('button');
       draft.type = 'button';
       draft.className = 'ai-select-option ai-select-option-history';
       draft.setAttribute('aria-selected', 'true');
       draft.innerHTML = `
         <span class="ai-select-option-label">
-          <span>${currentSessionTitle()}</span>
+          <span></span>
           <span class="ai-select-option-sub">当前对话</span>
         </span>
       `;
+      draft.querySelector('.ai-select-option-label > span').textContent = currentSessionTitle();
       draft.addEventListener('click', (event) => {
         event.preventDefault();
         closeSelect(shell);
@@ -478,7 +503,7 @@
       menu.appendChild(draft);
     }
 
-    if (!sessions.length && !(currentId && !hasCurrentInList)) {
+    if (!sessions.length && !(currentId && !hasCurrentInList && currentMessages().length)) {
       const empty = document.createElement('button');
       empty.type = 'button';
       empty.className = 'ai-select-option';
@@ -1165,8 +1190,10 @@
     container.innerHTML = '';
     const welcome = document.createElement('div');
     welcome.className = 'ai-chat-welcome';
-    const browserText = state.currentBrowserId ? '当前对话只控制所选浏览器。' : '当前未连接浏览器，将进行普通对话。';
-    welcome.innerHTML = `<span class="ai-chat-welcome-icon">✦</span><strong>有什么可以帮你？</strong><p>${browserText}</p>`;
+    const browserText = state.currentBrowserId
+      ? '已连接浏览器，AI 将在所选浏览器中执行操作。'
+      : '当前未连接浏览器，将进行普通对话。';
+    welcome.innerHTML = `<img class="ai-chat-welcome-icon" src="../../assets/logo.ico" alt="" aria-hidden="true"><strong>有什么可以帮你？</strong><p>${browserText}</p>`;
     container.appendChild(welcome);
     updateSessionTitleUi();
   }
@@ -1197,7 +1224,8 @@
     const send = el('ai-chat-send');
     const input = el('ai-chat-input');
     const model = el('ai-chat-model');
-    if (send) send.disabled = state.loading || !model?.value || !input?.value.trim();
+    const modelUnavailable = state.accountAuthenticated && !model?.value;
+    if (send) send.disabled = state.loading || modelUnavailable || !input?.value.trim();
   }
 
   async function loadModels() {
@@ -1209,6 +1237,13 @@
     syncSelectUi(select);
     setStatus('');
     try {
+      try {
+        const session = await window.electronAPI.invoke('account-get-session');
+        state.accountAuthenticated = session?.authenticated === true;
+      } catch (_) {
+        state.accountAuthenticated = false;
+      }
+      syncSendState();
       const result = await window.electronAPI.invoke('ai-control-get-models');
       if (!result?.ok) throw new Error(result?.message || result?.error || '模型加载失败');
       const models = Array.isArray(result.models) ? result.models : [];
@@ -1283,14 +1318,30 @@
         option.textContent = `${String(connection.name || 'AI自动化浏览器')}${connectionSuffix ? ` · ${connectionSuffix}` : ''} · ${Number(connection.toolCount || 0)} 个工具`;
         select.appendChild(option);
       });
-      select.value = connections.some((item) => String(item.id) === previous) ? previous : '';
+      const previousExists = connections.some((item) => String(item.id) === previous);
+      const firstConnectionId = String(connections[0]?.id || '');
+      const nextBrowserId = previousExists
+        ? previous
+        : (!state.browserSelectionInitialized ? firstConnectionId : '');
+      const selectionChanged = state.currentBrowserId !== nextBrowserId;
+      select.value = nextBrowserId;
       state.currentBrowserId = select.value;
+      if (state.currentBrowserId) state.browserSelectionInitialized = true;
+      if (state.currentSession && !currentMessages().length) {
+        state.currentSession.browserConnectionId = state.currentBrowserId;
+      }
       select.title = connections.length ? `已连接 ${connections.length} 个浏览器插件` : '未发现浏览器插件，请确认扩展和 AI-FREE 已启动';
       syncSelectUi(select);
+      if (selectionChanged && !currentMessages().length) renderWelcome();
     } catch (error) {
+      const selectionChanged = Boolean(state.currentBrowserId);
       select.innerHTML = '<option value="">未发现浏览器插件</option>';
       state.currentBrowserId = '';
+      if (state.currentSession && !currentMessages().length) {
+        state.currentSession.browserConnectionId = '';
+      }
       syncSelectUi(select);
+      if (selectionChanged && !currentMessages().length) renderWelcome();
       console.warn('[AI 控制] 浏览器连接读取失败:', error?.message || error);
     }
   }
@@ -1378,8 +1429,12 @@
   async function ensureAuthenticatedForChat() {
     try {
       const session = await window.electronAPI?.invoke?.('account-get-session');
-      if (session?.authenticated === true) return true;
+      state.accountAuthenticated = session?.authenticated === true;
+      syncSendState();
+      if (state.accountAuthenticated) return true;
     } catch (_) {}
+    state.accountAuthenticated = false;
+    syncSendState();
     openPersonalLogin();
     return false;
   }
@@ -1389,10 +1444,11 @@
     const input = el('ai-chat-input');
     const select = el('ai-chat-model');
     const content = String(input?.value || '').trim();
-    if (!content || !select?.value) return;
+    if (!content) return;
 
     // 登录校验必须发生在写入对话和调用 AI 接口之前，未登录时仅切换栏目并显示本地弹窗。
     if (!await ensureAuthenticatedForChat()) return;
+    if (!select?.value) return;
 
     ensureSessionForSend();
 
@@ -1558,15 +1614,14 @@
       }
     });
     el('ai-chat-browser')?.addEventListener('change', (event) => {
+      state.browserSelectionInitialized = true;
       state.currentBrowserId = String(event.target?.value || '');
       if (state.currentSession) {
         state.currentSession.browserConnectionId = state.currentBrowserId;
         if (currentMessages().length) void persistCurrentSession();
       }
+      if (!currentMessages().length) renderWelcome();
       syncSendState();
-    });
-    el('ai-chat-clear')?.addEventListener('click', () => {
-      void startNewConversation();
     });
     el('ai-chat-form')?.addEventListener('submit', (event) => {
       event.preventDefault();

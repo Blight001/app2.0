@@ -2,6 +2,7 @@
 const { NETWORK_DIAG_CONFIG, getServerBase, setRuntimeServerBase } = require('../config');
 const { postJson, postEventStream, getJson } = require('./http');
 const { executeHttpRequest } = require('./http-client/transport-request');
+const { isServerBaseAllowedForMode } = require('../utils/server-mode');
 
 // HTTP 客户端：负责把客户端请求通过 HTTP 发送到服务器。
 class HttpClient {
@@ -27,9 +28,11 @@ class HttpClient {
         try {
             const url = new URL(text.includes('://') ? text : `http://${text}`);
             const pathname = String(url.pathname || '').replace(/\/+$/, '');
-            return `${url.protocol}//${url.host}${pathname === '/' ? '' : pathname}`.replace(/\/+$/, '');
+            const normalized = `${url.protocol}//${url.host}${pathname === '/' ? '' : pathname}`.replace(/\/+$/, '');
+            return isServerBaseAllowedForMode(normalized) ? normalized : '';
         } catch (_) {
-            return text.replace(/\/+$/, '');
+            const normalized = text.replace(/\/+$/, '');
+            return isServerBaseAllowedForMode(normalized) ? normalized : '';
         }
     }
 
@@ -44,24 +47,32 @@ class HttpClient {
             source.address_HTTP,
             source.addressHttp,
             source.address_http,
+            source.client_address,
+            source.clientAddress,
             source.address,
             source.result?.serverBase,
             source.result?.server_base,
             source.result?.address_HTTP,
             source.result?.addressHttp,
             source.result?.address_http,
+            source.result?.client_address,
+            source.result?.clientAddress,
             source.result?.address,
             source.data?.serverBase,
             source.data?.server_base,
             source.data?.address_HTTP,
             source.data?.addressHttp,
             source.data?.address_http,
+            source.data?.client_address,
+            source.data?.clientAddress,
             source.data?.address,
             source.payload?.serverBase,
             source.payload?.server_base,
             source.payload?.address_HTTP,
             source.payload?.addressHttp,
             source.payload?.address_http,
+            source.payload?.client_address,
+            source.payload?.clientAddress,
             source.payload?.address,
         ];
 
@@ -478,15 +489,16 @@ function normalizeValidationRuntimeConfig(source = {}) {
         })).filter((item) => item.name && item.targetUrl)
         : [];
 
-    const serverBase = String(
-        input.address_HTTP
-        ?? input.addressHttp
-        ?? input.address_http
-        ?? input.serverBase
-        ?? input.server_base
-        ?? input.address
-        ?? ''
-    ).trim();
+    const serverBase = [
+        input.address_HTTP,
+        input.addressHttp,
+        input.address_http,
+        input.client_address,
+        input.clientAddress,
+        input.serverBase,
+        input.server_base,
+        input.address,
+    ].map((value) => String(value || '').trim()).find(Boolean) || '';
 
     return {
         platformName,

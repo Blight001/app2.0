@@ -152,15 +152,17 @@ function applyValidationFailureState({ disableLicenseButtons = false } = {}) {
 function resetLicenseSummaryDisplay() {
   const expireEl = safeGetEl('expire-time');
   const usageEl = safeGetEl('usage-times');
+  const accountLoggedIn = safeGetEl('sidebar-account-session')?.dataset.authenticated === 'true';
+  const emptyText = accountLoggedIn ? '未验证' : '登录后显示';
 
   if (expireEl) {
-    expireEl.textContent = '未验证';
-    expireEl.style.color = '#e6a23c';
+    expireEl.textContent = emptyText;
+    expireEl.style.color = accountLoggedIn ? '#e6a23c' : '';
   }
 
   if (usageEl) {
-    usageEl.textContent = '未验证';
-    usageEl.style.color = '#e6a23c';
+    usageEl.textContent = emptyText;
+    usageEl.style.color = accountLoggedIn ? '#e6a23c' : '';
   }
 }
 
@@ -196,6 +198,7 @@ function displayExpirationInfo(result) {
       : null;
     const expireAt = payload.expire_at
       || payload.expireAt
+      || payload.expiry_date
       || payload.expiryDate
       || payload.cardExpiryDate
       || licenseUsage?.expire_at

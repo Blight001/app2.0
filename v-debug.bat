@@ -11,9 +11,9 @@ if errorlevel 1 (
 )
 
 rem Local debug target. Adjust to your own local service.
-set "SERVER_BASE=http://127.0.0.1:59000"
-set "LOCAL_SERVER_RESOLVER_URL=http://127.0.0.1:59000/api/server_main/card-status/search"
-set "SERVER_MAIN_CARD_STATUS_SEARCH_URL=http://127.0.0.1:59000/api/server_main/card-status/search"
+set "AI_FREE_SERVER_MODE=local"
+set "SERVER_BASE=http://127.0.0.1:58111"
+set "ACCOUNT_SERVICE_URL=http://127.0.0.1:58111/api/account"
 set "PLATFORM=local"
 set "DEBUG=1"
 set "FORCE_HTTP_COMPAT_MODE=1"

@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const ICON_FILE_NAME = 'seedance2.0.ico';
-const DEV_ICON_PATH = path.resolve(__dirname, '../../../../src/assets/seedance2.0.ico');
+const ICON_FILE_NAME = 'logo.ico';
+const DEV_ICON_PATH = path.resolve(__dirname, '../../../../src/assets/logo.ico');
 const PACKAGED_ICON_PATH = path.join('resource', ICON_FILE_NAME);
 
 // 获取/读取/解析：resolveAppIconPath的具体业务逻辑。

@@ -6,7 +6,7 @@ Current package version: `2.5.7`
 
 ## What It Does
 
-- Switches target platforms through `config/platforms-config.json`
+- Connects to the configured single-platform account service through `docs/config/platforms-config.json`
 - Boots the app through the Electron main process under `src/app/main`
 - Ships bundled extensions and helper modules under `src/assets/extensions`
 - Uses lightweight startup scripts in `scripts/` and `scripts/windows/`
@@ -85,7 +85,7 @@ The main runtime settings live in `config/platforms-config.json`.
 Important fields:
 
 - `platforms`: app metadata such as `name`, `appId`, and icon paths
-- `localResolver`: HTTP endpoint and timeout settings used to locate a card's platform
+- `accountService`: HTTP endpoint and timeout settings for the single-platform account service
 - `platformConfigs.targetUrl`: default target page loaded by the app
 - `platformConfigs.tutorialUrl`: tutorial link used by the UI
 - `platformConfigs.allowedPlatforms`: allowed platform labels for validation

@@ -130,7 +130,7 @@ try {
   }
 const tabs = appRuntime.tabs;
 const APP_DISPLAY_NAME = 'AI-FREE';
-const FIXED_ICON_RELATIVE_PATH = 'src/assets/seedance2.0.ico';
+const FIXED_ICON_RELATIVE_PATH = 'src/assets/logo.ico';
 global.__APP_SESSION_ID__ = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 
 let addTab;
@@ -597,9 +597,7 @@ registerAppLifecycle({
   browserAutomationBridge,
 
   shortcutManager,
-  resolveServerConfigForKey: serverResolver.resolveServerConfigForKey,
   authenticateAccount: serverResolver.authenticateAccount,
-  getAccountPlatforms: serverResolver.getAccountPlatforms,
   applyResolvedConfigToStore: serverResolver.applyResolvedConfigToStore,
   refreshAllowedPlatformsAndNotify,
   setRuntimeServerBase,

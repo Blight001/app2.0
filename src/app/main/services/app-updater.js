@@ -147,7 +147,7 @@ async function openDownloadPageAndAutoClick({
     width: 1280,
     height: 900,
     icon: (() => {
-      const candidate = process.resourcesPath ? path.join(process.resourcesPath, 'resource', 'seedance2.0.ico') : '';
+      const candidate = process.resourcesPath ? path.join(process.resourcesPath, 'resource', 'logo.ico') : '';
       return candidate && fs.existsSync(candidate) ? candidate : undefined;
     })(),
     webPreferences: {

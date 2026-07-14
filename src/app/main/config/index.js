@@ -1,6 +1,7 @@
 const path = require('path');
 const { app } = require('electron');
 const fs = require('fs');
+const { isServerBaseAllowedForMode } = require('../utils/server-mode');
 
 // 集中配置与常量（可通过环境变量覆盖）
 
@@ -43,10 +44,10 @@ function normalizeTcpPort(port, fallback = 58113) {
 function readPlatformsConfigSafe() {
   try {
     const candidates = [
-      path.join(app.getAppPath ? app.getAppPath() : '', 'docs', 'config', 'platforms-config.json'),
+      path.join(app?.getAppPath ? app.getAppPath() : '', 'docs', 'config', 'platforms-config.json'),
       path.join(process.cwd(), 'docs', 'config', 'platforms-config.json'),
       path.join(__dirname, '../../../../docs/config/platforms-config.json'),
-      path.join(app.getAppPath ? app.getAppPath() : '', 'config', 'platforms-config.json'),
+      path.join(app?.getAppPath ? app.getAppPath() : '', 'config', 'platforms-config.json'),
       path.join(process.cwd(), 'config', 'platforms-config.json'),
       path.join(__dirname, '../../../../config/platforms-config.json'),
       path.join(__dirname, '../../../../platforms-config.json'),
@@ -256,17 +257,50 @@ function getServerBase() {
   try {
     const httpCompatMode = isHttpCompatModeEnabled();
 
+    const useCandidate = (value) => {
+      const normalized = String(value || '').trim().replace(/\/+$/, '');
+      return isServerBaseAllowedForMode(normalized) ? normalized : '';
+    };
+
     if (httpCompatMode && RUNTIME_SERVER_BASE && typeof RUNTIME_SERVER_BASE === 'string') {
-      return RUNTIME_SERVER_BASE.replace(/\/+$/, '');
+      const runtimeBase = useCandidate(RUNTIME_SERVER_BASE);
+      if (runtimeBase) return runtimeBase;
     }
 
     const envBase = process.env.SERVER_BASE;
     if (envBase && typeof envBase === 'string') {
-      return envBase.replace(/\/+$/, '');
+      const configuredBase = useCandidate(envBase);
+      if (configuredBase) return configuredBase;
     }
 
     if (RUNTIME_SERVER_BASE && typeof RUNTIME_SERVER_BASE === 'string') {
-      return RUNTIME_SERVER_BASE.replace(/\/+$/, '');
+      const runtimeBase = useCandidate(RUNTIME_SERVER_BASE);
+      if (runtimeBase) return runtimeBase;
+    }
+
+    // 模型列表允许匿名读取。尚未登录时，从账号服务入口推导客户端 HTTP 根地址，
+    // 例如 http://host:58111/api/account -> http://host:58111。
+    const platformsConfig = readPlatformsConfigSafe();
+    const platformKey = String(process.env.PLATFORM || platformsConfig.defaultPlatform || 'default').trim();
+    const platformConfig = (platformsConfig.platformConfigs || {})[platformKey] || {};
+    const accountService = platformConfig.accountService || platformsConfig.accountService || {};
+    const accountServiceUrl = String(
+      accountService.url
+      || (Array.isArray(accountService.urls) ? accountService.urls[0] : '')
+      || platformConfig.accountServiceUrl
+      || platformsConfig.accountServiceUrl
+      || ''
+    ).trim();
+    if (accountServiceUrl) {
+      try {
+        const parsed = new URL(accountServiceUrl);
+        const accountPathIndex = parsed.pathname.indexOf('/api/account');
+        parsed.pathname = accountPathIndex >= 0 ? parsed.pathname.slice(0, accountPathIndex) || '/' : '/';
+        parsed.search = '';
+        parsed.hash = '';
+        const configuredBase = useCandidate(parsed.toString());
+        if (configuredBase) return configuredBase;
+      } catch (_) {}
     }
 
     const cfg = getStoreConfig() || {};
@@ -278,7 +312,8 @@ function getServerBase() {
       cfg.apiBase ||
       cfg.api_base;
     if (directBase && typeof directBase === 'string') {
-      return directBase.replace(/\/+$/, '');
+      const configuredBase = useCandidate(directBase);
+      if (configuredBase) return configuredBase;
     }
 
     const httpCfg = cfg.http || cfg.httpServer || cfg.server || cfg.api;
@@ -287,7 +322,8 @@ function getServerBase() {
       const host = httpCfg.host || httpCfg.hostname;
       const port = httpCfg.port || httpCfg.httpPort || httpCfg.http_port;
       if (host) {
-        return `${protocol}://${host}${port ? `:${port}` : ''}`.replace(/\/+$/, '');
+        const configuredBase = useCandidate(`${protocol}://${host}${port ? `:${port}` : ''}`);
+        if (configuredBase) return configuredBase;
       }
     }
 
@@ -299,7 +335,8 @@ function getServerBase() {
       port = Number(tcp.port);
     }
     if (host) {
-      return `http://${host}${port ? `:${port}` : ''}`.replace(/\/+$/, '');
+      const fallbackBase = useCandidate(`http://${host}${port ? `:${port}` : ''}`);
+      if (fallbackBase) return fallbackBase;
     }
   } catch (_) {}
   return '';
@@ -370,7 +407,8 @@ function setRuntimeTcpConfig(tcpConfig = null) {
 
 // 设置运行时 HTTP 基址覆盖值。
 function setRuntimeServerBase(serverBase = '') {
-  RUNTIME_SERVER_BASE = String(serverBase || '').trim();
+  const candidate = String(serverBase || '').trim().replace(/\/+$/, '');
+  RUNTIME_SERVER_BASE = isServerBaseAllowedForMode(candidate) ? candidate : '';
   return RUNTIME_SERVER_BASE;
 }
 

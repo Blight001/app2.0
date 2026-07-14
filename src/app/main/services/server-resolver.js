@@ -1,3 +1,5 @@
+const { isServerBaseAllowedForMode } = require('../utils/server-mode');
+
 function normalizeTimeoutMs(value, fallbackMs = 8000) {
   const num = Number(value);
   if (!Number.isFinite(num) || num <= 0) return fallbackMs;
@@ -20,56 +22,30 @@ function collectUrlCandidates(normalizeUrl, ...groups) {
   return result;
 }
 
-// 创建/初始化：createServerResolver的具体业务逻辑。
 function createServerResolver(deps = {}) {
   const {
     fs,
     path,
     postJson,
     getServerBase,
-    extractValidationState,
-    getValidationFailureMessage,
-    readStoreConfigSafe,
-    writeStoreConfigSafe,
     licenseCache,
     setRuntimeTcpConfig = () => {},
     setRuntimeServerBase = () => {},
-    getCurrentPlatformLabel = () => '未知平台',
     logger = console,
   } = deps;
 
-  const RESOLVER_STATE_TEXT_MAP = {
-    active: '卡密有效',
-    disabled: '卡密已被禁用',
-    expired: '卡密已过期',
-    not_found: '卡密不存在',
-    pending: '卡密暂未生效',
-    revoked: '卡密已被撤销',
-  };
-
-// 处理：detectPlatformKeyFromRuntime的具体业务逻辑。
   function detectPlatformKeyFromRuntime() {
     try {
-      const cfg = readPlatformsConfigSafe();
-      const defaultPlatform = String(cfg?.defaultPlatform || '').trim();
+      const defaultPlatform = String(readPlatformsConfigSafe()?.defaultPlatform || '').trim();
       if (defaultPlatform) return defaultPlatform;
     } catch (_) {}
     try {
       const fromEnv = String(process.env.PLATFORM || '').trim();
       if (fromEnv) return fromEnv;
     } catch (_) {}
-    try {
-      const pkg = require('../../../../package.json');
-      const appName = String((pkg && pkg.name) || '').toLowerCase();
-      if (appName.includes('seedance2.0') || appName.includes('seedance2_0')) return 'seedance2.0';
-      if (appName.includes('xiaoyunque')) return 'xiaoyunque';
-      if (appName.includes('banana')) return 'banana';
-      if (appName.includes('local')) return 'local';
-    } catch (_) {}
     return 'default';
   }
 
-// 获取/读取/解析：readPlatformsConfigSafe的具体业务逻辑。
   function readPlatformsConfigSafe() {
     try {
       const candidates = [
@@ -77,17 +53,16 @@ function createServerResolver(deps = {}) {
         path.join(__dirname, '../../../../config/platforms-config.json'),
         path.join(__dirname, '../../../../platforms-config.json'),
       ];
-      for (const platformsConfigPath of candidates) {
-        if (!fs.existsSync(platformsConfigPath)) continue;
-        return JSON.parse(fs.readFileSync(platformsConfigPath, 'utf8'));
+      for (const configPath of candidates) {
+        if (!fs.existsSync(configPath)) continue;
+        return JSON.parse(fs.readFileSync(configPath, 'utf8'));
       }
-      return {};
-    } catch (_) {
-      return {};
+    } catch (error) {
+      logger.warn?.('[配置] 读取平台配置失败:', error?.message || error);
     }
+    return {};
   }
 
-// 获取/读取/解析：getPlatformDefaultConfig的具体业务逻辑。
   function getPlatformDefaultConfig(platformKey) {
     const cfg = readPlatformsConfigSafe();
     const platformConfigs = cfg.platformConfigs || {};
@@ -98,57 +73,6 @@ function createServerResolver(deps = {}) {
     return firstKey ? (platformConfigs[firstKey] || {}) : {};
   }
 
-// 格式化/规范化：normalizeCardStatusSearchUrl的具体业务逻辑。
-  function normalizeCardStatusSearchUrl(rawUrl) {
-    const value = String(rawUrl || '').trim();
-    if (!value) return '';
-
-    const CARD_STATUS_SEARCH_PATH = '/api/server_main/card-status/search';
-    const LEGACY_CARD_STATUS_SEARCH_PATH = '/api/server_vue/card-status/search';
-
-    try {
-      const url = new URL(value);
-      const pathname = url.pathname || '';
-
-      if (pathname.includes(CARD_STATUS_SEARCH_PATH)) {
-        url.pathname = pathname.replace(/\/+$/, '');
-      } else if (pathname.includes(LEGACY_CARD_STATUS_SEARCH_PATH)) {
-        url.pathname = pathname.replace(LEGACY_CARD_STATUS_SEARCH_PATH, CARD_STATUS_SEARCH_PATH).replace(/\/+$/, '');
-      } else if (pathname.endsWith('/api/card/search_platform')) {
-        url.pathname = CARD_STATUS_SEARCH_PATH;
-      } else if (pathname === '/' || pathname === '' || pathname === '/api' || pathname === '/api/') {
-        url.pathname = CARD_STATUS_SEARCH_PATH;
-      } else {
-        url.pathname = `${pathname.replace(/\/+$/, '')}${CARD_STATUS_SEARCH_PATH}`;
-      }
-
-      url.search = '';
-      return url.toString().replace(/\/+$/, '');
-    } catch (_) {
-      if (value.includes(CARD_STATUS_SEARCH_PATH)) {
-        return value.replace(/\/+$/, '');
-      }
-      if (value.includes('/api/card/search_platform')) {
-        return value.replace(/\/api\/card\/search_platform\/?$/, CARD_STATUS_SEARCH_PATH);
-      }
-      return `${value.replace(/\/+$/, '')}${CARD_STATUS_SEARCH_PATH}`;
-    }
-  }
-
-// 获取/读取/解析：resolveHostFromAddress的具体业务逻辑。
-  function resolveHostFromAddress(address) {
-    const raw = String(address || '').trim();
-    if (!raw) return '';
-    try {
-      const url = new URL(raw.includes('://') ? raw : `http://${raw}`);
-      return url.hostname || '';
-    } catch (_) {
-      const stripped = raw.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-      return (stripped.split('/')[0] || '').split(':')[0] || '';
-    }
-  }
-
-// 获取/读取/解析：resolveServerBaseFromAddress的具体业务逻辑。
   function resolveServerBaseFromAddress(address) {
     const raw = String(address || '').trim();
     if (!raw) return '';
@@ -161,678 +85,167 @@ function createServerResolver(deps = {}) {
     }
   }
 
-// 服务端注册表可能保存内部回环地址；公网搜索命中时，用实际搜索节点的主机名替换它。
-  function publishLoopbackAddress(address, resolverUrl) {
+  function publishLoopbackAddress(address, serviceUrl) {
     const raw = String(address || '').trim();
-    const resolverRaw = String(resolverUrl || '').trim();
-    if (!raw || !resolverRaw) return raw;
-
+    const serviceRaw = String(serviceUrl || '').trim();
+    if (!raw || !serviceRaw) return raw;
     try {
       const target = new URL(raw.includes('://') ? raw : `http://${raw}`);
-      const resolver = new URL(resolverRaw.includes('://') ? resolverRaw : `http://${resolverRaw}`);
+      const service = new URL(serviceRaw.includes('://') ? serviceRaw : `http://${serviceRaw}`);
       const targetHost = String(target.hostname || '').toLowerCase();
-      const resolverHost = String(resolver.hostname || '').toLowerCase();
-      const targetIsLoopback = targetHost === 'localhost'
-        || targetHost === '::1'
-        || /^127(?:\.|$)/.test(targetHost);
-      const resolverIsLoopback = resolverHost === 'localhost'
-        || resolverHost === '::1'
-        || /^127(?:\.|$)/.test(resolverHost);
-      if (!targetIsLoopback || !resolverHost || resolverIsLoopback) return raw;
-
-      // 保留服务端返回的协议、58111 端口和租户路径，只替换不可从远程访问的主机。
-      target.hostname = resolver.hostname;
+      const serviceHost = String(service.hostname || '').toLowerCase();
+      const isLoopback = (host) => host === 'localhost' || host === '::1' || /^127(?:\.|$)/.test(host);
+      if (!isLoopback(targetHost) || !serviceHost || isLoopback(serviceHost)) return raw;
+      target.hostname = service.hostname;
       return target.toString().replace(/\/+$/, '');
     } catch (_) {
       return raw;
     }
   }
 
-// 获取/读取/解析：resolveTcpAddressMeta的具体业务逻辑。
   function resolveTcpAddressMeta(address) {
     const raw = String(address || '').trim();
     if (!raw) return null;
-
     try {
       const url = new URL(raw.includes('://') ? raw : `tcp://${raw}`);
       const host = String(url.hostname || '').trim();
       const port = Number(url.port);
-      if (!host || !Number.isFinite(port) || port <= 0) {
-        return null;
-      }
-      return {
-        host,
-        port: Math.round(port),
-      };
+      if (!host || !Number.isFinite(port) || port <= 0) return null;
+      return { host, port: Math.round(port) };
     } catch (_) {
       const stripped = raw.replace(/^tcp:\/\//i, '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
       const [hostPart, portPart] = stripped.split(':');
       const port = Number(portPart);
-      if (!hostPart || !Number.isFinite(port) || port <= 0) {
-        return null;
-      }
-      return {
-        host: hostPart.trim(),
-        port: Math.round(port),
-      };
+      if (!hostPart || !Number.isFinite(port) || port <= 0) return null;
+      return { host: hostPart.trim(), port: Math.round(port) };
     }
   }
 
-// 处理：isCardExpiredByDate的具体业务逻辑。
-  function isCardExpiredByDate(value) {
-    const raw = String(value || '').trim();
-    if (!raw) return false;
-
-    const parsed = new Date(raw);
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed.getTime() <= Date.now();
+  function normalizeAccountServiceUrl(rawUrl) {
+    const value = String(rawUrl || '').trim();
+    if (!value) return '';
+    try {
+      const url = new URL(value);
+      const pathname = String(url.pathname || '').replace(/\/+$/, '');
+      const accountApiIndex = pathname.indexOf('/api/account');
+      url.pathname = accountApiIndex >= 0
+        ? `${pathname.slice(0, accountApiIndex)}/api/account`
+        : `${pathname === '/' ? '' : pathname}/api/account`;
+      url.search = '';
+      url.hash = '';
+      return url.toString().replace(/\/+$/, '');
+    } catch (_) {
+      return `${value.replace(/\/+$/, '')}/api/account`;
     }
-
-    const dateOnly = raw.match(/^(\d{4}-\d{2}-\d{2})$/);
-    if (dateOnly) {
-      const endOfDay = new Date(`${dateOnly[1]}T23:59:59.999`);
-      if (!Number.isNaN(endOfDay.getTime())) {
-        return endOfDay.getTime() <= Date.now();
-      }
-    }
-
-    return false;
   }
 
-// 获取/读取/解析：resolveCardStatusSearchConfig的具体业务逻辑。
-  function resolveCardStatusSearchConfig() {
+  function resolveAccountServiceConfig() {
     try {
       const platformKey = detectPlatformKeyFromRuntime();
       const cfg = readPlatformsConfigSafe();
-// 处理：platformCfg的具体业务逻辑。
       const platformCfg = (cfg.platformConfigs || {})[platformKey] || {};
-      const rootResolver = cfg.localResolver || {};
-      const platformResolver = platformCfg.localResolver || {};
-
-// 处理：timeoutSource的具体业务逻辑。
-      const timeoutSource = (
-        platformCfg.cardStatusSearchTimeoutSec
-        || cfg.cardStatusSearchTimeoutSec
-        || platformCfg.cardStatusSearchTimeoutMs
-        || cfg.cardStatusSearchTimeoutMs
-        || platformCfg.localResolverTimeoutSec
-        || cfg.localResolverTimeoutSec
-        || platformCfg.localResolverTimeoutMs
-        || cfg.localResolverTimeoutMs
-        || platformResolver.timeoutSec
-        || rootResolver.timeoutSec
-        || platformResolver.timeoutMs
-        || rootResolver.timeoutMs
-        || 8
-      );
-
-      const candidateUrls = [
-        process.env.SERVER_MAIN_CARD_STATUS_SEARCH_URL,
-        process.env.SERVER_VUE_CARD_STATUS_SEARCH_URL,
-        platformCfg.cardStatusSearchUrl,
-        cfg.cardStatusSearchUrl,
-        platformResolver.url,
-        rootResolver.url,
-        platformCfg.cardQueryUrl,
-        cfg.cardQueryUrl,
-        platformCfg.serverBase,
-        cfg.serverBase,
-        getServerBase(),
-      ];
-
-      const configuredUrls = collectUrlCandidates(
-        normalizeCardStatusSearchUrl,
-        process.env.SERVER_MAIN_CARD_STATUS_SEARCH_URL,
-        process.env.SERVER_VUE_CARD_STATUS_SEARCH_URL,
-        platformResolver.url,
-        platformResolver.urls,
-        rootResolver.url,
-        rootResolver.urls,
-        platformCfg.cardStatusSearchUrl,
-        platformCfg.cardStatusSearchUrls,
-        cfg.cardStatusSearchUrl,
-        cfg.cardStatusSearchUrls,
-        platformResolver.fallbackUrls,
-        rootResolver.fallbackUrls,
-        platformCfg.cardQueryUrl,
-        cfg.cardQueryUrl,
-        platformCfg.serverBase,
-        cfg.serverBase
-      );
-
-      for (const candidate of [...configuredUrls, ...candidateUrls]) {
-        if (candidate) {
-          return {
-            url: candidate,
-            urls: configuredUrls.length > 0 ? configuredUrls : [candidate],
-            timeoutMs: normalizeTimeoutMs(timeoutSource, 8000),
-          };
-        }
-      }
-
-      const fallbackServerBase = getServerBase();
-      if (fallbackServerBase) {
-        const normalizedFallback = normalizeCardStatusSearchUrl(fallbackServerBase);
-        return {
-          url: normalizedFallback,
-          urls: normalizedFallback ? [normalizedFallback] : [],
-          timeoutMs: normalizeTimeoutMs(timeoutSource, 8000),
-        };
-      }
-    } catch (e) {
-      logger.warn?.('[配置] 读取卡密搜索配置失败:', e?.message || e);
-    }
-
-    return null;
-  }
-
-// 格式化/规范化：normalizeCardStatusSearchResponse的具体业务逻辑。
-  function normalizeCardStatusSearchResponse(resp, resolverUrl = '') {
-// 处理：body的具体业务逻辑。
-    const body = (resp && resp.body && typeof resp.body === 'object')
-      ? resp.body
-      : ((resp && typeof resp === 'object') ? resp : {});
-    const card = body.card && typeof body.card === 'object' ? body.card : {};
-    const server = body.server && typeof body.server === 'object' ? body.server : {};
-
-    const activationCode = String(
-      body.activation_code
-      || body.activationCode
-      || body.card
-      || body.card_code
-      || card.card_code
-      || card.activation_code
-      || card.activationCode
-      || body.key
-      || ''
-    ).trim();
-
-    const expiryDate = String(
-      body.expiry_date
-      || body.expiryDate
-      || body.expire_at
-      || body.expireAt
-      || body.expires_at
-      || body.expiresAt
-      || card.expiry_date
-      || card.expiryDate
-      || card.expire_at
-      || card.expireAt
-      || card.expires_at
-      || card.expiresAt
-      || card.expiration_date
-      || card.expirationDate
-      || ''
-    ).trim();
-
-    const rawState = extractValidationState(body)
-      || extractValidationState(card)
-      || (body.success === true || body.ok === true ? 'active' : '');
-    const expiredByDate = isCardExpiredByDate(expiryDate);
-    const effectiveState = expiredByDate && rawState === 'active'
-      ? 'expired'
-      : (rawState || (expiredByDate ? 'expired' : ''));
-    const stateText = RESOLVER_STATE_TEXT_MAP[effectiveState] || '';
-
-    const failureMessage = effectiveState === 'active'
-      ? ''
-      : (
-          expiredByDate
-            ? '卡密已过期'
-            : getValidationFailureMessage(
-                body,
-                getValidationFailureMessage(
-                  card,
-                  body.error || body.message || body.msg || stateText || '卡密无效'
-                )
-              )
-        );
-
-    const rawServerAddress = String(
-      body.address
-      || body.address_HTTP
-      || body.addressHttp
-      || body.address_http
-      || server.address
-      || server.address_HTTP
-      || server.addressHttp
-      || server.address_http
-      || body.client_address
-      || body.clientAddress
-      || server.server_address
-      || body.server_address
-      || body.serverBase
-      || body.server_base
-      || ''
-    ).trim();
-    const serverAddress = publishLoopbackAddress(rawServerAddress, resolverUrl);
-
-    const rawServerAddressHttp = String(
-      body.address_HTTP
-      || body.addressHttp
-      || body.address_http
-      || server.address_HTTP
-      || server.addressHttp
-      || server.address_http
-      || body.serverBase
-      || body.server_base
-      || server.server_address
-      || body.address
-      || body.client_address
-      || body.clientAddress
-      || server.address
-      || server.server_address
-      || body.server_address
-      || body.serverBase
-      || body.server_base
-      || ''
-    ).trim();
-    const serverAddressHttp = publishLoopbackAddress(rawServerAddressHttp, resolverUrl);
-
-    const serverBase = resolveServerBaseFromAddress(serverAddressHttp)
-      || resolveServerBaseFromAddress(serverAddress)
-      || String(body.address_HTTP || body.addressHttp || body.address_http || body.address || body.serverBase || body.server_base || '').trim();
-    const rawTcpAddress = String(
-      body.address_TCP
-      || body.addressTcp
-      || body.address_tcp
-      || server.address_TCP
-      || server.addressTcp
-      || server.address_tcp
-      || ''
-    ).trim();
-    const tcpAddress = publishLoopbackAddress(rawTcpAddress, resolverUrl);
-    const loopbackAddressRewritten = serverAddress !== rawServerAddress
-      || serverAddressHttp !== rawServerAddressHttp
-      || tcpAddress !== rawTcpAddress;
-    const tcpMetaFromAddress = resolveTcpAddressMeta(tcpAddress);
-    const host = resolveHostFromAddress(tcpAddress)
-      || String(server.server_ip || server.ip || body.server_ip || body.ip || body.host || '').trim();
-// 处理：tcpSource的具体业务逻辑。
-    const tcpSource = (body.tcp && typeof body.tcp === 'object')
-      ? body.tcp
-      : ((server && typeof server.tcp === 'object') ? server.tcp : {});
-    const tcpHost = String(
-      tcpSource.host
-      || tcpSource.hostname
-      || body.tcp_host
-      || body.tcpHost
-      || tcpMetaFromAddress?.host
-      || ''
-    ).trim();
-    const tcpPort = Number(
-      tcpSource.port
-      || body.tcp_port
-      || body.tcpPort
-      || tcpMetaFromAddress?.port
-      || 0
-    );
-// 处理：tcpTransportSource的具体业务逻辑。
-    const tcpTransportSource = (tcpSource.transport && typeof tcpSource.transport === 'object')
-      ? tcpSource.transport
-      : ((body.transport && typeof body.transport === 'object') ? body.transport : {});
-    const serverId = String(server.id || body.server_id || body.serverId || '').trim();
-    const platformName = String(
-      body.platform
-      || body.platform_name
-      || body.platformName
-      || server.name
-      || server.platform
-      || ''
-    ).trim();
-    const status = String(
-      body.status
-      || body.state
-      || card.status
-      || card.state
-      || effectiveState
-      || ''
-    ).trim();
-
-    return {
-      ok: body.success === true || body.ok === true || effectiveState === 'active',
-      data: {
-        activationCode,
-        state: effectiveState || 'unknown',
-        status: status || (effectiveState || 'unknown'),
-        message: effectiveState === 'active'
-          ? (stateText || '卡密有效')
-          : (failureMessage || stateText || '卡密无效'),
-        expiryDate,
-        expiredByDate,
-        host,
-        address: serverAddress,
-        address_HTTP: serverBase,
-        addressHttp: serverBase,
-        address_TCP: tcpAddress,
-        addressTcp: tcpAddress,
-        loopbackAddressRewritten,
-        tcp: (tcpHost && Number.isFinite(tcpPort) && tcpPort > 0)
-          ? {
-              host: tcpHost,
-              port: Math.round(tcpPort),
-              transport: {
-                preferred: String(tcpTransportSource.preferred || tcpTransportSource.mode || 'tls').toLowerCase(),
-                allowHttpFallback: tcpTransportSource.allowHttpFallback !== false,
-                allowPlainFallback: false,
-                tls: {
-                  enabled: true,
-                  rejectUnauthorized: tcpTransportSource.tls?.rejectUnauthorized === true,
-                  caPath: String(tcpTransportSource.tls?.caPath || tcpTransportSource.tls?.ca_path || '').trim(),
-                  certFingerprint: String(tcpTransportSource.tls?.certFingerprint || tcpTransportSource.tls?.cert_fingerprint || '').trim(),
-                },
-              },
-            }
-          : null,
-        serverBase,
-        serverId,
-        platformName,
-        card,
-        server,
-        responseStatus: resp && typeof resp.status === 'number' ? resp.status : null,
-        responseOk: resp && resp.ok === true,
-      },
-      error: effectiveState === 'active' ? '' : (failureMessage || stateText || '卡密无效'),
-    };
-  }
-
-// 获取/读取/解析：getLocalResolverConfig的具体业务逻辑。
-  function getLocalResolverConfig() {
-    try {
-      const envUrl = process.env.LOCAL_SERVER_RESOLVER_URL;
-      if (envUrl && typeof envUrl === 'string') {
-        return { url: envUrl, method: 'POST', timeoutMs: 8000 };
-      }
-
-      const platformKey = detectPlatformKeyFromRuntime();
-      const cfg = readPlatformsConfigSafe();
-// 处理：platformResolver的具体业务逻辑。
-      const platformResolver = ((cfg.platformConfigs || {})[platformKey] || {}).localResolver || {};
-      const rootResolver = cfg.localResolver || {};
-// 处理：platformCardQueryUrl的具体业务逻辑。
-      const platformCardQueryUrl = ((cfg.platformConfigs || {})[platformKey] || {}).cardQueryUrl;
-      const rootCardQueryUrl = cfg.cardQueryUrl;
-      const resolvedUrl = platformCardQueryUrl || rootCardQueryUrl
-        || ((cfg.platformConfigs || {})[platformKey] || {}).localResolverUrl
-        || cfg.localResolverUrl
-        || platformResolver.url
-        || rootResolver.url;
-      if (resolvedUrl) {
-// 获取/读取/解析：resolvedTimeout的具体业务逻辑。
-        const resolvedTimeout = (
-          ((cfg.platformConfigs || {})[platformKey] || {}).localResolverTimeoutSec
-          || cfg.localResolverTimeoutSec
-          || ((cfg.platformConfigs || {})[platformKey] || {}).localResolverTimeoutMs
-          || cfg.localResolverTimeoutMs
-          || platformResolver.timeoutSec
-          || rootResolver.timeoutSec
-          || platformResolver.timeoutMs
-          || rootResolver.timeoutMs
-          || 8
-        );
-        return {
-          url: resolvedUrl,
-          method: String(
-            ((cfg.platformConfigs || {})[platformKey] || {}).localResolverMethod
-            || cfg.localResolverMethod
-            || platformResolver.method
-            || rootResolver.method
-            || 'POST'
-          ).toUpperCase(),
-          timeoutMs: normalizeTimeoutMs(resolvedTimeout, 8000),
-          headers: platformResolver.headers || rootResolver.headers || undefined
-        };
-      }
-
-      const store = readStoreConfigSafe();
-      const storeResolver = store.localResolver || {};
-      if (store.localResolverUrl || storeResolver.url) {
-        const rawTimeout = store.localResolverTimeoutSec || storeResolver.timeoutSec || store.localResolverTimeoutMs || storeResolver.timeoutMs || 8;
-        return {
-          url: store.localResolverUrl || storeResolver.url,
-          method: (store.localResolverMethod || storeResolver.method || 'POST').toUpperCase(),
-          timeoutMs: normalizeTimeoutMs(rawTimeout, 8000),
-          headers: storeResolver.headers || undefined
-        };
-      }
-    } catch (e) {
-      logger.warn?.('[配置] 读取本地解析器配置失败:', e?.message || e);
-    }
-    return null;
-  }
-
-// 格式化/规范化：normalizeResolverResponse的具体业务逻辑。
-  function normalizeResolverResponse(resp, platformKey) {
-// 处理：body的具体业务逻辑。
-    const body = (resp && resp.body) || {};
-    const matchedServers = Array.isArray(body.matches)
-      ? body.matches
-      : (Array.isArray(body.matched_servers) ? body.matched_servers : []);
-    const queryResults = Array.isArray(body.query_results) ? body.query_results : [];
-    const count = Number(body.count || 0) || matchedServers.length;
-
-    let selectedResult = queryResults.find((item) => item && item.ok === true && item.found !== false && item.valid !== false) || null;
-    if (!selectedResult) {
-      selectedResult = queryResults.find((item) => item && item.ok === true && item.valid !== false) || null;
-    }
-    let selectedServer = null;
-
-    if (selectedResult) {
-      const selectedIp = selectedResult.server_ip || selectedResult?.server?.server_ip || selectedResult?.server?.ip;
-      if (selectedIp) {
-        selectedServer = matchedServers.find((s) => s && (s.server_ip === selectedIp || s.ip === selectedIp)) || null;
-      }
-      if (!selectedServer && selectedResult.server && typeof selectedResult.server === 'object') {
-        const sid = selectedResult.server.id;
-        if (sid) {
-          selectedServer = matchedServers.find((s) => s && s.id === sid) || null;
-        }
-      }
-    }
-
-    if (!selectedServer) {
-      selectedServer = matchedServers[0] || null;
-    }
-    if (!selectedResult && queryResults.length > 0) {
-      selectedResult = queryResults[0];
-    }
-
-    const failureStateCandidates = ['disabled', 'expired', 'not_found', 'pending', 'revoked'];
-    const preferredStateSource = [selectedResult, ...queryResults, body]
-      .filter((item) => item && typeof item === 'object')
-      .find((item) => failureStateCandidates.includes(extractValidationState(item)))
-      || selectedResult
-      || queryResults[0]
-      || body;
-    const state = extractValidationState(preferredStateSource)
-      || extractValidationState(body)
-      || (body.valid === true || body.is_valid === true || body.success === true || body.ok === true ? 'active' : '');
-    const failureMessage = getValidationFailureMessage(
-      preferredStateSource,
-      getValidationFailureMessage(body, body.error || body.message || body.msg || '')
-    );
-
-// 处理：address的具体业务逻辑。
-    const address = (selectedServer && selectedServer.address)
-      || (selectedResult && selectedResult.address)
-      || (selectedResult && selectedResult.server && selectedResult.server.address)
-      || body.address
-      || '';
-// 处理：host的具体业务逻辑。
-    let host = (selectedServer && (selectedServer.server_ip || selectedServer.ip))
-      || (selectedResult && (selectedResult.server_ip || (selectedResult.server && (selectedResult.server.server_ip || selectedResult.server.ip))))
-      || body.server_ip
-      || body.ip
-      || body.host
-      || '';
-
-    let serverBase = '';
-    if (address) {
-      try {
-        const u = new URL(address);
-        serverBase = resolveServerBaseFromAddress(address);
-        if (!host) host = u.hostname || '';
-      } catch (_) {
-        serverBase = address;
-      }
-    }
-
-    const platformDefault = getPlatformDefaultConfig(platformKey);
-    const port = Number(platformDefault?.tcp?.port || 58113);
-// 处理：platformName的具体业务逻辑。
-    const platformName = (selectedServer && (selectedServer.platform || selectedServer.name))
-      || (selectedResult && (selectedResult.platform || selectedResult.platform_name))
-      || body.platform
-      || body.platform_name
-      || body.platformName;
-// 处理：status的具体业务逻辑。
-    const status = (selectedServer && selectedServer.status)
-      || (selectedResult && selectedResult.status)
-      || body.status
-      || '';
-    const found = !!host
-      || !!serverBase
-      || count > 0
-      || matchedServers.length > 0
-      || !!(selectedResult && (selectedResult.found === true || selectedResult.ok === true))
-      || body.valid === true
-      || body.is_valid === true
-      || body.success === true
-      || body.ok === true
-      || state === 'active';
-// 处理：serverId的具体业务逻辑。
-    const serverId = (selectedServer && selectedServer.id) || '';
-    const effectiveState = state || (found ? 'active' : 'unknown');
-    const resolvedMessage = failureMessage
-      || body.error
-      || body.message
-      || body.msg
-      || '';
-    return {
-      host,
-      port,
-      serverBase,
-      platformName,
-      serverId,
-      status,
-      state: effectiveState,
-      found,
-      count,
-      message: resolvedMessage
-    };
-  }
-
-// 获取/读取/解析：resolveServerConfigForKey的具体业务逻辑。
-  async function resolveServerConfigForKey({ key }) {
-    try {
-      const resolver = resolveCardStatusSearchConfig();
-      const resolverUrls = Array.isArray(resolver?.urls) && resolver.urls.length > 0
-        ? resolver.urls
-        : (resolver?.url ? [resolver.url] : []);
-      if (!resolver || resolverUrls.length === 0) {
-        return { ok: false, error: '未找到卡密搜索接口配置' };
-      }
-
-      let lastError = '';
-      for (const [index, resolverUrl] of resolverUrls.entries()) {
-        try {
-          const u = new URL(resolverUrl);
-          logger.log?.(`[卡密搜索] 请求地址(${index + 1}/${resolverUrls.length}): ${u.hostname}:${u.port || (u.protocol === 'https:' ? '443' : '80')}${u.pathname || ''} (POST)`);
-        } catch (_) {
-          logger.log?.(`[卡密搜索] 请求地址(${index + 1}/${resolverUrls.length}):`, resolverUrl, '(POST)');
-        }
-        const requestUrl = new URL(resolverUrl);
-        requestUrl.search = '';
-
-        let resp;
-        try {
-          resp = await postJson(requestUrl.toString(), {
-            activation_code: key,
-            activationCode: key,
-            card: key,
-            card_code: key,
-          }, resolver.timeoutMs || 8000);
-        } catch (requestError) {
-          lastError = requestError?.message || String(requestError);
-          continue;
-        }
-
-        if (!resp || (!resp.ok && !(resp.body && typeof resp.body === 'object'))) {
-          const rawErrorCode = String(resp?.body?.error || resp?.body?.code || resp?.body?.error_code || '').toLowerCase();
-          const SEARCH_ERROR_TEXT_MAP = {
-            invalid_passphrase: '搜索暗号错误',
-            no_servers_configured: '未配置可查询服务器',
-            activation_code_not_found: '未找到卡密',
-            server_vue_lookup_failed: '卡密搜索失败',
-            user_not_found: '未找到卡密',
-          };
-          lastError = SEARCH_ERROR_TEXT_MAP[rawErrorCode]
-            || getValidationFailureMessage(resp?.body || resp, resp?.body?.error || resp?.body?.message || resp?.raw || '卡密查询接口请求失败');
-          continue;
-        }
-
-        const normalized = normalizeCardStatusSearchResponse(resp, resolverUrl);
-        if (normalized.data?.loopbackAddressRewritten) {
-          logger.warn?.(`[卡密搜索] 服务端返回了回环地址，已按搜索节点 ${requestUrl.hostname} 自动改写为公网地址`);
-        }
-        logger.log?.('[卡密搜索] 结果摘要:', {
-          status: resp?.status ?? null,
-          ok: resp?.ok === true,
-          state: normalized.data?.state || 'unknown',
-          message: normalized.data?.message || '',
-          host: normalized.data?.host || '',
-          address_HTTP: normalized.data?.address_HTTP || normalized.data?.addressHttp || normalized.data?.serverBase || '',
-          address_TCP: normalized.data?.address_TCP || normalized.data?.addressTcp || '',
-          responseOk: normalized.data?.responseOk === true,
-        });
-
-        const explicitFailureStates = new Set(['disabled', 'expired', 'not_found', 'pending', 'revoked']);
-        const isExplicitFailure = explicitFailureStates.has(normalized.data?.state)
-          || /卡密.*(禁用|过期|不存在|未生效|撤销)/.test(String(normalized.data?.message || normalized.error || ''));
-        const failureText = normalized.data?.message || normalized.error || RESOLVER_STATE_TEXT_MAP[normalized.data?.state] || '卡密无效';
-
-        if (isExplicitFailure) {
-          return { ok: false, error: failureText };
-        }
-        if (!normalized.ok) {
-          lastError = failureText || '卡密不存在或未生效';
-          continue;
-        }
-        if (!normalized.data?.host && !normalized.data?.serverBase) {
-          lastError = '卡密已匹配，但接口未返回可用服务器地址';
-          continue;
-        }
-        return { ok: true, data: normalized.data };
-      }
-
-      return { ok: false, error: lastError || '卡密不存在或未生效' };
+      const rootService = cfg.accountService && typeof cfg.accountService === 'object'
+        ? cfg.accountService
+        : {};
+      const platformService = platformCfg.accountService && typeof platformCfg.accountService === 'object'
+        ? platformCfg.accountService
+        : {};
+      const timeoutSource = platformService.timeoutSec
+        || rootService.timeoutSec
+        || platformService.timeoutMs
+        || rootService.timeoutMs
+        || 8;
+      const urls = collectUrlCandidates(
+        normalizeAccountServiceUrl,
+        process.env.ACCOUNT_SERVICE_URL,
+        process.env.SERVER_BASE,
+        platformService.url,
+        platformService.urls,
+        rootService.url,
+        rootService.urls,
+        platformCfg.accountServiceUrl,
+        platformCfg.accountServiceUrls,
+        cfg.accountServiceUrl,
+        cfg.accountServiceUrls,
+        getServerBase()
+      ).filter((candidate) => isServerBaseAllowedForMode(candidate));
+      return {
+        url: urls[0] || '',
+        urls,
+        timeoutMs: normalizeTimeoutMs(timeoutSource, 8000),
+      };
     } catch (error) {
-      return { ok: false, error: error?.message || String(error) };
+      logger.warn?.('[配置] 读取单平台账号服务配置失败:', error?.message || error);
+      return { url: '', urls: [], timeoutMs: 8000 };
     }
   }
 
   async function requestAccountService(action, payload = {}) {
     try {
-      const resolver = resolveCardStatusSearchConfig();
-      const resolverUrls = Array.isArray(resolver?.urls) && resolver.urls.length > 0
-        ? resolver.urls
-        : (resolver?.url ? [resolver.url] : []);
-      if (resolverUrls.length === 0) {
-        return { ok: false, message: '未配置账号服务地址' };
-      }
+      const service = resolveAccountServiceConfig();
+      const serviceUrls = service.urls.length > 0 ? service.urls : (service.url ? [service.url] : []);
+      if (serviceUrls.length === 0) return { ok: false, message: '未配置账号服务地址' };
 
       let lastMessage = '';
-      for (const rawUrl of resolverUrls) {
+      for (const rawUrl of serviceUrls) {
         try {
           const endpoint = new URL(rawUrl);
-          endpoint.pathname = `/api/client-accounts/${String(action || '').replace(/^\/+/, '')}`;
+          endpoint.pathname = `${endpoint.pathname.replace(/\/+$/, '')}/${String(action || '').replace(/^\/+/, '')}`;
           endpoint.search = '';
-          const response = await postJson(endpoint.toString(), payload, resolver.timeoutMs || 8000);
+          const response = await postJson(endpoint.toString(), payload, service.timeoutMs);
           const body = response?.body && typeof response.body === 'object' ? response.body : {};
-          if (body.ok === true) return body;
+          if (body.ok === true) {
+            const publishAddresses = (source) => {
+              if (!source || typeof source !== 'object' || Array.isArray(source)) return source;
+              const published = { ...source };
+              for (const field of [
+                'serverBase',
+                'server_base',
+                'address_HTTP',
+                'addressHttp',
+                'address_http',
+                'address',
+                'client_address',
+                'clientAddress',
+              ]) {
+                if (typeof published[field] === 'string' && published[field].trim()) {
+                  published[field] = publishLoopbackAddress(published[field], endpoint.toString());
+                }
+              }
+              return published;
+            };
+            const publishedBody = publishAddresses(body);
+            for (const field of ['validation', 'result', 'data']) {
+              if (publishedBody[field] && typeof publishedBody[field] === 'object') {
+                publishedBody[field] = publishAddresses(publishedBody[field]);
+              }
+            }
+            const firstPublishedAddress = (source) => String(
+              source?.serverBase
+              || source?.server_base
+              || source?.address_HTTP
+              || source?.addressHttp
+              || source?.address_http
+              || source?.client_address
+              || source?.clientAddress
+              || source?.address
+              || ''
+            ).trim();
+            const publishedServerBase = firstPublishedAddress(publishedBody)
+              || firstPublishedAddress(publishedBody.validation)
+              || firstPublishedAddress(publishedBody.result)
+              || firstPublishedAddress(publishedBody.data);
+            if (publishedServerBase) {
+              publishedBody.serverBase = publishedServerBase;
+              publishedBody.server_base = publishedServerBase;
+            } else {
+              const servicePath = endpoint.pathname.replace(/\/api\/account\/[^/]+\/?$/, '');
+              publishedBody.serverBase = `${endpoint.protocol}//${endpoint.host}${servicePath}`.replace(/\/+$/, '');
+              publishedBody.server_base = publishedBody.serverBase;
+            }
+            return publishedBody;
+          }
           lastMessage = body.message || body.error || response?.raw || lastMessage;
-          // Authentication and validation failures are authoritative. Trying
-          // another mirror would only repeat the same request.
           if (response?.status && response.status < 500) {
             return { ...body, ok: false, message: lastMessage || '账号操作失败' };
           }
@@ -847,91 +260,60 @@ function createServerResolver(deps = {}) {
   }
 
   async function authenticateAccount(payload = {}) {
-    const mode = payload.mode === 'register' ? 'register' : 'login';
-    return requestAccountService(mode, payload);
+    return requestAccountService(payload.mode === 'register' ? 'register' : 'login', payload);
   }
 
-  async function getAccountPlatforms() {
-    return requestAccountService('platforms', {});
-  }
-
-// 设置/更新/持久化：applyResolvedConfigToStore的具体业务逻辑。
   function applyResolvedConfigToStore({ resolved }) {
-    const next = {};
     const resolvedHttpBase = String(
       resolved.serverBase
       || resolved.address_HTTP
       || resolved.addressHttp
       || resolved.address_http
+      || resolved.client_address
+      || resolved.clientAddress
       || resolved.address
       || ''
     ).trim();
     if (licenseCache && typeof licenseCache.setRuntimeConfig === 'function') {
-      const runtimeConfig = {
-        serverBase: resolvedHttpBase,
-      };
-      if (resolved.platformName) {
-        runtimeConfig.platformName = resolved.platformName;
-      }
+      const runtimeConfig = { serverBase: resolvedHttpBase };
+      if (resolved.platformName) runtimeConfig.platformName = resolved.platformName;
       if (Array.isArray(resolved.allowedPlatforms) && resolved.allowedPlatforms.length > 0) {
         runtimeConfig.allowedPlatforms = resolved.allowedPlatforms;
       }
-      if (String(resolved.targetUrl || '').trim()) {
-        runtimeConfig.targetUrl = String(resolved.targetUrl || '').trim();
-      }
-      if (String(resolved.tutorialUrl || '').trim()) {
-        runtimeConfig.tutorialUrl = String(resolved.tutorialUrl || '').trim();
-      }
+      if (String(resolved.targetUrl || '').trim()) runtimeConfig.targetUrl = String(resolved.targetUrl).trim();
+      if (String(resolved.tutorialUrl || '').trim()) runtimeConfig.tutorialUrl = String(resolved.tutorialUrl).trim();
       licenseCache.setRuntimeConfig(runtimeConfig);
     }
+
     try {
       const resolvedTcpMeta = resolved.tcp && typeof resolved.tcp === 'object'
         ? resolved.tcp
-        : resolveTcpAddressMeta(
-            resolved.address_TCP
-            || resolved.addressTcp
-            || resolved.address_tcp
-            || ''
-          );
-      if (resolved.tcp && typeof resolved.tcp === 'object') {
-        setRuntimeTcpConfig({
-          host: resolved.tcp.host || '',
-          port: resolved.tcp.port || 0,
-          transport: resolved.tcp.transport || {},
-        });
-      } else if (resolvedTcpMeta) {
+        : resolveTcpAddressMeta(resolved.address_TCP || resolved.addressTcp || resolved.address_tcp || '');
+      if (resolvedTcpMeta) {
         setRuntimeTcpConfig({
           host: resolvedTcpMeta.host || '',
           port: resolvedTcpMeta.port || 0,
-          transport: {},
+          transport: resolvedTcpMeta.transport || {},
         });
       } else {
         setRuntimeTcpConfig(null);
       }
       setRuntimeServerBase(resolvedHttpBase);
-    } catch (e) {
-      logger.warn?.('[配置] 写入运行时 TCP 配置失败:', e?.message || e);
+    } catch (error) {
+      logger.warn?.('[配置] 写入运行时服务器配置失败:', error?.message || error);
     }
-
-    return next;
+    return {};
   }
 
   return {
     detectPlatformKeyFromRuntime,
     readPlatformsConfigSafe,
     getPlatformDefaultConfig,
-    normalizeCardStatusSearchUrl,
-    resolveHostFromAddress,
     resolveServerBaseFromAddress,
     publishLoopbackAddress,
-    isCardExpiredByDate,
-    resolveCardStatusSearchConfig,
-    normalizeCardStatusSearchResponse,
-    getLocalResolverConfig,
-    normalizeResolverResponse,
-    resolveServerConfigForKey,
+    normalizeAccountServiceUrl,
+    resolveAccountServiceConfig,
     authenticateAccount,
-    getAccountPlatforms,
     applyResolvedConfigToStore,
   };
 }

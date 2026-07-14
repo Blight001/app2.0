@@ -1,4 +1,8 @@
 const ACCOUNT_AUTH_TYPE = 'account';
+const {
+  inferServerMode,
+  normalizeServerMode,
+} = require('./server-mode');
 
 function clonePlainObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -12,14 +16,20 @@ function clonePlainObject(value) {
 function normalizeAccountSession(input = {}) {
   const source = input && typeof input === 'object' ? input : {};
   const authType = String(source.authType || source.auth_type || '').trim().toLowerCase();
+  const serverBase = String(source.serverBase || source.server_base || '').trim().replace(/\/+$/, '');
+  const hasLegacyTenant = Boolean(String(source.tenantId || source.tenant_id || '').trim())
+    || /\/t\/[^/]+(?:\/|$)/i.test(serverBase);
   const session = {
     authType,
     username: String(source.username || '').trim(),
     key: String(source.key || source.credential || '').trim(),
     deviceId: String(source.deviceId || source.device_id || '').trim(),
-    tenantId: String(source.tenantId || source.tenant_id || '').trim(),
     platformName: String(source.platformName || source.platform_name || '').trim(),
-    serverBase: String(source.serverBase || source.server_base || '').trim().replace(/\/+$/, ''),
+    serverBase,
+    serverMode: normalizeServerMode(
+      source.serverMode || source.server_mode,
+      inferServerMode(serverBase),
+    ),
     authenticatedAt: String(source.authenticatedAt || source.authenticated_at || '').trim(),
     account: clonePlainObject(source.account),
     validation: clonePlainObject(source.validation),
@@ -31,6 +41,7 @@ function normalizeAccountSession(input = {}) {
     && session.key
     && session.deviceId
     && session.serverBase
+    && !hasLegacyTenant
   );
   return session;
 }
@@ -40,9 +51,9 @@ function buildStoredAccountSession({
   username = '',
   key = '',
   deviceId = '',
-  tenantId = '',
   platformName = '',
   serverBase = '',
+  serverMode = '',
   account = {},
   validation = {},
   authenticatedAt = new Date().toISOString(),
@@ -53,9 +64,9 @@ function buildStoredAccountSession({
     username,
     key,
     deviceId,
-    tenantId,
     platformName,
     serverBase,
+    serverMode: normalizeServerMode(serverMode, inferServerMode(serverBase)),
     authenticatedAt,
     account,
     validation,
