@@ -478,7 +478,9 @@ function initSidebarUiListeners() {
     try {
       const usageText = formatUsageTimesText(usage);
       if (typeof setWoolPlatformRemainingUsage === 'function') {
-        setWoolPlatformRemainingUsage(usageText);
+        const usagePayload = usage?.licenseUsage || usage?.result || usage || {};
+        const platform = usagePayload.platform || usagePayload.platform_name || usagePayload.currentPlatform || '';
+        setWoolPlatformRemainingUsage(usageText, platform);
       }
     } catch (e) {
       console.warn('更新本地试用次数显示失败:', e);

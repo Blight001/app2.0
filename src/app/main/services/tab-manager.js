@@ -347,41 +347,56 @@ function createTabManager(deps = {}) {
   async function applyClashMiniBrowserProxy(enabled = true) {
     const entries = Array.from(resolveTabs().values());
     const browserProxy = getBrowserProxyEndpoint();
+    const failures = [];
 
     const results = await Promise.all(entries.map(async (tab) => {
-      // 网络魔法是全局开关：开启时所有 Chromium 统一走 Clash Mini，
-      // 关闭时统一清空，不能被单标签模式或历史代理配置覆盖。
-      const tabProxy = enabled === true ? (browserProxy || { enabled: false }) : { enabled: false };
-      const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(tab.id));
-      if (!instance?.profile) return false;
-      if (typeof resolveTabBrowserProfile === 'function') {
-        const resolvedProfile = await resolveTabBrowserProfile({
-          browserSettings: tab.browserSettings || {},
-          httpGetUniversal: deps.httpGetUniversal,
-          logger,
-          geoProxyServer: tabProxy?.enabled ? String(tabProxy.server || '') : '',
-          forceGeoLookup: true,
-        });
-        if (resolvedProfile) {
-          tab.browserProfile = resolvedProfile;
-          instance.profile.locale = resolvedProfile.locale || instance.profile.locale;
-          instance.profile.acceptLanguage = resolvedProfile.acceptLanguage || instance.profile.acceptLanguage;
-          instance.profile.timezoneId = resolvedProfile.timezoneId || instance.profile.timezoneId;
-          instance.profile.userAgent = resolvedProfile.userAgent || instance.profile.userAgent;
+      try {
+        // 网络魔法是全局开关：开启时所有 Chromium 统一走 Clash Mini，
+        // 关闭时统一清空，不能被单标签模式或历史代理配置覆盖。
+        const tabProxy = enabled === true ? (browserProxy || { enabled: false }) : { enabled: false };
+        const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(tab.id));
+        if (!instance?.profile) return false;
+        const nextProxyServer = tabProxy?.enabled ? String(tabProxy.server || '') : '';
+        const nextProxyBypassList = tabProxy?.enabled ? String(tabProxy.bypassRules || '') : '';
+        const proxyChanged = String(instance.profile.proxyServer || '') !== nextProxyServer
+          || String(instance.profile.proxyBypassList || '') !== nextProxyBypassList;
+        // 启动失败时可能会要求恢复直连；已经是直连的浏览器无需关闭重启。
+        if (!proxyChanged) return false;
+        if (typeof resolveTabBrowserProfile === 'function') {
+          const resolvedProfile = await resolveTabBrowserProfile({
+            browserSettings: tab.browserSettings || {},
+            httpGetUniversal: deps.httpGetUniversal,
+            logger,
+            geoProxyServer: tabProxy?.enabled ? String(tabProxy.server || '') : '',
+            forceGeoLookup: true,
+          });
+          if (resolvedProfile) {
+            tab.browserProfile = resolvedProfile;
+            instance.profile.locale = resolvedProfile.locale || instance.profile.locale;
+            instance.profile.acceptLanguage = resolvedProfile.acceptLanguage || instance.profile.acceptLanguage;
+            instance.profile.timezoneId = resolvedProfile.timezoneId || instance.profile.timezoneId;
+            instance.profile.userAgent = resolvedProfile.userAgent || instance.profile.userAgent;
+          }
         }
+        instance.profile.proxyServer = nextProxyServer;
+        instance.profile.proxyBypassList = nextProxyBypassList;
+        const runtimeState = await browserRuntimeManager.restart(tab.id);
+        tab.runtimeStatus = runtimeState?.status || tab.runtimeStatus;
+        return true;
+      } catch (error) {
+        const failure = { tabId: String(tab.id || ''), message: error?.message || String(error) };
+        failures.push(failure);
+        logger.warn?.(`[ChromiumRuntime] 网络魔法代理切换后重启失败 ${failure.tabId}:`, failure.message);
+        return false;
       }
-      instance.profile.proxyServer = tabProxy?.enabled ? String(tabProxy.server || '') : '';
-      instance.profile.proxyBypassList = tabProxy?.enabled ? String(tabProxy.bypassRules || '') : '';
-      const runtimeState = await browserRuntimeManager.restart(tab.id);
-      tab.runtimeStatus = runtimeState?.status || tab.runtimeStatus;
-      return true;
     }));
 
     return {
-      ok: true,
+      ok: failures.length === 0,
       enabled: !!enabled,
       updated: results.filter(Boolean).length,
       total: entries.length,
+      failures,
     };
   }
 

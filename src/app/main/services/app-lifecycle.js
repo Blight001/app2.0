@@ -235,6 +235,46 @@ function registerAppLifecycle(deps = {}) {
       }
     });
 
+    ipcMain.handle('redeem-wool-gift-code', async (_event, input = {}) => {
+      try {
+        const credentials = readStoreConfigSafe()?.userCredentials || {};
+        const key = String(credentials.key || '').trim();
+        const deviceId = String(credentials.deviceId || '').trim();
+        const code = String(input.code || '').trim();
+        if (!key || !deviceId) return { ok: false, message: '请先在个人中心登录账号' };
+        if (!code) return { ok: false, message: '请输入礼品码' };
+        const httpClient = getGlobalHttpClient?.();
+        if (!httpClient || typeof httpClient.redeemWoolGiftCode !== 'function') {
+          return { ok: false, message: '羊毛礼品码服务尚未就绪' };
+        }
+        const redeemed = await httpClient.redeemWoolGiftCode(key, deviceId, code);
+        if (!redeemed?.ok) return redeemed;
+
+        // 兑换可能新增平台或改变平台额度，立即重新验证并刷新主进程缓存和侧边栏。
+        let validation = null;
+        if (typeof httpClient.validateKey === 'function') {
+          validation = await httpClient.validateKey(key, deviceId);
+          if (validation?.valid === true || validation?.ok === true) {
+            const { normalizeValidationRuntimeConfig } = require('../lib/http-client');
+            setLicenseRuntimeConfig(licenseCache, normalizeValidationRuntimeConfig(validation));
+            licenseCache?.setValidationState?.({
+              key,
+              deviceId,
+              bound: true,
+              validated: true,
+              licenseValidated: true,
+              result: validation,
+              message: redeemed.message || '羊毛礼品码兑换成功',
+            });
+            await Promise.resolve(deps.refreshAllowedPlatformsAndNotify?.());
+          }
+        }
+        return { ...redeemed, validation };
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error) };
+      }
+    });
+
     ipcMain.handle('ai-control-chat', async (_event, input = {}) => {
       try {
         const credentials = readStoreConfigSafe()?.userCredentials || {};

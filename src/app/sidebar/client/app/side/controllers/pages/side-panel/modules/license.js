@@ -179,6 +179,11 @@ function displayExpirationInfo(result) {
   try {
     const payload = extractValidationPayload(result);
     if (!payload) return;
+    const woolPlatforms = payload.woolPlatforms || payload.wool_platforms;
+    if (Array.isArray(woolPlatforms) && typeof renderWoolPlatformButtons === 'function') {
+      renderWoolPlatformButtons(woolPlatforms);
+      return;
+    }
     const usageText = formatUsageTimesText(payload);
     if (typeof setWoolPlatformRemainingUsage === 'function') {
       setWoolPlatformRemainingUsage(usageText);

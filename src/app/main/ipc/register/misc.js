@@ -75,6 +75,7 @@ function registerMiscIPC(ctx) {
           name: String(item?.name || item?.platform || item?.platform_name || '').trim(),
           platform: String(item?.platform || item?.name || item?.platform_name || '').trim(),
           targetUrl: String(item?.targetUrl || item?.target_url || '').trim(),
+          quota: item?.quota && typeof item.quota === 'object' ? { ...item.quota } : null,
         }))
         .filter((item) => item.name && item.targetUrl);
       if (woolPlatforms.length > 0) return woolPlatforms;

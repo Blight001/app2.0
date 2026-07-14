@@ -99,10 +99,8 @@ function renderSidebarAccountSession(session = {}) {
   const profileName = safeGetEl('account-profile-name');
   const loginButton = safeGetEl('account-login-open-btn');
   const registerButton = safeGetEl('account-register-open-btn');
-  const giftInput = safeGetEl('ai-chat-gift-code');
-  const giftButton = safeGetEl('ai-chat-redeem-gift');
-  const trafficGiftInput = safeGetEl('proxy-traffic-gift-code');
-  const trafficGiftButton = safeGetEl('proxy-traffic-redeem-gift');
+  const giftInput = safeGetEl('unified-gift-code');
+  const giftButton = safeGetEl('unified-redeem-gift');
   const username = authenticated ? String(session.username || '').trim() : '';
 
   if (profile) profile.dataset.authenticated = authenticated ? 'true' : 'false';
@@ -118,12 +116,6 @@ function renderSidebarAccountSession(session = {}) {
     if (!authenticated) giftInput.value = '';
   }
   if (giftButton) giftButton.disabled = !authenticated;
-  if (trafficGiftInput) {
-    trafficGiftInput.disabled = !authenticated;
-    trafficGiftInput.placeholder = authenticated ? '输入流量礼品码' : '登录后输入流量礼品码';
-    if (!authenticated) trafficGiftInput.value = '';
-  }
-  if (trafficGiftButton) trafficGiftButton.disabled = !authenticated;
 
   if (!authenticated && typeof setWoolPlatformRemainingUsage === 'function') {
     setWoolPlatformRemainingUsage('');
@@ -215,12 +207,23 @@ async function logoutSidebarAccount() {
   }
 }
 
-async function redeemProxyTrafficGiftCode() {
-  const input = safeGetEl('proxy-traffic-gift-code');
-  const button = safeGetEl('proxy-traffic-redeem-gift');
+function unifiedGiftFailureMessage(woolResult, aiResult, trafficResult) {
+  const results = [woolResult, trafficResult, aiResult].filter(Boolean);
+  const meaningful = results.find((result) => {
+    const message = String(result?.message || result?.error || '').trim();
+    return message && Number(result?.status) !== 404 && !message.includes('不存在');
+  });
+  if (meaningful) return meaningful.message || meaningful.error;
+  if (results.some((result) => Number(result?.status) >= 500)) return '服务器兑换服务异常，请稍后重试或联系管理员';
+  return '兑换码不存在或已失效';
+}
+
+async function redeemUnifiedGiftCode() {
+  const input = safeGetEl('unified-gift-code');
+  const button = safeGetEl('unified-redeem-gift');
   const code = String(input?.value || '').trim();
   if (!code || !button || button.dataset.busy === '1') {
-    if (!code) window.MessageModal?.showErrorMessage?.('请输入流量礼品码');
+    if (!code) window.MessageModal?.showErrorMessage?.('请输入兑换码');
     return;
   }
   const originalText = button.textContent;
@@ -228,10 +231,37 @@ async function redeemProxyTrafficGiftCode() {
   button.disabled = true;
   button.textContent = '兑换中...';
   try {
-    const result = await window.electronAPI.invoke('redeem-proxy-traffic-gift-code', { code });
-    if (!result?.ok) throw new Error(result?.message || result?.error || '兑换流量失败');
+    const woolResult = await window.electronAPI.invoke('redeem-wool-gift-code', { code })
+      .catch((error) => ({ ok: false, message: error?.message || String(error) }));
+    if (woolResult?.ok) {
+      const woolPlatforms = woolResult.validation?.woolPlatforms || woolResult.validation?.wool_platforms;
+      if (Array.isArray(woolPlatforms) && typeof renderWoolPlatformButtons === 'function') {
+        renderWoolPlatformButtons(woolPlatforms);
+      }
+      if (input) input.value = '';
+      window.MessageModal?.showSuccessMessage?.(woolResult.message || '羊毛额度兑换成功');
+      return;
+    }
+
+    const aiResult = await window.electronAPI.invoke('ai-control-redeem-gift-code', { code })
+      .catch((error) => ({ ok: false, message: error?.message || String(error) }));
+    if (aiResult?.ok) {
+      if (aiResult.quota) {
+        window.dispatchEvent(new CustomEvent('ai-control-quota-updated', { detail: aiResult.quota }));
+      }
+      if (input) input.value = '';
+      window.MessageModal?.showSuccessMessage?.(aiResult.message || '对话额度兑换成功');
+      return;
+    }
+
+    const trafficResult = await window.electronAPI.invoke('redeem-proxy-traffic-gift-code', { code })
+      .catch((error) => ({ ok: false, message: error?.message || String(error) }));
+    if (!trafficResult?.ok) throw new Error(unifiedGiftFailureMessage(woolResult, aiResult, trafficResult));
     if (input) input.value = '';
-    window.MessageModal?.showSuccessMessage?.(result.message || '流量兑换成功');
+    if (trafficResult.quota && typeof renderProxyTrafficQuota === 'function') {
+      renderProxyTrafficQuota(trafficResult.quota);
+    }
+    window.MessageModal?.showSuccessMessage?.(trafficResult.message || '流量兑换成功');
   } catch (error) {
     window.MessageModal?.showErrorMessage?.(error?.message || String(error));
   } finally {
@@ -259,9 +289,9 @@ function bindSidebarAccountAuth() {
   safeGetEl('account-register-open-btn')?.addEventListener('click', () => openSidebarAccountAuth('register'));
   safeGetEl('sidebar-auth-submit')?.addEventListener('click', submitSidebarAccountAuth);
   safeGetEl('account-logout-btn')?.addEventListener('click', logoutSidebarAccount);
-  safeGetEl('proxy-traffic-redeem-gift')?.addEventListener('click', redeemProxyTrafficGiftCode);
-  safeGetEl('proxy-traffic-gift-code')?.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') void redeemProxyTrafficGiftCode();
+  safeGetEl('unified-redeem-gift')?.addEventListener('click', redeemUnifiedGiftCode);
+  safeGetEl('unified-gift-code')?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') void redeemUnifiedGiftCode();
   });
   ['sidebar-auth-username', 'sidebar-auth-password', 'sidebar-auth-password-confirm'].forEach((id) => {
     safeGetEl(id)?.addEventListener('keydown', (event) => {

@@ -130,6 +130,7 @@ function createLicenseCache() {
             name: normalizeLicenseKeyValue(item?.name || item?.platform || item?.platform_name),
             platform: normalizeLicenseKeyValue(item?.platform || item?.name || item?.platform_name),
             targetUrl: normalizeLicenseKeyValue(item?.targetUrl || item?.target_url),
+            quota: item?.quota && typeof item.quota === 'object' ? clone(item.quota) : null,
           })).filter((item) => item.name && item.targetUrl)
         : [];
     }

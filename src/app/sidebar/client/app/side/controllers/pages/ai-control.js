@@ -1265,6 +1265,158 @@
     return api;
   }
 
+  async function copyTextToClipboard(text) {
+    const value = String(text || '');
+    if (!value) return false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+        return true;
+      }
+    } catch (_) {}
+    try {
+      const area = document.createElement('textarea');
+      area.value = value;
+      area.setAttribute('readonly', '');
+      area.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;';
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand('copy');
+      area.remove();
+      return ok;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /** 从 userIndex 起，到下一条 user（不含）或数组末尾 */
+  function findTurnEndExclusive(messages, userIndex) {
+    let end = userIndex + 1;
+    while (end < messages.length && messages[end]?.role !== 'user') end += 1;
+    return end;
+  }
+
+  function resolveUserMessageIndex(row) {
+    const fromAttr = Number(row?.dataset?.messageIndex);
+    if (Number.isInteger(fromAttr) && fromAttr >= 0) return fromAttr;
+    return -1;
+  }
+
+  async function copyUserBubble(row) {
+    const text = String(row?.dataset?.content || row?.querySelector?.('.ai-chat-bubble')?.textContent || '');
+    const ok = await copyTextToClipboard(text);
+    if (ok) {
+      setStatus('已复制到剪贴板', 'success');
+    } else {
+      setStatus('复制失败，请手动选择文本', 'warning');
+    }
+  }
+
+  async function recallUserBubble(row) {
+    if (state.loading) {
+      setStatus('请等待当前回复完成后再撤回', 'warning');
+      return;
+    }
+    const userIndex = resolveUserMessageIndex(row);
+    const messages = currentMessages();
+    if (userIndex < 0 || userIndex >= messages.length || messages[userIndex]?.role !== 'user') {
+      setStatus('无法定位该消息', 'warning');
+      return;
+    }
+    const content = String(messages[userIndex].content || '');
+    // 撤回：删除该气泡及之后的全部内容
+    messages.splice(userIndex);
+    const input = el('ai-chat-input');
+    if (input) {
+      input.value = content;
+      resizeInput();
+      syncSendState();
+      reclaimAiInputFocus(input);
+    }
+    if (!messages.length) {
+      if (state.currentSession) {
+        state.currentSession.title = '新对话';
+        state.currentSession.titleGenerated = false;
+      }
+      renderWelcome();
+    } else {
+      renderConversation();
+    }
+    updateSessionTitleUi();
+    await persistCurrentSession();
+  }
+
+  async function deleteUserTurn(row) {
+    if (state.loading) {
+      setStatus('请等待当前回复完成后再删除', 'warning');
+      return;
+    }
+    const userIndex = resolveUserMessageIndex(row);
+    const messages = currentMessages();
+    if (userIndex < 0 || userIndex >= messages.length || messages[userIndex]?.role !== 'user') {
+      setStatus('无法定位该消息', 'warning');
+      return;
+    }
+    // 删除：仅移除本轮用户消息及其对应 AI 回复（含中间 tool 消息），不影响后续轮次
+    const end = findTurnEndExclusive(messages, userIndex);
+    messages.splice(userIndex, end - userIndex);
+    if (!messages.length) {
+      if (state.currentSession) {
+        state.currentSession.title = '新对话';
+        state.currentSession.titleGenerated = false;
+      }
+      renderWelcome();
+    } else {
+      renderConversation();
+    }
+    updateSessionTitleUi();
+    await persistCurrentSession();
+  }
+
+  function attachUserBubbleActions(row, content, messageIndex) {
+    if (!row) return;
+    row.dataset.messageIndex = String(messageIndex);
+    row.dataset.content = String(content || '');
+
+    const wrap = document.createElement('div');
+    wrap.className = 'ai-chat-user-wrap';
+
+    const actions = document.createElement('div');
+    actions.className = 'ai-chat-user-actions';
+    actions.setAttribute('aria-label', '消息操作');
+
+    const makeBtn = (action, title, symbol) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ai-chat-msg-action';
+      btn.dataset.action = action;
+      btn.title = title;
+      btn.setAttribute('aria-label', title);
+      btn.innerHTML = `<span class="ai-chat-msg-action-icon" aria-hidden="true">${symbol}</span>`;
+      btn.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (action === 'copy') void copyUserBubble(row);
+        else if (action === 'recall') void recallUserBubble(row);
+        else if (action === 'delete') void deleteUserTurn(row);
+      });
+      return btn;
+    };
+
+    // 从左到右：复制、撤回、删除
+    actions.append(
+      makeBtn('copy', '复制', '❐'),
+      makeBtn('recall', '撤回', '↩'),
+      makeBtn('delete', '删除', '✕'),
+    );
+
+    const bubble = row.querySelector('.ai-chat-bubble');
+    if (bubble) {
+      wrap.append(actions, bubble);
+      row.appendChild(wrap);
+    }
+  }
+
   function appendMessage(role, content, options = {}) {
     const container = el('ai-chat-messages');
     if (!container) return null;
@@ -1282,6 +1434,12 @@
     bubble.className = 'ai-chat-bubble';
     bubble.textContent = content;
     row.appendChild(bubble);
+    if (role === 'user') {
+      const messageIndex = Number.isInteger(options.messageIndex)
+        ? options.messageIndex
+        : currentMessages().length - 1;
+      attachUserBubbleActions(row, content, messageIndex);
+    }
     container.appendChild(row);
     container.scrollTop = container.scrollHeight;
     return row;
@@ -1305,16 +1463,24 @@
     const container = el('ai-chat-messages');
     if (!container) return;
     container.innerHTML = '';
-    const messages = currentMessages().filter((m) => m.role === 'user' || m.role === 'assistant');
-    if (!messages.length) {
+    const messages = currentMessages();
+    const visible = messages
+      .map((message, index) => ({ message, index }))
+      .filter(({ message }) => {
+        if (message.role === 'user') return true;
+        if (message.role !== 'assistant') return false;
+        return !!(String(message.content || '').trim()
+          || String(message.reasoning || '').trim()
+          || message.tool_events?.length
+          || message.trace_events?.length);
+      });
+    if (!visible.length) {
       renderWelcome();
       return;
     }
-    messages.forEach((message) => {
-      if (message.role === 'assistant' && !String(message.content || '').trim()
-        && !String(message.reasoning || '').trim() && !message.tool_events?.length
-        && !message.trace_events?.length) return;
+    visible.forEach(({ message, index }) => {
       appendMessage(message.role, message.content, {
+        messageIndex: index,
         reasoning: message.reasoning,
         toolEvents: message.tool_events,
         traceEvents: message.trace_events,
@@ -1382,6 +1548,8 @@
     syncSendState();
   }
 
+  // 兼容旧版将兑换入口放在 AI 控制页的结构；统一入口使用新的元素 ID，
+  // 因此新版界面不会绑定这里的旧处理器。
   async function redeemGiftCode() {
     const input = el('ai-chat-gift-code');
     const button = el('ai-chat-redeem-gift');
@@ -1570,7 +1738,7 @@
     const messages = currentMessages();
     const wasFirstExchange = !messages.some((m) => m.role === 'assistant' && String(m.content || '').trim());
     messages.push({ role: 'user', content });
-    const userRow = appendMessage('user', content);
+    const userRow = appendMessage('user', content, { messageIndex: messages.length - 1 });
     updateSessionTitleUi();
     input.value = '';
     resizeInput();
@@ -1719,6 +1887,11 @@
         event.preventDefault();
         redeemGiftCode();
       }
+    });
+    window.addEventListener('ai-control-quota-updated', (event) => {
+      state.lastQuotaCost = null;
+      renderQuota(event?.detail || null);
+      syncSendState();
     });
     el('ai-chat-model')?.addEventListener('change', () => {
       state.lastQuotaCost = null;

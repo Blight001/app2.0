@@ -44,6 +44,11 @@ function registerClashIPC(ctx) {
       ? licenseCache.getCredentials()
       : {}
   );
+  const restoreDirectBrowserProxyAfterFailedStart = async () => {
+    const status = getClashMiniStatus();
+    if (status?.running === true || typeof ui?.applyClashMiniBrowserProxy !== 'function') return null;
+    return Promise.resolve(ui.applyClashMiniBrowserProxy(false)).catch(() => null);
+  };
   const trafficMonitor = createProxyTrafficMonitor({
     httpClient,
     ui,
@@ -53,16 +58,29 @@ function registerClashIPC(ctx) {
       ui?.sendToSide?.('proxy-traffic-exhausted', quota || {});
       await stopClashMiniProcess(ui);
     },
+    onUnavailable: async (error) => {
+      const message = `Mihomo 控制端口不可用：${error?.message || error || '连接失败'}`;
+      await stopClashMiniProcess(ui);
+      ui?.sendToSide?.('clash-mini-runtime-failed', { message });
+    },
   });
 
   ipcMain.handle('start-clash-mini', async (_event, options = {}) => {
     try {
       const authorization = await trafficMonitor.authorize();
-      if (!authorization?.ok) return authorization || { ok: false, error: '流量额度校验失败' };
+      if (!authorization?.ok) {
+        await restoreDirectBrowserProxyAfterFailedStart();
+        return authorization || { ok: false, error: '流量额度校验失败' };
+      }
       const result = await startClashMiniProcess(ui, options || {});
-      if (result?.ok) trafficMonitor.start();
+      if (result?.ok) {
+        trafficMonitor.start();
+      } else {
+        await restoreDirectBrowserProxyAfterFailedStart();
+      }
       return { ...result, quota: authorization.quota || null };
     } catch (error) {
+      await restoreDirectBrowserProxyAfterFailedStart();
       return { ok: false, error: error?.message || String(error) };
     }
   });

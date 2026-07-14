@@ -2,22 +2,58 @@
 // TCP 连接状态展示已移除：功能按钮不再依赖“是否连接成功”，仅由卡密验证状态驱动。
 
 let currentRemainingUsageText = '';
+const woolPlatformQuotaText = new Map();
+
+function formatWoolPlatformQuotaText(quota) {
+  if (!quota || typeof quota !== 'object') return '';
+  if (quota.enabled === false) return '未开通';
+  if (quota.expired === true) return '已过期';
+  if (quota.exhausted === true) return '次数已用尽';
+
+  const parts = [];
+  const remaining = Number(quota.remaining_usage_times);
+  if (quota.remaining_usage_times === null || quota.remaining_usage_times === undefined) {
+    parts.push('无限次');
+  } else if (Number.isFinite(remaining)) {
+    parts.push(`剩余 ${Math.max(0, remaining)} 次`);
+  }
+
+  const seconds = Number(quota.remaining_seconds);
+  if (Number.isFinite(seconds)) {
+    if (seconds <= 0) parts.push('已到期');
+    else if (seconds >= 86400) parts.push(`剩余 ${Math.ceil(seconds / 86400)} 天`);
+    else if (seconds >= 3600) parts.push(`剩余 ${Math.ceil(seconds / 3600)} 小时`);
+    else parts.push(`剩余 ${Math.max(1, Math.ceil(seconds / 60))} 分钟`);
+  } else if (!quota.expiry_date && !quota.validity_seconds) {
+    parts.push('长期有效');
+  } else if (quota.validity_seconds && !quota.activated_at) {
+    parts.push('首次使用计时');
+  }
+  return parts.join(' · ');
+}
 
 function applyWoolPlatformButtonLabel(button) {
   if (!button) return;
   const baseLabel = String(button.dataset.baseLabel || button.textContent || '').replace(/\s*\(剩余次数：.*\)$/, '').trim();
   button.dataset.baseLabel = baseLabel;
   button.replaceChildren(document.createTextNode(baseLabel));
-  if (currentRemainingUsageText && String(button.dataset.platform || '').trim()) {
+  const platform = String(button.dataset.platform || '').trim();
+  const quotaText = woolPlatformQuotaText.get(platform) || currentRemainingUsageText;
+  if (quotaText && platform) {
     const remaining = document.createElement('span');
     remaining.className = 'wool-platform-remaining';
-    remaining.textContent = `(剩余次数：${currentRemainingUsageText})`;
+    remaining.textContent = `（${quotaText}）`;
     button.appendChild(remaining);
   }
 }
 
-function setWoolPlatformRemainingUsage(value) {
-  currentRemainingUsageText = String(value ?? '').trim();
+function setWoolPlatformRemainingUsage(value, platform = '') {
+  const platformName = String(platform || '').trim();
+  if (platformName) {
+    woolPlatformQuotaText.set(platformName, String(value ?? '').trim());
+  } else {
+    currentRemainingUsageText = String(value ?? '').trim();
+  }
   document.querySelectorAll('.open-wool-platform-btn').forEach(applyWoolPlatformButtonLabel);
 }
 
@@ -32,7 +68,9 @@ function setButtonsDisabled(selector, disabled) {
 function setLicenseRequiredButtonsDisabled(disabled) {
   const nextDisabled = !!disabled;
   setButtonsDisabled('.requires-license', nextDisabled);
-  setButtonsDisabled('#open-dream-page-btn', nextDisabled);
+  document.querySelectorAll('.open-wool-platform-btn').forEach((button) => {
+    button.disabled = nextDisabled || button.dataset.quotaUnavailable === 'true';
+  });
 }
 
 // 设置/更新/持久化：setAccountTabDisabled的具体业务逻辑。
@@ -83,10 +121,16 @@ function renderWoolPlatformButtons(platforms) {
     .map((item) => ({
       name: String(item?.name || item?.platform || item?.platform_name || '').trim(),
       targetUrl: String(item?.targetUrl || item?.target_url || '').trim(),
+      quota: item?.quota && typeof item.quota === 'object' ? item.quota : null,
     }))
     .filter((item) => item.name && item.targetUrl);
 
   container.innerHTML = '';
+  woolPlatformQuotaText.clear();
+  items.forEach((item) => {
+    const quotaText = formatWoolPlatformQuotaText(item.quota);
+    if (quotaText) woolPlatformQuotaText.set(item.name, quotaText);
+  });
   if (!items.length) {
     const empty = document.createElement('button');
     empty.id = 'open-dream-page-btn';
@@ -108,7 +152,10 @@ function renderWoolPlatformButtons(platforms) {
     button.dataset.targetUrl = item.targetUrl;
     button.dataset.baseLabel = `一键启动 ${item.name}`;
     applyWoolPlatformButtonLabel(button);
-    button.disabled = !isLicenseValidated();
+    const quotaUnavailable = item.quota?.expired === true || item.quota?.exhausted === true;
+    button.dataset.quotaUnavailable = quotaUnavailable ? 'true' : 'false';
+    button.disabled = !isLicenseValidated() || quotaUnavailable;
+    if (item.quota?.account_type) button.title = `账号类型：${item.quota.account_type}`;
     container.appendChild(button);
   });
 }

@@ -475,11 +475,15 @@ async function ensureClashMiniConfigPreheated(options = {}) {
   }
 
   const signature = getClashMiniConfigSignature(key, deviceId);
-  if (clashMiniConfigPreheatState.result && clashMiniConfigPreheatState.signature === signature) {
+  const force = options.force === true;
+  if (force && clashMiniConfigPreheatState.promise) {
+    await clashMiniConfigPreheatState.promise.catch(() => {});
+  }
+  if (!force && clashMiniConfigPreheatState.result && clashMiniConfigPreheatState.signature === signature) {
     return clashMiniConfigPreheatState.result;
   }
 
-  if (clashMiniConfigPreheatState.promise && clashMiniConfigPreheatState.signature === signature) {
+  if (!force && clashMiniConfigPreheatState.promise && clashMiniConfigPreheatState.signature === signature) {
     return clashMiniConfigPreheatState.promise;
   }
 
@@ -898,7 +902,11 @@ async function startClashMiniFlow({ startBtn, vpnBtn, fetchConfig = true } = {})
   }
 
   if (fetchConfig) {
-    await ensureClashMiniConfigPreheated();
+    // 手动点击“开启网络魔法”必须以服务器当前配置为准。即使启动期已经
+    // 预热过相同账号，也重新请求并导入一次，save-clash-config 会清理
+    // 旧运行配置后覆盖 config.yaml。
+    console.log('[侧边栏][Clash] 手动开启网络魔法，强制获取最新 YAML 并覆盖旧配置...');
+    await ensureClashMiniConfigPreheated({ force: true });
   }
   const result = await window.electron.startClashMini();
   if (!result || result.ok !== true) {
@@ -945,6 +953,23 @@ async function toggleClashMini({ startBtn, vpnBtn } = {}) {
   return running && enabled
     ? stopClashMiniFlow({ startBtn, vpnBtn })
     : startClashMiniFlow({ startBtn, vpnBtn, fetchConfig: true });
+}
+
+function showNetworkMagicOperationError(error) {
+  const message = String(error?.message || error || '网络魔法操作失败').trim() || '网络魔法操作失败';
+  console.error('[侧边栏][Clash] 网络魔法操作失败:', message);
+  if (window.MessageModal && typeof window.MessageModal.showErrorMessage === 'function') {
+    window.MessageModal.showErrorMessage(message);
+    return;
+  }
+  if (typeof window.alert === 'function') window.alert(message);
+}
+
+function observeNetworkMagicTask(task) {
+  if (task && typeof task.catch === 'function') {
+    task.catch(showNetworkMagicOperationError);
+  }
+  return task;
 }
 
 // 处理：restoreClashMiniIfNeeded的具体业务逻辑。
@@ -1063,18 +1088,18 @@ function bindClashMiniControls() {
 
   if (startBtn && startBtn.dataset.bound !== '1') {
     startBtn.addEventListener('click', () => {
-      withBusyButton(startBtn, [vpnBtn, dreamBtn], () => toggleClashMini({ startBtn, vpnBtn }), {
+      observeNetworkMagicTask(withBusyButton(startBtn, [vpnBtn, dreamBtn], () => toggleClashMini({ startBtn, vpnBtn }), {
         preserveTextAfterResolve: true,
-      });
+      }));
     });
     startBtn.dataset.bound = '1';
   }
 
   if (vpnBtn && vpnBtn.dataset.bound !== '1') {
     vpnBtn.addEventListener('click', () => {
-      withBusyButton(vpnBtn, [startBtn, dreamBtn], () => toggleClashMini({ startBtn, vpnBtn }), {
+      observeNetworkMagicTask(withBusyButton(vpnBtn, [startBtn, dreamBtn], () => toggleClashMini({ startBtn, vpnBtn }), {
         preserveTextAfterResolve: true,
-      });
+      }));
     });
     vpnBtn.dataset.bound = '1';
   }
@@ -1145,6 +1170,10 @@ function bindClashMiniControls() {
     window.electronAPI.on('proxy-traffic-exhausted', (quota) => {
       renderProxyTrafficQuota(quota);
       window.MessageModal?.showErrorMessage?.('网络魔法流量已用完，代理已自动关闭。请到个人中心兑换流量。');
+    });
+    window.electronAPI.on('clash-mini-runtime-failed', (payload = {}) => {
+      applyClashMiniStatus({ ok: true, running: false, enabled: false }, { startBtn, vpnBtn });
+      window.MessageModal?.showErrorMessage?.(payload.message || '网络魔法运行异常，已恢复为直连模式。');
     });
 
     window.electronAPI.on('clash-mini-latency-progress', (payload) => {

@@ -388,6 +388,15 @@ class HttpClient {
         });
     }
 
+    async redeemWoolGiftCode(key, deviceId, code) {
+        return this._request({
+            actionLabel: 'redeemWoolGiftCode',
+            path: '/api/wool-gift-codes/redeem',
+            method: 'POST',
+            data: { key, device_id: deviceId, code },
+        });
+    }
+
     async getProxyTrafficQuota(key, deviceId) {
         return this._request({
             actionLabel: 'getProxyTrafficQuota',
@@ -523,6 +532,7 @@ function normalizeValidationRuntimeConfig(source = {}) {
             name: String(item?.name ?? item?.platform ?? item?.platform_name ?? '').trim(),
             platform: String(item?.platform ?? item?.name ?? item?.platform_name ?? '').trim(),
             targetUrl: String(item?.targetUrl ?? item?.target_url ?? '').trim(),
+            quota: item?.quota && typeof item.quota === 'object' ? { ...item.quota } : null,
         })).filter((item) => item.name && item.targetUrl)
         : [];
 

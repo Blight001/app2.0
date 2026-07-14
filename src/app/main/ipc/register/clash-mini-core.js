@@ -1125,6 +1125,7 @@ let clashMiniExePath = null;
 let clashMiniConfigPath = null;
 let clashMiniProxyAppliedByApp = false;
 let runtimeLicenseCache = null;
+const intentionallyStoppedClashProcesses = new WeakSet();
 
 // 设置/更新/持久化：setRuntimeLicenseCache的具体业务逻辑。
 function setRuntimeLicenseCache(next) {
@@ -1211,6 +1212,14 @@ async function detectNetworkMagicStatus() {
 // 启动/打开/显示：startClashMiniProcess的具体业务逻辑。
 async function startClashMiniProcess(ui, options = {}) {
   if (isClashMiniProcessRunning()) {
+    const runningCoreDir = clashMiniCoreDir || getClashMiniRuntimeRoot();
+    const controlApiReady = await waitForClashMiniControlApi(runningCoreDir, 10000);
+    if (!controlApiReady) {
+      const message = 'Mihomo 进程存在但控制端口不可用，已停止异常进程';
+      emitClashMiniLog(ui, 'error', message);
+      await stopClashMiniProcess(ui);
+      return { ok: false, error: message, controlApiReady: false };
+    }
     let browserProxySyncResult = null;
     if (ui && typeof ui.applyClashMiniBrowserProxy === 'function') {
       browserProxySyncResult = await Promise.resolve(ui.applyClashMiniBrowserProxy(true)).catch(() => null);
@@ -1254,6 +1263,7 @@ async function startClashMiniProcess(ui, options = {}) {
     });
     clashMiniPid = clashMiniProcess.pid || null;
     clashStartedByApp = true;
+    const spawnedProcess = clashMiniProcess;
 
     if (clashMiniProcess.stdout) {
       clashMiniProcess.stdout.on('data', (data) => {
@@ -1268,6 +1278,57 @@ async function startClashMiniProcess(ui, options = {}) {
       });
     }
 
+    // 必须在任何异步等待之前绑定退出事件，避免可执行文件启动失败时产生
+    // 未处理的 ChildProcess error，并确保浏览器代理能恢复为直连。
+    spawnedProcess.on('close', (code, signal) => {
+      const intentionalStop = intentionallyStoppedClashProcesses.has(spawnedProcess);
+      intentionallyStoppedClashProcesses.delete(spawnedProcess);
+      if (clashMiniProcess === spawnedProcess) {
+        clashMiniProcess = null;
+        clashMiniPid = null;
+        clashMiniCoreDir = null;
+        clashMiniExePath = null;
+        clashMiniConfigPath = null;
+        clashStartedByApp = false;
+        clashMiniProxyAppliedByApp = false;
+      }
+      // 主动停止流程已经同步撤销代理并重启 Chromium，退出事件不能再做
+      // 第二次同步，否则会把刚重启完成的浏览器再次关闭。
+      if (!intentionalStop && !isClashMiniProcessRunning() && ui && typeof ui.applyClashMiniBrowserProxy === 'function') {
+        Promise.resolve(ui.applyClashMiniBrowserProxy(false)).catch(() => {});
+      }
+      emitClashMiniLog(ui, code === 0 ? 'info' : 'warn', `Clash Mini 进程已退出，退出码: ${code}${signal ? `, 信号: ${signal}` : ''}`);
+    });
+
+    spawnedProcess.on('error', (error) => {
+      const intentionalStop = intentionallyStoppedClashProcesses.has(spawnedProcess);
+      intentionallyStoppedClashProcesses.delete(spawnedProcess);
+      // ChildProcess 的 error 后通常还会继续触发 close；保留标记让 close
+      // 只做收尾和日志，不重复撤销浏览器代理。
+      intentionallyStoppedClashProcesses.add(spawnedProcess);
+      if (clashMiniProcess === spawnedProcess) {
+        clashMiniProcess = null;
+        clashMiniPid = null;
+        clashMiniCoreDir = null;
+        clashMiniExePath = null;
+        clashMiniConfigPath = null;
+        clashStartedByApp = false;
+        clashMiniProxyAppliedByApp = false;
+      }
+      if (!intentionalStop && !isClashMiniProcessRunning() && ui && typeof ui.applyClashMiniBrowserProxy === 'function') {
+        Promise.resolve(ui.applyClashMiniBrowserProxy(false)).catch(() => {});
+      }
+      emitClashMiniLog(ui, 'error', `Clash Mini 启动失败: ${error?.message || error}`);
+    });
+
+    const controlApiReady = await waitForClashMiniControlApi(runtimePrep.runtimeDir, 15000);
+    if (!controlApiReady || !isClashMiniProcessRunning()) {
+      const message = 'Mihomo 控制端口未能在 15 秒内启动，请检查 Clash YAML 配置或端口占用';
+      emitClashMiniLog(ui, 'error', message);
+      await stopClashMiniProcess(ui);
+      return { ok: false, error: message, controlApiReady: false };
+    }
+
     let browserProxySyncResult = null;
     if (ui && typeof ui.applyClashMiniBrowserProxy === 'function') {
       browserProxySyncResult = await Promise.resolve(ui.applyClashMiniBrowserProxy(true)).catch(() => null);
@@ -1276,34 +1337,6 @@ async function startClashMiniProcess(ui, options = {}) {
     const browserProxyMessage = browserProxySyncResult && browserProxySyncResult.ok === true
       ? `，浏览器代理已同步${Number.isFinite(Number(browserProxySyncResult.updated)) ? `(${Number(browserProxySyncResult.updated)} 个标签页)` : ''}`
       : '';
-
-    clashMiniProcess.on('close', (code, signal) => {
-      clashMiniProcess = null;
-      clashMiniPid = null;
-      clashMiniCoreDir = null;
-      clashMiniExePath = null;
-      clashMiniConfigPath = null;
-      clashStartedByApp = false;
-      clashMiniProxyAppliedByApp = false;
-      if (ui && typeof ui.applyClashMiniBrowserProxy === 'function') {
-        Promise.resolve(ui.applyClashMiniBrowserProxy(false)).catch(() => {});
-      }
-      emitClashMiniLog(ui, code === 0 ? 'info' : 'warn', `Clash Mini 进程已退出，退出码: ${code}${signal ? `, 信号: ${signal}` : ''}`);
-    });
-
-    clashMiniProcess.on('error', (error) => {
-      clashMiniProcess = null;
-      clashMiniPid = null;
-      clashMiniCoreDir = null;
-      clashMiniExePath = null;
-      clashMiniConfigPath = null;
-      clashStartedByApp = false;
-      clashMiniProxyAppliedByApp = false;
-      if (ui && typeof ui.applyClashMiniBrowserProxy === 'function') {
-        Promise.resolve(ui.applyClashMiniBrowserProxy(false)).catch(() => {});
-      }
-      emitClashMiniLog(ui, 'error', `Clash Mini 启动失败: ${error?.message || error}`);
-    });
 
     const status = getClashMiniStatus();
     emitClashMiniLog(ui, 'info', `Clash Mini 已启动，PID: ${clashMiniPid || 'unknown'}${browserProxyMessage || '，浏览器代理已切换到本地混合端口'}`);
@@ -1332,6 +1365,9 @@ async function stopClashMiniProcess(ui) {
 
   const pid = clashMiniPid;
   const processRef = clashMiniProcess;
+  if (processRef && typeof processRef === 'object') {
+    intentionallyStoppedClashProcesses.add(processRef);
+  }
   emitClashMiniLog(ui, 'info', `正在停止 Clash Mini，PID: ${pid || 'unknown'}`);
   try {
     if (processRef && typeof processRef.kill === 'function') {
