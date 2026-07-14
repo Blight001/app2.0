@@ -598,10 +598,10 @@
   line-height: 1;
   transition: transform .15s ease;
 }
-details[open] > summary .ai-chat-disclosure { transform: rotate(90deg); }
+summary[aria-expanded="true"] .ai-chat-disclosure { transform: rotate(90deg); }
 .ai-chat-thinking-text {
-  margin: 7px 0 0 23px;
-  padding-left: 10px;
+  margin: 7px 0 0 3px;
+  padding-left: 8px;
   border-left: 1px solid rgba(120, 145, 185, .2);
   color: #8294ae;
   line-height: 1.55;
@@ -828,6 +828,9 @@ details[open] > summary .ai-chat-disclosure { transform: rotate(90deg); }
   50% { opacity: 1; transform: scale(1); }
 }
 @keyframes ai-stream-caret { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .ai-chat-disclosure { transition: none; }
+}
 
 .ai-chat-composer {
   display: grid;

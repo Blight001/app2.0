@@ -979,6 +979,88 @@
     try { return JSON.stringify(value ?? null, null, 2); } catch (_) { return String(value ?? ''); }
   }
 
+  function enableDetailsAnimation(details, content) {
+    const summary = details.querySelector(':scope > summary');
+    let heightAnimation = null;
+    let contentAnimation = null;
+    let targetOpen = details.open;
+    let sequence = 0;
+
+    const prefersReducedMotion = () =>
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const settle = (open) => {
+      details.open = open;
+      targetOpen = open;
+      summary.setAttribute('aria-expanded', String(open));
+      details.classList.remove('is-animating');
+      details.style.removeProperty('height');
+      details.style.removeProperty('overflow');
+    };
+    const setOpen = (open, { animate = true } = {}) => {
+      const nextOpen = Boolean(open);
+      if (!heightAnimation && details.open === nextOpen) {
+        targetOpen = nextOpen;
+        summary.setAttribute('aria-expanded', String(nextOpen));
+        return;
+      }
+
+      const currentHeight = details.getBoundingClientRect().height;
+      const wasOpen = details.open;
+      const contentStyle = window.getComputedStyle(content);
+      const currentOpacity = wasOpen ? contentStyle.opacity : '0';
+      const currentTransform = wasOpen
+        ? (contentStyle.transform !== 'none' ? contentStyle.transform : 'translateY(0)')
+        : 'translateY(-4px)';
+      const animationId = ++sequence;
+
+      heightAnimation?.cancel();
+      contentAnimation?.cancel();
+      heightAnimation = null;
+      contentAnimation = null;
+      targetOpen = nextOpen;
+      summary.setAttribute('aria-expanded', String(nextOpen));
+
+      if (!animate || prefersReducedMotion() || !details.isConnected) {
+        settle(nextOpen);
+        return;
+      }
+
+      details.style.removeProperty('height');
+      details.open = nextOpen;
+      const targetHeight = details.getBoundingClientRect().height;
+      details.open = true;
+      details.style.height = `${currentHeight}px`;
+      details.style.overflow = 'hidden';
+      details.classList.add('is-animating');
+
+      heightAnimation = details.animate(
+        [{ height: `${currentHeight}px` }, { height: `${targetHeight}px` }],
+        { duration: 220, easing: 'cubic-bezier(.2, .7, .2, 1)' },
+      );
+      contentAnimation = content.animate(
+        [
+          { opacity: currentOpacity, transform: currentTransform },
+          { opacity: nextOpen ? 1 : 0, transform: nextOpen ? 'translateY(0)' : 'translateY(-4px)' },
+        ],
+        { duration: nextOpen ? 180 : 140, easing: 'ease', fill: 'forwards' },
+      );
+      heightAnimation.onfinish = () => {
+        if (animationId !== sequence) return;
+        heightAnimation = null;
+        contentAnimation?.cancel();
+        contentAnimation = null;
+        settle(nextOpen);
+      };
+    };
+
+    summary.setAttribute('aria-expanded', String(targetOpen));
+    summary.addEventListener('click', (event) => {
+      event.preventDefault();
+      setOpen(!targetOpen);
+    });
+    return { setOpen };
+  }
+
   function createToolActivity(tool = {}) {
     const card = document.createElement('details');
     card.className = `ai-chat-tool ${tool.status || 'running'}`;
@@ -988,6 +1070,7 @@
     const detail = document.createElement('div');
     detail.className = 'ai-chat-tool-detail';
     card.append(summary, detail);
+    const disclosure = enableDetailsAnimation(card, detail);
 
     const update = (next = {}) => {
       Object.assign(tool, next);
@@ -1015,7 +1098,7 @@
       }
     };
     update(tool);
-    return { card, update };
+    return { card, update, setOpen: disclosure.setOpen };
   }
 
   function createAssistantView(options = {}) {
@@ -1048,9 +1131,11 @@
     };
     const finishThinking = (round) => {
       const view = thinkingViews.get(Number(round));
-      if (!view) return;
+      if (!view || view.finished) return;
       view.element.classList.remove('is-streaming');
       view.label.textContent = '思考过程';
+      view.setOpen(false);
+      view.finished = true;
     };
     const discardEmptyThinking = (round) => {
       const roundId = Number(round) || 0;
@@ -1094,7 +1179,15 @@
           text.className = 'ai-chat-thinking-text';
           element.append(summary, text);
           trace.appendChild(element);
-          view = { element, text, label: summary.querySelector('.ai-chat-thinking-label'), content: '' };
+          const disclosure = enableDetailsAnimation(element, text);
+          view = {
+            element,
+            text,
+            label: summary.querySelector('.ai-chat-thinking-label'),
+            content: '',
+            finished: false,
+            setOpen: disclosure.setOpen,
+          };
           thinkingViews.set(roundId, view);
         }
         view.content += String(delta || '');
@@ -1104,6 +1197,7 @@
       addContent(delta, round = 0) {
         answerRound = Number(round) || 0;
         discardEmptyThinking(answerRound);
+        finishThinking(answerRound);
         content += String(delta || '');
         renderMarkdownInto(ensureAnswer(), content);
         scroll();
