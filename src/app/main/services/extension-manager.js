@@ -57,7 +57,7 @@ function createExtensionManager(deps = {}) {
     app,
     fs,
     path,
-    BrowserView,
+    WebContentsView,
     logger = console,
     getStorePath,
     getTranslateExtDir,
@@ -376,7 +376,7 @@ function createExtensionManager(deps = {}) {
 
   // Normalize Chrome query/update options to Electron's documented subset.
   // This also makes active/currentWindow calls deterministic for a session
-  // backed by one app BrowserView.
+  // backed by one internal WebContentsView.
   if (tabsApi && nativeTabsQuery) {
     tabsApi.query = (queryInfo, callback) => {
       const source = queryInfo && typeof queryInfo === 'object' ? queryInfo : {};
@@ -608,7 +608,7 @@ function createExtensionManager(deps = {}) {
 
   // Electron intentionally implements only a subset of chrome.tabs.  Complete
   // the common API surface in one place so extensions do not need Electron
-  // branches scattered through their business code.  A BrowserView session has
+  // branches scattered through their business code. An internal view session has
   // one app-managed tab, therefore create/remove degrade to replacing/blanking
   // that view while preserving Chrome-compatible return values.
   if (tabsApi) {
@@ -643,7 +643,7 @@ function createExtensionManager(deps = {}) {
           const url = String(data.url || 'about:blank');
           const knownIds = new Set(before.map((tab) => Number(tab && tab.id)));
 
-          // The app's BrowserView setWindowOpenHandler turns this into a real
+          // The app's window-open handler turns this into a real
           // managed tab. Poll chrome.tabs so the extension receives its ID.
           if (chromeApi.scripting && typeof chromeApi.scripting.executeScript === 'function') {
             try {
@@ -1516,15 +1516,6 @@ function createExtensionManager(deps = {}) {
 
   function collectSessions() {
     const sessions = new Set(knownSessions);
-    try {
-      const tabs = typeof getTabs === 'function' ? getTabs() : null;
-      if (tabs && typeof tabs.values === 'function') {
-        for (const tab of tabs.values()) {
-          const session = tab?.view?.webContents?.session;
-          if (session) sessions.add(session);
-        }
-      }
-    } catch (_) {}
     return Array.from(sessions).filter(Boolean);
   }
 
@@ -1699,12 +1690,17 @@ function createExtensionManager(deps = {}) {
   }
 
   function getActiveWebPanelSizeLimits() {
-    const tabs = typeof getTabs === 'function' ? getTabs() : null;
-    const activeTab = tabs?.get?.(typeof getActiveTabId === 'function' ? getActiveTabId() : null);
-    const activeView = activeTab?.view || null;
-    const webBounds = activeView && typeof activeView.getBounds === 'function'
-      ? activeView.getBounds()
+    const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
+    if (!mainWindow || mainWindow.isDestroyed?.()) return null;
+    const contentBounds = typeof mainWindow.getContentBounds === 'function'
+      ? mainWindow.getContentBounds()
       : null;
+    const webBounds = contentBounds ? {
+      x: 0,
+      y: 70,
+      width: Math.max(0, Number(contentBounds.width) || 0),
+      height: Math.max(0, (Number(contentBounds.height) || 0) - 70),
+    } : null;
     if (!webBounds || !webBounds.width || !webBounds.height) return null;
 
     const maxContentWidth = Math.max(0, Math.floor(webBounds.width - WEB_PANEL_MARGIN * 2));
@@ -1763,7 +1759,8 @@ function createExtensionManager(deps = {}) {
 
     try {
       webPanel.view.setBounds(bounds);
-      mainWindow.setTopBrowserView(webPanel.view);
+      try { mainWindow.contentView.removeChildView(webPanel.view); } catch (_) {}
+      mainWindow.contentView.addChildView(webPanel.view);
       return true;
     } catch (error) {
       logger.warn?.('[Extensions] 同步网页插件浮窗位置失败:', error?.message || error);
@@ -1779,7 +1776,7 @@ function createExtensionManager(deps = {}) {
       try {
         const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
         if (mainWindow && !mainWindow.isDestroyed?.()) {
-          mainWindow.removeBrowserView(panel.view);
+          mainWindow.contentView.removeChildView(panel.view);
         }
       } catch (_) {}
       try {
@@ -1795,10 +1792,10 @@ function createExtensionManager(deps = {}) {
   }
 
   function createWebPanelView(partition) {
-    if (!BrowserView) {
+    if (!WebContentsView) {
       throw new Error('当前环境无法创建插件浮窗');
     }
-    return new BrowserView({
+    return new WebContentsView({
       webPreferences: {
         partition,
         nodeIntegration: false,
@@ -1838,7 +1835,7 @@ function createExtensionManager(deps = {}) {
             contentBottom = Math.max(contentBottom, rect.bottom, rect.top + root.scrollHeight);
           }
 
-          // documentElement.scrollHeight is always at least the current BrowserView
+          // documentElement.scrollHeight is always at least the current view
           // height, so using it prevents a short popup from ever shrinking. Measure
           // the actual body roots instead and retain the old values only as fallback.
           const width = Math.ceil(contentRight > 0
@@ -1993,7 +1990,7 @@ function createExtensionManager(deps = {}) {
       contentWidth: defaultSize.width,
       contentHeight: defaultSize.height,
     };
-    mainWindow.addBrowserView(view);
+    mainWindow.contentView.addChildView(view);
     syncWebPanelBounds();
 
     try {

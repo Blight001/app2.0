@@ -203,6 +203,38 @@ function registerAppLifecycle(deps = {}) {
       }
     });
 
+    ipcMain.handle('ai-control-get-browser-connections', async () => {
+      try {
+        const bridge = deps.browserAutomationBridge;
+        return {
+          ok: true,
+          connections: bridge && typeof bridge.listConnections === 'function'
+            ? bridge.listConnections()
+            : [],
+        };
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error), connections: [] };
+      }
+    });
+
+    ipcMain.handle('ai-control-redeem-gift-code', async (_event, input = {}) => {
+      try {
+        const credentials = readStoreConfigSafe()?.userCredentials || {};
+        const key = String(credentials.key || '').trim();
+        const deviceId = String(credentials.deviceId || '').trim();
+        const code = String(input.code || '').trim();
+        if (!key || !deviceId) return { ok: false, message: '请先在个人中心登录账号' };
+        if (!code) return { ok: false, message: '请输入礼品码' };
+        const httpClient = getGlobalHttpClient?.();
+        if (!httpClient || typeof httpClient.redeemAIControlGiftCode !== 'function') {
+          return { ok: false, message: 'AI 服务尚未就绪' };
+        }
+        return await httpClient.redeemAIControlGiftCode(key, deviceId, code);
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error) };
+      }
+    });
+
     ipcMain.handle('ai-control-chat', async (_event, input = {}) => {
       try {
         const credentials = readStoreConfigSafe()?.userCredentials || {};
@@ -213,12 +245,67 @@ function registerAppLifecycle(deps = {}) {
         if (!httpClient || typeof httpClient.sendAIControlMessage !== 'function') {
           return { ok: false, message: 'AI 服务尚未就绪' };
         }
-        return await httpClient.sendAIControlMessage(
-          key,
-          deviceId,
-          String(input.modelId || '').trim(),
-          Array.isArray(input.messages) ? input.messages : [],
-        );
+        const modelId = String(input.modelId || '').trim();
+        const initialMessages = Array.isArray(input.messages) ? input.messages : [];
+        const connectionId = String(input.browserConnectionId || '').trim();
+        const bridge = deps.browserAutomationBridge;
+        const connection = connectionId && bridge?.getConnection?.(connectionId);
+        if (connectionId && !connection) {
+          return { ok: false, message: '所选浏览器插件已离线，请刷新后重新选择' };
+        }
+
+        const tools = connection?.tools || [];
+        const modelMessages = [...initialMessages];
+        let runId = '';
+        let latestQuota = null;
+        for (let round = 0; round < 12; round += 1) {
+          const result = await httpClient.sendAIControlMessage(
+            key,
+            deviceId,
+            modelId,
+            modelMessages,
+            { tools, runId },
+          );
+          if (!result?.ok) return result;
+          latestQuota = result.quota || latestQuota;
+          runId = String(result.run_id || runId || '');
+          const toolCalls = Array.isArray(result.message?.tool_calls) ? result.message.tool_calls : [];
+          if (!toolCalls.length) return { ...result, quota: latestQuota };
+          if (!connection || !bridge?.dispatch) {
+            return { ok: false, message: '模型请求了浏览器工具，但当前没有选择可用的浏览器插件' };
+          }
+
+          modelMessages.push({
+            role: 'assistant',
+            content: String(result.message?.content || ''),
+            tool_calls: toolCalls,
+          });
+          for (const call of toolCalls) {
+            const toolName = String(call?.function?.name || '').trim();
+            let args = {};
+            try {
+              args = JSON.parse(String(call?.function?.arguments || '{}'));
+            } catch (_) {
+              args = {};
+            }
+            let toolResult;
+            try {
+              const requestedSeconds = Number(args?.timeout_seconds || 0);
+              toolResult = await bridge.dispatch(connection.id, toolName, args, {
+                timeoutMs: requestedSeconds > 0 ? requestedSeconds * 1000 : 180000,
+              });
+            } catch (error) {
+              toolResult = { success: false, error: error?.message || String(error) };
+            }
+            modelMessages.push({
+              role: 'tool',
+              tool_call_id: String(call.id || ''),
+              name: toolName,
+              content: JSON.stringify(toolResult ?? null),
+            });
+          }
+        }
+        return { ok: false, message: '浏览器工具调用次数过多，已停止本轮任务', quota: latestQuota };
       } catch (error) {
         return { ok: false, message: error?.message || String(error) };
       }
@@ -668,6 +755,12 @@ function registerAppLifecycle(deps = {}) {
           }
         } catch (e) {
           logger.warn?.('[退出] 释放 HTTP 客户端失败:', e?.message || e);
+        }
+
+        try {
+          await deps.browserAutomationBridge?.stop?.();
+        } catch (e) {
+          logger.warn?.('[退出] 关闭浏览器插件桥接失败:', e?.message || e);
         }
 
         if (!isUpdateExit) {

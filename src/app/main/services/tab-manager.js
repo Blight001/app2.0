@@ -12,7 +12,6 @@ const {
 const {
   buildDefaultManagedTabPartitionName,
   buildManagedTabPartitionName,
-  getActiveTabWebContents,
   toggleSidebarVisibility,
 } = require('./tab-common');
 
@@ -64,22 +63,27 @@ function resolveChromiumExtraArgs(browserSettings = {}) {
   return args;
 }
 
+function buildBrowserStatusPageUrl(title, message, tone = 'loading') {
+  const safeTitle = String(title || '新建窗口').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[character]);
+  const safeMessage = String(message || '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[character]);
+  const isError = tone === 'error';
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${safeTitle}</title><style>
+    :root{color-scheme:dark}html,body{height:100%;margin:0}body{display:grid;place-items:center;background:#0f1115;color:#e6e8ee;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.card{text-align:center;padding:28px}.spinner{width:34px;height:34px;margin:0 auto 18px;border:3px solid rgba(77,163,255,.2);border-top-color:${isError ? '#e06666' : '#4da3ff'};border-radius:50%;animation:spin .8s linear infinite}.error .spinner{animation:none;border-color:#e06666}.title{font-size:18px;font-weight:700}.message{margin-top:8px;color:#9aa3b2;font-size:13px}@keyframes spin{to{transform:rotate(360deg)}}</style></head><body><div class="card${isError ? ' error' : ''}"><div class="spinner"></div><div class="title">${safeTitle}</div><div class="message">${safeMessage}</div></div></body></html>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
 // 创建/初始化：createTabManager的具体业务逻辑。
 function createTabManager(deps = {}) {
   const DEFAULT_TUTORIAL_URL = 'https://www.baidu.com/';
+  const TUTORIAL_TAB_TITLE = '使用教程[AI-FREE]';
   const {
-    BrowserWindow,
-    BrowserView,
     browserRuntimeManager,
-    path,
     fs,
     logger = console,
-    state,
-    injectZoomWheelListener,
-    clearInjectionRecord,
-    attachContextMenu,
-    downloadOrSaveMedia,
-    loadTranslateExtension,
     extensionManager,
     cleanupBrowserSessionData,
     getStorePath,
@@ -92,16 +96,9 @@ function createTabManager(deps = {}) {
     setActiveTabId,
     getIsSidebarVisible,
     setIsSidebarVisible,
-    getExtPopupWin,
-    setExtPopupWin,
-    getAuth,
     licenseCache,
     sendToSide,
     updateTabs,
-    computeDeviceId,
-    buildTabBrowserPreferences,
-    applyTabBrowserProxy,
-    configureTabBrowserView,
     resolveTabBrowserProfile,
   } = deps;
 
@@ -113,13 +110,33 @@ function createTabManager(deps = {}) {
   const resolveSideView = () => (typeof getSideView === 'function' ? getSideView() : null);
 // 获取/读取/解析：resolveActiveTabId的具体业务逻辑。
   const resolveActiveTabId = () => (typeof getActiveTabId === 'function' ? getActiveTabId() : null);
-// 获取/读取/解析：resolveExtPopupWin的具体业务逻辑。
-  const resolveExtPopupWin = () => (typeof getExtPopupWin === 'function' ? getExtPopupWin() : null);
-// 获取/读取/解析：resolveAuth的具体业务逻辑。
-  const resolveAuth = () => (typeof getAuth === 'function' ? getAuth() : null);
 // 获取/读取/解析：resolveIsSidebarVisible的具体业务逻辑。
   const resolveIsSidebarVisible = () => (typeof getIsSidebarVisible === 'function' ? getIsSidebarVisible() : true);
   const isChromiumTab = (tab) => String(tab?.runtimeType || '') === 'chromium';
+
+  function refreshBrowserProfileInBackground(tabId, browserSettings) {
+    if (typeof resolveTabBrowserProfile !== 'function') return;
+    void resolveTabBrowserProfile({
+      browserSettings,
+      httpGetUniversal: deps.httpGetUniversal,
+      logger,
+    }).then(async (resolvedProfile) => {
+      const tab = resolveTabs().get(String(tabId || ''));
+      if (!tab || !resolvedProfile) return;
+      tab.browserProfile = resolvedProfile;
+      resolveTabs().set(tab.id, tab);
+      if (isChromiumTab(tab)) {
+        const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(tab.id));
+        if (instance?.profile) {
+          instance.profile.locale = resolvedProfile.locale || instance.profile.locale;
+          instance.profile.userAgent = resolvedProfile.userAgent || instance.profile.userAgent;
+        }
+      }
+      updateTabs(true);
+    }).catch((error) => {
+      logger.warn?.('[BrowserMask] 后台更新浏览器地区参数失败:', error?.message || error);
+    });
+  }
 
   function readPersistedBrowserSettings() {
     try {
@@ -157,22 +174,6 @@ function createTabManager(deps = {}) {
       updateTabs();
     });
   }
-// 校验/保护：ensureManagedExtensionsLoaded的具体业务逻辑。
-  const ensureManagedExtensionsLoaded = async (wc, label = '') => {
-    if (!wc || wc.isDestroyed()) {
-      return false;
-    }
-    if (extensionManager && typeof extensionManager.loadEnabledIntoSession === 'function') {
-      await extensionManager.loadEnabledIntoSession(wc.session, label);
-      return true;
-    }
-    if (!state?.pluginSettings?.translateExtEnabled) {
-      logger.log?.('[TranslateExt] 翻译功能已关闭，跳过扩展加载');
-      return false;
-    }
-    await loadTranslateExtension(wc.session, label);
-    return true;
-  };
 // 获取/读取/解析：resolveDefaultTabUrl的具体业务逻辑。
   const resolveDefaultTabUrl = () => {
     try {
@@ -187,6 +188,7 @@ function createTabManager(deps = {}) {
 
 // 启动/打开/显示：openTutorialTab 的具体业务逻辑。
   const openTutorialTab = () => addTab(resolveDefaultTabUrl(), {
+    fixedTitle: TUTORIAL_TAB_TITLE,
     browserProxyMode: 'direct',
     browserSettings: {
       region: 'cn',
@@ -244,15 +246,14 @@ function createTabManager(deps = {}) {
     const browserProxy = getBrowserProxyEndpoint();
 
     const results = await Promise.all(entries.map(async (tab) => {
-      const webContents = tab?.view?.webContents;
-      if (!webContents || typeof webContents.isDestroyed === 'function' && webContents.isDestroyed()) {
-        return false;
-      }
-      if (typeof applyTabBrowserProxy !== 'function') {
-        return false;
-      }
       const tabProxy = resolveTabBrowserProxy(tab, browserProxy, enabled === true);
-      return await applyTabBrowserProxy(webContents, tabProxy, logger);
+      const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(tab.id));
+      if (!instance?.profile) return false;
+      instance.profile.proxyServer = tabProxy?.enabled ? String(tabProxy.server || '') : '';
+      instance.profile.proxyBypassList = tabProxy?.enabled ? String(tabProxy.bypassRules || '') : '';
+      const runtimeState = await browserRuntimeManager.restart(tab.id);
+      tab.runtimeStatus = runtimeState?.status || tab.runtimeStatus;
+      return true;
     }));
 
     return {
@@ -261,11 +262,6 @@ function createTabManager(deps = {}) {
       updated: results.filter(Boolean).length,
       total: entries.length,
     };
-  }
-
-// 获取/读取/解析：getActiveWC的具体业务逻辑。
-  function getActiveWC() {
-    return getActiveTabWebContents(resolveTabs(), resolveActiveTabId());
   }
 
 // 设置/更新/持久化：toggleSidebar的具体业务逻辑。
@@ -285,6 +281,7 @@ function createTabManager(deps = {}) {
 
     const accountId = String(options.accountId || '').trim();
     const fixedTitle = String(options.fixedTitle || options.tabTitle || '').trim();
+    const browserHistoryId = String(options.browserHistoryId || '').trim();
     const browserProxyMode = normalizeTabBrowserProxyMode(options.browserProxyMode || 'inherit');
     const existingTab = accountId
       ? Array.from(resolveTabs().values()).find((tab) => String(tab?.accountId || '').trim() === accountId)
@@ -294,12 +291,11 @@ function createTabManager(deps = {}) {
       return existingTab.id;
     }
 
-    const newTabId = accountId || Date.now().toString();
+    const newTabId = String(options.tabId || accountId || Date.now().toString());
     const partitionName = accountId
       ? buildManagedTabPartitionName(accountId)
       : buildDefaultManagedTabPartitionName();
     const partition = options.partition || `persist:${partitionName}`;
-    const refreshAfterLoad = options.refreshAfterLoad === true;
     const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
       ? licenseCache.getRuntimeConfig()
       : {};
@@ -314,6 +310,7 @@ function createTabManager(deps = {}) {
           browserSettings,
           httpGetUniversal: deps.httpGetUniversal,
           logger,
+          skipGeoLookup: options.resolveProfileInBackground === true,
         })
       : null;
     const clashMiniStatus = typeof getClashMiniStatus === 'function' ? getClashMiniStatus() : null;
@@ -329,24 +326,26 @@ function createTabManager(deps = {}) {
         }
       : null;
     const configuredBrowserProxy = resolveConfiguredBrowserProxy(browserSettings);
-    const requestedRuntimeType = browserRuntimeManager
-      ? browserRuntimeManager.resolveType({ runtimeType: options.runtimeType || browserSettings.runtimeType })
-      : 'electron';
+    // 主网页标签只允许走编译好的 AI-FREE Chromium Fork，不接受其他网页运行时。
+    const requestedRuntimeType = 'chromium';
     if (requestedRuntimeType === 'chromium') {
       const chromiumExtensionPaths = resolveChromiumExtensionPaths(browserSettings, extensionManager);
-      let initialUrl = options.deferChromiumNavigation === true
+      const targetInitialUrl = options.deferChromiumNavigation === true
         ? 'about:blank'
         : (url || resolveConfiguredHomepage(browserSettings, resolveDefaultTabUrl()));
+      const initialUrl = options.showLoadingPage === true
+        ? buildBrowserStatusPageUrl(fixedTitle || '新建窗口', '正在启动独立浏览器…')
+        : targetInitialUrl;
       const effectiveProxy = configuredBrowserProxy || resolveTabBrowserProxy({ browserProxyMode }, browserProxy, true);
       const [contentWidth, contentHeight] = mainWindow.getContentSize();
       const sidebarWidth = resolveIsSidebarVisible() ? Math.floor(contentWidth * 0.3) : 0;
       const bounds = { x: 0, y: 41, width: contentWidth - sidebarWidth, height: Math.max(0, contentHeight - 41) };
       const chromiumTab = {
         id: newTabId,
-        view: null,
         zoomFactor: 1,
         partition,
         accountId,
+        browserHistoryId,
         fixedTitle,
         runtimeTitle: fixedTitle || 'AI-FREE',
         runtimeType: 'chromium',
@@ -356,6 +355,7 @@ function createTabManager(deps = {}) {
         browserSettings,
       };
       resolveTabs().set(newTabId, chromiumTab);
+      updateTabs(true);
       try {
         const runtimeState = await browserRuntimeManager.launchProfile({
           profileId: newTabId,
@@ -378,220 +378,27 @@ function createTabManager(deps = {}) {
           try { await browserRuntimeManager.setCookies(newTabId, configuredCookies); } catch (error) { logger.warn?.('[ChromiumRuntime] AI-FREE Cookie 注入失败:', error?.message || error); }
         }
         switchTab(newTabId);
+        if (options.showLoadingPage === true && targetInitialUrl && targetInitialUrl !== initialUrl) {
+          void browserRuntimeManager.navigate(newTabId, 'chromium', targetInitialUrl).catch((error) => {
+            logger.warn?.('[ChromiumRuntime] 新浏览器导航失败:', error?.message || error);
+            return browserRuntimeManager.navigate(
+              newTabId,
+              'chromium',
+              buildBrowserStatusPageUrl(fixedTitle || '新建窗口', '页面打开失败，请稍后刷新重试。', 'error'),
+            ).catch(() => {});
+          });
+        }
+        if (options.resolveProfileInBackground === true) {
+          refreshBrowserProfileInBackground(newTabId, browserSettings);
+        }
         return newTabId;
       } catch (error) {
         resolveTabs().delete(newTabId);
-        const prototypeMode = String(process.env.AI_FREE_CHROMIUM_HANDSHAKE || '').trim().toLowerCase() === 'prototype';
-        const runtimeRequiredByEnv = /^(1|true|yes|on)$/i.test(String(process.env.AI_FREE_CHROMIUM_REQUIRED || '').trim());
-        if (!prototypeMode || options.runtimeRequired === true || browserSettings.runtimeRequired === true || runtimeRequiredByEnv) {
-          logger.error?.('[ChromiumRuntime] 正式 Fork 启动失败，禁止回退到 Electron/System Chrome:', error?.message || error);
-          throw error;
-        }
-        logger.warn?.('[ChromiumRuntime] prototype 启动失败，回退到 Electron BrowserView:', error?.message || error);
+        logger.error?.('[ChromiumRuntime] 内置 AI-FREE Chromium 启动失败，禁止回退到其他网页运行时:', error?.message || error);
+        throw error;
       }
     }
-    const newView = new BrowserView({
-      webPreferences: typeof buildTabBrowserPreferences === 'function'
-        ? buildTabBrowserPreferences(partition)
-        : {
-            partition,
-            contextIsolation: true,
-            preload: path.join(__dirname, '../preload.js'),
-          },
-    });
-
-    mainWindow.addBrowserView(newView);
-    resolveTabs().set(newTabId, {
-      id: newTabId,
-      view: newView,
-      zoomFactor: 1,
-      partition,
-      accountId,
-      fixedTitle,
-      runtimeType: 'electron',
-      runtimeStatus: 'ready',
-      browserProxyMode,
-      browserSettings,
-      browserProfile: browserProfile ? {
-        browserBrand: browserProfile.browserBrand || '',
-        browserType: browserProfile.browserType || '',
-        region: browserProfile.region || '',
-        regionLabel: browserProfile.regionLabel || '',
-        sourceIp: browserProfile.sourceIp || '',
-        sourceCountryCode: browserProfile.sourceCountryCode || '',
-        sourceCountry: browserProfile.sourceCountry || '',
-        locale: browserProfile.locale || '',
-        timezoneId: browserProfile.timezoneId || '',
-        acceptLanguage: browserProfile.acceptLanguage || '',
-        userAgent: browserProfile.userAgent || '',
-      } : null,
-      loadState: {
-        didStartLoadingAt: null,
-        domReadyAt: null,
-        didFinishLoadAt: null,
-        didFailLoadAt: null,
-        lastUrl: '',
-      },
-    });
-    attachContextMenu(newView.webContents, { addTab, downloadOrSaveMedia, tabs: resolveTabs(), activeTabId: resolveActiveTabId(), refreshPage: refreshActiveTab });
-    if (typeof configureTabBrowserView === 'function') {
-      await configureTabBrowserView(newView.webContents, {
-        logger,
-        browserProfile,
-        browserSettings,
-        browserProxy: configuredBrowserProxy || resolveTabBrowserProxy({ browserProxyMode }, browserProxy, true),
-      });
-    }
-
-// 设置/更新/持久化：updateTabLoadState的具体业务逻辑。
-    const updateTabLoadState = (patch = {}) => {
-      try {
-        const tabs = resolveTabs();
-        const tab = tabs.get(newTabId);
-        if (!tab) return;
-        tab.loadState = {
-          ...(tab.loadState || {}),
-          ...patch,
-        };
-        tabs.set(newTabId, tab);
-      } catch (_) {}
-    };
-
-    try { resolveAuth()?.applyZhHantRequestPrefs(newView.webContents.session, newView.webContents); } catch (_) {}
-
-    try {
-      await ensureManagedExtensionsLoaded(newView.webContents, `标签 ${newTabId}`);
-    } catch (_) {}
-
-    newView.webContents.setWindowOpenHandler(({ url: childUrl }) => {
-      const currentSourceTab = resolveTabs().get(newTabId);
-      addTab(childUrl, { partition, browserSettings: currentSourceTab?.browserSettings || browserSettings });
-      return { action: 'deny' };
-    });
-
-    newView.webContents.on('did-start-loading', () => {
-      updateTabLoadState({
-        didStartLoadingAt: Date.now(),
-        domReadyAt: null,
-        didFinishLoadAt: null,
-        didFailLoadAt: null,
-        lastUrl: newView.webContents.getURL(),
-      });
-      clearInjectionRecord(newView.webContents);
-    });
-
-    newView.webContents.on('dom-ready', () => {
-      updateTabLoadState({
-        domReadyAt: Date.now(),
-        lastUrl: newView.webContents.getURL(),
-      });
-      newView.webContents.insertCSS('::-webkit-scrollbar { display: none; }');
-      injectZoomWheelListener(newView.webContents);
-    });
-
-    newView.webContents.on('did-finish-load', () => {
-      updateTabLoadState({
-        didFinishLoadAt: Date.now(),
-        lastUrl: newView.webContents.getURL(),
-      });
-      if (fixedTitle) {
-        try { newView.webContents.setTitle(fixedTitle); } catch (_) {}
-      }
-    });
-
-    newView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-      if (!isMainFrame) return;
-      updateTabLoadState({
-        didFailLoadAt: Date.now(),
-        lastUrl: validatedURL || newView.webContents.getURL(),
-        errorCode,
-        errorDescription,
-      });
-    });
-
-    newView.webContents.on('did-navigate-in-page', () => {
-      updateTabLoadState({
-        lastUrl: newView.webContents.getURL(),
-      });
-      injectZoomWheelListener(newView.webContents);
-      if (fixedTitle) {
-        try { newView.webContents.setTitle(fixedTitle); } catch (_) {}
-      }
-    });
-
-    newView.webContents.on('focus', () => {
-      if (resolveIsSidebarVisible()) {
-        if (typeof setIsSidebarVisible === 'function') {
-          setIsSidebarVisible(false);
-        }
-        const sideView = resolveSideView();
-        const mainWindow = resolveMainWindow();
-        if (sideView && sideView.webContents && !sideView.webContents.isDestroyed()) {
-          sideView.webContents.send('sidebar-collapse');
-        }
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('sidebar-collapse');
-          setTimeout(() => {
-            const win = resolveMainWindow();
-            if (win && !win.isDestroyed()) {
-              win.emit('resize');
-            }
-          }, 400);
-        }
-      }
-    });
-
-    if (Array.isArray(options.cookies) && options.cookies.length) {
-      try { await resolveAuth()?.setCookiesToSession(newView.webContents.session, options.cookies); } catch (e) { logger.warn?.('Cookie 注入失败:', e?.message || e); }
-    }
-    const configuredCookies = parseCookieJson(browserSettings);
-    if (configuredCookies.length) {
-      try { await resolveAuth()?.setCookiesToSession(newView.webContents.session, configuredCookies); } catch (e) { logger.warn?.('AI-FREE Cookie 注入失败:', e?.message || e); }
-    }
-
-    if (Array.isArray(options.browserStorage) && options.browserStorage.length) {
-      try { resolveAuth()?.applyBrowserStorageToPage(newView.webContents, options.browserStorage); } catch (e) { logger.warn?.('BrowserStorage 注入失败:', e?.message || e); }
-    }
-
-    let initialUrl = url;
-    if (!initialUrl) {
-      try {
-        initialUrl = resolveConfiguredHomepage(browserSettings, resolveDefaultTabUrl());
-      } catch (error) {
-        logger.error?.('[main] 获取默认打开地址失败，使用教程页默认值:', error);
-        initialUrl = DEFAULT_TUTORIAL_URL;
-      }
-    }
-
-    if (refreshAfterLoad) {
-      let refreshedOnce = false;
-      newView.webContents.once('did-finish-load', () => {
-        if (refreshedOnce) return;
-        refreshedOnce = true;
-        setTimeout(() => {
-          try {
-            if (newView.webContents && !newView.webContents.isDestroyed()) {
-              newView.webContents.reloadIgnoringCache();
-            }
-          } catch (_) {}
-        }, 250);
-      });
-    }
-
-    if (fixedTitle) {
-      try { newView.webContents.setTitle(fixedTitle); } catch (_) {}
-    }
-
-    try { newView.webContents.loadURL(initialUrl); } catch (_) {}
-    switchTab(newTabId);
-    newView.webContents.on('page-title-updated', (event) => {
-      if (fixedTitle) {
-        try { event.preventDefault(); } catch (_) {}
-        try { newView.webContents.setTitle(fixedTitle); } catch (_) {}
-      }
-      updateTabs(true);
-    });
-    return newTabId;
+    throw new Error('AI-FREE Chromium 运行时未能创建浏览器窗口');
   }
 
 // 设置/更新/持久化：setTabAccountId的具体业务逻辑。
@@ -619,17 +426,13 @@ function createTabManager(deps = {}) {
       tab.browserProxyMode = nextMode;
       tabs.set(tabId, tab);
 
-      const wc = tab?.view?.webContents;
-      if (wc && !(typeof wc.isDestroyed === 'function' && wc.isDestroyed())) {
-        const browserProxy = getBrowserProxyEndpoint();
-        const applied = await applyTabBrowserProxy(
-          wc,
-          resolveTabBrowserProxy(tab, browserProxy, true),
-          logger,
-        );
-        if (!applied) {
-          return { ok: false, message: '切换标签代理模式失败' };
-        }
+      const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(tab.id));
+      if (instance?.profile) {
+        const tabProxy = resolveTabBrowserProxy(tab, getBrowserProxyEndpoint(), true);
+        instance.profile.proxyServer = tabProxy?.enabled ? String(tabProxy.server || '') : '';
+        instance.profile.proxyBypassList = tabProxy?.enabled ? String(tabProxy.bypassRules || '') : '';
+        const runtimeState = await browserRuntimeManager.restart(tab.id);
+        tab.runtimeStatus = runtimeState?.status || tab.runtimeStatus;
       }
 
       updateTabs(true);
@@ -649,11 +452,7 @@ function createTabManager(deps = {}) {
     const activeTabId = resolveActiveTabId();
     if (activeTabId && tabs.has(activeTabId)) {
       const previousTab = tabs.get(activeTabId);
-      if (isChromiumTab(previousTab)) {
-        void browserRuntimeManager?.hide(previousTab.id, 'chromium');
-      } else {
-        try { mainWindow.removeBrowserView(previousTab.view); } catch (_) {}
-      }
+      void browserRuntimeManager?.hide(previousTab.id, 'chromium');
     }
 
     if (typeof setActiveTabId === 'function') {
@@ -661,24 +460,10 @@ function createTabManager(deps = {}) {
     }
 
     const activeTab = tabs.get(tabId);
-    if (isChromiumTab(activeTab)) {
-      void browserRuntimeManager?.show(activeTab.id, 'chromium').then(() => browserRuntimeManager.focus(activeTab.id, 'chromium')).catch((error) => {
-        logger.warn?.('[ChromiumRuntime] 显示环境失败:', error?.message || error);
-      });
-      mainWindow.emit('resize');
-      updateTabs(true);
-      return;
-    }
-    const activeTabView = activeTab.view;
-    mainWindow.addBrowserView(activeTabView);
-    mainWindow.setTopBrowserView(activeTabView);
-
-    if (activeTab.zoomFactor) {
-      activeTabView.webContents.setZoomFactor(activeTab.zoomFactor);
-    }
-
+    void browserRuntimeManager?.show(activeTab.id, 'chromium').then(() => browserRuntimeManager.focus(activeTab.id, 'chromium')).catch((error) => {
+      logger.warn?.('[ChromiumRuntime] 显示环境失败:', error?.message || error);
+    });
     mainWindow.emit('resize');
-    sendToSide('active-zoom', activeTab.zoomFactor);
     updateTabs(true);
   }
 
@@ -692,13 +477,8 @@ function createTabManager(deps = {}) {
     const closeIndex = orderedTabIds.indexOf(tabId);
     const tabToClose = tabs.get(tabId);
     const closePartition = tabToClose?.partition || '';
-    const closeSession = tabToClose?.view?.webContents?.session || null;
     const closedAccountId = String(tabToClose?.accountId || '').trim();
-    if (isChromiumTab(tabToClose)) {
-      try { await browserRuntimeManager?.stop(tabToClose.id, 'chromium', { timeoutMs: 4000 }); } catch (error) { logger.warn?.('[ChromiumRuntime] 关闭失败:', error?.message || error); }
-    }
-    try { if (tabToClose?.view?.webContents && !tabToClose.view.webContents.isDestroyed()) tabToClose.view.webContents.destroy(); } catch (_) {}
-    try { mainWindow.removeBrowserView(tabToClose.view); } catch (_) {}
+    try { await browserRuntimeManager?.stop(tabToClose.id, 'chromium', { timeoutMs: 4000 }); } catch (error) { logger.warn?.('[ChromiumRuntime] 关闭失败:', error?.message || error); }
     tabs.delete(tabId);
     if (closedAccountId) {
       try {
@@ -726,7 +506,7 @@ function createTabManager(deps = {}) {
     try {
       await cleanupBrowserSessionData({
         partition: closePartition,
-        session: closeSession,
+        session: null,
         excludedTabId: tabId,
         source: '标签页关闭',
       });
@@ -761,12 +541,8 @@ function createTabManager(deps = {}) {
 // 设置/更新/持久化：setZoom的具体业务逻辑。
   function setZoom(zoomFactor) {
     const activeTab = resolveTabs().get(resolveActiveTabId());
-    if (activeTab && !isChromiumTab(activeTab)) {
-      activeTab.view.webContents.setZoomFactor(zoomFactor);
+    if (activeTab) {
       activeTab.zoomFactor = zoomFactor;
-      try {
-        activeTab.view.webContents.send('active-zoom', zoomFactor);
-      } catch (_) {}
     }
     try { sendToSide('active-zoom', zoomFactor); } catch (_) {}
   }
@@ -775,22 +551,13 @@ function createTabManager(deps = {}) {
   async function refreshActiveTabToUrl(url) {
     try {
       const activeTab = resolveTabs().get(resolveActiveTabId());
-      if (isChromiumTab(activeTab)) {
+      if (activeTab) {
         await browserRuntimeManager.navigate(activeTab.id, 'chromium', url);
         sendToSide('active-tab-refreshed', { ok: true, url, runtimeType: 'chromium' });
         return;
       }
-      const wc = getActiveWC();
-      if (wc) {
-        const targetUrl = url;
-        logger.log?.('刷新', `将当前激活标签页强制刷新到 -> ${targetUrl}`);
-        await ensureManagedExtensionsLoaded(wc, `刷新到URL`);
-        wc.loadURL(targetUrl);
-        sendToSide('active-tab-refreshed', { ok: true, url: targetUrl });
-      } else {
-        logger.log?.('刷新', '没有激活标签页可刷新');
-        sendToSide('active-tab-refreshed', { ok: false, reason: 'no_active_tab' });
-      }
+      logger.log?.('刷新', '没有激活标签页可刷新');
+      sendToSide('active-tab-refreshed', { ok: false, reason: 'no_active_tab' });
     } catch (e) {
       logger.log?.('刷新错误', e);
       sendToSide('active-tab-refreshed', { ok: false, reason: e.message });
@@ -801,27 +568,13 @@ function createTabManager(deps = {}) {
   async function refreshActiveTab() {
     try {
       const activeTab = resolveTabs().get(resolveActiveTabId());
-      if (isChromiumTab(activeTab)) {
+      if (activeTab) {
         await browserRuntimeManager.reload(activeTab.id, 'chromium');
         sendToSide('active-tab-refreshed', { ok: true, runtimeType: 'chromium' });
         return;
       }
-      const wc = getActiveWC();
-      if (wc) {
-        const rawUrl = String(wc.getURL() || '');
-        const currentUrl = rawUrl;
-        logger.log?.('刷新', '刷新当前激活标签页 (忽略缓存) ->', currentUrl);
-        await ensureManagedExtensionsLoaded(wc, '刷新当前标签页');
-        if (currentUrl && currentUrl !== rawUrl) {
-          wc.loadURL(currentUrl);
-        } else {
-          wc.reloadIgnoringCache();
-        }
-        sendToSide('active-tab-refreshed', { ok: true, url: currentUrl });
-      } else {
-        logger.log?.('刷新', '没有激活标签页可刷新');
-        sendToSide('active-tab-refreshed', { ok: false, reason: 'no_active_tab' });
-      }
+      logger.log?.('刷新', '没有激活标签页可刷新');
+      sendToSide('active-tab-refreshed', { ok: false, reason: 'no_active_tab' });
     } catch (e) {
       logger.log?.('刷新错误', e);
       sendToSide('active-tab-refreshed', { ok: false, reason: e.message });
@@ -836,25 +589,9 @@ function createTabManager(deps = {}) {
         return { ok: false, message: '标签页不存在' };
       }
       const targetTab = tabs.get(tabId);
-      if (isChromiumTab(targetTab)) {
-        await browserRuntimeManager.reload(targetTab.id, 'chromium');
-        return { ok: true };
-      }
-      const wc = targetTab?.view?.webContents;
-      if (!wc || wc.isDestroyed()) {
-        return { ok: false, message: '网页不可用' };
-      }
-      logger.log?.('刷新', `刷新指定标签页 -> ${tabId}`);
-      await ensureManagedExtensionsLoaded(wc, `刷新标签 ${tabId}`);
-      const rawUrl = String(wc.getURL() || '');
-      const currentUrl = (rawUrl);
-      if (currentUrl && currentUrl !== rawUrl) {
-        wc.loadURL(currentUrl);
-      } else {
-        wc.reloadIgnoringCache();
-      }
+      await browserRuntimeManager.reload(targetTab.id, 'chromium');
       if (tabId === resolveActiveTabId()) {
-        try { sendToSide('active-tab-refreshed', { ok: true, url: currentUrl || rawUrl }); } catch (_) {}
+        try { sendToSide('active-tab-refreshed', { ok: true, runtimeType: 'chromium' }); } catch (_) {}
       }
       return { ok: true };
     } catch (e) {
@@ -875,6 +612,27 @@ function createTabManager(deps = {}) {
     }
   }
 
+// 设置/更新/持久化：更新独立浏览器窗口名称。
+  function renameTab(tabId, title) {
+    try {
+      const normalizedTabId = String(tabId || '').trim();
+      const normalizedTitle = String(title || '').trim();
+      if (!normalizedTabId || !normalizedTitle) {
+        return { ok: false, message: '浏览器名称不能为空' };
+      }
+      const tabs = resolveTabs();
+      const tab = tabs.get(normalizedTabId);
+      if (!tab) return { ok: false, message: '浏览器窗口不存在' };
+      tab.fixedTitle = normalizedTitle;
+      tab.runtimeTitle = normalizedTitle;
+      tabs.set(normalizedTabId, tab);
+      updateTabs(true);
+      return { ok: true, tabId: normalizedTabId, title: normalizedTitle };
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error) };
+    }
+  }
+
 // 设置/更新/持久化：把可视化指纹设置应用到指定标签页。
   async function setTabBrowserSettings(tabId, settings, options = {}) {
     try {
@@ -882,8 +640,6 @@ function createTabManager(deps = {}) {
       const tab = tabs.get(String(tabId || ''));
       if (!tab) return { ok: false, message: '当前没有可配置的浏览器标签页' };
       const normalized = normalizeAiFreeBrowserSettings(settings);
-      const hardwareRestartRequired = tab.browserSettings?.hardwareAcceleration !== undefined
-        && tab.browserSettings.hardwareAcceleration !== normalized.hardwareAcceleration;
       const browserProfile = await resolveTabBrowserProfile({
         browserSettings: normalized,
         httpGetUniversal: deps.httpGetUniversal,
@@ -893,88 +649,52 @@ function createTabManager(deps = {}) {
       tab.browserProfile = browserProfile;
       tabs.set(tab.id, tab);
 
-      if (isChromiumTab(tab)) {
-        const configuredProxy = resolveConfiguredBrowserProxy(normalized);
-        const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(tab.id));
-        if (instance?.profile) {
-          instance.profile.locale = browserProfile?.locale || '';
-          instance.profile.userAgent = browserProfile?.userAgent || '';
-          if (configuredProxy !== null) {
-            instance.profile.proxyServer = configuredProxy?.enabled ? configuredProxy.server : '';
-            instance.profile.proxyBypassList = configuredProxy?.bypassRules || '';
-          }
-          instance.profile.extraArgs = resolveChromiumExtraArgs(normalized);
-        }
-        const configuredCookies = parseCookieJson(normalized);
-        if (configuredCookies.length && typeof browserRuntimeManager?.setCookies === 'function') {
-          try { await browserRuntimeManager.setCookies(tab.id, configuredCookies); } catch (error) { logger.warn?.('[ChromiumRuntime] AI-FREE Cookie 更新失败:', error?.message || error); }
-        }
-        if (options.restartChromium === true && browserRuntimeManager) {
-          const state = await browserRuntimeManager.restart(tab.id);
-          tab.runtimeStatus = state?.status || tab.runtimeStatus;
-          updateTabs(true);
-          return { ok: true, applied: true, restarted: true, runtimeType: 'chromium' };
-        }
-        updateTabs(true);
-        return { ok: true, applied: false, restartRequired: true, runtimeType: 'chromium' };
-      }
-
-      const wc = tab?.view?.webContents;
-      if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) {
-        return { ok: false, message: '当前标签页已经关闭' };
-      }
       const configuredProxy = resolveConfiguredBrowserProxy(normalized);
-      const configureOptions = {
-        logger,
-        browserProfile,
-        browserSettings: normalized,
-      };
-      if (configuredProxy !== null) configureOptions.browserProxy = configuredProxy;
-      await configureTabBrowserView(wc, configureOptions);
+      const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(tab.id));
+      if (instance?.profile) {
+        instance.profile.locale = browserProfile?.locale || '';
+        instance.profile.userAgent = browserProfile?.userAgent || '';
+        if (configuredProxy !== null) {
+          instance.profile.proxyServer = configuredProxy?.enabled ? configuredProxy.server : '';
+          instance.profile.proxyBypassList = configuredProxy?.bypassRules || '';
+        }
+        instance.profile.extraArgs = resolveChromiumExtraArgs(normalized);
+      }
       const configuredCookies = parseCookieJson(normalized);
-      if (configuredCookies.length) await resolveAuth()?.setCookiesToSession(wc.session, configuredCookies);
+      if (configuredCookies.length && typeof browserRuntimeManager?.setCookies === 'function') {
+        try { await browserRuntimeManager.setCookies(tab.id, configuredCookies); } catch (error) { logger.warn?.('[ChromiumRuntime] AI-FREE Cookie 更新失败:', error?.message || error); }
+      }
+      if (options.restartChromium === true && browserRuntimeManager) {
+        const state = await browserRuntimeManager.restart(tab.id);
+        tab.runtimeStatus = state?.status || tab.runtimeStatus;
+        updateTabs(true);
+        return { ok: true, applied: true, restarted: true, runtimeType: 'chromium' };
+      }
       updateTabs(true);
-      return { ok: true, applied: true, restarted: false, restartRequired: hardwareRestartRequired, runtimeType: 'electron' };
+      return { ok: true, applied: false, restartRequired: true, runtimeType: 'chromium' };
     } catch (error) {
       logger.warn?.('[BrowserSettings] 应用标签参数失败:', error?.message || error);
       return { ok: false, message: error?.message || String(error) };
     }
   }
 
-// 插件启停后，Electron 需要重载页面才能重新执行/移除 content scripts；
 // Chromium Fork 的扩展清单来自启动参数，因此必须带着新清单重启 Profile。
   async function refreshBrowsersAfterExtensionChange(change = {}) {
     const entries = Array.from(resolveTabs().values());
-    const refreshedWebContents = new Set();
-    let electronReloaded = 0;
     let chromiumRestarted = 0;
     const failures = [];
 
     for (const tab of entries) {
-      if (isChromiumTab(tab)) {
-        try {
-          const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(tab.id));
-          if (!instance?.profile) continue;
-          instance.profile.extensionPaths = resolveChromiumExtensionPaths(tab.browserSettings || {}, extensionManager);
-          const runtimeState = await browserRuntimeManager.restart(tab.id);
-          tab.runtimeStatus = runtimeState?.status || tab.runtimeStatus;
-          chromiumRestarted += 1;
-        } catch (error) {
-          failures.push({ tabId: String(tab.id || ''), runtimeType: 'chromium', message: error?.message || String(error) });
-          logger.warn?.(`[Extensions] Chromium 环境 ${tab.id} 刷新失败:`, error?.message || error);
-        }
-        continue;
-      }
-
-      const wc = tab?.view?.webContents;
-      if (!wc || wc.isDestroyed?.() || refreshedWebContents.has(wc)) continue;
-      refreshedWebContents.add(wc);
       try {
-        wc.reloadIgnoringCache();
-        electronReloaded += 1;
+        const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(tab.id));
+        if (!instance?.profile) continue;
+        instance.profile.extensionPaths = resolveChromiumExtensionPaths(tab.browserSettings || {}, extensionManager);
+        const runtimeState = await browserRuntimeManager.restart(tab.id);
+        tab.runtimeStatus = runtimeState?.status || tab.runtimeStatus;
+        chromiumRestarted += 1;
       } catch (error) {
-        failures.push({ tabId: String(tab.id || ''), runtimeType: 'electron', message: error?.message || String(error) });
-        logger.warn?.(`[Extensions] Electron 标签 ${tab.id} 刷新失败:`, error?.message || error);
+        failures.push({ tabId: String(tab.id || ''), runtimeType: 'chromium', message: error?.message || String(error) });
+        logger.warn?.(`[Extensions] Chromium 环境 ${tab.id} 刷新失败:`, error?.message || error);
       }
     }
 
@@ -982,9 +702,8 @@ function createTabManager(deps = {}) {
       ok: failures.length === 0,
       pluginId: String(change?.plugin?.id || ''),
       enabled: change?.enabled === true,
-      electronReloaded,
       chromiumRestarted,
-      total: electronReloaded + chromiumRestarted,
+      total: chromiumRestarted,
       failures,
     };
     updateTabs(true);
@@ -1013,6 +732,7 @@ function createTabManager(deps = {}) {
     switchTab,
     closeTab,
     reorderTab,
+    renameTab,
     setTabAccountId,
     setZoom,
     refreshActiveTabToUrl,
@@ -1020,7 +740,6 @@ function createTabManager(deps = {}) {
     refreshTab,
     openExtensionPopup,
     openExtensionOptions,
-    getActiveWC,
     toggleSidebar,
   };
 }

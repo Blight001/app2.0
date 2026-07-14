@@ -18,7 +18,8 @@
 }
 .ai-chat-clear:hover { background: var(--brand-soft); color: #e6efff; }
 
-.ai-chat-model-row { display: grid; grid-template-columns: auto minmax(0, 1fr) 36px; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.ai-chat-model-row { display: grid; grid-template-columns: minmax(118px, .8fr) minmax(138px, 1fr) 36px; align-items: end; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.ai-chat-select-field { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 6px; min-width: 0; }
 .ai-chat-model-row label { color: #8a9bb5; font-size: 12px; }
 .ai-chat-model-row select, .ai-chat-model-row button {
   height: 34px; border: 1px solid rgba(120, 140, 175, .22); border-radius: var(--r-sm);
@@ -31,6 +32,12 @@
 .ai-chat-model-row button { cursor: pointer; font-size: 16px; display: grid; place-items: center; }
 .ai-chat-model-row button:hover { background: var(--brand-soft); }
 .ai-chat-quota { flex: 0 0 auto; min-height: 16px; color: #7e90ab; font-size: 12px; }
+.ai-chat-credit-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex: 0 0 auto; }
+.ai-chat-gift-redeem { display: flex; align-items: center; gap: 6px; }
+.ai-chat-gift-redeem input { width: 150px; height: 28px; padding: 0 9px; border: 1px solid rgba(120, 145, 185, .25); border-radius: var(--r-sm); color: #eaf2ff; background: rgba(255, 255, 255, .04); outline: none; font-size: 12px; }
+.ai-chat-gift-redeem input:focus { border-color: var(--brand); }
+.ai-chat-gift-redeem button { height: 28px; padding: 0 10px; border: 0; border-radius: var(--r-sm); color: #fff; background: var(--brand); cursor: pointer; }
+.ai-chat-gift-redeem button:disabled { opacity: .45; cursor: not-allowed; }
 
 .ai-chat-messages { flex: 1 1 auto; min-height: 120px; overflow-y: auto; padding: 4px 0 12px; scrollbar-width: thin; }
 .ai-chat-welcome { display: flex; min-height: 100%; align-items: center; justify-content: center; flex-direction: column; text-align: center; color: #94a6c2; }
@@ -53,11 +60,30 @@
 .ai-chat-composer button:disabled { opacity: .35; cursor: not-allowed; }
 .ai-chat-status { flex: 0 0 auto; min-height: 16px; color: #f0a8a8; font-size: 12px; }
 
+/* ---- 紧凑布局：默认窗口下侧栏 ≈384px，两个下拉 + 刷新 + 新对话 一行放不下 ---- */
+@media (max-width: 519px) {
+  .ai-chat-header { flex-wrap: wrap; }
+  .ai-chat-credit-row { align-items: stretch; flex-direction: column; }
+  .ai-chat-gift-redeem input { flex: 1; width: auto; }
+  /* 浏览器下拉独占一行，模型下拉与刷新按钮同行 */
+  .ai-chat-model-row { flex: 1 1 100%; grid-template-columns: minmax(0, 1fr) 36px; }
+  .ai-chat-model-row > .ai-chat-select-field:first-child { grid-column: 1 / -1; }
+  /* 新对话换行到下一行，右对齐 */
+  .ai-chat-clear { margin-left: auto; }
+  .ai-chat-bubble { max-width: 90%; }
+}
+
+/* ---- 放大布局：侧栏 ≥520px，一行容纳全部控件 ---- */
+@media (min-width: 520px) {
+  .ai-chat-bubble { max-width: 78%; }
+}
+
 html.theme-light .ai-control-panel { color: #233451; background: #f4f7fb; }
 html.theme-light .ai-chat-header h1, html.theme-light .ai-chat-welcome strong { color: #1f2f47; }
 html.theme-light .ai-chat-clear { color: #4a5f7c; }
 html.theme-light .ai-chat-clear:hover { color: #20344d; }
 html.theme-light .ai-chat-model-row label, html.theme-light .ai-chat-quota { color: #6a7d94; }
+html.theme-light .ai-chat-gift-redeem input { color: #243752; background: #fff; }
 html.theme-light .ai-chat-model-row select, html.theme-light .ai-chat-model-row button { color: #31465f; border-color: rgba(86, 121, 165, .24); background: #fff; }
 html.theme-light .ai-chat-message.assistant .ai-chat-bubble { color: #2b3d59; border-color: rgba(86, 121, 165, .18); background: #fff; }
 html.theme-light .ai-chat-composer { border-color: rgba(86, 121, 165, .24); background: #fff; }

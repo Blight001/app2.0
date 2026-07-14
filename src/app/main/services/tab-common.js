@@ -13,7 +13,7 @@ function resolveTabTitle(tab = {}) {
   }
   const runtimeTitle = String(tab?.runtimeTitle || '').trim();
   if (runtimeTitle) return runtimeTitle;
-  return String(tab?.view?.webContents?.getTitle?.() || '').trim();
+  return '';
 }
 
 function normalizePersistPartitionName(partition) {
@@ -39,13 +39,9 @@ function buildDefaultManagedTabPartitionName() {
 }
 
 function getActiveTabWebContents(tabs, activeTabId) {
-  try {
-    const tab = tabs && typeof tabs.get === 'function' ? tabs.get(activeTabId) : null;
-    const webContents = tab?.view?.webContents || null;
-    return isUsableWebContents(webContents) ? webContents : null;
-  } catch (_) {
-    return null;
-  }
+  void tabs;
+  void activeTabId;
+  return null;
 }
 
 function sendSidebarVisibility(target, visible) {

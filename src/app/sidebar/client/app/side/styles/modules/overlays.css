@@ -243,6 +243,22 @@
   overflow: hidden;
 }
 
+.modal-prompt-message { margin-bottom: 10px; }
+.modal-prompt-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #d4d9e0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  outline: none;
+  color: #263445;
+  background: #fff;
+  font: inherit;
+}
+.modal-prompt-input:focus { border-color: #409eff; box-shadow: 0 0 0 3px rgba(64, 158, 255, .14); }
+.modal-prompt-input.is-invalid { border-color: #f56c6c; box-shadow: 0 0 0 3px rgba(245, 108, 108, .12); }
+
 .announcement-header {
   display: flex;
   align-items: center;

@@ -1,5 +1,6 @@
 #include "child_window_manager.h"
 #include "native_helpers.h"
+#include <dwmapi.h>
 #include <unordered_map>
 #include <mutex>
 
@@ -75,8 +76,20 @@ napi_value AttachChildWindow(napi_env env, napi_callback_info info) {
   if (!product_title.empty()) SetWindowTextW(child, product_title.c_str());
   RECT rect = {};
   GetClientRect(host, &rect);
-  bool ok = SetWindowPos(child, HWND_TOP, 0, 0, rect.right, rect.bottom,
-      SWP_FRAMECHANGED | SWP_SHOWWINDOW | SWP_ASYNCWINDOWPOS) != FALSE;
+  const int width = rect.right > rect.left ? rect.right - rect.left : 0;
+  const int height = rect.bottom > rect.top ? rect.bottom - rect.top : 0;
+  // The first attach must be synchronous. With SWP_ASYNCWINDOWPOS the host can
+  // become visible before Chromium has processed its frame/bounds change,
+  // leaving the user looking at the host's black background.
+  bool ok = SetWindowPos(child, HWND_TOP, 0, 0,
+      width, height,
+      SWP_FRAMECHANGED | SWP_SHOWWINDOW | SWP_NOACTIVATE) != FALSE;
+  if (ok) {
+    RedrawWindow(child, nullptr, nullptr,
+        RDW_INVALIDATE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
+    UpdateWindow(child);
+    DwmFlush();
+  }
   return BoolValue(env, ok);
 }
 

@@ -6,6 +6,9 @@ function buildLicenseRuntimeConfigPatch(runtimeConfig = {}, options = {}) {
   if (Array.isArray(runtimeConfig.allowedPlatforms) && runtimeConfig.allowedPlatforms.length > 0) {
     nextRuntimeConfig.allowedPlatforms = runtimeConfig.allowedPlatforms;
   }
+  if (Array.isArray(runtimeConfig.woolPlatforms)) {
+    nextRuntimeConfig.woolPlatforms = runtimeConfig.woolPlatforms;
+  }
   if (String(runtimeConfig.targetUrl || '').trim()) {
     nextRuntimeConfig.targetUrl = runtimeConfig.targetUrl;
   }

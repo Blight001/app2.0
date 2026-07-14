@@ -450,7 +450,7 @@ function saveSession(accountId, sessionData) {
       : resolveCurrentAccountType(existingSession.currentAccountType, rawCurrentAccountTypeLabel);
     const finalCurrentAccountTypeLabel = rawCurrentAccountTypeLabel
       || (finalStorageType === 'custom'
-        ? '永久账号'
+        ? '绑定账号'
         : getCurrentAccountTypeLabel(finalCurrentAccountType));
     const finalCleanupProtected = hasCurrentAccountType
       ? finalCurrentAccountType === 'one_time'
@@ -580,7 +580,7 @@ function loadSession(accountId) {
         storageGroupLabel: locationInfo.storageGroupLabel,
         cleanupProtected: locationInfo.storageType === 'custom',
         currentAccountType: locationInfo.storageType === 'custom' ? 'one_time' : '',
-        currentAccountTypeLabel: locationInfo.storageType === 'custom' ? '永久账号' : '',
+        currentAccountTypeLabel: locationInfo.storageType === 'custom' ? '绑定账号' : '',
         current_account_type: '',
         current_account_type_label: '',
         cookiesEncrypted: encrypted.cookiesEncrypted,
@@ -596,7 +596,7 @@ function loadSession(accountId) {
       || resolvedCurrentAccountType === 'one_time';
     const finalCurrentAccountType = resolvedCurrentAccountType || (inferredPermanentAccount ? 'one_time' : '');
     const finalCurrentAccountTypeLabel = String(sessionInfo.currentAccountTypeLabel || '').trim()
-      || (inferredPermanentAccount ? '永久账号' : getCurrentAccountTypeLabel(finalCurrentAccountType));
+      || (inferredPermanentAccount ? '绑定账号' : getCurrentAccountTypeLabel(finalCurrentAccountType));
 
     return {
       id: accountId,

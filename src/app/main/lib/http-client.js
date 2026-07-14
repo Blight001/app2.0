@@ -368,12 +368,28 @@ class HttpClient {
             : primary;
     }
 
-    async sendAIControlMessage(key, deviceId, modelId, messages) {
+    async redeemAIControlGiftCode(key, deviceId, code) {
+        return this._request({
+            actionLabel: 'redeemAIControlGiftCode',
+            path: '/api/ai-control/gift-codes/redeem',
+            method: 'POST',
+            data: { key, device_id: deviceId, code },
+        });
+    }
+
+    async sendAIControlMessage(key, deviceId, modelId, messages, options = {}) {
         return this._request({
             actionLabel: 'sendAIControlMessage',
             path: '/api/ai-control/chat',
             method: 'POST',
-            data: { key, device_id: deviceId, model_id: modelId, messages },
+            data: {
+                key,
+                device_id: deviceId,
+                model_id: modelId,
+                messages,
+                tools: Array.isArray(options.tools) ? options.tools : [],
+                run_id: String(options.runId || ''),
+            },
             timeoutMs: 120000,
         });
     }
@@ -434,6 +450,14 @@ function normalizeValidationRuntimeConfig(source = {}) {
     const resolvedAllowedPlatforms = allowedPlatforms.length > 0
         ? allowedPlatforms
         : (platformName ? [platformName] : []);
+    const woolPlatformsRaw = input.woolPlatforms ?? input.wool_platforms ?? [];
+    const woolPlatforms = Array.isArray(woolPlatformsRaw)
+        ? woolPlatformsRaw.map((item) => ({
+            name: String(item?.name ?? item?.platform ?? item?.platform_name ?? '').trim(),
+            platform: String(item?.platform ?? item?.name ?? item?.platform_name ?? '').trim(),
+            targetUrl: String(item?.targetUrl ?? item?.target_url ?? '').trim(),
+        })).filter((item) => item.name && item.targetUrl)
+        : [];
 
     const serverBase = String(
         input.address_HTTP
@@ -450,6 +474,8 @@ function normalizeValidationRuntimeConfig(source = {}) {
         platform_name: platformName,
         allowedPlatforms: resolvedAllowedPlatforms,
         allowed_platforms: resolvedAllowedPlatforms,
+        woolPlatforms,
+        wool_platforms: woolPlatforms,
         targetUrl: String(input.targetUrl ?? input.target_url ?? '').trim(),
         tutorialUrl: String(input.tutorialUrl ?? input.tutorial_url ?? '').trim(),
         serverBase,

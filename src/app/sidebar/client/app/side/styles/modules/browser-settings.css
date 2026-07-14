@@ -75,8 +75,25 @@
 .settings-network-tools-hint { color: #8999b0; font-size: 10px; line-height: 1.4; text-align: right; }
 .settings-network-tools-subtitle { margin-bottom: 5px; color: #cbd5e5; font-size: 11px; font-weight: 700; }
 .settings-network-tools .plugin-switch-group { margin-bottom: 4px; padding-top: 4px; border-top: 1px solid rgba(113, 130, 160, .18); }
-.settings-network-tools .footer { position: static; left: auto; right: auto; bottom: auto; grid-template-columns: 1fr auto; margin-top: 10px; padding-top: 9px; border-top: 1px solid rgba(113, 130, 160, .18); }
-.settings-network-tools .footer-left { flex-direction: row; }
+
+.browser-history-card { margin: 0 4px 12px; padding: 13px 14px 14px; border: 1px solid rgba(76, 96, 128, .44); border-radius: var(--r-lg); background: rgba(20, 26, 37, .82); }
+.browser-history-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.browser-history-heading h2 { margin: 0; color: #eef3ff; font-size: 14px; }
+.browser-history-refresh { width: 28px; height: 28px; padding: 0; border: 1px solid rgba(91, 116, 153, .52); border-radius: 7px; color: #aebdd2; background: rgba(29, 38, 53, .8); font: inherit; font-size: 15px; cursor: pointer; }
+.browser-history-refresh:hover { border-color: var(--brand); color: #fff; }
+.browser-history-list { display: grid; gap: 7px; max-height: 238px; overflow: auto; }
+.browser-history-empty { padding: 18px 10px; color: #8290a5; font-size: 11px; text-align: center; }
+.browser-history-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 9px; border: 1px solid rgba(78, 99, 132, .42); border-radius: 9px; background: rgba(13, 18, 27, .55); }
+.browser-history-item.is-selected { border-color: rgba(77, 156, 255, .72); box-shadow: 0 0 0 2px rgba(77, 156, 255, .1); }
+.browser-history-main { min-width: 0; border: 0; padding: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.browser-history-name { display: block; overflow: hidden; color: #e7edf7; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.browser-history-meta { display: block; margin-top: 3px; overflow: hidden; color: #7f8fa6; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.browser-history-actions { display: flex; align-items: center; gap: 5px; }
+.browser-history-action { min-height: 27px; padding: 0 8px; border: 1px solid rgba(82, 105, 139, .48); border-radius: 6px; color: #b8c5d8; background: rgba(30, 39, 54, .86); font: inherit; font-size: 10px; cursor: pointer; }
+.browser-history-action:hover { border-color: var(--brand); color: #fff; }
+.browser-history-delete { border-color: rgba(210, 83, 83, .42); color: #e6a0a0; }
+.browser-history-delete:hover { border-color: #d75c5c; color: #fff; background: rgba(151, 45, 45, .72); }
+.browser-history-name-input { width: 100%; min-height: 28px !important; padding: 4px 7px !important; }
 
 .settings-section { margin: 10px 4px; overflow: hidden; border: 1px solid rgba(76, 96, 128, .44); border-radius: 14px; background: rgba(20, 26, 37, .82); }
 .settings-section summary { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 14px; cursor: pointer; color: #e8eef8; font-size: 13px; font-weight: 700; }
@@ -112,8 +129,19 @@
 .settings-status.is-success { color: #72d6ad; }
 
 .vb-form { max-width: var(--content-max); }
-.vb-stage { position: relative; margin: 12px 4px; padding: 16px 14px 18px 18px; border: 1px solid rgba(76, 96, 128, .44); border-left: 3px solid var(--brand); border-radius: var(--r-lg); background: rgba(20, 22, 28, .88); }
-.vb-stage h2 { margin: 0 0 12px; color: #8fb3ff; font-size: 13px; font-weight: 700; }
+.vb-stage-group { margin: 12px 4px; border: 1px solid rgba(76, 96, 128, .4); border-radius: var(--r-lg); background: rgba(20, 22, 28, .7); overflow: hidden; }
+.vb-stage { position: relative; margin: 0; padding: 4px 16px 16px; border: 0; border-radius: 0; background: transparent; }
+.vb-stage + .vb-stage { border-top: 1px solid rgba(76, 96, 128, .3); }
+.vb-stage h2 { margin: 14px 0 10px; color: #8fb3ff; font-size: 13px; font-weight: 700; }
+
+/* collapsible advanced section */
+.vb-stage-advanced { padding: 0 16px; }
+.vb-stage-advanced > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; padding: 13px 0; cursor: pointer; color: #8fb3ff; font-size: 13px; font-weight: 700; user-select: none; }
+.vb-stage-advanced > summary::-webkit-details-marker { display: none; }
+.vb-stage-advanced > summary::after { content: ''; flex: 0 0 auto; width: 7px; height: 7px; margin: -4px 3px 0 0; border-right: 2px solid #8595ad; border-bottom: 2px solid #8595ad; transform: rotate(45deg); transition: transform .18s ease, margin-top .18s ease; }
+.vb-stage-advanced[open] > summary { padding-bottom: 4px; }
+.vb-stage-advanced[open] > summary::after { transform: rotate(-135deg); margin-top: 3px; }
+.vb-stage-advanced[open] { padding-bottom: 12px; }
 .vb-row { display: flex; align-items: center; gap: 12px; min-height: 38px; margin: 7px 0; }
 .vb-row-top { align-items: flex-start; }
 .vb-label { flex: 0 0 88px; color: #d6dfed; font-size: 12px; font-weight: 600; line-height: 34px; }
@@ -137,7 +165,9 @@
 .toggle-line { display: flex; align-items: center; gap: 8px; margin: 5px 0; color: #7d8490; font-size: 11px; }.toggle-line input { position: absolute; opacity: 0; }.toggle-line span, .switch span { position: relative; width: 39px; height: 21px; border-radius: 999px; background: #3a3d44; transition: .2s; }.toggle-line span::after, .switch span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 15px; height: 15px; border-radius: 50%; background: #fff; transition: .2s; }.toggle-line input:checked + span, .switch input:checked + span { background: var(--brand); }.toggle-line input:checked + span::after, .switch input:checked + span::after { transform: translateX(18px); }
 .switch { display: inline-flex; cursor: pointer; }.switch input { position: absolute; opacity: 0; }.switch span { display: inline-block; }
 
-html.theme-light .vb-stage { border-color: rgba(86, 121, 165, .2); border-left-color: var(--brand); background: rgba(255,255,255,.88); }
+html.theme-light .vb-stage-group { border-color: rgba(86, 121, 165, .2); background: rgba(255, 255, 255, .9); }
+html.theme-light .vb-stage { background: transparent; }
+html.theme-light .vb-stage + .vb-stage { border-top-color: rgba(86, 121, 165, .16); }
 html.theme-light .vb-label { color: #31485f; }
 html.theme-light .vb-form input[type='text'], html.theme-light .vb-form input[type='password'], html.theme-light .vb-form input[type='url'], html.theme-light .vb-form input[type='number'], html.theme-light .vb-form select, html.theme-light .vb-form textarea { border-color: #d6deea; color: #203449; background: #f8fafc; }
 html.theme-light .segmented { border-color: #d7deea; background: #eef2f7; }.theme-light .segmented button { border-color: #d7deea; color: #31485f; }.theme-light .segmented button.active { color: #fff; }
@@ -154,7 +184,12 @@ html.theme-light .settings-network-tools { border-color: rgba(86, 121, 165, .2);
 html.theme-light .settings-network-tools-heading h2 { color: #253b54; }
 html.theme-light .settings-network-tools-hint { color: #70849b; }
 html.theme-light .settings-network-tools-subtitle { color: #3d536d; }
-html.theme-light .settings-network-tools .plugin-switch-group, html.theme-light .settings-network-tools .footer { border-color: rgba(86, 121, 165, .14); }
+html.theme-light .settings-network-tools .plugin-switch-group { border-color: rgba(86, 121, 165, .14); }
+html.theme-light .browser-history-card { border-color: rgba(86, 121, 165, .2); background: rgba(255, 255, 255, .82); }
+html.theme-light .browser-history-heading h2, html.theme-light .browser-history-name { color: #253b54; }
+html.theme-light .browser-history-refresh, html.theme-light .browser-history-action { border-color: rgba(88, 126, 173, .24); color: #48647f; background: rgba(245, 249, 253, .96); }
+html.theme-light .browser-history-delete { border-color: rgba(190, 62, 62, .3); color: #b34545; }
+html.theme-light .browser-history-item { border-color: rgba(88, 126, 173, .2); background: rgba(247, 250, 254, .82); }
 html.theme-light .settings-section summary { color: #253b54; }
 html.theme-light .settings-section[open] summary { border-bottom-color: rgba(86, 121, 165, .14); }
 html.theme-light .settings-field { color: #61758c; }
@@ -163,15 +198,36 @@ html.theme-light .settings-field input:focus, html.theme-light .settings-field s
 html.theme-light .settings-apply-options { color: #5f748c; }
 html.theme-light .settings-secondary-btn { border-color: rgba(88, 126, 173, .26); color: #48647f; background: rgba(245, 249, 253, .96); }
 
-@media (max-width: 430px) {
+/* ================= 紧凑布局（默认窗口，侧栏 <520px） =================
+   标签改为堆叠在控件上方，避免 88px 标签把分段控件/输入框挤爆。 */
+@media (max-width: 519px) {
   .settings-grid { grid-template-columns: 1fr; }
   .settings-field-wide { grid-column: auto; }
   .settings-hero { flex-direction: column; }
-  .settings-hero .settings-secondary-btn { align-self: flex-end; }
-  .settings-network-tools-heading { flex-direction: column; }
-  .settings-network-tools-hint { text-align: left; }
-  .vb-stage { padding-left: 14px; }
-  .vb-row { align-items: stretch; flex-direction: column; gap: 3px; }
+  .settings-network-tools-heading { flex-direction: column; gap: 4px; }
+  /* 窄栏下这句提示是噪音，直接隐藏 */
+  .settings-network-tools-hint { display: none; }
+  .vb-stage { padding-left: 14px; padding-right: 14px; }
+  .vb-row { align-items: stretch; flex-direction: column; gap: 3px; min-height: 0; }
   .vb-label { flex-basis: auto; line-height: 24px; }
   .vb-inline { flex-wrap: wrap; }
+  .vb-row > input:not([type='checkbox']), .vb-row > select { max-width: none; }
+  .segmented { flex-wrap: wrap; }
+  /* 操作按钮铺满一行，避免三个按钮挤在右侧 */
+  .settings-actions { flex-wrap: wrap; }
+  .settings-actions button { flex: 1 1 auto; }
+  /* 浏览器历史：名称与操作按钮上下排列 */
+  .browser-history-item { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .browser-history-actions { justify-content: flex-end; }
+}
+
+/* ================= 放大布局（窗口最大化，侧栏 ≥520px） =================
+   一行内 标签 + 控件，标签列更宽、留白更松，内容宽度上限放宽到 640px。 */
+@media (min-width: 520px) {
+  .vb-label { flex: 0 0 104px; }
+  .vb-stage { padding: 4px 20px 18px; }
+  .vb-stage-advanced { padding: 0 20px; }
+  .vb-stage-advanced[open] { padding-bottom: 16px; }
+  .settings-container { padding: 10px 2px 28px; }
+  .settings-network-tools { padding: 16px; }
 }

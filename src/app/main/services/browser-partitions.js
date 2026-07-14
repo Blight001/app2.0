@@ -157,9 +157,6 @@ function createBrowserPartitionCleaner(deps = {}) {
     };
 
     const tabs = getTabs();
-    for (const [tabId, tab] of tabs.entries()) {
-      pushTarget(tab?.view?.webContents?.session, tab?.partition, `标签页 ${tabId}`);
-    }
 
     pushTarget(getSideView()?.webContents?.session, undefined, '侧边栏');
     pushTarget(getMainWindow()?.webContents?.session, undefined, '主窗口');

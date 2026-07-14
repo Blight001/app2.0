@@ -45,8 +45,9 @@ function normalizeTimeValueToMs(value) {
 function normalizeCurrentAccountType(value) {
   const text = String(value || '').trim().toLowerCase();
   if (!text) return '';
-  if (['shared', 'permanent', 'long_term', 'long-term', 'longterm'].includes(text)) return 'shared';
-  if (['one_time', 'one-time', 'temporary', 'temp', 'midnight_clear', 'clear_at_24', '24h', '24-hour'].includes(text)) return 'one_time';
+  if (['shared', 'temporary', 'temp', 'midnight_clear', 'clear_at_24', '24h', '24-hour'].includes(text)) return 'shared';
+  if (['one_time', 'one-time', 'permanent', 'long_term', 'long-term', 'longterm', 'binding', 'bound'].includes(text)) return 'one_time';
+  if (['disposable', 'throwaway', 'single_use', 'single-use'].includes(text)) return 'disposable';
   return text;
 }
 
@@ -54,6 +55,8 @@ function inferCurrentAccountTypeFromLabel(label) {
   const text = String(label || '').trim();
   if (!text) return '';
   if (text.includes('永久') || text.includes('长久') || text.includes('一次')) return 'one_time';
+  if (text.includes('绑定')) return 'one_time';
+  if (text.includes('次抛') || text.includes('disposable') || text.includes('throwaway')) return 'disposable';
   if (text.includes('循环') || text.includes('24点') || text.includes('清空') || text.includes('临时')) return 'shared';
   return '';
 }
@@ -65,7 +68,8 @@ function resolveCurrentAccountType(rawType, rawLabel) {
 function getCurrentAccountTypeLabel(value) {
   const type = normalizeCurrentAccountType(value);
   if (type === 'shared') return '循环账号';
-  if (type === 'one_time') return '长久账号';
+  if (type === 'one_time') return '绑定账号';
+  if (type === 'disposable') return '次抛账号';
   return '';
 }
 

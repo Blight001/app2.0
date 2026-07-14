@@ -288,17 +288,15 @@ function registerAccountIPC(ctx) {
 
     const targets = matchedTabs.length > 0
       ? matchedTabs
-      : [{ id: null, partition: fallbackPartition, view: null }];
+      : [{ id: null, partition: fallbackPartition }];
 
     for (const tab of targets) {
       const partition = String(tab?.partition || fallbackPartition || '').trim();
-      const session = tab?.view?.webContents?.session || null;
-
       try {
         if (ui && typeof ui.purgeBrowserSessionData === 'function' && partition) {
           await ui.purgeBrowserSessionData({
             partition,
-            session,
+            session: null,
             source: '账号删除',
           });
         }
@@ -626,10 +624,10 @@ function registerAccountIPC(ctx) {
             deviceId,
             storageType: 'custom',
             storageGroup: baseName,
-            storageGroupLabel: '永久账号分组',
+            storageGroupLabel: '绑定账号分组',
             cleanupProtected: true,
             currentAccountType: 'one_time',
-            currentAccountTypeLabel: '永久账号',
+            currentAccountTypeLabel: '绑定账号',
             platform: selectedPlatform,
             currentPlatform: selectedPlatformLabel,
             currentUrl: selectedCurrentUrl || serverTargetUrl || firstImportedTargetUrl || defaultUrl,
@@ -812,12 +810,6 @@ function registerAccountIPC(ctx) {
       if (!tabId) {
         throw new Error('创建标签页失败');
       }
-      const openedTab = ui.getTabs && typeof ui.getTabs === 'function'
-        ? ui.getTabs().get(tabId)
-        : null;
-      const isChromiumTab = String(openedTab?.runtimeType || '') === 'chromium';
-      const wc = ui.getActiveWC();
-
       if (targetUrl && targetUrl !== savedTargetUrl && !isPlaceholderTargetUrl(targetUrl)) {
         const saveTargetResult = accountStorage.updateAccount(accountId, {
           currentUrl: targetUrl,
@@ -948,7 +940,7 @@ function registerAccountIPC(ctx) {
           } catch (fetchErr) {
             const permanentAccount = findPermanentAccountByKey(account.key);
             if (permanentAccount && isUsageExhaustedFetchError(fetchErr)) {
-              console.log('[switch-account] 永久账号服务器次数已用尽，改用本地账号:', permanentAccount.id);
+              console.log('[switch-account] 绑定账号服务器次数已用尽，改用本地账号:', permanentAccount.id);
               cookies = Array.isArray(permanentAccount.cookies) ? permanentAccount.cookies : [];
               const localBrowserStorage = Array.isArray(permanentAccount.browserStorage) && permanentAccount.browserStorage.length > 0
                 ? permanentAccount.browserStorage
@@ -975,46 +967,22 @@ function registerAccountIPC(ctx) {
           }
         }
 
-        if (isChromiumTab) {
-          const importResult = await ui.browserRuntimeManager.importSession(tabId, {
-            cookies: Array.isArray(cookies) ? cookies : [],
-            browserStorage: Array.isArray(browserStorageToInject) ? browserStorageToInject : [],
-            targetUrl,
-          });
-          console.log('[switch-account] 独立 Chromium Profile 会话导入完成:', {
-            tabId,
-            cookiesImported: importResult.cookiesImported,
-            cookiesSkipped: importResult.cookiesSkipped,
-            storageOriginsImported: importResult.storageOriginsImported,
-            storageOriginsSkipped: importResult.storageOriginsSkipped,
-          });
-          return { ok: true, tabId };
-        }
-
-        if (!wc) throw new Error('webContents 不可用');
-        const sessionHasCookies = auth && typeof auth.hasSessionCookies === 'function'
-          ? await auth.hasSessionCookies(wc.session)
-          : false;
-        if (sessionHasCookies) {
-          console.log('[switch-account] 复用已存在的会话 cookies，跳过重复注入');
-        } else {
-          if (Array.isArray(cookies) && cookies.length > 0) {
-            await auth.setCookiesToSession(wc.session, cookies);
-          }
-          if (Array.isArray(browserStorageToInject) && browserStorageToInject.length > 0) {
-            auth.applyBrowserStorageToPage(wc, browserStorageToInject);
-          }
-        }
-        if (!sessionHasCookies && wc && !wc.isDestroyed()) {
-          // 只有在重写会话后才需要显式刷新，确保首个请求带上新 cookies。
-          try { wc.loadURL(targetUrl); } catch (_) {}
-        }
+        const importResult = await ui.browserRuntimeManager.importSession(tabId, {
+          cookies: Array.isArray(cookies) ? cookies : [],
+          browserStorage: Array.isArray(browserStorageToInject) ? browserStorageToInject : [],
+          targetUrl,
+        });
+        console.log('[switch-account] 独立 Chromium Profile 会话导入完成:', {
+          tabId,
+          cookiesImported: importResult.cookiesImported,
+          cookiesSkipped: importResult.cookiesSkipped,
+          storageOriginsImported: importResult.storageOriginsImported,
+          storageOriginsSkipped: importResult.storageOriginsSkipped,
+        });
+        return { ok: true, tabId };
       } catch (e) {
-        if (isChromiumTab) {
-          console.warn('[switch-account] Chromium 会话导入失败，保留浏览器供用户重试:', e?.message || e);
-          throw e;
-        }
-        console.warn('[switch-account] cookie 导入/打开网页失败:', e?.message || e);
+        console.warn('[switch-account] Chromium 会话导入失败，保留浏览器供用户重试:', e?.message || e);
+        throw e;
       }
 
       return { ok: true, tabId };

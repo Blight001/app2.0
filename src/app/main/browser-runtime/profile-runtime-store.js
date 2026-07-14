@@ -44,7 +44,7 @@ class ProfileRuntimeStore {
     const previous = this.readProfile(paths.id);
     const config = {
       profileId: paths.id,
-      runtimeType: profile.runtimeType || previous.runtimeType || 'electron',
+      runtimeType: 'chromium',
       createdAt: previous.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       displayName: String(profile.displayName || previous.displayName || '').trim(),

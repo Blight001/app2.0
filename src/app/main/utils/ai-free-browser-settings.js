@@ -144,7 +144,7 @@ function normalizeAiFreeBrowserSettings(input = {}) {
     launchArgs: { mode: pick(launchArgs.mode, ['default', 'custom'], defaults.launchArgs.mode), value: text(launchArgs.value, '', 10000) },
   };
 
-  // Flat aliases keep the existing BrowserView/Chromium runtime integrations compatible.
+  // Flat aliases keep the native Chromium runtime integrations compatible.
   normalized.userAgent = normalized.ua.mode === 'custom' ? normalized.ua.value : '';
   normalized.locale = normalized.language.mode === 'custom' ? normalized.language.value : '';
   normalized.timezoneId = normalized.timezone.mode === 'custom' ? normalized.timezone.value : '';

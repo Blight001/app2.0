@@ -1,5 +1,4 @@
 const RUNTIME_TYPES = Object.freeze({
-  ELECTRON: 'electron',
   CHROMIUM: 'chromium',
 });
 
@@ -29,12 +28,6 @@ const ALLOWED_TRANSITIONS = Object.freeze({
 
 const DEFAULT_BOUNDS = Object.freeze({ x: 0, y: 0, width: 0, height: 0 });
 
-function normalizeRuntimeType(value, fallback = RUNTIME_TYPES.ELECTRON) {
-  return String(value || '').trim().toLowerCase() === RUNTIME_TYPES.CHROMIUM
-    ? RUNTIME_TYPES.CHROMIUM
-    : fallback;
-}
-
 function normalizeBounds(bounds = {}) {
   return {
     x: Math.max(0, Math.round(Number(bounds.x) || 0)),
@@ -47,7 +40,7 @@ function normalizeBounds(bounds = {}) {
 function createRuntimeState(profileId, runtimeType, patch = {}) {
   return {
     profileId: String(profileId || '').trim(),
-    runtimeType: normalizeRuntimeType(runtimeType),
+    runtimeType: RUNTIME_TYPES.CHROMIUM,
     status: RUNTIME_STATUS.STOPPED,
     pid: 0,
     browserHwnd: null,
@@ -81,5 +74,4 @@ module.exports = {
   canTransition,
   createRuntimeState,
   normalizeBounds,
-  normalizeRuntimeType,
 };

@@ -698,11 +698,13 @@ function createAuthCookie({ serverBase: serverBaseInput, httpClient: injectedHtt
 
 // 获取/读取/解析：fetchCookieFromServerForDream的具体业务逻辑。
   async function fetchCookieFromServerForDream(key, deviceId, options = {}) {
+    const requestedPlatform = String(options.platform || options.platformName || '').trim() || getPlatformFromStore();
+    const requestedTargetUrl = String(options.targetUrl || '').trim() || getTargetUrlFromStore();
     if (httpClient) {
       try {
         // 使用 HTTP 通信获取 Cookie
         console.log('[fetchCookieFromServerForDream] 使用HTTP获取Cookie');
-        const platform = getPlatformFromStore();
+        const platform = requestedPlatform;
         console.log(`[fetchCookieFromServerForDream] 发送请求参数: key=${key.substring(0, 4)}***, platform=${platform}, deviceId=${deviceId.substring(0, 8)}***`);
 
         const r = await httpClient.fetchCookie(key, platform, deviceId);
@@ -796,8 +798,8 @@ function createAuthCookie({ serverBase: serverBaseInput, httpClient: injectedHtt
           browserStorage,
           account,
           platform,
-          currentPlatform: getPlatformFromStore(),
-          currentUrl: getTargetUrlFromStore(),
+          currentPlatform: String(r.currentPlatform || r.current_platform || r.platform || platform).trim(),
+          currentUrl: String(r.targetUrl || r.target_url || r.currentUrl || requestedTargetUrl).trim(),
           ...serverRecycleTimeInfo,
           ...currentAccountTypeInfo,
           current_account_type: currentAccountTypeInfo.currentAccountType,
@@ -818,7 +820,7 @@ function createAuthCookie({ serverBase: serverBaseInput, httpClient: injectedHtt
     if (!serverBase) throw new Error('HTTP服务器地址未配置');
     console.log('[fetchCookieFromServerForDream] HTTP降级获取Cookie');
     const url = serverBase + ENDPOINT_FETCH_COOKIE;
-    const platform = getPlatformFromStore();
+    const platform = requestedPlatform;
     const r = await postJson(url, { key, device_id: deviceId, platform });
     console.log('[fetchCookieFromServerForDream] 服务器响应:', { status: r.status, ok: r.ok });
 
@@ -883,8 +885,8 @@ function createAuthCookie({ serverBase: serverBaseInput, httpClient: injectedHtt
       browserStorage,
       account,
       platform: platform || '',
-      currentPlatform: getPlatformFromStore(),
-      currentUrl: getTargetUrlFromStore(),
+      currentPlatform: String(body.currentPlatform || body.current_platform || body.platform || platform).trim(),
+      currentUrl: String(body.targetUrl || body.target_url || body.currentUrl || requestedTargetUrl).trim(),
       ...serverRecycleTimeInfo,
       ...currentAccountTypeInfo,
       current_account_type: currentAccountTypeInfo.currentAccountType,

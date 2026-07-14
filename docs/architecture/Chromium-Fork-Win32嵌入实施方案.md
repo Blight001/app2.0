@@ -3,7 +3,7 @@
 状态：客户端底座已实现，待 Native 工具链与 Chromium Fork 联调验收  
 适用平台：Windows x64  
 客户端基线：Electron 管理器 + 独立 Chromium Fork 进程  
-文档目标：指导从当前 `BrowserView` 浏览器实现，渐进迁移到完整 Chromium 内核，同时保留现有主窗口、侧边栏和环境切换交互。
+文档目标：记录完整 Chromium 内核的嵌入方案，同时保留现有主窗口、侧边栏和环境切换交互。
 
 ## 1. 决策摘要
 
@@ -30,7 +30,7 @@
 5. 支持中文输入法、剪贴板、拖拽、文件上传、下载和视频播放。
 6. 支持完整 Chromium 扩展后台、Content Script、Popup 和原生标签语义。
 7. Chromium 崩溃后 Electron 不退出，并可显示错误占位页和重新启动环境。
-8. 当前 Electron BrowserView 模式在迁移期保留，作为兼容和回退模式。
+8. 网页运行时只使用项目内置 Chromium，不保留第二套网页渲染回退。
 
 ### 2.2 第一阶段非目标
 
@@ -119,7 +119,6 @@ Chromium HWND 是原生子窗口，会位于 Electron 网页渲染层之上。El
 ```text
 src/app/main/browser-runtime/
 ├── browser-runtime.js          # 统一运行时接口
-├── electron-runtime.js         # 当前 BrowserView 兼容实现
 ├── chromium-runtime.js         # Chromium 进程与嵌入实现
 ├── profile-runtime-store.js    # 运行中的 Profile 状态
 ├── chromium-launcher.js        # 启动参数、路径和进程句柄
@@ -161,10 +160,9 @@ class BrowserRuntime {
 }
 ```
 
-当前 `tab-manager.js` 不直接调用 Win32 接口，而是依赖 `BrowserRuntime`。迁移期可根据 Profile 配置选择：
+当前 `tab-manager.js` 不直接调用 Win32 接口，而是依赖 `BrowserRuntime`。Profile 固定使用：
 
 ```text
-runtimeType = electron   -> ElectronRuntime
 runtimeType = chromium   -> ChromiumRuntime
 ```
 
@@ -598,10 +596,9 @@ stopped
 ### Phase 1：运行时抽象
 
 1. 新建 `BrowserRuntime` 接口。
-2. 封装当前 Electron BrowserView 为 `ElectronRuntime`。
-3. 新建 `ChromiumRuntime`。
-4. Profile 配置增加 `runtimeType`。
-5. 主界面支持两种模式并存。
+2. 新建 `ChromiumRuntime`。
+3. Profile 配置固定 `runtimeType: chromium`。
+4. 主界面统一管理 Chromium Profile。
 
 ### Phase 2：Chromium 主动握手
 
@@ -667,7 +664,7 @@ stopped
 
 ## 19. 下一步
 
-下一步只执行 Phase 0，不修改现有业务浏览器路径：
+后续聚焦 Chromium Fork 联调和回归：
 
 1. 确认本机 Node/Electron Native Addon 编译环境。
 2. 建立 `native/browser-host` 最小工程。
@@ -675,4 +672,4 @@ stopped
 4. 使用现成 Chromium 进行 HWND 嵌入验证。
 5. 输出测试记录，再决定进入 Chromium Fork 主动握手阶段。
 
-在 Phase 0 验收前，不删除或大规模重构当前 `BrowserView`、标签管理、账号和扩展管理代码。
+旧网页兼容运行时已删除，打包仅携带内置 Chromium 数据面实现。

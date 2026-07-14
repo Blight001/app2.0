@@ -53,7 +53,7 @@ function loadAccountFromFile(accountId) {
       || ((session.cleanupProtected === true || session.storageType === 'custom') ? 'one_time' : '');
     const currentAccountTypeLabel = String(session.currentAccountTypeLabel || '').trim()
       || (currentAccountType === 'one_time' && session.storageType === 'custom'
-        ? '永久账号'
+        ? '绑定账号'
         : getCurrentAccountTypeLabel(currentAccountType));
     const isPermanentAccount = currentAccountType === 'one_time'
       || (currentAccountType !== 'shared' && (session.cleanupProtected === true || session.storageType === 'custom' || isPermanentAccountRecord(session)));
@@ -67,7 +67,7 @@ function loadAccountFromFile(accountId) {
       accountName: resolvedAccount,
       storageType: session.storageType || 'server',
       storageGroup: session.storageGroup || '',
-      storageGroupLabel: session.storageGroupLabel || (isPermanentAccount ? '永久账号分组' : '临时账号分组'),
+      storageGroupLabel: session.storageGroupLabel || (isPermanentAccount ? '绑定账号分组' : '临时账号分组'),
       cleanupProtected: currentAccountType === 'one_time'
         ? true
         : (currentAccountType === 'shared' ? false : session.cleanupProtected === true),
@@ -606,12 +606,12 @@ function getAllAccounts() {
       const currentAccountType = resolveCurrentAccountType(acc.currentAccountType, acc.currentAccountTypeLabel);
       const currentAccountTypeLabel = String(acc.currentAccountTypeLabel || '').trim()
         || (currentAccountType === 'one_time' && acc.storageType === 'custom'
-          ? '永久账号'
+          ? '绑定账号'
           : getCurrentAccountTypeLabel(currentAccountType));
       const isPermanent = currentAccountType === 'one_time'
         || (currentAccountType !== 'shared' && (acc.cleanupProtected === true || acc.storageType === 'custom' || isPermanentAccountRecord(acc)));
       const storageType = acc.storageType || 'server';
-      const storageGroupLabel = acc.storageGroupLabel || (isPermanent ? '永久账号分组' : '临时账号分组');
+      const storageGroupLabel = acc.storageGroupLabel || (isPermanent ? '绑定账号分组' : '临时账号分组');
 
       // 如果ID包含@符号，说明是邮箱格式账号，直接使用账号作为显示名称
       if (acc.id && acc.id.includes('@')) {
@@ -674,9 +674,9 @@ function getAllAccounts() {
             ? false
             : (acc.cleanupProtected === true || isPermanentAccountRecord(acc))),
         currentAccountType: acc.currentAccountType || (acc.storageType === 'custom' || acc.cleanupProtected === true ? 'one_time' : ''),
-        currentAccountTypeLabel: acc.currentAccountTypeLabel || ((acc.storageType === 'custom' || acc.cleanupProtected === true) ? '永久账号' : ''),
+        currentAccountTypeLabel: acc.currentAccountTypeLabel || ((acc.storageType === 'custom' || acc.cleanupProtected === true) ? '绑定账号' : ''),
         current_account_type: acc.currentAccountType || (acc.storageType === 'custom' || acc.cleanupProtected === true ? 'one_time' : ''),
-        current_account_type_label: acc.currentAccountTypeLabel || ((acc.storageType === 'custom' || acc.cleanupProtected === true) ? '永久账号' : ''),
+        current_account_type_label: acc.currentAccountTypeLabel || ((acc.storageType === 'custom' || acc.cleanupProtected === true) ? '绑定账号' : ''),
         hasCookies: Array.isArray(acc.cookies) && acc.cookies.length > 0,
         cookiesCount: Array.isArray(acc.cookies) ? acc.cookies.length : 0,
         lastUsedAt: acc.lastUsedAt,

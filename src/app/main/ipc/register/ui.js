@@ -436,18 +436,6 @@ function registerUiIPC(ctx) {
     ui && typeof ui.getActiveTabId === 'function' ? ui.getActiveTabId() : null
   );
 
-  const findManagedTabBySender = (sender) => {
-    const senderId = Number(sender?.id);
-    if (!Number.isFinite(senderId)) return null;
-    try {
-      for (const tab of getManagedTabs().values()) {
-        const wc = tab?.view?.webContents;
-        if (wc && Number(wc.id) === senderId) return tab;
-      }
-    } catch (_) {}
-    return null;
-  };
-
   const findManagedTabById = (tabId) => {
     const raw = String(tabId || '').trim();
     if (!raw) return null;
@@ -463,20 +451,17 @@ function registerUiIPC(ctx) {
 
   const serializeManagedTab = (tab) => {
     if (!tab) return null;
-    const wc = tab?.view?.webContents || null;
     const activeTabId = getManagedActiveTabId();
     return {
       id: String(tab.id || ''),
       appTabId: String(tab.id || ''),
       title: resolveTabTitle(tab),
-      url: typeof wc?.getURL === 'function' ? wc.getURL() : '',
+      url: String(tab.runtimeUrl || ''),
       active: String(tab.id || '') === String(activeTabId || ''),
       accountId: String(tab.accountId || '').trim(),
       partition: String(tab.partition || '').trim(),
       browserProxyMode: String(tab.browserProxyMode || 'inherit').trim(),
-      webContentsId: Number(wc?.id || 0) || null,
-      canGoBack: typeof wc?.canGoBack === 'function' ? wc.canGoBack() : false,
-      canGoForward: typeof wc?.canGoForward === 'function' ? wc.canGoForward() : false,
+      runtimeType: 'chromium',
     };
   };
 
@@ -501,25 +486,14 @@ function registerUiIPC(ctx) {
     }
   };
 
-  const normalizeCaptureRect = (rect) => {
-    if (!rect || typeof rect !== 'object') return undefined;
-    const x = Math.max(0, Math.floor(Number(rect.x) || 0));
-    const y = Math.max(0, Math.floor(Number(rect.y) || 0));
-    const width = Math.max(1, Math.floor(Number(rect.width) || 0));
-    const height = Math.max(1, Math.floor(Number(rect.height) || 0));
-    if (!width || !height) return undefined;
-    return { x, y, width, height };
-  };
-
   ipcMain.handle('browser-mcp-bridge', async (_event, payload = {}) => {
     try {
       const command = String(payload?.command || payload?.action || '').trim();
-      const senderTab = findManagedTabBySender(_event.sender);
-      const targetTab = findManagedTabById(payload?.appTabId || payload?.tabId) || senderTab;
-      const targetWc = targetTab?.view?.webContents || null;
+      const activeTab = findManagedTabById(getManagedActiveTabId());
+      const targetTab = findManagedTabById(payload?.appTabId || payload?.tabId) || activeTab;
 
       if (command === 'tab:identify') {
-        return { ok: true, tab: serializeManagedTab(senderTab), tabs: listManagedTabs().tabs };
+        return { ok: true, tab: serializeManagedTab(activeTab), tabs: listManagedTabs().tabs };
       }
 
       if (command === 'tab:list') {
@@ -549,70 +523,41 @@ function registerUiIPC(ctx) {
         }
         const url = normalizeBridgeUrl(payload?.url);
         const openedId = await ui.addTab(url, {
-          partition: senderTab?.partition,
-          browserSettings: senderTab?.browserSettings,
+          partition: targetTab?.partition,
+          browserSettings: targetTab?.browserSettings,
+          runtimeType: 'chromium',
         });
         const opened = findManagedTabById(openedId);
         return { ok: true, action: 'open', tab: serializeManagedTab(opened), tabs: listManagedTabs().tabs };
       }
 
       if (command === 'tab:replace') {
-        if (!targetWc || targetWc.isDestroyed?.()) {
+        if (!targetTab?.id || !ui?.browserRuntimeManager) {
           return { ok: false, message: '目标网页不可用' };
         }
         const url = normalizeBridgeUrl(payload?.url);
         if (typeof ui.switchTab === 'function' && targetTab?.id) {
           ui.switchTab(targetTab.id);
         }
-        await targetWc.loadURL(url);
+        await ui.browserRuntimeManager.navigate(targetTab.id, 'chromium', url);
         return { ok: true, action: 'replace', tab: serializeManagedTab(targetTab), tabs: listManagedTabs().tabs };
       }
 
       if (command === 'tab:history') {
-        if (!targetWc || targetWc.isDestroyed?.()) {
-          return { ok: false, message: '目标网页不可用' };
-        }
-        const direction = String(payload?.direction || '').trim();
-        if (direction === 'back') {
-          if (typeof targetWc.canGoBack === 'function' && !targetWc.canGoBack()) {
-            return { ok: false, message: '当前标签没有后退历史', tab: serializeManagedTab(targetTab) };
-          }
-          targetWc.goBack();
-        } else if (direction === 'forward') {
-          if (typeof targetWc.canGoForward === 'function' && !targetWc.canGoForward()) {
-            return { ok: false, message: '当前标签没有前进历史', tab: serializeManagedTab(targetTab) };
-          }
-          targetWc.goForward();
-        } else {
-          return { ok: false, message: '未知历史动作' };
-        }
-        return { ok: true, action: direction, tab: serializeManagedTab(targetTab) };
+        return { ok: false, message: '内置 Chromium 暂未开放前进/后退桥接' };
       }
 
       if (command === 'tab:reload') {
-        if (!targetWc || targetWc.isDestroyed?.()) {
+        if (!targetTab?.id || typeof ui.refreshTab !== 'function') {
           return { ok: false, message: '目标网页不可用' };
         }
-        targetWc.reloadIgnoringCache();
+        const result = await ui.refreshTab(targetTab.id);
+        if (!result?.ok) return result;
         return { ok: true, action: 'reload', tab: serializeManagedTab(targetTab) };
       }
 
       if (command === 'tab:capture') {
-        if (!targetWc || targetWc.isDestroyed?.()) {
-          return { ok: false, message: '目标网页不可用' };
-        }
-        const image = await targetWc.capturePage(normalizeCaptureRect(payload?.rect));
-        const dataUrl = image && typeof image.toDataURL === 'function' ? image.toDataURL() : '';
-        if (!dataUrl) {
-          return { ok: false, message: '截图结果为空' };
-        }
-        return {
-          ok: true,
-          action: 'capture',
-          dataUrl,
-          tab: serializeManagedTab(targetTab),
-          warning: payload?.fullPage ? 'Electron bridge fallback captures the visible BrowserView viewport.' : '',
-        };
+        return { ok: false, message: '请通过 Chromium 内的 AI-FREE 自动化扩展执行截图' };
       }
 
       return { ok: false, message: `未知 MCP 浏览器桥接命令: ${command || '(empty)'}` };
@@ -717,8 +662,25 @@ function registerUiIPC(ctx) {
     try { ui.openExtensionOptions && void ui.openExtensionOptions(payload?.id || payload); } catch (_) {}
   });
 
+  ipcMain.handle('focus-sidebar-input', async (event) => {
+    try {
+      const mainWindow = ui?.getMainWindow?.();
+      if (mainWindow && !mainWindow.isDestroyed?.()) {
+        if (mainWindow.isMinimized?.()) mainWindow.restore?.();
+        mainWindow.focus?.();
+      }
+      if (event.sender && !event.sender.isDestroyed?.()) {
+        event.sender.focus();
+      }
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
+
   ipcMain.on('open-tutorial', (event, url) => {
     ui.addTab(url, {
+      fixedTitle: '使用教程[AI-FREE]',
       browserProxyMode: 'direct',
     });
   });

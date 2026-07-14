@@ -41,11 +41,13 @@
 
 // 监听/绑定：attachOpenDreamPage的具体业务逻辑。
   function attachOpenDreamPage() {
-    const btn = getEl('open-dream-page-btn');
-    if (!btn) return;
+    const container = getEl('wool-platform-buttons');
+    if (!container || container.dataset.bound === '1') return;
 
-    btn.addEventListener('click', (e) => {
-      const task = withBusyButton(e.currentTarget, async () => {
+    container.addEventListener('click', (e) => {
+      const clickedButton = e.target && e.target.closest ? e.target.closest('.open-wool-platform-btn') : null;
+      if (!clickedButton || !container.contains(clickedButton) || clickedButton.disabled) return;
+      const task = withBusyButton(clickedButton, async () => {
 // 处理：key的具体业务逻辑。
         const key = (getEl('key-input')?.value || '').trim();
 // 处理：deviceId的具体业务逻辑。
@@ -56,10 +58,13 @@
           throw new Error('Electron 桥接未就绪（缺少 openDreamPage），请在 preload/main 中实现后再试');
         }
 
-        console.log('[前端] 用户点击"一键启动 即梦AI"按钮');
+        const platform = String(clickedButton.dataset.platform || '').trim();
+        const targetUrl = String(clickedButton.dataset.targetUrl || '').trim();
+        if (!platform || !targetUrl) throw new Error('羊毛平台配置不完整，请联系管理员');
+        console.log(`[前端] 用户点击"一键启动 ${platform}"按钮`);
         console.log('[前端] 发送账号授权请求，设备ID:', deviceId);
 
-        const result = await window.electron.openDreamPage({ key, deviceId });
+        const result = await window.electron.openDreamPage({ key, deviceId, platform, targetUrl });
         if (!result || result.ok !== true) {
 // 处理：msg的具体业务逻辑。
           const msg = (result && (result.message || result.error)) || '打开失败';
@@ -95,6 +100,7 @@
         task.catch(() => {});
       }
     }, false);
+    container.dataset.bound = '1';
   }
 
   // 由于本脚本在 body 尾部引入，DOM 已可用；这里直接绑定，另加一层兜底

@@ -62,6 +62,14 @@ function registerLicenseIPC(ctx) {
 
   const findDreamAccountRecord = (accountId = '', key = '') => findAccountRecord(accountStorage, { accountId, key });
 
+  const buildPlatformAccountId = (platform, accountId) => {
+    const normalizedPlatform = String(platform || '').trim();
+    const normalizedAccountId = String(accountId || '').trim();
+    return normalizedPlatform && normalizedAccountId
+      ? `${normalizedPlatform}::${normalizedAccountId}`
+      : normalizedAccountId;
+  };
+
   const isPermanentDreamAccount = (accountId = '', key = '') => {
     try {
       const account = findDreamAccountRecord(accountId, key);
@@ -72,13 +80,14 @@ function registerLicenseIPC(ctx) {
   };
 
 // 获取/读取/解析：resolveHistoricalDreamAccount的具体业务逻辑。
-  const resolveHistoricalDreamAccount = (preferredKey = '', preferredAccountId = '', requirePermanent = false) => {
+  const resolveHistoricalDreamAccount = (preferredKey = '', preferredAccountId = '', requirePermanent = false, requestedPlatform = '') => {
     try {
       const snapshot = licenseCache && typeof licenseCache.getSnapshot === 'function'
         ? licenseCache.getSnapshot()
         : {};
       const targetPlatform = String(
-        snapshot.platformName
+        requestedPlatform
+        || snapshot.platformName
         || snapshot.platform
         || snapshot.currentPlatform
         || snapshot.currentPlatformName
@@ -101,7 +110,8 @@ function registerLicenseIPC(ctx) {
         }
 
         const account = accountResult.account;
-        if (normalizedPreferredAccountId && accountId !== normalizedPreferredAccountId) {
+        const accountIdentity = String(account.account || account.accountName || '').trim();
+        if (normalizedPreferredAccountId && accountId !== normalizedPreferredAccountId && accountIdentity !== normalizedPreferredAccountId) {
           continue;
         }
         const accountKey = String(account.key || '').trim();
@@ -181,6 +191,10 @@ function registerLicenseIPC(ctx) {
     targetUrl,
   }) => {
     const browserStoragePayload = Array.isArray(fetchedBrowserStorage) ? fetchedBrowserStorage : [];
+    const storageAccountId = buildPlatformAccountId(
+      fetchResult?.platform || fetchResult?.currentPlatform,
+      fetchedAccountId
+    );
     console.log('[open-dream-page] 未命中历史账号，导入服务器返回的账号信息到历史记录:', fetchedAccountId);
 
     const saveResult = accountStorage.addAccount({
@@ -188,7 +202,7 @@ function registerLicenseIPC(ctx) {
       deviceId,
       cookies: Array.isArray(fetchedCookies) ? fetchedCookies : [],
       browserStorage: browserStoragePayload.length > 0 ? browserStoragePayload : undefined,
-      accountId: fetchedAccountId,
+      accountId: storageAccountId,
       accountName: fetchedAccountId,
       account: fetchedAccountId,
       platform: fetchResult?.platform,
@@ -531,11 +545,16 @@ function registerLicenseIPC(ctx) {
         deviceId,
         accountId,
         serverPushedData,
+        platform: requestedPlatform,
+        platformName: requestedPlatformName,
+        targetUrl: requestedTargetUrl,
       } = payload || {};
 
       key = String(key || '').trim();
       deviceId = String(deviceId || '').trim();
       accountId = String(accountId || '').trim();
+      requestedPlatform = String(requestedPlatform || requestedPlatformName || '').trim();
+      requestedTargetUrl = String(requestedTargetUrl || '').trim();
 
       let historicalAccount = null;
       let launchAccountId = accountId;
@@ -546,8 +565,8 @@ function registerLicenseIPC(ctx) {
 
       if (!key) throw new Error('缺少卡密');
 
-      const targetUrl = resolveDreamTargetUrl();
-      const platformName = resolveDreamWindowTitle(
+      let targetUrl = requestedTargetUrl || resolveDreamTargetUrl();
+      let platformName = requestedPlatform || resolveDreamWindowTitle(
         serverPushedData?.platform_name
         || serverPushedData?.platformName
         || serverPushedData?.platform
@@ -566,7 +585,12 @@ function registerLicenseIPC(ctx) {
       let fetchedBrowserStorage = [];
 
       try {
-        fetchResult = await auth.fetchCookieFromServerForDream(key, deviceId);
+        fetchResult = await auth.fetchCookieFromServerForDream(key, deviceId, {
+          platform: requestedPlatform || platformName,
+          targetUrl,
+        });
+        platformName = String(fetchResult?.platform || fetchResult?.currentPlatform || platformName || '').trim();
+        targetUrl = String(fetchResult?.currentUrl || fetchResult?.targetUrl || targetUrl || '').trim();
         fetchedCookies = Array.isArray(fetchResult.cookies) ? fetchResult.cookies : [];
         fetchedBrowserStorage = Array.isArray(fetchResult.browserStorage) ? fetchResult.browserStorage : [];
         fetchedAccountId = String(
@@ -585,7 +609,7 @@ function registerLicenseIPC(ctx) {
         }
       } catch (fetchErr) {
         if (sourceAccountIsPermanent && isUsageExhaustedFetchError(fetchErr)) {
-          historicalAccount = resolveHistoricalDreamAccount(key, accountId, true);
+          historicalAccount = resolveHistoricalDreamAccount(key, accountId, true, platformName);
           if (!historicalAccount) {
             const error = new Error('本地无账号');
             error.businessError = true;
@@ -599,14 +623,14 @@ function registerLicenseIPC(ctx) {
           launchAccount = historicalAccount;
           launchCookies = Array.isArray(historicalAccount.cookies) ? historicalAccount.cookies : [];
           launchBrowserStorage = Array.isArray(historicalAccount.browserStorage) ? historicalAccount.browserStorage : [];
-          console.log('[open-dream-page] 永久账号服务器次数已用尽，直接改用本地历史账号:', launchAccountId);
+          console.log('[open-dream-page] 绑定账号服务器次数已用尽，直接改用本地历史账号:', launchAccountId);
         } else {
           throw fetchErr;
         }
       }
 
       if (!launchAccount) {
-        historicalAccount = resolveHistoricalDreamAccount(key, fetchedAccountId || accountId, sourceAccountIsPermanent);
+        historicalAccount = resolveHistoricalDreamAccount(key, fetchedAccountId || accountId, sourceAccountIsPermanent, platformName);
         if (historicalAccount) {
           launchAccount = historicalAccount;
           launchAccountId = String(historicalAccount.id || launchAccountId || fetchedAccountId || '').trim();
@@ -674,112 +698,24 @@ function registerLicenseIPC(ctx) {
         tabTitle: platformName,
         deferChromiumNavigation: true,
       });
-      const openedTab = ui.getTabs && typeof ui.getTabs === 'function'
-        ? ui.getTabs().get(tabId)
-        : null;
-      const isChromiumTab = String(openedTab?.runtimeType || '') === 'chromium';
-      if (isChromiumTab) {
-        try {
-          const importResult = await ui.browserRuntimeManager.importSession(tabId, {
-            cookies: launchCookies,
-            browserStorage: launchBrowserStorage,
-            targetUrl,
-          });
-          console.log('[open-dream-page] 独立 Chromium Profile 会话导入完成:', {
-            tabId,
-            cookiesImported: importResult.cookiesImported,
-            cookiesSkipped: importResult.cookiesSkipped,
-            storageOriginsImported: importResult.storageOriginsImported,
-            storageOriginsSkipped: importResult.storageOriginsSkipped,
-          });
-          return { ok: true, tabId };
-        } catch (error) {
-          console.warn('[open-dream-page] Chromium 会话导入失败，保留浏览器供用户重试:', error?.message || error);
-          throw error;
-        }
+      try {
+        const importResult = await ui.browserRuntimeManager.importSession(tabId, {
+          cookies: launchCookies,
+          browserStorage: launchBrowserStorage,
+          targetUrl,
+        });
+        console.log('[open-dream-page] 独立 Chromium Profile 会话导入完成:', {
+          tabId,
+          cookiesImported: importResult.cookiesImported,
+          cookiesSkipped: importResult.cookiesSkipped,
+          storageOriginsImported: importResult.storageOriginsImported,
+          storageOriginsSkipped: importResult.storageOriginsSkipped,
+        });
+        return { ok: true, tabId };
+      } catch (error) {
+        console.warn('[open-dream-page] Chromium 会话导入失败，保留浏览器供用户重试:', error?.message || error);
+        throw error;
       }
-      const wc = ui.getActiveWC();
-
-      const syncDreamTitle = () => {
-        try {
-          if (!wc || wc.isDestroyed()) return;
-          if (platformName) {
-            wc.setTitle(platformName);
-          }
-        } catch (_) {}
-      };
-
-      await (async () => {
-        let injectionDone = false;
-        try {
-          const cookies = launchCookies;
-          const browserStorage = launchBrowserStorage;
-
-          if (!wc) throw new Error('webContents 不可用');
-          const hasCookiesToInject = Array.isArray(cookies) && cookies.length > 0;
-          const hasBrowserStorageToInject = Array.isArray(browserStorage) && browserStorage.length > 0;
-          const sessionHasCookies = auth && typeof auth.hasSessionCookies === 'function'
-            ? await auth.hasSessionCookies(wc.session)
-            : false;
-
-          if (hasCookiesToInject || hasBrowserStorageToInject) {
-            console.log('[open-dream-page] 正在导入服务器/历史账号信息到当前会话:', {
-              hasCookiesToInject,
-              hasBrowserStorageToInject,
-              sessionHasCookies,
-            });
-            await auth.setCookiesToSession(wc.session, cookies);
-            if (hasBrowserStorageToInject) {
-              auth.applyBrowserStorageToPage(wc, browserStorage);
-            }
-          } else if (sessionHasCookies) {
-            console.log('[open-dream-page] 当前会话已存在 cookies，但没有可导入的账号数据，继续复用会话');
-          }
-
-          syncDreamTitle();
-          if (hasCookiesToInject || hasBrowserStorageToInject || !sessionHasCookies) {
-            wc.loadURL(targetUrl);
-          }
-          injectionDone = true;
-        } catch (e) {
-// 处理：errMsg的具体业务逻辑。
-          const errMsg = (e?.message || String(e));
-          console.error('[open-dream-page] 发生错误:', errMsg);
-          const isBusinessError = !!(e && (e.businessError || e.noHttpFallback || e.errorCode));
-          if (!injectionDone) {
-            if (isBusinessError) {
-              const accountFetchFailure = e?.errorCode === 'ACCOUNT_FETCH_FAILED' || e?.errorCode === 'ACCOUNT_EMPTY';
-              try {
-                ui.sendToSide && ui.sendToSide('server-message', {
-                  message: accountFetchFailure ? sanitizeUserFacingMessage(errMsg, '账号分配失败') : String(errMsg),
-                  title: accountFetchFailure ? '账号分配失败' : '卡密验证失败',
-                  type: 'error',
-                });
-              } catch (_) {}
-              try { ui.closeTab(tabId); } catch (_) {}
-              return;
-            }
-
-            try {
-              ui.sendToSide && ui.sendToSide('server-message', {
-                message: '网页加载遇到问题，正在尝试刷新...\n\n' + String(errMsg),
-                title: '网页加载异常',
-                type: 'warning',
-              });
-              console.log('[open-dream-page] 初始加载失败，尝试重新加载URL:', targetUrl);
-              syncDreamTitle();
-              if (wc && !wc.isDestroyed()) {
-                wc.loadURL(targetUrl).catch((reloadErr) => {
-                  console.warn('[open-dream-page] 重试加载仍失败:', reloadErr);
-                });
-              }
-            } catch (_) {}
-          }
-          return;
-        }
-      })();
-
-      return { ok: true, tabId };
     } catch (e) {
       return { ok: false, message: e?.message || String(e) };
     }

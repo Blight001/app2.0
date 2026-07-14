@@ -20,6 +20,13 @@ const popupPatch = fs.readFileSync(path.join(
   'patches',
   '0008-ai-free-extension-popup-auto-dismiss.patch',
 ), 'utf8');
+const pinnedActionsPatch = fs.readFileSync(path.join(
+  root,
+  'native',
+  'chromium-fork',
+  'patches',
+  '0011-ai-free-embedded-extension-actions-pinned.patch',
+), 'utf8');
 const series = fs.readFileSync(
   path.join(root, 'native', 'chromium-fork', 'patches', 'series'),
   'utf8',
@@ -31,6 +38,7 @@ const nativeHost = fs.readFileSync(
 
 assert(series.includes('0007-ai-free-embedded-window-lockdown.patch'));
 assert(series.includes('0008-ai-free-extension-popup-auto-dismiss.patch'));
+assert(series.includes('0011-ai-free-embedded-extension-actions-pinned.patch'));
 assert(!series.includes('0009-ai-free-embedded-omnibox-read-only.patch'));
 assert(!series.includes('0010-ai-free-embedded-toolbar-simplification.patch'));
 for (const marker of [
@@ -80,6 +88,30 @@ assert(popupPatch.includes('toolbar_action_hover_card_controller.cc'));
 assert(popupPatch.includes('embedded_hover_exit_watchdog_.Start('));
 assert(popupPatch.includes('Screen::Get()->GetCursorScreenPoint()'));
 assert(popupPatch.includes('GetBoundsInScreen().Contains(cursor)'));
+
+for (const marker of [
+  'ToolbarActionsModel::SetActionVisibility',
+  'ToolbarActionsModel::GetFilteredPinnedActionIds() const',
+  'return std::vector<ActionId>(action_ids_.begin(), action_ids_.end());',
+  'switches::kHsEmbedMode) == "child-window"',
+]) {
+  assert(pinnedActionsPatch.includes(marker),
+    `default-pinned extension patch is missing: ${marker}`);
+}
+const pinnedActionPatchedFiles = [
+  ...pinnedActionsPatch.matchAll(/^diff --git a\/(\S+) /gm),
+].map((match) => match[1]);
+assert.deepEqual(pinnedActionPatchedFiles, [
+  'chrome/browser/ui/toolbar/toolbar_actions_model.cc',
+]);
+for (const forbiddenMarker of [
+  'HideAiFreeEmbeddedLocationBarContents',
+  'SetCanProcessEventsWithinSubtree(false)',
+  'IsWebUILocationBarEnabled',
+]) {
+  assert(!pinnedActionsPatch.includes(forbiddenMarker),
+    `default-pinned extension patch must not alter the address bar: ${forbiddenMarker}`);
+}
 
 for (const style of [
   'WS_POPUP',

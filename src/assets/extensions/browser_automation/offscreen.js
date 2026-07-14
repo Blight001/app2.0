@@ -2,7 +2,7 @@
 //
 // Chrome can tear down an idle service worker after roughly 30 seconds. This
 // offscreen document survives that idle cycle and pings the worker frequently
-// enough to keep the Agent Socket.IO connection healthy while Chrome is
+// enough to keep the AI-FREE local bridge connection healthy while Chrome is
 // minimized or the popup is closed.
 
 const PING_INTERVAL_MS = 20000;

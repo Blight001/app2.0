@@ -49,8 +49,45 @@ function setDreamButtonPlatformName(platformName) {
   currentPlatformName = normalized;
   const dreamBtn = safeGetEl('open-dream-page-btn');
   if (dreamBtn) {
-    dreamBtn.textContent = '一键启动 AI-FREEAI';
+    dreamBtn.textContent = `一键启动 ${normalized}`;
+    dreamBtn.dataset.platform = normalized;
   }
+}
+
+// 渲染/刷新：按当前用户获准的羊毛平台生成独立启动按钮。
+function renderWoolPlatformButtons(platforms) {
+  const container = safeGetEl('wool-platform-buttons');
+  if (!container) return;
+  const items = (Array.isArray(platforms) ? platforms : [])
+    .map((item) => ({
+      name: String(item?.name || item?.platform || item?.platform_name || '').trim(),
+      targetUrl: String(item?.targetUrl || item?.target_url || '').trim(),
+    }))
+    .filter((item) => item.name && item.targetUrl);
+
+  container.innerHTML = '';
+  if (!items.length) {
+    const empty = document.createElement('button');
+    empty.id = 'open-dream-page-btn';
+    empty.type = 'button';
+    empty.disabled = true;
+    empty.className = 'main-button btn-large-blue requires-license open-wool-platform-btn';
+    empty.textContent = '暂无可用羊毛平台';
+    container.appendChild(empty);
+    return;
+  }
+
+  items.forEach((item, index) => {
+    const button = document.createElement('button');
+    if (index === 0) button.id = 'open-dream-page-btn';
+    button.type = 'button';
+    button.className = 'main-button btn-large-blue requires-license open-wool-platform-btn';
+    button.dataset.platform = item.name;
+    button.dataset.targetUrl = item.targetUrl;
+    button.textContent = `一键启动 ${item.name}`;
+    button.disabled = !isLicenseValidated();
+    container.appendChild(button);
+  });
 }
 
 // 设置/更新/持久化：setTutorialLinkHref的具体业务逻辑。
@@ -169,10 +206,15 @@ function bindRuntimeValueListeners() {
       const platformName = data && data.platformName;
       if (!platformName) return;
       setDreamButtonPlatformName(platformName);
+      if (Array.isArray(data?.woolPlatforms)) renderWoolPlatformButtons(data.woolPlatforms);
       void refreshTutorialUrl();
     } catch (e) {
       console.warn('[侧边栏] 处理平台名称更新事件失败:', e?.message || e);
     }
+  });
+
+  window.electronAPI.on('wool-platforms-updated', (data) => {
+    renderWoolPlatformButtons(data?.woolPlatforms || []);
   });
 
   window.electronAPI.on('tutorial-url-updated', (data) => {

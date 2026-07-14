@@ -5,16 +5,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createTabManager } = require('../src/app/main/services/tab-manager');
 
-let electronReloads = 0;
 let chromiumRestarts = 0;
 let sidebarEvent = null;
 const chromiumProfile = { extensionPaths: ['old-extension'] };
 const tabs = new Map([
-  ['electron-tab', {
-    id: 'electron-tab',
-    runtimeType: 'electron',
-    view: { webContents: { isDestroyed: () => false, reloadIgnoringCache: () => { electronReloads += 1; } } },
-  }],
   ['chromium-tab', { id: 'chromium-tab', runtimeType: 'chromium', runtimeStatus: 'ready', browserSettings: {} }],
 ]);
 
@@ -36,10 +30,8 @@ const manager = createTabManager({
 (async () => {
   const result = await manager.refreshBrowsersAfterExtensionChange({ plugin: { id: 'test-plugin' }, enabled: true });
   assert.equal(result.ok, true);
-  assert.equal(result.electronReloaded, 1);
   assert.equal(result.chromiumRestarted, 1);
-  assert.equal(result.total, 2);
-  assert.equal(electronReloads, 1);
+  assert.equal(result.total, 1);
   assert.equal(chromiumRestarts, 1);
   assert.deepEqual(chromiumProfile.extensionPaths, ['enabled-extension']);
   assert.equal(sidebarEvent.channel, 'extension-browsers-refreshed');

@@ -101,6 +101,22 @@ function displayMessageItem(item) {
   title.textContent = item.title || config.title;
   icon.textContent = item.icon || config.icon;
 
+  let promptInput = null;
+  if (item.kind === 'prompt') {
+    content.replaceChildren();
+    const promptMessage = document.createElement('div');
+    promptMessage.className = 'modal-prompt-message';
+    promptMessage.textContent = item.message || '';
+    promptInput = document.createElement('input');
+    promptInput.className = 'modal-prompt-input';
+    promptInput.type = 'text';
+    promptInput.value = String(item.initialValue || '');
+    promptInput.placeholder = String(item.placeholder || '');
+    promptInput.maxLength = Math.max(1, Number(item.maxLength) || 80);
+    promptInput.autocomplete = 'off';
+    content.append(promptMessage, promptInput);
+  }
+
   // 设置样式
   const modalContent = modal.querySelector('.modal-content');
   if (modalContent) modalContent.className = `modal-content ${config.className}`;
@@ -167,6 +183,50 @@ function displayMessageItem(item) {
         try { if (item.onCancel) item.onCancel(); } catch (_) {}
         hideServerMessageModal();
       });
+    }
+  } else if (item.kind === 'prompt') {
+    actions.innerHTML = `
+      <button id="prompt-dialog-confirm-btn" class="btn-blue">${messageModalEscapeHtml(item.confirmText || '保存')}</button>
+      <button id="prompt-dialog-cancel-btn" class="btn-gray" style="margin-left: 10px;">${messageModalEscapeHtml(item.cancelText || '取消')}</button>
+    `;
+    const confirmBtn = messageModalGetEl('prompt-dialog-confirm-btn');
+    const cancelBtn = messageModalGetEl('prompt-dialog-cancel-btn');
+    const submitPrompt = async () => {
+      const value = String(promptInput?.value || '').trim();
+      if (item.required !== false && !value) {
+        promptInput?.classList.add('is-invalid');
+        promptInput?.focus();
+        return;
+      }
+      if (confirmBtn) confirmBtn.disabled = true;
+      try {
+        if (item.onConfirm) await item.onConfirm(value);
+        hideServerMessageModal();
+      } catch (e) {
+        console.error('Prompt callback error:', e);
+        if (confirmBtn) confirmBtn.disabled = false;
+      }
+    };
+    confirmBtn?.addEventListener('click', () => void submitPrompt());
+    cancelBtn?.addEventListener('click', () => {
+      try { if (item.onCancel) item.onCancel(); } catch (_) {}
+      hideServerMessageModal();
+    });
+    promptInput?.addEventListener('input', () => promptInput.classList.remove('is-invalid'));
+    promptInput?.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        void submitPrompt();
+      }
+    });
+    const focusPromptInput = () => requestAnimationFrame(() => {
+      promptInput?.focus();
+      promptInput?.select();
+    });
+    if (window.electronAPI?.invoke) {
+      void window.electronAPI.invoke('focus-sidebar-input').finally(focusPromptInput);
+    } else {
+      focusPromptInput();
     }
   } else {
     actions.innerHTML = '<button id="acknowledge-message" class="btn-blue">我知道了</button>';
@@ -409,6 +469,25 @@ function showConfirmDialog(message, onConfirm, onCancel, type = 'info') {
   });
 }
 
+// 启动/打开/显示：显示软件内置文本输入弹窗。
+function showPromptDialog(message, initialValue, onConfirm, onCancel, options = {}) {
+  enqueueMessage({
+    kind: 'prompt',
+    type: options.type || 'confirm',
+    title: options.title || '请输入',
+    message,
+    initialValue,
+    placeholder: options.placeholder || '',
+    maxLength: options.maxLength || 80,
+    required: options.required !== false,
+    confirmText: options.confirmText || '保存',
+    cancelText: options.cancelText || '取消',
+    priority: MESSAGE_PRIORITY.confirm,
+    onConfirm,
+    onCancel,
+  });
+}
+
 /**
  * 初始化弹窗事件绑定
  * 这个函数需要在 DOM 加载完成后调用
@@ -570,6 +649,7 @@ window.MessageModal = {
   showLoadingMessage,
   hideLoadingMessage,
   showConfirmDialog,
+  showPromptDialog,
   initMessageModal,
   initServerMessageListener,
   createModalHTML,

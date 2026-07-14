@@ -103,7 +103,7 @@ function findPermanentAccountByKey(accountStorage, key, options = {}) {
   } catch (error) {
     const logger = options.logger;
     if (logger && typeof logger.warn === 'function') {
-      logger.warn('[IPC] 查找永久账号失败:', error?.message || error);
+      logger.warn('[IPC] 查找绑定账号失败:', error?.message || error);
     }
   }
 

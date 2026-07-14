@@ -1,9 +1,8 @@
 const path = require('path');
 const { ChromiumRuntime } = require('./chromium-runtime');
 const { ChromiumWindowBridge } = require('./chromium-window-bridge');
-const { ElectronRuntime } = require('./electron-runtime');
 const { ProfileRuntimeStore } = require('./profile-runtime-store');
-const { normalizeRuntimeType, RUNTIME_TYPES } = require('./runtime-types');
+const { RUNTIME_TYPES } = require('./runtime-types');
 
 class BrowserRuntimeManager {
   constructor(options = {}) {
@@ -11,7 +10,6 @@ class BrowserRuntimeManager {
     this.logger = options.logger || console;
     this.store = options.store || new ProfileRuntimeStore({ rootDir: path.join(userDataDir, 'chromium-profiles'), logger: this.logger });
     this.windowBridge = options.windowBridge || new ChromiumWindowBridge({ logger: this.logger });
-    this.electron = options.electronRuntime || new ElectronRuntime({ logger: this.logger });
     this.chromium = options.chromiumRuntime || new ChromiumRuntime({
       logger: this.logger,
       store: this.store,
@@ -22,9 +20,11 @@ class BrowserRuntimeManager {
   }
 
   resolveType(profile = {}) {
-    return normalizeRuntimeType(profile.runtimeType || process.env.AI_FREE_BROWSER_RUNTIME, RUNTIME_TYPES.ELECTRON);
+    // 网页窗口统一使用项目内置的 AI-FREE Chromium Fork。Electron 只承载
+    // 应用外壳与侧栏，不能再被选作网页浏览运行时。
+    return RUNTIME_TYPES.CHROMIUM;
   }
-  runtimeFor(type) { return normalizeRuntimeType(type) === RUNTIME_TYPES.CHROMIUM ? this.chromium : this.electron; }
+  runtimeFor() { return this.chromium; }
   async launchProfile(profile, bounds) { return this.runtimeFor(this.resolveType(profile)).launchProfile(profile, bounds); }
   async show(profileId, type) { return this.runtimeFor(type).show(profileId); }
   async hide(profileId, type) { return this.runtimeFor(type).hide(profileId); }

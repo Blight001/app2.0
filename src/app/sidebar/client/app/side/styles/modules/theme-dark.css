@@ -24,6 +24,16 @@
   --content-max: 560px;           /* cap content width so it never stretches */
 }
 
+/* ------------------------------------------------------------------
+   侧边栏宽度 = 主窗口宽度的 30%（见 app-shell.js）：
+     默认窗口 1280  -> 侧栏 ≈384px（紧凑布局）
+     最大化 1920    -> 侧栏 ≈576px（放大布局）
+   断点 520px 用于区分「默认缩小」与「放大」两套布局。
+   ------------------------------------------------------------------ */
+@media (min-width: 520px) {
+  :root { --content-max: 640px; }
+}
+
 body {
   background:
     radial-gradient(120% 90% at 0% 0%, rgba(77, 163, 255, 0.16) 0%, rgba(77, 163, 255, 0) 58%),
@@ -262,6 +272,17 @@ body {
 .modal-header h3,
 #server-message-content {
   color: var(--text);
+}
+
+.modal-prompt-input {
+  border-color: #3f4a5c;
+  color: #eef3fb;
+  background: #171d27;
+}
+html.theme-light .modal-prompt-input {
+  border-color: #d4d9e0;
+  color: #263445;
+  background: #fff;
 }
 
 .modal-close-btn {

@@ -379,6 +379,10 @@ html.theme-light .footer a {
   color: #6b7c8f;
 }
 
+html.theme-light .personal-footer {
+  border-top-color: rgba(86, 121, 165, 0.18);
+}
+
 html.theme-light .announcement-bar {
   background-color: rgba(255, 255, 255, 0.86);
   border-color: rgba(84, 120, 165, 0.18);

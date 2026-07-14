@@ -79,6 +79,9 @@ class ChromiumRuntime extends BrowserRuntime {
       if (!parentWindow || parentWindow.isDestroyed?.()) throw new Error('Electron 主窗口不可用');
       const parentHwnd = parentWindow.getNativeWindowHandle();
       hostHwnd = this.windowBridge.createHostWindow({ parentHwnd, ...bounds });
+      // Also hide explicitly so an older packaged native binding cannot expose
+      // its black host surface while Chromium is still handshaking.
+      this.windowBridge.hideHostWindow(hostHwnd);
       const pipeName = createPipeName(profileId);
       const launchToken = crypto.randomBytes(32).toString('hex');
       commandClient = new ChromiumCommandClient({ profileId, pipeName, launchToken, logger: this.logger });
@@ -95,6 +98,7 @@ class ChromiumRuntime extends BrowserRuntime {
       const instance = {
         profile, paths, child, commandClient, hostHwnd, parentWindow,
         expectedExit: false, monitor: null, parentFocusHandler: null,
+        visualSyncTimers: new Set(),
       };
       this.instances.set(profileId, instance);
       this.store.patchState(profileId, { pid: child.pid });
@@ -128,6 +132,7 @@ class ChromiumRuntime extends BrowserRuntime {
         embedded: true,
         lastHeartbeatAt: Date.now(),
       });
+      this.scheduleVisualSync(profileId);
       instance.monitor = new ChromiumHealthMonitor({
         isWindowAlive: (hwnd) => this.windowBridge.isWindowAlive(hwnd),
         onFailure: (error) => this.markCrashed(profileId, error),
@@ -139,6 +144,34 @@ class ChromiumRuntime extends BrowserRuntime {
     } catch (error) {
       await this.cleanupFailedLaunch(profileId, { hostHwnd, commandClient, error });
       throw error;
+    }
+  }
+
+  clearVisualSyncTimers(instance) {
+    if (!instance?.visualSyncTimers) return;
+    for (const timer of instance.visualSyncTimers) clearTimeout(timer);
+    instance.visualSyncTimers.clear();
+  }
+
+  scheduleVisualSync(profileId, delays = [0, 50, 180, 400]) {
+    const instance = this.instances.get(String(profileId || ''));
+    if (!instance?.hostHwnd) return;
+    this.clearVisualSyncTimers(instance);
+    for (const delayMs of delays) {
+      const timer = setTimeout(() => {
+        instance.visualSyncTimers.delete(timer);
+        const state = this.store.getState(profileId);
+        if (state?.status !== RUNTIME_STATUS.READY || !state.hostHwnd) return;
+        try {
+          // Re-apply bounds before showing: Electron may have completed a
+          // Run one layout pass after the native child was attached.
+          this.windowBridge.setHostBounds(state.hostHwnd, state.bounds);
+          this.windowBridge.showHostWindow(state.hostHwnd);
+        } catch (error) {
+          this.logger?.warn?.(`[ChromiumRuntime] 嵌入窗口首帧同步失败: ${error.message}`);
+        }
+      }, Math.max(0, Number(delayMs) || 0));
+      instance.visualSyncTimers.add(timer);
     }
   }
 
@@ -162,8 +195,9 @@ class ChromiumRuntime extends BrowserRuntime {
         const state = this.store.getState(profileId);
         if (state?.status !== RUNTIME_STATUS.READY || !state.hostHwnd) return;
         try {
-          this.windowBridge.showHostWindow(state.hostHwnd);
           this.windowBridge.setHostBounds(state.hostHwnd, state.bounds);
+          this.windowBridge.showHostWindow(state.hostHwnd);
+          this.scheduleVisualSync(profileId, [40, 160]);
         } catch (error) {
           this.logger?.warn?.(`[ChromiumRuntime] 恢复嵌入窗口 Z-order 失败: ${error.message}`);
         }
@@ -174,6 +208,7 @@ class ChromiumRuntime extends BrowserRuntime {
   }
 
   unbindParentWindowFocus(instance) {
+    this.clearVisualSyncTimers(instance);
     if (!instance?.parentFocusHandler) return;
     try { instance.parentWindow?.off?.('focus', instance.parentFocusHandler); } catch (_) {}
     instance.parentFocusHandler = null;
@@ -203,13 +238,16 @@ class ChromiumRuntime extends BrowserRuntime {
   async show(profileId) {
     const state = this.store.getState(profileId);
     if (!state?.hostHwnd) return state;
+    this.windowBridge.setHostBounds(state.hostHwnd, state.bounds);
     this.windowBridge.showHostWindow(state.hostHwnd);
     if (state.status === RUNTIME_STATUS.HIDDEN) this.store.transition(profileId, RUNTIME_STATUS.READY);
+    this.scheduleVisualSync(profileId, [0, 50, 180]);
     return this.getState(profileId);
   }
   async hide(profileId) {
     const state = this.store.getState(profileId);
     if (!state?.hostHwnd) return state;
+    this.clearVisualSyncTimers(this.instances.get(String(profileId || '')));
     this.windowBridge.hideHostWindow(state.hostHwnd);
     if (state.status === RUNTIME_STATUS.READY) this.store.transition(profileId, RUNTIME_STATUS.HIDDEN);
     return this.getState(profileId);
@@ -220,6 +258,9 @@ class ChromiumRuntime extends BrowserRuntime {
     const bounds = normalizeBounds(rawBounds);
     if (state.hostHwnd) this.windowBridge.setHostBounds(state.hostHwnd, bounds);
     this.store.patchState(profileId, { bounds });
+    if (state.status === RUNTIME_STATUS.READY) {
+      this.scheduleVisualSync(profileId, [30, 140]);
+    }
     return this.getState(profileId);
   }
   async focus(profileId) {

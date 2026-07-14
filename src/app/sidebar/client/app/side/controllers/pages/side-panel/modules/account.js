@@ -157,8 +157,10 @@ function getAccountTypeLabel(account) {
     || (account.currentAccountType === 'shared'
       ? '循环账号'
       : account.currentAccountType === 'one_time'
-        ? '长久账号'
-        : '');
+        ? '绑定账号'
+        : account.currentAccountType === 'disposable'
+          ? '次抛账号'
+          : '');
 }
 
 // 获取/读取/解析：getAccountPlatformLabel的具体业务逻辑。
@@ -677,8 +679,20 @@ function renderAccountList(accounts) {
   }
 
   const fragment = document.createDocumentFragment();
+  const platformGroups = new Map();
   visibleAccounts.forEach((account) => {
-    fragment.appendChild(createAccountItem(account));
+    const platform = getAccountPlatformLabel(account);
+    if (!platformGroups.has(platform)) platformGroups.set(platform, []);
+    platformGroups.get(platform).push(account);
+  });
+  platformGroups.forEach((platformAccounts, platform) => {
+    const heading = document.createElement('div');
+    heading.className = 'account-platform-heading';
+    heading.textContent = `${platform}（${platformAccounts.length}）`;
+    fragment.appendChild(heading);
+    platformAccounts.forEach((account) => {
+      fragment.appendChild(createAccountItem(account));
+    });
   });
   accountList.appendChild(fragment);
 }

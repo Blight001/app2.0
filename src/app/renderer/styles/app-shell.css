@@ -107,7 +107,8 @@ body, html {
   border-color: var(--shell-back-border-hover);
 }
 
-#add-tab-btn {
+#add-tab-btn,
+#new-browser-window-btn {
   width: var(--shell-tab-height);
   height: var(--shell-tab-height);
   font-size: 20px;
@@ -123,7 +124,22 @@ body, html {
   -ms-user-select: none;
 }
 
-#add-tab-btn:hover {
+#new-browser-window-btn {
+  flex: 0 0 var(--shell-tab-height);
+  padding: 0;
+  border: 1px solid rgba(77, 163, 255, 0.42);
+  line-height: calc(var(--shell-tab-height) - 2px);
+  font-family: inherit;
+  font-weight: 400;
+}
+
+#new-browser-window-btn:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+#add-tab-btn:hover,
+#new-browser-window-btn:hover:not(:disabled) {
   background-color: var(--shell-accent-hover);
 }
 
@@ -188,6 +204,20 @@ body, html {
   text-overflow: ellipsis;
   flex-grow: 1;
   min-width: 0;
+}
+
+.tab-title-editor {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 22px;
+  box-sizing: border-box;
+  border: 1px solid var(--shell-accent);
+  border-radius: 4px;
+  padding: 1px 5px;
+  outline: none;
+  color: var(--shell-text);
+  background: var(--shell-bg);
+  font: inherit;
 }
 
 .tab.active {

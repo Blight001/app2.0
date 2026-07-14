@@ -169,3 +169,15 @@
 .account-popup-panel[hidden] {
   display: none !important;
 }
+.account-platform-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 7px 9px;
+  margin: 6px 0 4px;
+  border-radius: 8px;
+  color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 10%, var(--panel-2));
+  font-size: 12px;
+  font-weight: 700;
+}

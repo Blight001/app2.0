@@ -1,10 +1,6 @@
-// 09_agent_socket.js — HeySure 服务器同步连接（登录后自动连接 + 设备登记 + AI 分配 + 任务调度）
-// 与 device/extension/src/lib/background.ts 对齐：登录拿到 agent_socket_url 后建立 Socket.IO
-// 连接，使用 DEVICE_ENROLL 上报本设备与工具目录；服务器（网页端「作坊」）为本设备分配 AI，
-// 之后 AI 触发的工具调用经 Connector Runtime 以 task:dispatch 下发到这里执行。
-//
-// 依赖：vendor/socket.io.js 提供的全局 io（importScripts 顺序保证其先加载）；
-//       08_agent_auth.js 的登录/设置读写；00-07 的自动化卡片 / Cookie 抓取实现。
+// 09_agent_socket.js — AI-FREE 本机桥接（自动注册 + 工具任务调度）。
+// 插件不再登录独立账号；软件启动的 loopback HTTP 服务负责发现多个浏览器插件连接，
+// 并把 AI 控制页中选定连接的工具调用派发到这里。
 
 const AGENT_KEEPALIVE_ALARM = 'agent-keepalive';
 const AGENT_VERSION = '1.0.0';
@@ -12,14 +8,12 @@ const AGENT_VERSION = '1.0.0';
 // Protocol event names (kept for server compatibility)
 const DEVICE_ENROLL = 'device:register';
 const DEVICE_ENROLLED = 'device:registered';
-const DEVICE_ENROLL_REJECTED = 'device:register_rejected';
 
 let agentSocket = null;
 let agentStatus = 'disconnected'; // disconnected | connecting | connected | enrolled | error
 let agentBoundAiConfigId = null;
 let agentCurrentId = null;
 let agentMachineId = null;
-let agentAuthRejected = false;
 let agentConnectPromise = null;
 let agentLastErrorReason = ''; // 最近一次 error 状态的原因，便于 UI 显示详细提示
 const agentTaskOutcomes = new Map();
@@ -500,7 +494,6 @@ function agentStatePayload() {
     return {
         status: agentStatus,
         boundAiConfigId: agentBoundAiConfigId,
-        authRejected: agentAuthRejected,
         lastErrorReason: agentLastErrorReason || ''
     };
 }
@@ -561,7 +554,6 @@ function parseAiConfigId(raw) {
 // ── 设备登记 ────────────────────────────────────────────────────────────────────
 async function emitAgentEnrollOn(socket) {
     const settings = await getAgentSettings();
-    const auth = await getAgentAuth();
     if (settings.offlineMode) {
         return;
     }
@@ -570,8 +562,7 @@ async function emitAgentEnrollOn(socket) {
     const toolDefs = effectiveAgentToolDefs();
     socket.emit(DEVICE_ENROLL, {
         id,
-        // 与扩展端一致：设备不自选 AI，登录连接后由网页端「作坊」为其分配；服务器
-        // 每次登记都会重新套用该绑定，因此这里始终发送 aiConfigId: null。
+        // AI 会在软件控制页按连接选择，因此插件登记时不绑定固定模型。
         aiConfigId: null,
         name: settings.agentName || 'AI自动化浏览器',
         group: settings.agentGroup || '',
@@ -580,8 +571,6 @@ async function emitAgentEnrollOn(socket) {
         capabilities: toolDefs.map((t) => t.name),
         toolDefs,
         version: AGENT_VERSION,
-        token: auth.token || '',
-        userId: auth.userId != null ? auth.userId : null,
         workspaceRoot: '',
         lifecycle: 'registered',
         isWindowsDesktop: false,
@@ -598,6 +587,130 @@ async function agentEnroll() {
 }
 
 // ── 连接 ────────────────────────────────────────────────────────────────────
+class LocalAutomationBridgeSocket {
+    constructor(baseUrl) {
+        this.baseUrl = trimUrl(baseUrl);
+        this.connected = false;
+        this.active = false;
+        this.connectionId = '';
+        this.token = '';
+        this.sessionId = crypto.randomUUID();
+        this.listeners = new Map();
+        this.pollTimer = null;
+        this.io = { reconnection() {} };
+    }
+
+    on(event, handler) {
+        if (!this.listeners.has(event)) this.listeners.set(event, []);
+        this.listeners.get(event).push(handler);
+    }
+
+    fire(event, payload) {
+        for (const handler of this.listeners.get(event) || []) {
+            try { handler(payload); } catch (_error) {}
+        }
+    }
+
+    removeAllListeners() {
+        this.listeners.clear();
+    }
+
+    async request(path, options = {}) {
+        const headers = { ...(options.headers || {}) };
+        if (this.token) headers['X-Bridge-Token'] = this.token;
+        if (options.body != null) headers['Content-Type'] = 'application/json';
+        const suffix = this.connectionId ? `${path.includes('?') ? '&' : '?'}connection_id=${encodeURIComponent(this.connectionId)}` : '';
+        const response = await fetch(`${this.baseUrl}${path}${suffix}`, {
+            ...options,
+            headers,
+            signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.ok === false) throw new Error(data.message || `本机桥接 HTTP ${response.status}`);
+        return data;
+    }
+
+    async connect() {
+        if (this.connected || this.active) return;
+        this.active = true;
+        this.connected = true;
+        this.active = false;
+        this.fire('connect');
+    }
+
+    disconnect() {
+        const wasConnected = this.connected;
+        this.connected = false;
+        this.active = false;
+        if (this.pollTimer) clearTimeout(this.pollTimer);
+        this.pollTimer = null;
+        this.connectionId = '';
+        this.token = '';
+        if (wasConnected) this.fire('disconnect', 'client disconnect');
+    }
+
+    emit(event, payload) {
+        if (event === DEVICE_ENROLL) {
+            void this.register(payload);
+        } else if (event === 'task:result') {
+            void this.sendOutcome({ ...payload, success: payload?.success !== false });
+        } else if (event === 'task:error') {
+            void this.sendOutcome({ ...payload, success: false });
+        } else if (event === 'task:progress') {
+            void this.postProgress(payload);
+        }
+    }
+
+    async register(payload) {
+        try {
+            const response = await this.request('/v1/register', {
+                method: 'POST',
+                body: JSON.stringify({
+                    ...payload,
+                    instanceId: payload.id,
+                    sessionId: this.sessionId
+                })
+            });
+            this.connectionId = String(response.connectionId || '');
+            this.token = String(response.token || '');
+            this.fire(DEVICE_ENROLLED, { id: this.connectionId, aiConfigId: null });
+            this.schedulePoll(0);
+        } catch (error) {
+            this.connected = false;
+            this.fire('connect_error', error);
+        }
+    }
+
+    schedulePoll(delay = 650) {
+        if (!this.connected) return;
+        if (this.pollTimer) clearTimeout(this.pollTimer);
+        this.pollTimer = setTimeout(() => { void this.poll(); }, delay);
+    }
+
+    async poll() {
+        if (!this.connected || !this.connectionId) return;
+        try {
+            const response = await this.request('/v1/tasks');
+            for (const task of response.tasks || []) this.fire('task:dispatch', task);
+            this.schedulePoll(650);
+        } catch (error) {
+            this.connected = false;
+            this.fire('disconnect', error?.message || '本机桥接已断开');
+            this.fire('connect_error', error);
+        }
+    }
+
+    async sendOutcome(payload) {
+        if (!this.connectionId) return;
+        await this.request('/v1/task-result', { method: 'POST', body: JSON.stringify(payload) }).catch(() => {});
+    }
+
+    async postProgress(payload) {
+        if (!this.connectionId) return;
+        await this.request('/v1/task-progress', { method: 'POST', body: JSON.stringify(payload) }).catch(() => {});
+    }
+}
+
 async function agentConnect() {
     if (agentSocket && agentSocket.connected) {
         return;
@@ -612,10 +725,6 @@ async function agentConnect() {
 }
 
 async function agentDoConnect() {
-    if (typeof io !== 'function') {
-        setAgentStatus('error', 'socket.io 未加载');
-        return;
-    }
     const settings = await getAgentSettings();
     if (agentSocket && agentSocket.connected) {
         return;
@@ -624,27 +733,11 @@ async function agentDoConnect() {
         return;
     }
 
-    const auth = await getAgentAuth();
-    if (!auth.token) {
-        setAgentStatus('disconnected', '未登录');
-        return;
-    }
-
-    let agentSocketUrl = String(settings.agentSocketUrl || '').trim();
-    if (!agentSocketUrl) {
-        try {
-            agentSocketUrl = await agentGetEndpoint(settings.serverUrl, auth.token);
-            await saveAgentSettings({ agentSocketUrl });
-        } catch (error) {
-            setAgentStatus('error', '无法获取 Agent 连接地址');
-            return;
-        }
-    }
-
+    let bridgeUrl = String(settings.localBridgeUrl || 'http://127.0.0.1:18765').trim();
     try {
-        agentSocketUrl = new URL(agentSocketUrl).href.replace(/\/$/, '');
+        bridgeUrl = new URL(bridgeUrl).href.replace(/\/$/, '');
     } catch (_error) {
-        setAgentStatus('error', 'Agent 连接地址格式无效');
+        setAgentStatus('error', '本机桥接地址格式无效');
         return;
     }
 
@@ -654,15 +747,11 @@ async function agentDoConnect() {
         agentSocket = null;
     }
 
-    agentAuthRejected = false;
     setAgentStatus('connecting');
 
-    agentSocket = io(agentSocketUrl, {
-        transports: ['websocket', 'polling'],
-        reconnectionDelay: 2000,
-        reconnectionAttempts: Infinity
-    });
+    agentSocket = new LocalAutomationBridgeSocket(bridgeUrl);
     attachAgentListeners(agentSocket);
+    await agentSocket.connect();
 }
 
 function attachAgentListeners(socket) {
@@ -674,19 +763,16 @@ function attachAgentListeners(socket) {
 
     socket.on('disconnect', (reason) => {
         setAgentStatus('disconnected', reason);
-        // 传输层断开 Socket.IO 会自动重连；但服务器显式关闭（io server disconnect，
-        // 例如服务端重启）不会自动重连，这里主动补一次。
-        if (reason === 'io server disconnect' && !agentAuthRejected) {
-            setTimeout(() => {
-                if (agentSocket && !agentSocket.connected && !agentSocket.active) {
-                    agentSocket.connect();
-                }
-            }, 2000);
-        }
+        setTimeout(() => {
+            if (agentSocket && !agentSocket.connected && !agentSocket.active) void agentSocket.connect();
+        }, 2000);
     });
 
     socket.on('connect_error', (err) => {
         setAgentStatus('error', err && err.message ? err.message : '连接失败');
+        setTimeout(() => {
+            if (agentSocket && !agentSocket.connected && !agentSocket.active) void agentSocket.connect();
+        }, 2000);
     });
 
     socket.on(DEVICE_ENROLLED, (data) => {
@@ -707,16 +793,6 @@ function attachAgentListeners(socket) {
             agentBoundAiConfigId = next;
             broadcastAgentStatus();
         }
-    });
-
-    socket.on(DEVICE_ENROLL_REJECTED, (data) => {
-        const reason = (data && data.reason) || '设备登记被服务器拒绝';
-        // 非瞬时错误（token 失效或 AI 归属不符）：用同一 token 重连会无限循环，
-        // 因此锁定 authRejected、关闭自动重连并断开，等用户重新登录后再连。
-        agentAuthRejected = true;
-        try { socket.io.reconnection(false); } catch (_error) {}
-        agentDisconnect();
-        setAgentStatus('error', reason);
     });
 
     socket.on('task:dispatch', (task) => { void handleAgentTask(task); });
@@ -1123,16 +1199,12 @@ async function handleAgentTask(task) {
 // ── 生命周期 / 保活 ─────────────────────────────────────────────────────────
 async function restoreAndConnectAgent() {
     const settings = await getAgentSettings();
-    const auth = await getAgentAuth();
-    if (!settings.offlineMode && auth.token && !agentAuthRejected) {
+    if (!settings.offlineMode) {
         await agentConnect();
     }
 }
 
 function nudgeAgentSocket() {
-    if (agentAuthRejected) {
-        return;
-    }
     if (!agentSocket) {
         void restoreAndConnectAgent();
         return;
@@ -1144,7 +1216,7 @@ function nudgeAgentSocket() {
 
 // Offscreen document: MV3 service workers are reclaimed when idle, while an
 // offscreen document can stay resident and ping us. Each ping wakes/resets this
-// worker and gives nudgeAgentSocket() a chance to repair the Socket.IO session.
+// worker and gives nudgeAgentSocket() a chance to repair the local bridge session.
 let ensureAgentOffscreenPromise = null;
 async function ensureAgentOffscreen() {
     if (ensureAgentOffscreenPromise) {
@@ -1161,7 +1233,7 @@ async function ensureAgentOffscreen() {
             await chrome.offscreen.createDocument({
                 url: 'offscreen.html',
                 reasons: [chrome.offscreen.Reason.WORKERS],
-                justification: '保持 AI 自动化插件后台连接，并定期唤醒 Service Worker 检查 Agent Socket.IO 会话。'
+                justification: '保持 AI 自动化插件后台连接，并定期唤醒 Service Worker 检查 AI-FREE 本机桥接会话。'
             });
         } catch (_error) {
             // createDocument can race with another wake of this service worker;
@@ -1201,28 +1273,6 @@ chrome.runtime.onStartup.addListener(() => {
     void restoreAndConnectAgent();
 });
 
-// 登录/登出通常经 popup → background 消息触发，这里再兜底监听 auth 存储变化，
-// 保证令牌变化时始终尝试连接/断开。
-chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== 'local' || !changes[AGENT_AUTH_KEY]) {
-        return;
-    }
-    const oldToken = String((changes[AGENT_AUTH_KEY].oldValue && changes[AGENT_AUTH_KEY].oldValue.token) || '');
-    const newToken = String((changes[AGENT_AUTH_KEY].newValue && changes[AGENT_AUTH_KEY].newValue.token) || '');
-    if (oldToken === newToken) {
-        return;
-    }
-    agentAuthRejected = false;
-    if (newToken) {
-        if (agentSocket) {
-            agentDisconnect();
-        }
-        void agentConnect();
-    } else {
-        agentDisconnect();
-    }
-});
-
 // ── popup 消息接口 ──────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || typeof message !== 'object' || typeof message.type !== 'string' || !message.type.startsWith('agent:')) {
@@ -1234,89 +1284,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             switch (message.type) {
                 case 'agent:get-state': {
                     const settings = await getAgentSettings();
-                    const auth = await getAgentAuth();
-                    // avatar 是服务器相对路径，转成 data URL 后 popup 才能显示。
-                    const avatarDataUrl = auth.token
-                        ? await resolveAgentAvatarDataUrl(settings.serverUrl, auth.avatar, auth.token)
-                        : '';
                     sendResponse({
                         ok: true,
                         ...agentStatePayload(),
-                        settings,
-                        auth: {
-                            loggedIn: !!auth.token,
-                            account: auth.account || '',
-                            userName: auth.userName || '',
-                            userId: auth.userId,
-                            avatar: avatarDataUrl,
-                            rememberLogin: auth.rememberLogin === true
-                        }
+                        settings
                     });
                     break;
                 }
                 case 'agent:save-settings': {
-                    const prev = await getAgentSettings();
                     const payload = { ...(message.payload || {}) };
-                    const serverChanged = payload.serverUrl !== undefined && payload.serverUrl !== prev.serverUrl;
-                    // 换服务器后旧的 agentSocketUrl 失效，清掉让其重新解析。
-                    if (serverChanged && payload.agentSocketUrl === undefined) {
-                        payload.agentSocketUrl = '';
-                    }
                     const next = await saveAgentSettings(payload);
-                    if (payload.offlineMode === true && agentSocket && agentSocket.connected) {
-                        agentDisconnect();
-                    } else if ((serverChanged || payload.agentSocketUrl !== undefined) && agentSocket) {
-                        agentDisconnect();
-                        if (!next.offlineMode) {
-                            void agentConnect();
-                        }
-                    }
+                    if (agentSocket) agentDisconnect();
+                    if (!next.offlineMode) void agentConnect();
                     sendResponse({ ok: true, settings: next });
                     break;
                 }
-                case 'agent:login': {
-                    const settings = await getAgentSettings();
-                    const account = String((message.payload && message.payload.account) || '').trim();
-                    const password = String((message.payload && message.payload.password) || '');
-                    const remember = (message.payload && message.payload.rememberLogin) === true;
-                    if (!account || !password) {
-                        sendResponse({ ok: false, error: '请填写账号和密码' });
-                        break;
-                    }
-                    const result = await agentLogin(settings.serverUrl, account, password);
-                    agentAuthRejected = false;
-                    await saveAgentAuth({
-                        token: result.token,
-                        account,
-                        password: remember ? password : '',
-                        rememberLogin: remember,
-                        userId: result.user && result.user.id != null ? result.user.id : null,
-                        userName: (result.user && (result.user.name || result.user.account)) || account,
-                        avatar: (result.user && result.user.avatar) || ''
-                    });
-                    await saveAgentSettings({ agentSocketUrl: result.agentSocketUrl });
-                    void agentConnect();
-                    sendResponse({
-                        ok: true,
-                        auth: {
-                            loggedIn: true,
-                            account,
-                            userName: (result.user && (result.user.name || result.user.account)) || account
-                        }
-                    });
-                    break;
-                }
-                case 'agent:logout': {
-                    agentAuthRejected = false;
-                    agentDisconnect();
-                    await clearAgentAuth();
-                    await saveAgentSettings({ agentSocketUrl: '' });
-                    await chrome.storage.local.remove(AGENT_AVATAR_CACHE_KEY).catch(() => {});
-                    sendResponse({ ok: true });
-                    break;
-                }
                 case 'agent:connect': {
-                    agentAuthRejected = false;
                     if (agentSocket && agentSocket.connected) {
                         await emitAgentEnrollOn(agentSocket);
                     } else {
@@ -1332,17 +1315,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
                 }
                 case 'agent:test-connection': {
                     const settings = await getAgentSettings();
-                    const auth = await getAgentAuth();
                     let http = { ok: false };
                     try {
-                        const base = trimUrl(settings.serverUrl);
+                        const base = trimUrl(settings.localBridgeUrl);
                         const start = Date.now();
-                        const res = await fetch(`${base}/`, { signal: AbortSignal.timeout(5000) });
+                        const res = await fetch(`${base}/health`, { signal: AbortSignal.timeout(5000) });
                         http = { ok: true, status: res.status, ms: Date.now() - start };
                     } catch (error) {
                         http = { ok: false, error: error && error.message ? error.message : String(error) };
                     }
-                    sendResponse({ ok: http.ok, http, needsLogin: !auth.token });
+                    sendResponse({ ok: http.ok, http });
                     break;
                 }
                 default:

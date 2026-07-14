@@ -69,6 +69,7 @@ function createLicenseCache() {
       tutorialUrl: '',
       browserSettings: {},
       allowedPlatforms: [],
+      woolPlatforms: [],
       systemProxyEnabled: null,
       removeWatermarkEnabled: true,
       translateExtEnabled: false,
@@ -123,6 +124,15 @@ function createLicenseCache() {
         ? partial.allowedPlatforms.map((item) => normalizeLicenseKeyValue(item)).filter(Boolean)
         : [];
     }
+    if (partial.woolPlatforms !== undefined) {
+      state.config.woolPlatforms = Array.isArray(partial.woolPlatforms)
+        ? partial.woolPlatforms.map((item) => ({
+            name: normalizeLicenseKeyValue(item?.name || item?.platform || item?.platform_name),
+            platform: normalizeLicenseKeyValue(item?.platform || item?.name || item?.platform_name),
+            targetUrl: normalizeLicenseKeyValue(item?.targetUrl || item?.target_url),
+          })).filter((item) => item.name && item.targetUrl)
+        : [];
+    }
     if (partial.systemProxyEnabled !== undefined) {
       state.config.systemProxyEnabled = partial.systemProxyEnabled === true;
     }
@@ -147,6 +157,7 @@ function createLicenseCache() {
       tutorialUrl: '',
       browserSettings: {},
       allowedPlatforms: [],
+      woolPlatforms: [],
       systemProxyEnabled: null,
       removeWatermarkEnabled: true,
       translateExtEnabled: false,

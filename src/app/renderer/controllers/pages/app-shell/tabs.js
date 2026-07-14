@@ -64,10 +64,15 @@ if (IPC && typeof IPC.on === 'function') {
   IPC.on('app-theme-changed', (theme) => {
     applyAppShellTheme(theme, { persist: true });
   });
+  IPC.on('independent-browser-create-failed', (payload = {}) => {
+    if (String(payload?.tabId || '') === String(pendingRenameTabId || '')) pendingRenameTabId = null;
+    showControllerError('新建浏览器窗口失败', new Error(payload?.error || '浏览器环境启动失败'));
+  });
 }
 
 let tabsContainer = document.getElementById('tabs-container');
 let addTabBtn = document.getElementById('add-tab-btn');
+let newBrowserWindowBtn = document.getElementById('new-browser-window-btn');
 
 // 监听/绑定：onReady的具体业务逻辑。
 function onReady(fn) {
@@ -81,6 +86,48 @@ let dragHoverTabId = null;
 let dragHoverPosition = null;
 let currentContextMenuTabId = null;
 const tabElementById = new Map();
+let pendingRenameTabId = null;
+
+function beginTabRename(tabElement) {
+  if (!tabElement || tabElement.querySelector('.tab-title-editor')) return;
+  const historyId = String(tabElement.dataset.browserHistoryId || '').trim();
+  const titleSpan = tabElement.querySelector('.tab-title');
+  if (!historyId || !titleSpan) return;
+  const previousName = String(titleSpan.textContent || '').trim() || '新建窗口';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'tab-title-editor';
+  input.value = previousName;
+  input.setAttribute('aria-label', '浏览器窗口名称');
+  titleSpan.replaceWith(input);
+  let completed = false;
+  const finish = async (save) => {
+    if (completed) return;
+    completed = true;
+    const requestedName = input.value;
+    const replacement = document.createElement('span');
+    replacement.className = 'tab-title';
+    replacement.textContent = previousName;
+    input.replaceWith(replacement);
+    if (!save) return;
+    try {
+      const response = await IPC.invoke('rename-browser-history', { historyId, name: requestedName });
+      if (!response?.ok) throw new Error(response?.error || '重命名失败');
+      replacement.textContent = response.name;
+    } catch (error) {
+      showControllerError('重命名浏览器窗口失败', error);
+    }
+  };
+  input.addEventListener('click', (event) => event.stopPropagation());
+  input.addEventListener('dblclick', (event) => event.stopPropagation());
+  input.addEventListener('keydown', (event) => {
+    event.stopPropagation();
+    if (event.key === 'Enter') { event.preventDefault(); void finish(true); }
+    if (event.key === 'Escape') { event.preventDefault(); void finish(false); }
+  });
+  input.addEventListener('blur', () => void finish(true));
+  requestAnimationFrame(() => { input.focus(); input.select(); });
+}
 
 // 停止/关闭/清理：clearDragIndicators的具体业务逻辑。
 function clearDragIndicators() {
@@ -174,7 +221,7 @@ function buildTabTooltip(tab) {
     `accountId: ${accountId}`,
     `当前激活: ${activeText}`,
     `代理模式: ${browserProxyMode}`,
-    `运行时: ${String(tab?.runtimeType || 'electron')} (${String(tab?.runtimeStatus || 'ready')})`,
+    `运行时: ${String(tab?.runtimeType || 'chromium')} (${String(tab?.runtimeStatus || 'starting')})`,
     `浏览器: ${browserBrand}${browserType ? ` (${browserType})` : ''}`,
     `来源IP: ${sourceIp || '自动'}`,
     `来源国家: ${sourceCountry || sourceCountryCode || '自动'}`,
@@ -197,7 +244,8 @@ function applyAdaptiveTabSizing() {
   const tabCount = tabs.length;
   const gapCount = Math.max(tabCount - 1, 0);
   const tabGap = parseFloat(getComputedStyle(tabsContainer).gap) || 4;
-  const availableWidth = Math.max(containerWidth - (gapCount * tabGap), 320);
+  const createButtonWidth = newBrowserWindowBtn?.offsetWidth || 0;
+  const availableWidth = Math.max(containerWidth - createButtonWidth - ((gapCount + 1) * tabGap), 320);
   const idealWidth = Math.floor(availableWidth / tabCount);
   const tabWidth = Math.max(108, Math.min(220, idealWidth));
 
@@ -224,8 +272,9 @@ function createTabElement(tab) {
   tabElement.dataset.browserLocale = String(tab?.browserProfile?.locale || '');
   tabElement.dataset.browserTimezone = String(tab?.browserProfile?.timezoneId || '');
   tabElement.dataset.browserAcceptLanguage = String(tab?.browserProfile?.acceptLanguage || '');
-  tabElement.dataset.runtimeType = String(tab?.runtimeType || 'electron');
+  tabElement.dataset.runtimeType = String(tab?.runtimeType || 'chromium');
   tabElement.dataset.runtimeStatus = String(tab?.runtimeStatus || 'ready');
+  tabElement.dataset.browserHistoryId = String(tab?.browserHistoryId || '');
 
   const titleSpan = document.createElement('span');
   titleSpan.className = 'tab-title';
@@ -271,6 +320,12 @@ function createTabElement(tab) {
 
   tabElement.addEventListener('click', () => {
     IPC.send('switch-tab', tab.id);
+  });
+
+  tabElement.addEventListener('dblclick', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    beginTabRename(tabElement);
   });
 
   tabElement.addEventListener('contextmenu', (e) => {
@@ -352,7 +407,34 @@ function syncTabElement(tabElement, tab) {
   tabElement.dataset.browserLocale = String(tab?.browserProfile?.locale || '');
   tabElement.dataset.browserTimezone = String(tab?.browserProfile?.timezoneId || '');
   tabElement.dataset.browserAcceptLanguage = String(tab?.browserProfile?.acceptLanguage || '');
+  tabElement.dataset.browserHistoryId = String(tab?.browserHistoryId || '');
   tabElement.classList.toggle('active', !!tab.isActive);
+}
+
+function bindNewBrowserWindowBtnOnce() {
+  newBrowserWindowBtn = document.getElementById('new-browser-window-btn');
+  if (!newBrowserWindowBtn || newBrowserWindowBtn.dataset.bound === '1') return;
+  newBrowserWindowBtn.addEventListener('click', async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (newBrowserWindowBtn.disabled) return;
+    newBrowserWindowBtn.disabled = true;
+    try {
+      const response = await IPC.invoke('create-independent-browser', { name: '新建窗口' });
+      if (!response?.ok) throw new Error(response?.error || '新建浏览器窗口失败');
+      pendingRenameTabId = String(response.tabId || '');
+      const tabElement = tabElementById.get(pendingRenameTabId);
+      if (tabElement) {
+        beginTabRename(tabElement);
+        pendingRenameTabId = null;
+      }
+    } catch (error) {
+      showControllerError('新建浏览器窗口失败', error);
+    } finally {
+      newBrowserWindowBtn.disabled = false;
+    }
+  });
+  newBrowserWindowBtn.dataset.bound = '1';
 }
 
 // 同步/连接：bindAddTabBtnOnce的具体业务逻辑。
@@ -391,6 +473,7 @@ function bindAddTabBtnOnce() {
 onReady(() => {
   tabsContainer = document.getElementById('tabs-container');
   bindAddTabBtnOnce();
+  bindNewBrowserWindowBtnOnce();
 
   // 初始化设置按钮动画监听器
   initSettingsBtnAnimation();
@@ -448,7 +531,17 @@ IPC.on('update-tabs', (tabs) => {
     fragment.appendChild(tabElement);
   });
 
+  if (newBrowserWindowBtn) fragment.appendChild(newBrowserWindowBtn);
+
   tabsContainer.replaceChildren(fragment);
+
+  if (pendingRenameTabId) {
+    const pendingTabElement = tabElementById.get(String(pendingRenameTabId));
+    if (pendingTabElement) {
+      beginTabRename(pendingTabElement);
+      pendingRenameTabId = null;
+    }
+  }
 
   applyAdaptiveTabSizing();
   console.log(`标签页已更新: 总数=${tabs.length}, 自适应宽度已应用`);

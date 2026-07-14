@@ -1,8 +1,45 @@
 #include "browser_host_window.h"
 #include "native_helpers.h"
+#include <dwmapi.h>
 
 namespace {
 const wchar_t* kHostWindowClass = L"AIFreeBrowserHostWindow";
+constexpr UINT_PTR kVisualSyncTimerFast = 0xA1F1;
+constexpr UINT_PTR kVisualSyncTimerMedium = 0xA1F2;
+constexpr UINT_PTR kVisualSyncTimerSettled = 0xA1F3;
+
+void ResizeHostedChild(HWND hwnd) {
+  HWND child = GetWindow(hwnd, GW_CHILD);
+  if (!IsWindow(child)) return;
+  RECT rect = {};
+  GetClientRect(hwnd, &rect);
+  const int width = rect.right > rect.left ? rect.right - rect.left : 0;
+  const int height = rect.bottom > rect.top ? rect.bottom - rect.top : 0;
+  SetWindowPos(child, HWND_TOP, 0, 0,
+      width, height,
+      SWP_NOACTIVATE | SWP_SHOWWINDOW);
+}
+
+void ReassertHostVisualState(HWND hwnd) {
+  if (!IsWindow(hwnd) || !IsWindowVisible(hwnd)) return;
+  // Electron owns sibling renderer HWNDs and may reorder them after a
+  // BrowserView/layout update. Always put the native host back above those
+  // siblings, then size and raise Chromium inside the host.
+  SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0,
+      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+  ResizeHostedChild(hwnd);
+  RedrawWindow(hwnd, nullptr, nullptr,
+      RDW_INVALIDATE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
+  DwmFlush();
+}
+
+void ScheduleVisualSync(HWND hwnd) {
+  // Cover the immediate attach, Electron's next layout pass, and the first
+  // compositor frame without keeping a permanent polling timer alive.
+  SetTimer(hwnd, kVisualSyncTimerFast, 16, nullptr);
+  SetTimer(hwnd, kVisualSyncTimerMedium, 80, nullptr);
+  SetTimer(hwnd, kVisualSyncTimerSettled, 240, nullptr);
+}
 
 LRESULT CALLBACK HostWindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
   switch (message) {
@@ -13,10 +50,26 @@ LRESULT CALLBACK HostWindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
       return 1;
     }
     case WM_SIZE: {
-      HWND child = GetWindow(hwnd, GW_CHILD);
-      if (child) SetWindowPos(child, nullptr, 0, 0, LOWORD(lparam), HIWORD(lparam), SWP_NOACTIVATE | SWP_NOZORDER | SWP_ASYNCWINDOWPOS);
+      ResizeHostedChild(hwnd);
       return 0;
     }
+    case WM_SHOWWINDOW:
+      if (wparam) ScheduleVisualSync(hwnd);
+      return DefWindowProc(hwnd, message, wparam, lparam);
+    case WM_TIMER:
+      if (wparam == kVisualSyncTimerFast ||
+          wparam == kVisualSyncTimerMedium ||
+          wparam == kVisualSyncTimerSettled) {
+        KillTimer(hwnd, static_cast<UINT_PTR>(wparam));
+        ReassertHostVisualState(hwnd);
+        return 0;
+      }
+      break;
+    case WM_DESTROY:
+      KillTimer(hwnd, kVisualSyncTimerFast);
+      KillTimer(hwnd, kVisualSyncTimerMedium);
+      KillTimer(hwnd, kVisualSyncTimerSettled);
+      break;
   }
   return DefWindowProc(hwnd, message, wparam, lparam);
 }
@@ -56,7 +109,10 @@ napi_value CreateHostWindow(napi_env env, napi_callback_info info) {
       WS_EX_NOPARENTNOTIFY,
       kHostWindowClass,
       L"AI-FREE",
-      WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+      // Keep the black host hidden until Chromium is attached and has been
+      // synchronously sized. This avoids exposing an empty black rectangle
+      // during the runtime handshake.
+      WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
       x, y, width, height,
       parent, nullptr, GetModuleHandleW(nullptr), nullptr);
   if (!hwnd) {
@@ -81,13 +137,14 @@ napi_value SetHostBounds(napi_env env, napi_callback_info info) {
   // behind that renderer, so the attached Chromium window is alive but the
   // user only sees Electron's black background. Raise the host whenever its
   // bounds are synchronized.
-  bool ok = SetWindowPos(hwnd, HWND_TOP,
+  const bool visible = IsWindowVisible(hwnd) != FALSE;
+  bool ok = SetWindowPos(hwnd, visible ? HWND_TOP : nullptr,
       ReadInt32(env, options, "x"), ReadInt32(env, options, "y"),
       ReadInt32(env, options, "width"), ReadInt32(env, options, "height"),
-      SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_ASYNCWINDOWPOS) != FALSE;
-  if (ok) {
-    InvalidateRect(hwnd, nullptr, FALSE);
-    UpdateWindow(hwnd);
+      SWP_NOACTIVATE | (visible ? SWP_SHOWWINDOW : SWP_NOZORDER)) != FALSE;
+  if (ok && visible) {
+    ReassertHostVisualState(hwnd);
+    ScheduleVisualSync(hwnd);
   }
   return BoolValue(env, ok);
 }
@@ -108,8 +165,8 @@ napi_value ShowHostWindow(napi_env env, napi_callback_info info) {
   const bool ok = SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0,
       SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW) != FALSE;
   if (ok) {
-    RedrawWindow(hwnd, nullptr, nullptr,
-        RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+    ReassertHostVisualState(hwnd);
+    ScheduleVisualSync(hwnd);
   }
   return BoolValue(env, ok);
 }

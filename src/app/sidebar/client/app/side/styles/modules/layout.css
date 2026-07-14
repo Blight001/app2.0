@@ -292,6 +292,33 @@ body.expanding {
   margin-right: 15px;
 }
 
+/* 个人中心底部：使用教程（左） / 版本号（右） */
+.personal-footer {
+  position: static;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(120, 145, 185, 0.16);
+}
+
+.personal-footer .footer-left {
+  flex-direction: row;
+}
+
+.personal-footer a {
+  margin-right: 0;
+}
+
+.personal-footer a:hover {
+  color: var(--brand);
+}
+
 .announcement-bar {
   display: flex;
   flex-direction: column;

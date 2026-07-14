@@ -1,4 +1,4 @@
-const { app, BrowserWindow, BrowserView, dialog, ipcMain, Menu, powerSaveBlocker } = require('electron');
+const { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, powerSaveBlocker } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { createAppState } = require('./runtime/app-state');
@@ -43,7 +43,8 @@ const { createLicenseStore } = require('./services/license-store');
 const { createTabHelpers } = require('./services/tab-helpers');
 const { createRuntimeHelpers } = require('./services/runtime-helpers');
 const { createExtensionManager } = require('./services/extension-manager');
-const { buildTabBrowserPreferences, configureTabBrowserView, resolveTabBrowserProfile, applyTabBrowserProxy } = require('./utils/browser-disguise');
+const { createBrowserAutomationBridge } = require('./services/browser-automation-bridge');
+const { resolveTabBrowserProfile } = require('./utils/browser-profile');
 
 // Electron 的 GPU 开关必须在 ready 之前设置；侧栏保存后会在下次应用启动时读取。
 try {
@@ -136,6 +137,7 @@ let addTab;
 let switchTab;
 let closeTab;
 let reorderTab;
+let renameTab;
 let setTabAccountId;
 let setTabBrowserProxyMode;
 let setTabBrowserSettings;
@@ -186,6 +188,10 @@ function applyPluginSettings(partial = {}) {
 let auth;
 // 日志封装（侧栏转发通过 sideView.webContents）
 const logger = createLogger({ getSideWebContents: () => (appRuntime.getSideView() && appRuntime.getSideView().webContents) || null });
+const browserAutomationBridge = createBrowserAutomationBridge({ logger: console });
+app.whenReady().then(() => browserAutomationBridge.start()).catch((error) => {
+  console.error('[AutomationBridge] 启动失败:', error?.message || error);
+});
 const isDevMode = !!(
   (app && app.isPackaged === false)
   || (
@@ -279,7 +285,7 @@ const extensionManager = createExtensionManager({
   app,
   fs,
   path,
-  BrowserView,
+  WebContentsView,
   logger: console,
   getStorePath,
   getTranslateExtDir,
@@ -291,7 +297,7 @@ const extensionManager = createExtensionManager({
   sendToSide,
   onPluginStateChanged: async (change) => {
     if (!tabManager || typeof tabManager.refreshBrowsersAfterExtensionChange !== 'function') {
-      return { ok: true, total: 0, electronReloaded: 0, chromiumRestarted: 0 };
+      return { ok: true, total: 0, chromiumRestarted: 0 };
     }
     return tabManager.refreshBrowsersAfterExtensionChange(change);
   },
@@ -318,6 +324,7 @@ async function refreshAllowedPlatformsAndNotify() {
       : {};
     const normalized = normalizeValidationRuntimeConfig(runtimeConfig);
     const allowedPlatforms = Array.isArray(normalized.allowedPlatforms) ? normalized.allowedPlatforms : [];
+    const woolPlatforms = Array.isArray(normalized.woolPlatforms) ? normalized.woolPlatforms : [];
     const platformName = String(normalized.platformName || allowedPlatforms[0] || '').trim();
     const targetUrl = String(normalized.targetUrl || '').trim();
     const tutorialUrl = String(normalized.tutorialUrl || '').trim();
@@ -329,6 +336,7 @@ async function refreshAllowedPlatformsAndNotify() {
       if (licenseCache && typeof licenseCache.setRuntimeConfig === 'function') {
         licenseCache.setRuntimeConfig({
           allowedPlatforms,
+          woolPlatforms,
           platformName,
         });
       }
@@ -347,12 +355,21 @@ async function refreshAllowedPlatformsAndNotify() {
       try {
         sendToSide('tutorial-url-updated', { tutorialUrl });
         if (!runtimeTutorialUrlOpened && !runtimeTutorialUrlOpening) {
-          if (typeof addTab === 'function') {
+          const existingTutorialTab = Array.from(appRuntime.getTabs().values()).find(
+            (tab) => String(tab?.fixedTitle || '').trim() === '使用教程[AI-FREE]',
+          );
+          if (existingTutorialTab?.id) {
+            runtimeTutorialUrlOpened = true;
+            void browserRuntimeManager.navigate(existingTutorialTab.id, 'chromium', tutorialUrl).catch((error) => {
+              console.warn('[启动] 更新教程页地址失败:', error?.message || error);
+            });
+          } else if (typeof addTab === 'function') {
             runtimeTutorialUrlOpening = true;
-            // 教程页属于登录后的附加动作，不能阻塞账号登录 IPC。
+            // 教程页在后台打开，不阻塞账号登录 IPC。
             void (async () => {
               try {
                 const openedTabId = await addTab(tutorialUrl, {
+                  fixedTitle: '使用教程[AI-FREE]',
                   browserProxyMode: 'direct',
                   browserSettings: {
                     region: 'cn',
@@ -377,7 +394,8 @@ async function refreshAllowedPlatformsAndNotify() {
         console.warn('[启动] 打开教程地址失败:', e?.message || e);
       }
     }
-    sendToSide('platform-name-updated', { platformName, allowedPlatforms });
+    sendToSide('platform-name-updated', { platformName, allowedPlatforms, woolPlatforms });
+    sendToSide('wool-platforms-updated', { woolPlatforms });
     try {
       const currentKey = String(licenseCache?.getCredentials?.().key || '').trim();
       if (currentKey && typeof updateLicenseRecordPlatform === 'function') {
@@ -411,8 +429,9 @@ const appShellDeps = {
   fs,
   path,
   BrowserWindow,
-  BrowserView,
+  WebContentsView,
   browserRuntimeManager,
+  browserAutomationBridge,
   dialog,
   Menu,
   logger: console,
@@ -450,6 +469,7 @@ const appShellDeps = {
   getSwitchTab: () => switchTab,
   getCloseTab: () => closeTab,
   getReorderTab: () => reorderTab,
+  getRenameTab: () => renameTab,
   getSetTabBrowserProxyMode: () => setTabBrowserProxyMode,
   getSetTabBrowserSettings: () => setTabBrowserSettings,
   getSetZoom: () => setZoom,
@@ -522,18 +542,9 @@ const {
 } = appShell;
 
 tabManager = createTabManager({
-  BrowserWindow,
-  BrowserView,
   browserRuntimeManager,
-  path,
   fs,
   logger: console,
-  state,
-  injectZoomWheelListener,
-  clearInjectionRecord,
-  attachContextMenu,
-  downloadOrSaveMedia,
-  loadTranslateExtension,
   extensionManager,
   cleanupBrowserSessionData,
   getStorePath,
@@ -546,19 +557,13 @@ tabManager = createTabManager({
   setActiveTabId: appRuntime.setActiveTabId,
   getIsSidebarVisible: appRuntime.getIsSidebarVisible,
   setIsSidebarVisible: appRuntime.setIsSidebarVisible,
-  getExtPopupWin: appRuntime.getExtPopupWin,
-  setExtPopupWin: appRuntime.setExtPopupWin,
     getSetTabAccountId: () => setTabAccountId,
     getSetTabBrowserProxyMode: () => setTabBrowserProxyMode,
     getAuth: () => auth,
     licenseCache,
     sendToSide,
     updateTabs,
-    computeDeviceId,
     httpGetUniversal,
-    applyTabBrowserProxy,
-    buildTabBrowserPreferences,
-    configureTabBrowserView,
     resolveTabBrowserProfile,
     extIdBySession,
   });
@@ -569,6 +574,7 @@ tabManager = createTabManager({
   switchTab,
   closeTab,
   reorderTab,
+  renameTab,
   setTabAccountId,
   setTabBrowserProxyMode,
   setTabBrowserSettings,
@@ -601,6 +607,7 @@ registerAppLifecycle({
   cleanupAllBrowserSessionData,
   cleanupBrowserPartitionsRootDir,
   browserRuntimeManager,
+  browserAutomationBridge,
 
   shortcutManager,
   resolveServerConfigForKey: serverResolver.resolveServerConfigForKey,

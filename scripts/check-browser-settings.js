@@ -1,13 +1,16 @@
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const {
   normalizeAiFreeBrowserSettings,
   parseCookieJson,
   parseLaunchArgs,
 } = require('../src/app/main/utils/ai-free-browser-settings');
 const {
-  configureTabBrowserView,
+  buildBrowserProfileFromRegion,
   resolveTabBrowserProfile,
-} = require('../src/app/main/utils/browser-disguise');
+} = require('../src/app/main/utils/browser-profile');
+const { makeUniqueBrowserName } = require('../src/app/main/ipc/register/settings');
 
 async function main() {
   const settings = normalizeAiFreeBrowserSettings({
@@ -38,38 +41,45 @@ async function main() {
   assert.equal(settings.proxy.protocol, 'socks5');
   assert.equal(parseCookieJson(settings)[0].name, 'token');
   assert.deepEqual(parseLaunchArgs(settings), ['--disable-features=Translate', '--force-color-profile=srgb']);
-
-  let injectedScript = '';
-  let appliedAcceptLanguage = '';
-  let appliedProxy = null;
-  const listeners = {};
-  const webContents = {
-    isDestroyed: () => false,
-    setUserAgent: (_userAgent, acceptLanguage) => { appliedAcceptLanguage = acceptLanguage; },
-    on: (name, listener) => { listeners[name] = listener; },
-    executeJavaScript: async (script) => { injectedScript = script; },
-    session: { setProxy: async (proxy) => { appliedProxy = proxy; } },
-  };
-  const profile = await resolveTabBrowserProfile({ browserSettings: settings });
-  await configureTabBrowserView(webContents, {
-    browserProfile: profile,
-    browserProxy: { enabled: true, protocol: 'socks5', server: 'socks5://127.0.0.1:7897', username: 'u', password: 'p' },
+  assert.equal(makeUniqueBrowserName('新建窗口', []), '新建窗口');
+  assert.equal(makeUniqueBrowserName('新建窗口', [{ id: '1', name: '新建窗口' }]), '新建窗口[2]');
+  assert.equal(makeUniqueBrowserName('新建窗口', [{ id: '1', name: '新建窗口' }, { id: '2', name: '新建窗口[2]' }]), '新建窗口[3]');
+  assert.equal(makeUniqueBrowserName('已命名', [{ id: '1', name: '已命名' }], '1'), '已命名');
+  const shellHtml = fs.readFileSync(path.join(__dirname, '../src/app/views/app-shell.html'), 'utf8');
+  const shellTabsScript = fs.readFileSync(path.join(__dirname, '../src/app/renderer/controllers/pages/app-shell/tabs.js'), 'utf8');
+  assert.ok(shellHtml.includes('id="new-browser-window-btn"'));
+  assert.ok(shellTabsScript.includes("IPC.invoke('create-independent-browser'"));
+  assert.ok(shellTabsScript.includes("IPC.invoke('rename-browser-history'"));
+  const settingsIpcScript = fs.readFileSync(path.join(__dirname, '../src/app/main/ipc/register/settings.js'), 'utf8');
+  const sidebarSettingsScript = fs.readFileSync(path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/browser-settings.js'), 'utf8');
+  assert.ok(settingsIpcScript.includes("ipcMain.handle('delete-browser-history'"));
+  assert.ok(sidebarSettingsScript.includes("electronAPI.invoke('delete-browser-history'"));
+  const messageModalScript = fs.readFileSync(path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/shared/message-modal.js'), 'utf8');
+  assert.ok(sidebarSettingsScript.includes('MessageModal.showConfirmDialog'));
+  assert.ok(sidebarSettingsScript.includes('MessageModal.showPromptDialog'));
+  assert.ok(!sidebarSettingsScript.includes('window.confirm('));
+  assert.ok(!sidebarSettingsScript.includes('window.prompt('));
+  assert.ok(messageModalScript.includes('showPromptDialog'));
+  const uiIpcScript = fs.readFileSync(path.join(__dirname, '../src/app/main/ipc/register/ui.js'), 'utf8');
+  const aiControlScript = fs.readFileSync(path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/pages/ai-control.js'), 'utf8');
+  assert.ok(uiIpcScript.includes("ipcMain.handle('focus-sidebar-input'"));
+  assert.ok(aiControlScript.includes("electronAPI.invoke('focus-sidebar-input'"));
+  let geoLookupCalls = 0;
+  const fastProfile = await resolveTabBrowserProfile({
+    browserSettings: {},
+    skipGeoLookup: true,
+    httpGetUniversal: async () => { geoLookupCalls += 1; return new Promise(() => {}); },
   });
-  // Parsing catches accidental interpolation of variables that only exist in
-  // the target page, while the string assertions protect the main mappings.
-  new Function(injectedScript); // eslint-disable-line no-new-func
-  assert.ok(injectedScript.includes('AI-FREE-Test-UA'));
-  assert.ok(injectedScript.includes('Asia/Shanghai'));
-  assert.ok(injectedScript.includes('1920'));
-  assert.ok(injectedScript.includes('getImageData'));
-  assert.ok(injectedScript.includes('readPixels'));
-  assert.ok(injectedScript.includes('getClientRects'));
-  assert.ok(injectedScript.includes('requestAdapterInfo'));
-  assert.ok(injectedScript.includes('ANGLE test renderer'));
-  assert.ok(appliedAcceptLanguage.includes('zh-CN'));
-  assert.equal(appliedProxy.proxyRules, 'socks5://127.0.0.1:7897');
-  assert.equal(typeof listeners.login, 'function');
-  assert.equal(typeof listeners['dom-ready'], 'function');
+  assert.ok(fastProfile && fastProfile.locale);
+  assert.equal(geoLookupCalls, 0);
+
+  const profile = buildBrowserProfileFromRegion('cn', settings);
+  assert.equal(profile.browserBrand, 'AI-FREE');
+  assert.equal(profile.userAgent, 'AI-FREE-Test-UA');
+  assert.equal(profile.locale, 'zh-CN');
+  assert.equal(profile.timezoneId, 'Asia/Shanghai');
+  assert.equal(profile.screen.width, 1920);
+  assert.equal(profile.hardwareConcurrency, 12);
   console.log('browser settings checks passed');
 }
 

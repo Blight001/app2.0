@@ -3,7 +3,7 @@ const { createHttpClient } = require('../../lib/http-client');
 const { getStorePath } = require('../../config');
 const { summarizeUpdatePayload } = require('../../utils/update-payload');
 
-const DEFAULT_TUTORIAL_URL = '';
+const DEFAULT_TUTORIAL_URL = 'https://www.baidu.com/';
 
 // 监听/绑定：registerMiscIPC的具体业务逻辑。
 function registerMiscIPC(ctx) {

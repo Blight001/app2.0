@@ -18,6 +18,111 @@ const getBrowserRuntimeInfo = () => ({
   electronVersion: String(process.versions?.electron || ''),
 });
 
+const DEFAULT_BROWSER_WINDOW_NAME = '新建窗口';
+const DEFAULT_BROWSER_WINDOW_URL = 'https://www.baidu.com/';
+
+function readBrowserHistorySafe() {
+  const store = readStoreConfigSafe();
+  const source = Array.isArray(store?.browserHistory) ? store.browserHistory : [];
+  const history = source.map((item) => ({
+    ...(item && typeof item === 'object' ? item : {}),
+    id: String(item?.id || '').trim(),
+    name: String(item?.name || DEFAULT_BROWSER_WINDOW_NAME).trim() || DEFAULT_BROWSER_WINDOW_NAME,
+    url: String(item?.url || '').trim(),
+    partition: String(item?.partition || '').trim(),
+    runtimeType: 'chromium',
+    lastError: String(item?.lastError || '').trim(),
+    settings: normalizeAiFreeBrowserSettings(item?.settings || {}),
+    createdAt: Number(item?.createdAt || 0) || Date.now(),
+    lastOpenedAt: Number(item?.lastOpenedAt || 0) || Number(item?.createdAt || 0) || Date.now(),
+  })).filter((item) => item.id);
+  if (source.some((item) => String(item?.runtimeType || '').trim() !== 'chromium')) {
+    writeStoreConfigSafe({
+      ...(store && typeof store === 'object' ? store : {}),
+      browserHistory: history,
+    });
+  }
+  return history;
+}
+
+function writeBrowserHistorySafe(history) {
+  const currentStore = readStoreConfigSafe();
+  return writeStoreConfigSafe({
+    ...(currentStore && typeof currentStore === 'object' ? currentStore : {}),
+    browserHistory: Array.isArray(history) ? history : [],
+  });
+}
+
+function createBrowserHistoryId() {
+  return `browser-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function makeUniqueBrowserName(requestedName, history = [], excludeId = '') {
+  const base = String(requestedName || '').trim() || DEFAULT_BROWSER_WINDOW_NAME;
+  const occupied = new Set(history
+    .filter((item) => String(item?.id || '') !== String(excludeId || ''))
+    .map((item) => String(item?.name || '').trim().toLocaleLowerCase())
+    .filter(Boolean));
+  if (!occupied.has(base.toLocaleLowerCase())) return base;
+  let suffix = 2;
+  while (occupied.has(`${base}[${suffix}]`.toLocaleLowerCase())) suffix += 1;
+  return `${base}[${suffix}]`;
+}
+
+function getManagedTabUrl(tab) {
+  return String(tab?.runtimeUrl || '').trim();
+}
+
+function syncOpenTabsToBrowserHistory(ui) {
+  const history = readBrowserHistorySafe();
+  const tabs = typeof ui?.getTabs === 'function' ? ui.getTabs() : new Map();
+  let changed = false;
+  for (const tab of tabs?.values?.() || []) {
+    let historyId = String(tab?.browserHistoryId || '').trim();
+    let record = history.find((item) => item.id === historyId);
+    if (!record) {
+      historyId = createBrowserHistoryId();
+      const resolvedTitle = String(tab?.fixedTitle || tab?.runtimeTitle || '').trim();
+      record = {
+        id: historyId,
+        name: makeUniqueBrowserName(resolvedTitle || DEFAULT_BROWSER_WINDOW_NAME, history),
+        url: getManagedTabUrl(tab),
+        partition: String(tab?.partition || '').trim(),
+        runtimeType: 'chromium',
+        settings: normalizeAiFreeBrowserSettings(tab?.browserSettings || {}),
+        createdAt: Date.now(),
+        lastOpenedAt: Date.now(),
+      };
+      history.push(record);
+      tab.browserHistoryId = historyId;
+      changed = true;
+    }
+  }
+  if (changed) {
+    writeBrowserHistorySafe(history);
+    ui?.updateTabs?.(true);
+  }
+  return history;
+}
+
+function serializeBrowserHistory(history, ui) {
+  const activeTabId = String(typeof ui?.getActiveTabId === 'function' ? ui.getActiveTabId() || '' : '');
+  const tabs = Array.from((typeof ui?.getTabs === 'function' ? ui.getTabs() : new Map()).values());
+  return history
+    .map((record) => {
+      const openTab = tabs.find((tab) => String(tab?.browserHistoryId || '') === record.id) || null;
+      const liveUrl = openTab ? getManagedTabUrl(openTab) : '';
+      return {
+        ...record,
+        url: liveUrl || record.url,
+        tabId: openTab ? String(openTab.id || '') : '',
+        isOpen: !!openTab,
+        isActive: !!openTab && String(openTab.id || '') === activeTabId,
+      };
+    })
+    .sort((left, right) => Number(right.lastOpenedAt || 0) - Number(left.lastOpenedAt || 0));
+}
+
 function validateBrowserSettingsPayload(input = {}) {
   const rawCookies = input?.cookies;
   if (rawCookies !== undefined && !Array.isArray(rawCookies)) {
@@ -62,23 +167,201 @@ function registerSettingsIPC(ctx) {
   const { ui, computeDeviceId, licenseCache } = ctx;
   const extensionManager = ctx.extensionManager || ui?.extensionManager || null;
 
-  ipcMain.handle('get-ai-free-browser-settings', async () => {
+  ipcMain.handle('get-browser-history', async () => {
+    try {
+      const history = syncOpenTabsToBrowserHistory(ui);
+      const serialized = serializeBrowserHistory(history, ui);
+      let changed = false;
+      for (const item of serialized) {
+        const record = history.find((entry) => entry.id === item.id);
+        if (record && item.url && record.url !== item.url) {
+          record.url = item.url;
+          changed = true;
+        }
+      }
+      if (changed) writeBrowserHistorySafe(history);
+      return { ok: true, history: serialized };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error), history: [] };
+    }
+  });
+
+  ipcMain.handle('create-independent-browser', async (_event, payload = {}) => {
+    let history = [];
+    let record = null;
+    try {
+      if (typeof ui?.addTab !== 'function') throw new Error('新建浏览器窗口功能不可用');
+      history = syncOpenTabsToBrowserHistory(ui);
+      const store = readStoreConfigSafe();
+      const settings = normalizeAiFreeBrowserSettings(payload?.settings || store?.aiFreeBrowserSettings || {});
+      const id = createBrowserHistoryId();
+      const name = makeUniqueBrowserName(payload?.name || DEFAULT_BROWSER_WINDOW_NAME, history);
+      const url = settings.homepage?.mode === 'custom' && settings.homepage?.url
+        ? settings.homepage.url
+        : DEFAULT_BROWSER_WINDOW_URL;
+      record = {
+        id,
+        name,
+        url,
+        partition: `persist:browser-window-${id.replace(/[^a-z0-9_-]/gi, '_')}`,
+        runtimeType: 'chromium',
+        settings,
+        createdAt: Date.now(),
+        lastOpenedAt: Date.now(),
+      };
+      history.push(record);
+      if (!writeBrowserHistorySafe(history)) throw new Error('浏览器历史未能写入本地配置');
+      const tabId = `browser-tab-${id.replace(/[^a-z0-9_-]/gi, '_')}`;
+      const creation = ui.addTab(record.url, {
+        tabId,
+        fixedTitle: record.name,
+        browserHistoryId: record.id,
+        partition: record.partition,
+        runtimeType: 'chromium',
+        browserSettings: record.settings,
+        resolveProfileInBackground: true,
+        showLoadingPage: true,
+      });
+      void Promise.resolve(creation).then((createdTabId) => {
+        if (!createdTabId) throw new Error('新建浏览器窗口失败');
+        const latestHistory = readBrowserHistorySafe();
+        const createdRecord = latestHistory.find((item) => item.id === record.id);
+        if (createdRecord?.lastError) {
+          createdRecord.lastError = '';
+          writeBrowserHistorySafe(latestHistory);
+        }
+        ui.sendToSide?.('browser-history-changed');
+      }).catch((error) => {
+        console.error('[BrowserWindow] 后台创建独立浏览器失败:', error?.message || error);
+        const latestHistory = readBrowserHistorySafe();
+        const failedRecord = latestHistory.find((item) => item.id === record.id);
+        if (failedRecord) {
+          failedRecord.lastError = error?.message || String(error);
+          writeBrowserHistorySafe(latestHistory);
+        }
+        const mainWindow = ui.getMainWindow?.();
+        if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed?.()) {
+          mainWindow.webContents.send('independent-browser-create-failed', {
+            tabId,
+            historyId: record.id,
+            error: error?.message || String(error),
+          });
+        }
+        ui.sendToSide?.('browser-history-changed');
+      });
+      ui.sendToSide?.('browser-history-changed');
+      return { ok: true, pending: true, tabId, historyId: record.id, name: record.name };
+    } catch (error) {
+      if (record) writeBrowserHistorySafe(history.filter((item) => item.id !== record.id));
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle('open-browser-history', async (_event, payload = {}) => {
+    try {
+      const history = syncOpenTabsToBrowserHistory(ui);
+      const historyId = String(payload?.historyId || '').trim();
+      const record = history.find((item) => item.id === historyId);
+      if (!record) throw new Error('浏览器历史不存在');
+      const openTab = Array.from(ui?.getTabs?.().values?.() || [])
+        .find((tab) => String(tab?.browserHistoryId || '') === historyId);
+      let tabId = openTab?.id;
+      if (tabId) {
+        ui.switchTab?.(tabId);
+      } else {
+        tabId = await ui.addTab(record.url || DEFAULT_BROWSER_WINDOW_URL, {
+          fixedTitle: record.name,
+          browserHistoryId: record.id,
+          partition: record.partition,
+          runtimeType: 'chromium',
+          browserSettings: record.settings,
+          resolveProfileInBackground: true,
+          showLoadingPage: true,
+        });
+      }
+      record.lastOpenedAt = Date.now();
+      writeBrowserHistorySafe(history);
+      ui.sendToSide?.('browser-history-changed');
+      return { ok: true, tabId: String(tabId || ''), historyId, name: record.name };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle('rename-browser-history', async (_event, payload = {}) => {
+    try {
+      const history = syncOpenTabsToBrowserHistory(ui);
+      const historyId = String(payload?.historyId || '').trim();
+      const record = history.find((item) => item.id === historyId);
+      if (!record) throw new Error('浏览器历史不存在');
+      const name = makeUniqueBrowserName(payload?.name, history, historyId);
+      record.name = name;
+      if (!writeBrowserHistorySafe(history)) throw new Error('浏览器名称未能保存');
+      const openTab = Array.from(ui?.getTabs?.().values?.() || [])
+        .find((tab) => String(tab?.browserHistoryId || '') === historyId);
+      if (openTab?.id && typeof ui?.renameTab === 'function') ui.renameTab(openTab.id, name);
+      ui.sendToSide?.('browser-history-changed');
+      return { ok: true, historyId, name, tabId: String(openTab?.id || '') };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle('delete-browser-history', async (_event, payload = {}) => {
+    try {
+      const history = syncOpenTabsToBrowserHistory(ui);
+      const historyId = String(payload?.historyId || '').trim();
+      const record = history.find((item) => item.id === historyId);
+      if (!record) throw new Error('浏览器历史不存在');
+
+      const openTab = Array.from(ui?.getTabs?.().values?.() || [])
+        .find((tab) => String(tab?.browserHistoryId || '') === historyId);
+      if (openTab?.id) {
+        if (typeof ui?.closeTab !== 'function') throw new Error('当前浏览器窗口无法关闭');
+        await ui.closeTab(openTab.id);
+      }
+
+      const latestHistory = readBrowserHistorySafe();
+      const nextHistory = latestHistory.filter((item) => item.id !== historyId);
+      if (nextHistory.length === latestHistory.length) throw new Error('浏览器历史不存在');
+      if (!writeBrowserHistorySafe(nextHistory)) throw new Error('浏览器历史未能删除');
+
+      ui.sendToSide?.('browser-history-changed');
+      return {
+        ok: true,
+        historyId,
+        name: record.name,
+        closed: !!openTab?.id,
+      };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle('get-ai-free-browser-settings', async (_event, payload = {}) => {
     try {
       const store = readStoreConfigSafe();
-      const saved = store?.aiFreeBrowserSettings && typeof store.aiFreeBrowserSettings === 'object'
+      const historyId = String(payload?.historyId || '').trim();
+      const history = historyId ? syncOpenTabsToBrowserHistory(ui) : [];
+      const historyRecord = history.find((item) => item.id === historyId) || null;
+      const saved = historyRecord?.settings || (store?.aiFreeBrowserSettings && typeof store.aiFreeBrowserSettings === 'object'
         ? store.aiFreeBrowserSettings
-        : DEFAULT_AI_FREE_BROWSER_SETTINGS;
+        : DEFAULT_AI_FREE_BROWSER_SETTINGS);
       const settings = normalizeAiFreeBrowserSettings(saved);
-      const activeTabId = typeof ui?.getActiveTabId === 'function' ? ui.getActiveTabId() : null;
+      const historyTab = historyRecord
+        ? Array.from(ui?.getTabs?.().values?.() || []).find((tab) => String(tab?.browserHistoryId || '') === historyId)
+        : null;
+      const activeTabId = historyTab?.id || (typeof ui?.getActiveTabId === 'function' ? ui.getActiveTabId() : null);
       const activeTab = typeof ui?.getTabs === 'function' ? ui.getTabs()?.get?.(activeTabId) : null;
       return {
         ok: true,
         settings,
+        historyId: historyRecord?.id || '',
         runtimeInfo: getBrowserRuntimeInfo(),
         activeTab: activeTab ? {
           id: String(activeTab.id || ''),
-          title: String(activeTab.fixedTitle || activeTab.runtimeTitle || activeTab.view?.webContents?.getTitle?.() || '当前环境'),
-          runtimeType: String(activeTab.runtimeType || 'electron'),
+          title: String(activeTab.fixedTitle || activeTab.runtimeTitle || '当前环境'),
+          runtimeType: 'chromium',
         } : null,
       };
     } catch (error) {
@@ -158,24 +441,39 @@ function registerSettingsIPC(ctx) {
       const rawSettings = payload?.settings || payload;
       validateBrowserSettingsPayload(rawSettings);
       const settings = normalizeAiFreeBrowserSettings(rawSettings);
-      const currentStore = readStoreConfigSafe();
-      const wrote = writeStoreConfigSafe({
-        ...(currentStore && typeof currentStore === 'object' ? currentStore : {}),
-        aiFreeBrowserSettings: settings,
-      });
-      if (!wrote) return { ok: false, error: '参数未能写入本地配置' };
-      if (licenseCache && typeof licenseCache.setRuntimeConfig === 'function') {
-        licenseCache.setRuntimeConfig({ browserSettings: settings });
+      const historyId = String(payload?.historyId || '').trim();
+      let targetTabId = null;
+      if (historyId) {
+        const history = syncOpenTabsToBrowserHistory(ui);
+        const record = history.find((item) => item.id === historyId);
+        if (!record) return { ok: false, error: '浏览器历史不存在' };
+        record.settings = settings;
+        if (!writeBrowserHistorySafe(history)) return { ok: false, error: '独立浏览器参数未能写入本地配置' };
+        targetTabId = Array.from(ui?.getTabs?.().values?.() || [])
+          .find((tab) => String(tab?.browserHistoryId || '') === historyId)?.id || null;
+      } else {
+        const currentStore = readStoreConfigSafe();
+        const wrote = writeStoreConfigSafe({
+          ...(currentStore && typeof currentStore === 'object' ? currentStore : {}),
+          aiFreeBrowserSettings: settings,
+        });
+        if (!wrote) return { ok: false, error: '参数未能写入本地配置' };
+        if (licenseCache && typeof licenseCache.setRuntimeConfig === 'function') {
+          licenseCache.setRuntimeConfig({ browserSettings: settings });
+        }
       }
 
       let activeResult = null;
-      const activeTabId = typeof ui?.getActiveTabId === 'function' ? ui.getActiveTabId() : null;
+      const activeTabId = historyId
+        ? targetTabId
+        : (typeof ui?.getActiveTabId === 'function' ? ui.getActiveTabId() : null);
       if (payload?.applyToActive !== false && activeTabId && typeof ui?.setTabBrowserSettings === 'function') {
         activeResult = await ui.setTabBrowserSettings(activeTabId, settings, {
           restartChromium: payload?.restartChromium === true,
         });
       }
-      return { ok: true, settings, activeResult, runtimeInfo: getBrowserRuntimeInfo() };
+      ui.sendToSide?.('browser-history-changed');
+      return { ok: true, settings, historyId, activeResult, runtimeInfo: getBrowserRuntimeInfo() };
     } catch (error) {
       console.error('[IPC] 保存 AI-FREE 浏览器参数失败:', error);
       return { ok: false, error: error?.message || String(error) };
@@ -185,21 +483,36 @@ function registerSettingsIPC(ctx) {
   ipcMain.handle('reset-ai-free-browser-settings', async (_event, payload = {}) => {
     try {
       const settings = normalizeAiFreeBrowserSettings({});
-      const currentStore = readStoreConfigSafe();
-      const wrote = writeStoreConfigSafe({
-        ...(currentStore && typeof currentStore === 'object' ? currentStore : {}),
-        aiFreeBrowserSettings: settings,
-      });
-      if (!wrote) return { ok: false, error: '默认参数未能写入本地配置' };
-      licenseCache?.setRuntimeConfig?.({ browserSettings: settings });
+      const historyId = String(payload?.historyId || '').trim();
+      let targetTabId = null;
+      if (historyId) {
+        const history = syncOpenTabsToBrowserHistory(ui);
+        const record = history.find((item) => item.id === historyId);
+        if (!record) return { ok: false, error: '浏览器历史不存在' };
+        record.settings = settings;
+        if (!writeBrowserHistorySafe(history)) return { ok: false, error: '独立浏览器默认参数未能写入本地配置' };
+        targetTabId = Array.from(ui?.getTabs?.().values?.() || [])
+          .find((tab) => String(tab?.browserHistoryId || '') === historyId)?.id || null;
+      } else {
+        const currentStore = readStoreConfigSafe();
+        const wrote = writeStoreConfigSafe({
+          ...(currentStore && typeof currentStore === 'object' ? currentStore : {}),
+          aiFreeBrowserSettings: settings,
+        });
+        if (!wrote) return { ok: false, error: '默认参数未能写入本地配置' };
+        licenseCache?.setRuntimeConfig?.({ browserSettings: settings });
+      }
       let activeResult = null;
-      const activeTabId = typeof ui?.getActiveTabId === 'function' ? ui.getActiveTabId() : null;
+      const activeTabId = historyId
+        ? targetTabId
+        : (typeof ui?.getActiveTabId === 'function' ? ui.getActiveTabId() : null);
       if (payload?.applyToActive !== false && activeTabId && typeof ui?.setTabBrowserSettings === 'function') {
         activeResult = await ui.setTabBrowserSettings(activeTabId, settings, {
           restartChromium: payload?.restartChromium === true,
         });
       }
-      return { ok: true, settings, activeResult, runtimeInfo: getBrowserRuntimeInfo() };
+      ui.sendToSide?.('browser-history-changed');
+      return { ok: true, settings, historyId, activeResult, runtimeInfo: getBrowserRuntimeInfo() };
     } catch (error) {
       return { ok: false, error: error?.message || String(error) };
     }
@@ -259,20 +572,6 @@ function registerSettingsIPC(ctx) {
           await extensionManager.setPluginEnabled(extensionManager.BUILTIN_TRANSLATE_ID, nextSettings.translateExtEnabled === true);
         } catch (e) {
           console.warn('[IPC] 更新翻译插件开关失败:', e?.message || e);
-        }
-      } else if (nextSettings.translateExtEnabled === true && typeof ctx.loadTranslateExtension === 'function') {
-        try {
-          const tabs = typeof ui?.getTabs === 'function' ? ui.getTabs() : null;
-          const entries = tabs && typeof tabs.values === 'function' ? Array.from(tabs.values()) : [];
-          await Promise.all(entries.map(async (tab, index) => {
-            const wc = tab?.view?.webContents;
-            if (!wc || typeof wc.isDestroyed === 'function' && wc.isDestroyed()) {
-              return;
-            }
-            await ctx.loadTranslateExtension(wc.session, `标签 ${tab?.id || index}`);
-          }));
-        } catch (e) {
-          console.warn('[IPC] 翻译扩展加载到现有标签页失败:', e?.message || e);
         }
       }
 
@@ -466,4 +765,7 @@ function registerSettingsIPC(ctx) {
   });
 }
 
-module.exports = { registerSettingsIPC };
+module.exports = {
+  makeUniqueBrowserName,
+  registerSettingsIPC,
+};

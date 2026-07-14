@@ -8,7 +8,7 @@ function createAppShell(deps = {}) {
     fs,
     path,
     BrowserWindow,
-    BrowserView,
+    WebContentsView,
     dialog,
     isDevMode = false,
     Menu,
@@ -50,6 +50,7 @@ function createAppShell(deps = {}) {
     getSwitchTab,
     getCloseTab,
     getReorderTab,
+    getRenameTab,
     getSetTabAccountId,
     getSetTabBrowserProxyMode,
     getSetTabBrowserSettings,
@@ -227,6 +228,7 @@ function createAppShell(deps = {}) {
   const resolveReorderTab = () => (typeof getReorderTab === 'function' ? getReorderTab() : null);
 // 获取/读取/解析：resolveSetTabAccountId的具体业务逻辑。
   const resolveSetTabAccountId = () => (typeof getSetTabAccountId === 'function' ? getSetTabAccountId() : null);
+  const resolveRenameTab = () => (typeof getRenameTab === 'function' ? getRenameTab() : null);
 // 获取/读取/解析：resolveSetTabBrowserProxyMode的具体业务逻辑。
   const resolveSetTabBrowserProxyMode = () => (typeof getSetTabBrowserProxyMode === 'function' ? getSetTabBrowserProxyMode() : null);
   const resolveSetTabBrowserSettings = () => (typeof getSetTabBrowserSettings === 'function' ? getSetTabBrowserSettings() : null);
@@ -473,9 +475,11 @@ function createAppShell(deps = {}) {
           addTab: resolveAddTab(),
           switchTab: resolveSwitchTab(),
           closeTab: resolveCloseTab(),
+          renameTab: resolveRenameTab(),
           setTabAccountId: resolveSetTabAccountId(),
           setTabBrowserProxyMode: resolveSetTabBrowserProxyMode(),
           setTabBrowserSettings: resolveSetTabBrowserSettings(),
+          updateTabs,
           getTabs: () => resolveTabs(),
           getActiveTabId: () => resolveActiveTabId(),
           getActiveWC,
@@ -590,6 +594,24 @@ function createAppShell(deps = {}) {
           applyPluginSettings({ translateExtEnabled: false });
         }
 
+        // 教程是软件首页，不依赖账号登录或平台配置同步。
+        // 已登录时 addTab 会优先使用缓存的 tutorialUrl，未登录时则使用内置默认页。
+        try {
+          if (resolveTabs().size === 0 && typeof resolveAddTab() === 'function') {
+            await resolveAddTab()(null, {
+              fixedTitle: '使用教程[AI-FREE]',
+              browserProxyMode: 'direct',
+              browserSettings: {
+                region: 'cn',
+                locale: 'zh-CN',
+                acceptLanguage: 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+              },
+            });
+          }
+        } catch (e) {
+          logger.warn?.('[启动] 默认教程页打开失败:', e?.message || e);
+        }
+
         // 账号回收定时器：卡密已验证时启动。
         try {
           const validationSnapshot = licenseCache && typeof licenseCache.getSnapshot === 'function'
@@ -702,7 +724,7 @@ function createAppShell(deps = {}) {
       setTimeout(() => updateTabs(true), 0);
     });
 
-    const sideView = new BrowserView({
+    const sideView = new WebContentsView({
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
@@ -712,7 +734,7 @@ function createAppShell(deps = {}) {
       },
     });
     if (typeof setSideView === 'function') setSideView(sideView);
-    mainWindow.addBrowserView(sideView);
+    mainWindow.contentView.addChildView(sideView);
     attachContextMenu(sideView.webContents, { addTab: resolveAddTab(), downloadOrSaveMedia: deps.downloadOrSaveMedia, tabs: resolveTabs(), activeTabId: resolveActiveTabId(), refreshPage: resolveRefreshActiveTab() });
 
     try { resolveAuth()?.applyZhHantRequestPrefs(sideView.webContents.session, sideView.webContents); } catch (_) {}
@@ -805,19 +827,21 @@ function createAppShell(deps = {}) {
       const sideViewWidth = isSidebarVisible ? Math.floor(width * 0.3) : 0;
       const mainViewWidth = width - sideViewWidth;
       const activeTab = resolveTabs().get(resolveActiveTabId());
+      let chromiumBounds = null;
       if (activeTab) {
         const bounds = { x: 0, y: tabBarHeight, width: mainViewWidth, height: tabContentHeight };
         if (activeTab.runtimeType === 'chromium') {
-          void deps.browserRuntimeManager?.resize(activeTab.id, 'chromium', bounds).catch((error) => {
-            logger.warn?.('[ChromiumRuntime] 同步窗口尺寸失败:', error?.message || error);
-          });
-        } else if (activeTab.view) {
-          activeTab.view.setBounds(bounds);
-          mainWindow.setTopBrowserView(activeTab.view);
+          chromiumBounds = bounds;
         }
       }
       if (getSideView?.()) {
         getSideView().setBounds({ x: mainViewWidth, y: tabBarHeight, width: sideViewWidth, height: tabContentHeight });
+      }
+      // 内部侧栏视图调整后，再同步原生 Chromium 宿主窗口的尺寸与层级。
+      if (activeTab && chromiumBounds) {
+        void deps.browserRuntimeManager?.resize(activeTab.id, 'chromium', chromiumBounds).catch((error) => {
+          logger.warn?.('[ChromiumRuntime] 同步窗口尺寸失败:', error?.message || error);
+        });
       }
       if (extensionManager && typeof extensionManager.syncWebPanelBounds === 'function') {
         extensionManager.syncWebPanelBounds();

@@ -18,9 +18,9 @@
           <span class="agent-status-dot is-red" id="agent-status-dot"></span>
           <span id="agent-status-label">未连接</span>
         </div>
-        <button class="agent-chip" id="agent-account-chip" type="button" title="登录 / 连接服务器 / 查看 AI 分配">
+        <button class="agent-chip" id="agent-account-chip" type="button" title="查看 AI-FREE 连接状态">
           <span class="agent-chip-ava" id="agent-account-ava">·</span>
-          <span id="agent-account-name">未登录</span>
+          <span id="agent-account-name">AI-FREE</span>
         </button>
       </div>
     </div>
@@ -292,40 +292,30 @@
     <div id="agent-modal" class="agent-modal is-hidden" role="dialog" aria-modal="true">
       <div class="agent-modal-box">
         <div class="agent-modal-head">
-          <span class="agent-modal-title">服务器同步</span>
+          <span class="agent-modal-title">AI-FREE 连接</span>
           <button id="agent-modal-close" class="agent-modal-close" type="button" aria-label="关闭">×</button>
         </div>
 
         <div class="agent-card">
           <div class="agent-kv"><span class="k">连接状态</span><span class="v" id="agent-conn-status">未连接</span></div>
-          <div class="agent-kv"><span class="k">AI 分配</span><span class="v" id="agent-ai-status">未分配</span></div>
-          <div class="agent-hint">登录后自动连接服务器，本设备会出现在网页端「作坊」栏目里等待管理员为它分配 AI；分配后 AI 可远程调度本插件的自动化卡片与 Cookie 抓取工具。</div>
+          <div class="agent-kv"><span class="k">控制方式</span><span class="v" id="agent-ai-status">软件内选择</span></div>
+          <div class="agent-hint">插件会自动连接本机 AI-FREE，无需单独登录。连接后可在软件「AI 控制」的浏览器下拉框中选择当前浏览器；多个浏览器连接彼此独立。</div>
         </div>
 
-        <div class="agent-card" id="agent-login-card">
-          <div class="agent-card-title">🔐 登录软件端账号</div>
-          <div class="agent-field"><label for="agent-server-url">服务器地址</label><input id="agent-server-url" type="url" placeholder="http://127.0.0.1:3000" autocomplete="off"></div>
-          <div class="agent-field"><label for="agent-account">账号</label><input id="agent-account" type="text" placeholder="你的账号" autocomplete="username"></div>
-          <div class="agent-field"><label for="agent-password">密码</label><input id="agent-password" type="password" placeholder="密码" autocomplete="current-password"></div>
-          <label class="agent-check"><input id="agent-remember" type="checkbox"> 记住账号和密码</label>
-          <button id="agent-login-btn" type="button">登录并连接</button>
-          <div id="agent-login-feedback" class="agent-feedback"></div>
-        </div>
-
-        <div class="agent-card is-hidden" id="agent-account-card">
-          <div class="agent-card-title">👤 已登录</div>
-          <div class="agent-kv"><span class="k">账号</span><span class="v" id="agent-current-account">-</span></div>
+        <div class="agent-card">
+          <div class="agent-card-title">🔗 本机桥接</div>
+          <div class="agent-field"><label for="agent-server-url">桥接地址</label><input id="agent-server-url" type="url" placeholder="http://127.0.0.1:18765" autocomplete="off"></div>
           <div class="agent-btn-row">
             <button id="agent-connect-btn" class="button-secondary" type="button">重新连接</button>
             <button id="agent-disconnect-btn" class="button-secondary" type="button">断开</button>
           </div>
-          <button id="agent-logout-btn" class="button-secondary button-delete" type="button">退出登录</button>
+          <div id="agent-login-feedback" class="agent-feedback"></div>
         </div>
 
         <div class="agent-card">
           <div class="agent-card-title">⚙ 选项</div>
           <label class="agent-check"><input id="agent-mousefx" type="checkbox"> AI 操作时在页面显示动效（手型光标、点击涟漪、输入高亮）</label>
-          <div class="agent-field"><label for="agent-name">设备名称（显示在作坊里）</label><input id="agent-name" type="text" placeholder="AI自动化浏览器" autocomplete="off"></div>
+          <div class="agent-field"><label for="agent-name">浏览器名称（显示在软件下拉框中）</label><input id="agent-name" type="text" placeholder="AI自动化浏览器" autocomplete="off"></div>
           <button id="agent-save-options" class="button-secondary" type="button">保存选项</button>
           <div id="agent-options-feedback" class="agent-feedback"></div>
         </div>
