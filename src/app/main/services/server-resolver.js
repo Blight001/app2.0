@@ -280,6 +280,10 @@ function createServerResolver(deps = {}) {
       if (Array.isArray(resolved.allowedPlatforms) && resolved.allowedPlatforms.length > 0) {
         runtimeConfig.allowedPlatforms = resolved.allowedPlatforms;
       }
+      const woolPlatforms = resolved.woolPlatforms ?? resolved.wool_platforms;
+      if (Array.isArray(woolPlatforms)) {
+        runtimeConfig.woolPlatforms = woolPlatforms;
+      }
       if (String(resolved.targetUrl || '').trim()) runtimeConfig.targetUrl = String(resolved.targetUrl).trim();
       if (String(resolved.tutorialUrl || '').trim()) runtimeConfig.tutorialUrl = String(resolved.tutorialUrl).trim();
       licenseCache.setRuntimeConfig(runtimeConfig);

@@ -125,11 +125,6 @@ body {
   border-color: var(--border);
 }
 
-#expire-time,
-#usage-times {
-  color: #eaf5ff;
-}
-
 .footer,
 .footer a {
   color: #7d8594;

@@ -80,9 +80,19 @@
 .wool-platform-buttons .open-wool-platform-btn {
   width: 100%;
   min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-height: 40px;
+  height: auto;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.wool-platform-remaining {
+  margin-left: 2px;
+  font-size: .5em;
+  font-weight: 400;
+  opacity: .82;
 }
 
 .account-history-shell {

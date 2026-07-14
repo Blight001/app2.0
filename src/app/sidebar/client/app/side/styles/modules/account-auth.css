@@ -186,40 +186,6 @@
   background: rgba(255, 255, 255, .035);
 }
 
-.account-profile-stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  border-top: 1px solid rgba(119, 149, 190, .13);
-  border-bottom: 1px solid rgba(119, 149, 190, .13);
-}
-
-.account-profile-stat {
-  display: grid;
-  gap: 7px;
-  justify-items: center;
-  min-width: 0;
-  padding: 15px 10px;
-}
-
-.account-profile-stat + .account-profile-stat {
-  border-left: 1px solid rgba(119, 149, 190, .13);
-}
-
-.account-profile-stat span {
-  color: #718097;
-  font-size: 11px;
-}
-
-.account-profile-stat strong,
-#expire-time,
-#usage-times {
-  max-width: 100%;
-  color: #eaf5ff;
-  font-size: 14px;
-  font-weight: 700;
-  overflow-wrap: anywhere;
-}
-
 .account-profile-card .sidebar-quota-redeem {
   margin: 0;
   padding: 15px 16px 17px;
@@ -434,12 +400,6 @@ html.theme-light .account-profile-cover {
 }
 
 html.theme-light .account-profile-presence { border-color: #fff; }
-html.theme-light .account-profile-stat span { color: #718097; }
-html.theme-light .account-profile-stat strong,
-html.theme-light #expire-time,
-html.theme-light #usage-times { color: #263b55; }
-html.theme-light .account-profile-stats { border-color: rgba(74, 108, 151, .13); }
-html.theme-light .account-profile-stat + .account-profile-stat { border-left-color: rgba(74, 108, 151, .13); }
 html.theme-light .account-profile-secondary { color: #60758f; background: #f5f8fc; }
 html.theme-light .account-profile-menu {
   border-color: rgba(78, 116, 166, .18);

@@ -59,7 +59,9 @@
         }
 
         const platform = String(clickedButton.dataset.platform || '').trim();
-        const targetUrl = String(clickedButton.dataset.targetUrl || '').trim();
+        const buttonCount = container.querySelectorAll('.open-wool-platform-btn').length;
+        const legacyTargetUrl = buttonCount === 1 ? String(window.DREAM_URL || '').trim() : '';
+        const targetUrl = String(clickedButton.dataset.targetUrl || legacyTargetUrl).trim();
         if (!platform || !targetUrl) throw new Error('羊毛平台配置不完整，请联系管理员');
         console.log(`[前端] 用户点击"一键启动 ${platform}"按钮`);
         console.log('[前端] 发送账号授权请求，设备ID:', deviceId);

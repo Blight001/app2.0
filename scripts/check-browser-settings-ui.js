@@ -15,6 +15,7 @@ for (const [channel, response] of [
   ['get-all-accounts', []],
   ['get-target-url', 'https://www.baidu.com/'],
   ['get-platform-name', 'AI-FREE'],
+  ['get-wool-platforms', [{ name: 'AI-FREE', targetUrl: 'https://www.baidu.com/' }]],
   ['get-tutorial-url', 'https://www.baidu.com/'],
   ['consume-auto-validate-flag', { pending: false }],
   ['get-network-magic-auto-start-enabled', { ok: true, enabled: false }],

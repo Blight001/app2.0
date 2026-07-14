@@ -150,19 +150,8 @@ function applyValidationFailureState({ disableLicenseButtons = false } = {}) {
 
 // 停止/关闭/清理：resetLicenseSummaryDisplay的具体业务逻辑。
 function resetLicenseSummaryDisplay() {
-  const expireEl = safeGetEl('expire-time');
-  const usageEl = safeGetEl('usage-times');
-  const accountLoggedIn = safeGetEl('sidebar-account-session')?.dataset.authenticated === 'true';
-  const emptyText = accountLoggedIn ? '未验证' : '登录后显示';
-
-  if (expireEl) {
-    expireEl.textContent = emptyText;
-    expireEl.style.color = accountLoggedIn ? '#e6a23c' : '';
-  }
-
-  if (usageEl) {
-    usageEl.textContent = emptyText;
-    usageEl.style.color = accountLoggedIn ? '#e6a23c' : '';
+  if (typeof setWoolPlatformRemainingUsage === 'function') {
+    setWoolPlatformRemainingUsage('');
   }
 }
 
@@ -188,69 +177,11 @@ function resetLicenseStateToValidate() {
 // 启动/打开/显示：displayExpirationInfo的具体业务逻辑。
 function displayExpirationInfo(result) {
   try {
-    const el = safeGetEl('expire-time');
-    const usageEl = safeGetEl('usage-times');
     const payload = extractValidationPayload(result);
     if (!payload) return;
-
-    const licenseUsage = payload.licenseUsage && typeof payload.licenseUsage === 'object'
-      ? payload.licenseUsage
-      : null;
-    const expireAt = payload.expire_at
-      || payload.expireAt
-      || payload.expiry_date
-      || payload.expiryDate
-      || payload.cardExpiryDate
-      || licenseUsage?.expire_at
-      || licenseUsage?.expireAt
-      || '';
-    const daysLeft = payload.days_left
-      ?? payload.daysLeft
-      ?? licenseUsage?.days_left
-      ?? licenseUsage?.daysLeft;
-    const expiresInSeconds = payload.expires_in_seconds
-      ?? payload.expiresInSeconds
-      ?? licenseUsage?.expires_in_seconds
-      ?? licenseUsage?.expiresInSeconds;
-    const hasExpiryData = expireAt !== undefined
-      || daysLeft !== undefined
-      || expiresInSeconds !== undefined;
     const usageText = formatUsageTimesText(payload);
-
-    if (!hasExpiryData && !usageText) {
-      return;
-    }
-
-    if (el) {
-      if (expireAt) {
-        el.textContent = formatValidationDate(expireAt);
-        el.style.color = '#409eff';
-      } else if (daysLeft !== undefined) {
-        el.textContent = `剩余 ${daysLeft} 天`;
-        el.style.color = '#409eff';
-      } else if (expiresInSeconds !== undefined) {
-        const remainingText = formatRemainingValidity(expiresInSeconds);
-        if (remainingText) {
-          el.textContent = remainingText;
-          el.style.color = '#409eff';
-        } else {
-          el.textContent = '未知';
-          el.style.color = '#e6a23c';
-        }
-      } else {
-        el.textContent = '未知';
-        el.style.color = '#e6a23c';
-      }
-    }
-
-    if (usageEl) {
-      if (usageText) {
-        usageEl.textContent = usageText;
-        usageEl.style.color = '#409eff';
-      } else {
-        usageEl.textContent = '未知';
-        usageEl.style.color = '#e6a23c';
-      }
+    if (typeof setWoolPlatformRemainingUsage === 'function') {
+      setWoolPlatformRemainingUsage(usageText);
     }
   } catch (e) {
     console.error('更新到期时间显示失败:', e);

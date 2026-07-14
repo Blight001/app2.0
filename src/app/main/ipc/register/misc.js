@@ -7,7 +7,7 @@ const DEFAULT_TUTORIAL_URL = 'https://www.baidu.com/';
 
 // 监听/绑定：registerMiscIPC的具体业务逻辑。
 function registerMiscIPC(ctx) {
-  const { licenseCache } = ctx;
+  const { licenseCache, getDreamTargetUrl, DREAM_TARGET_URL } = ctx;
 
   ipcMain.handle('create-desktop-shortcut', async (_event, { createShortcut }) => {
     try {
@@ -62,6 +62,36 @@ function registerMiscIPC(ctx) {
     } catch (error) {
       console.error('[IPC] 获取平台名字失败:', error);
       return 'AI-FREE';
+    }
+  });
+
+  ipcMain.handle('get-wool-platforms', async () => {
+    try {
+      const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
+        ? licenseCache.getRuntimeConfig()
+        : {};
+      const woolPlatforms = (Array.isArray(runtimeConfig.woolPlatforms) ? runtimeConfig.woolPlatforms : [])
+        .map((item) => ({
+          name: String(item?.name || item?.platform || item?.platform_name || '').trim(),
+          platform: String(item?.platform || item?.name || item?.platform_name || '').trim(),
+          targetUrl: String(item?.targetUrl || item?.target_url || '').trim(),
+        }))
+        .filter((item) => item.name && item.targetUrl);
+      if (woolPlatforms.length > 0) return woolPlatforms;
+
+      // 兼容旧版单平台缓存：旧数据只有 platformName/targetUrl，没有 woolPlatforms。
+      const allowedPlatforms = Array.isArray(runtimeConfig.allowedPlatforms) ? runtimeConfig.allowedPlatforms : [];
+      const name = String(runtimeConfig.platformName || allowedPlatforms[0] || '').trim();
+      const targetUrl = String(
+        runtimeConfig.targetUrl
+        || (typeof getDreamTargetUrl === 'function' ? getDreamTargetUrl() : '')
+        || DREAM_TARGET_URL
+        || ''
+      ).trim();
+      return name && targetUrl ? [{ name, platform: name, targetUrl }] : [];
+    } catch (error) {
+      console.error('[IPC] 获取羊毛平台列表失败:', error);
+      return [];
     }
   });
 

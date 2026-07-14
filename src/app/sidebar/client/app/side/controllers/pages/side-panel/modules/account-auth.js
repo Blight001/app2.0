@@ -117,15 +117,8 @@ function renderSidebarAccountSession(session = {}) {
   }
   if (giftButton) giftButton.disabled = !authenticated;
 
-  const expireEl = safeGetEl('expire-time');
-  const usageEl = safeGetEl('usage-times');
-  if (expireEl) {
-    expireEl.textContent = authenticated ? '同步中' : '登录后显示';
-    expireEl.style.color = '';
-  }
-  if (usageEl) {
-    usageEl.textContent = authenticated ? '同步中' : '登录后显示';
-    usageEl.style.color = '';
+  if (!authenticated && typeof setWoolPlatformRemainingUsage === 'function') {
+    setWoolPlatformRemainingUsage('');
   }
 
   if (authenticated) {

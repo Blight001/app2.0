@@ -476,12 +476,9 @@ function initSidebarUiListeners() {
 
   window.electronAPI.on('license-usage-updated', (usage) => {
     try {
-      const usageEl = safeGetEl('usage-times');
-      if (!usageEl) return;
       const usageText = formatUsageTimesText(usage);
-      if (usageText) {
-        usageEl.textContent = usageText;
-        usageEl.style.color = '#409eff';
+      if (typeof setWoolPlatformRemainingUsage === 'function') {
+        setWoolPlatformRemainingUsage(usageText);
       }
     } catch (e) {
       console.warn('更新本地试用次数显示失败:', e);

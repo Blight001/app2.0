@@ -1,6 +1,26 @@
 // 侧边栏功能可用性与运行时值同步。
 // TCP 连接状态展示已移除：功能按钮不再依赖“是否连接成功”，仅由卡密验证状态驱动。
 
+let currentRemainingUsageText = '';
+
+function applyWoolPlatformButtonLabel(button) {
+  if (!button) return;
+  const baseLabel = String(button.dataset.baseLabel || button.textContent || '').replace(/\s*\(剩余次数：.*\)$/, '').trim();
+  button.dataset.baseLabel = baseLabel;
+  button.replaceChildren(document.createTextNode(baseLabel));
+  if (currentRemainingUsageText && String(button.dataset.platform || '').trim()) {
+    const remaining = document.createElement('span');
+    remaining.className = 'wool-platform-remaining';
+    remaining.textContent = `(剩余次数：${currentRemainingUsageText})`;
+    button.appendChild(remaining);
+  }
+}
+
+function setWoolPlatformRemainingUsage(value) {
+  currentRemainingUsageText = String(value ?? '').trim();
+  document.querySelectorAll('.open-wool-platform-btn').forEach(applyWoolPlatformButtonLabel);
+}
+
 // 设置/更新/持久化：setButtonsDisabled的具体业务逻辑。
 function setButtonsDisabled(selector, disabled) {
   document.querySelectorAll(selector).forEach((button) => {
@@ -49,8 +69,9 @@ function setDreamButtonPlatformName(platformName) {
   currentPlatformName = normalized;
   const dreamBtn = safeGetEl('open-dream-page-btn');
   if (dreamBtn) {
-    dreamBtn.textContent = `一键启动 ${normalized}`;
+    dreamBtn.dataset.baseLabel = `一键启动 ${normalized}`;
     dreamBtn.dataset.platform = normalized;
+    applyWoolPlatformButtonLabel(dreamBtn);
   }
 }
 
@@ -72,7 +93,8 @@ function renderWoolPlatformButtons(platforms) {
     empty.type = 'button';
     empty.disabled = true;
     empty.className = 'main-button btn-large-blue requires-license open-wool-platform-btn';
-    empty.textContent = '暂无可用羊毛平台';
+    empty.dataset.baseLabel = '暂无可用羊毛平台';
+    applyWoolPlatformButtonLabel(empty);
     container.appendChild(empty);
     return;
   }
@@ -84,7 +106,8 @@ function renderWoolPlatformButtons(platforms) {
     button.className = 'main-button btn-large-blue requires-license open-wool-platform-btn';
     button.dataset.platform = item.name;
     button.dataset.targetUrl = item.targetUrl;
-    button.textContent = `一键启动 ${item.name}`;
+    button.dataset.baseLabel = `一键启动 ${item.name}`;
+    applyWoolPlatformButtonLabel(button);
     button.disabled = !isLicenseValidated();
     container.appendChild(button);
   });
@@ -112,6 +135,10 @@ function setTutorialLinkHref(tutorialUrl) {
 // 设置/更新/持久化：setTargetUrl的具体业务逻辑。
 function setTargetUrl(nextTargetUrl) {
   DREAM_URL = String(nextTargetUrl || '').trim() || 'https://dreamina.capcut.com/ai-tool/home?';
+  const buttons = document.querySelectorAll('.open-wool-platform-btn');
+  if (buttons.length === 1 && !String(buttons[0].dataset.targetUrl || '').trim()) {
+    buttons[0].dataset.targetUrl = DREAM_URL;
+  }
 }
 
 // 设置/更新/持久化：根据卡密验证状态刷新功能按钮可用性。
@@ -169,6 +196,20 @@ async function refreshPlatformName() {
   } catch (error) {
     console.error('[侧边栏] 获取平台名字失败:', error);
     return '';
+  }
+}
+
+// 获取/读取/解析：从主进程缓存恢复“平台名 + 目标地址”，避免错过登录阶段的推送事件。
+async function refreshWoolPlatforms() {
+  try {
+    const woolPlatforms = await window.electronAPI.invoke('get-wool-platforms');
+    if (Array.isArray(woolPlatforms) && woolPlatforms.length > 0) {
+      renderWoolPlatformButtons(woolPlatforms);
+    }
+    return Array.isArray(woolPlatforms) ? woolPlatforms : [];
+  } catch (error) {
+    console.error('[侧边栏] 获取羊毛平台列表失败:', error);
+    return [];
   }
 }
 
@@ -254,6 +295,7 @@ function loadInitialRuntimeValues() {
     return;
   }
 
+  void refreshWoolPlatforms();
   void refreshPlatformName().then(() => refreshTutorialUrl());
   void refreshTargetUrl();
 }
