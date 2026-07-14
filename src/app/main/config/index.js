@@ -71,15 +71,14 @@ function normalizeLicenseRecordForStore(entry = {}) {
   };
 }
 
-// 清理 store 中与许可证缓存无关的冗余字段，避免旧数据污染。
+// 清理 store 中旧版卡密缓存；账号登录会话需要保留，以便下次启动恢复。
 function pruneStoreLicenseFields(storeConfig = {}) {
   const next = { ...(storeConfig || {}) };
   let changed = false;
 
   if (next.userCredentials && typeof next.userCredentials === 'object') {
-    const normalizedCredentials = {
-      key: String(next.userCredentials.key || '').trim(),
-    };
+    const { serializeAccountSession } = require('../utils/account-session');
+    const normalizedCredentials = serializeAccountSession(next.userCredentials);
     if (JSON.stringify(next.userCredentials) !== JSON.stringify(normalizedCredentials)) {
       next.userCredentials = normalizedCredentials;
       changed = true;
@@ -156,7 +155,7 @@ function initializeCoreDirectory() {
         const pruned = pruneStoreLicenseFields(parsedStore);
         if (pruned.changed) {
           fs.writeFileSync(storePath, JSON.stringify(pruned.next, null, 2), { encoding: 'utf8' });
-          console.log('[配置] 已清理 store/content 中的卡密元数据，仅保留卡密记录');
+          console.log('[配置] 已清理 store/content 中的旧版卡密元数据，并保留有效账号会话');
         }
       }
     } catch (e) {

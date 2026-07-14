@@ -811,6 +811,50 @@ function createServerResolver(deps = {}) {
     }
   }
 
+  async function requestAccountService(action, payload = {}) {
+    try {
+      const resolver = resolveCardStatusSearchConfig();
+      const resolverUrls = Array.isArray(resolver?.urls) && resolver.urls.length > 0
+        ? resolver.urls
+        : (resolver?.url ? [resolver.url] : []);
+      if (resolverUrls.length === 0) {
+        return { ok: false, message: '未配置账号服务地址' };
+      }
+
+      let lastMessage = '';
+      for (const rawUrl of resolverUrls) {
+        try {
+          const endpoint = new URL(rawUrl);
+          endpoint.pathname = `/api/client-accounts/${String(action || '').replace(/^\/+/, '')}`;
+          endpoint.search = '';
+          const response = await postJson(endpoint.toString(), payload, resolver.timeoutMs || 8000);
+          const body = response?.body && typeof response.body === 'object' ? response.body : {};
+          if (body.ok === true) return body;
+          lastMessage = body.message || body.error || response?.raw || lastMessage;
+          // Authentication and validation failures are authoritative. Trying
+          // another mirror would only repeat the same request.
+          if (response?.status && response.status < 500) {
+            return { ...body, ok: false, message: lastMessage || '账号操作失败' };
+          }
+        } catch (error) {
+          lastMessage = error?.message || String(error);
+        }
+      }
+      return { ok: false, message: lastMessage || '账号服务暂时不可用' };
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error) };
+    }
+  }
+
+  async function authenticateAccount(payload = {}) {
+    const mode = payload.mode === 'register' ? 'register' : 'login';
+    return requestAccountService(mode, payload);
+  }
+
+  async function getAccountPlatforms() {
+    return requestAccountService('platforms', {});
+  }
+
 // 设置/更新/持久化：applyResolvedConfigToStore的具体业务逻辑。
   function applyResolvedConfigToStore({ resolved }) {
     const next = {};
@@ -886,6 +930,8 @@ function createServerResolver(deps = {}) {
     getLocalResolverConfig,
     normalizeResolverResponse,
     resolveServerConfigForKey,
+    authenticateAccount,
+    getAccountPlatforms,
     applyResolvedConfigToStore,
   };
 }

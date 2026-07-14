@@ -4,27 +4,43 @@
 }
 
 .btn-blue {
-  background-color: #409eff;
-  color: white;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--brand-grad);
+  color: #fff;
+}
+
+.btn-blue:hover:not(:disabled) {
+  background: var(--brand-grad-hover);
 }
 
 .main-button {
   width: 100%;
   padding: 12px;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   text-align: center;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--r-md);
   cursor: pointer;
   margin-bottom: 10px;
-  transition: all 0.3s;
+  color: #fff;
+  transition: filter 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.btn-large-blue { background-color: #409eff; color: white; }
-.btn-large-purple { background-color: #8A2BE2; color: white; }
-.btn-large-teal { background-color: #20B2AA; color: white; }
-.btn-large-yellow { background-color: #ffec99; color: #8a6d3b; }
+.main-button:not(:disabled):hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.main-button:not(:disabled):active {
+  transform: translateY(0);
+}
+
+.btn-large-blue { background: var(--brand-grad); box-shadow: var(--brand-shadow); }
+.btn-large-purple { background: var(--brand-grad); box-shadow: var(--brand-shadow); }
+.btn-large-teal { background: linear-gradient(135deg, var(--teal), #34c5b6); box-shadow: 0 8px 20px rgba(23, 169, 159, 0.24); }
+.btn-large-yellow { background: #ffec99; color: #8a6d3b; }
 
 .account-launch-row {
   display: flex;
@@ -53,14 +69,14 @@
   width: 0;
   min-width: 100%;
   white-space: nowrap;
-  background: linear-gradient(135deg, #0b4ea2 0%, #163d8f 55%, #0d2f6f 100%);
-  color: #f4f8ff;
-  box-shadow: 0 10px 24px rgba(10, 34, 86, 0.18);
-  border: 1px solid rgba(122, 165, 255, 0.18);
+  background: var(--brand-soft);
+  color: var(--brand);
+  box-shadow: none;
+  border: 1px solid var(--brand-border);
 }
 
 .account-history-toggle-btn:hover:not(:disabled):not([aria-disabled='true']) {
-  filter: brightness(1.05);
+  background: color-mix(in srgb, var(--brand) 18%, transparent);
   transform: translateY(-1px);
 }
 
@@ -68,8 +84,6 @@
 .account-history-toggle-btn[aria-disabled='true'] {
   opacity: 0.5;
   cursor: not-allowed;
-  background: linear-gradient(135deg, #20457f 0%, #17335f 100%);
-  color: #d9e4f7;
   box-shadow: none;
 }
 

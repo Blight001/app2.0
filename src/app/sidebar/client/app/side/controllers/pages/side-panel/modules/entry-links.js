@@ -37,50 +37,13 @@ function bindTutorialLink() {
   });
 }
 
-// 同步/连接：bindBackToLicenseButton的具体业务逻辑。
-function bindBackToLicenseButton() {
-  const backToLicenseBtn = safeGetEl('back-to-license-btn');
-  if (!backToLicenseBtn) return;
-
-  backToLicenseBtn.addEventListener('click', async () => {
-    try {
-      const result = await window.electronAPI.invoke('back-to-license-window');
-      if (!result?.ok) {
-        throw new Error(result?.message || '切换失败');
-      }
-      await refreshPlatformName();
-      await refreshConnectionState();
-    } catch (e) {
-      window.MessageModal.showErrorMessage('回退验证界面失败: ' + (e?.message || String(e)));
-    }
-  });
-}
-
 // 同步/连接：bindSecondaryEntryButtons的具体业务逻辑。
 function bindSecondaryEntryButtons() {
   const startBananaBtn = safeGetEl('start-banana-btn');
   if (startBananaBtn) {
     startBananaBtn.addEventListener('click', () => {
-      window.MessageModal.showInfoMessage('「一键启动 BananaAI」 功能已经上线，如需请联系客服获取激活码！');
+      window.MessageModal.showInfoMessage('「一键启动 BananaAI」 功能已经上线，如需请联系客服开通账号权限！');
     });
   }
 
-  // 可灵AI / 海螺AI 占位按钮
-  const kelingBtn = safeGetEl('keling-ai-btn');
-  if (kelingBtn) {
-    kelingBtn.addEventListener('click', () => {
-      if (window.MessageModal && typeof window.MessageModal.showWarningMessage === 'function') {
-        window.MessageModal.showWarningMessage('后续对接，敬请期待~');
-      }
-    });
-  }
-
-  const hailuoBtn = safeGetEl('hailuo-ai-btn');
-  if (hailuoBtn) {
-    hailuoBtn.addEventListener('click', () => {
-      if (window.MessageModal && typeof window.MessageModal.showWarningMessage === 'function') {
-        window.MessageModal.showWarningMessage('后续对接，敬请期待~');
-      }
-    });
-  }
 }

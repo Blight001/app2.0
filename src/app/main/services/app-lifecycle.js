@@ -1,6 +1,10 @@
 const path = require('path');
 const { spawn } = require('child_process');
 const { setLicenseRuntimeConfig } = require('../utils/runtime-config');
+const {
+  buildStoredAccountSession,
+  normalizeAccountSession,
+} = require('../utils/account-session');
 
 // 启动/打开/显示：launchIndependentCommand的具体业务逻辑。
 function launchIndependentCommand(target, logger = console) {
@@ -70,7 +74,6 @@ function registerAppLifecycle(deps = {}) {
     computeDeviceId,
     licenseCache,
     bootstrapMainApp,
-    createLicenseWindow,
     sendToSide,
     cleanupAllBrowserSessionData,
     cleanupBrowserPartitionsRootDir,
@@ -82,22 +85,17 @@ function registerAppLifecycle(deps = {}) {
     getGlobalHttpClient,
     isSwitchingToLicenseRef,
     isMainBootstrappedRef,
-    getLicenseWindow,
     BrowserWindow,
     createMainWindow,
     logger = console,
   } = deps;
-  const skipLicenseWindow = ['1', 'true', 'yes', 'main'].includes(
-    String(process.env.SKIP_LICENSE_WINDOW || process.env.APP_BOOT_MODE || '').trim().toLowerCase(),
-  ) || process.argv.includes('--skip-license-window') || process.argv.includes('--dev-main');
-// 获取/读取/解析：resolveLicenseWindow的具体业务逻辑。
-  const resolveLicenseWindow = () => (typeof getLicenseWindow === 'function' ? getLicenseWindow() : deps.licenseWindow);
   const {
     saveLicenseCredentialsSafe,
   } = require('../ipc/register/store-utils');
   const {
     cleanupClashMiniRuntimeConfig,
     getClashMiniRuntimeRoot,
+    stopClashMiniProcess,
   } = require('../ipc/register/clash-mini-core');
 
   app.whenReady().then(async () => {
@@ -124,16 +122,6 @@ function registerAppLifecycle(deps = {}) {
         createDevConsoleWindow();
       } catch (e) {
         logger.warn?.('[启动] 预创建调试控制台失败:', e?.message || e);
-      }
-    }
-
-    const startLicenseWindowEarly = !skipLicenseWindow;
-
-    if (startLicenseWindowEarly) {
-      try {
-        createLicenseWindow();
-      } catch (e) {
-        logger.warn?.('[启动] 预创建首屏卡密窗口失败:', e?.message || e);
       }
     }
 
@@ -175,6 +163,230 @@ function registerAppLifecycle(deps = {}) {
 
     ipcMain.handle('license-get-device-id', async () => {
       return await computeDeviceId();
+    });
+
+    ipcMain.handle('account-get-platforms', async () => {
+      if (typeof deps.getAccountPlatforms !== 'function') {
+        return { ok: false, message: '账号服务未就绪', platforms: [] };
+      }
+      const result = await deps.getAccountPlatforms();
+      return { ...result, platforms: Array.isArray(result?.platforms) ? result.platforms : [] };
+    });
+
+    ipcMain.handle('account-get-session', async () => {
+      try {
+        const credentials = normalizeAccountSession(readStoreConfigSafe()?.userCredentials || {});
+        return {
+          ok: true,
+          username: credentials.username,
+          tenantId: credentials.tenantId,
+          platformName: credentials.platformName,
+          authenticated: credentials.authenticated,
+        };
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error) };
+      }
+    });
+
+    ipcMain.handle('ai-control-get-models', async () => {
+      try {
+        const credentials = readStoreConfigSafe()?.userCredentials || {};
+        const key = String(credentials.key || '').trim();
+        const deviceId = String(credentials.deviceId || '').trim();
+        const httpClient = getGlobalHttpClient?.();
+        if (!httpClient || typeof httpClient.getAIControlModels !== 'function') {
+          return { ok: false, message: 'AI 服务尚未就绪' };
+        }
+        return await httpClient.getAIControlModels(key, deviceId);
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error) };
+      }
+    });
+
+    ipcMain.handle('ai-control-chat', async (_event, input = {}) => {
+      try {
+        const credentials = readStoreConfigSafe()?.userCredentials || {};
+        const key = String(credentials.key || '').trim();
+        const deviceId = String(credentials.deviceId || '').trim();
+        if (!key || !deviceId) return { ok: false, message: '请先在个人中心登录账号' };
+        const httpClient = getGlobalHttpClient?.();
+        if (!httpClient || typeof httpClient.sendAIControlMessage !== 'function') {
+          return { ok: false, message: 'AI 服务尚未就绪' };
+        }
+        return await httpClient.sendAIControlMessage(
+          key,
+          deviceId,
+          String(input.modelId || '').trim(),
+          Array.isArray(input.messages) ? input.messages : [],
+        );
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error) };
+      }
+    });
+
+    ipcMain.handle('account-authenticate', async (_event, input = {}) => {
+      try {
+        if (typeof deps.authenticateAccount !== 'function') {
+          return { ok: false, message: '账号服务未就绪' };
+        }
+        const username = String(input.username || '').trim();
+        const password = String(input.password || '');
+        const mode = input.mode === 'register' ? 'register' : 'login';
+        if (!username || !password) {
+          return { ok: false, message: '请输入用户名和密码' };
+        }
+        const deviceId = String(input.deviceId || '').trim() || await computeDeviceId();
+        const authenticated = await deps.authenticateAccount({
+          mode,
+          username,
+          password,
+          tenant_id: String(input.tenantId || '').trim(),
+          device_id: deviceId,
+        });
+        if (!authenticated?.ok) {
+          return {
+            ...(authenticated && typeof authenticated === 'object' ? authenticated : {}),
+            ok: false,
+            message: authenticated?.message || '账号验证失败',
+            error: authenticated?.error,
+          };
+        }
+
+        const key = String(authenticated.credential || '').trim();
+        if (!key) {
+          return { ok: false, message: '登录响应缺少内部凭据' };
+        }
+        const validation = authenticated.validation && typeof authenticated.validation === 'object'
+          ? authenticated.validation
+          : {};
+        const resolved = {
+          ...authenticated,
+          ...validation,
+          serverBase: authenticated.serverBase || authenticated.server_base || '',
+          platformName: authenticated.platform_name || authenticated.platformName || '',
+        };
+
+        deps.applyResolvedConfigToStore({ resolved });
+        saveLicenseCredentialsSafe({
+          readStoreConfigSafe,
+          writeStoreConfigSafe,
+          licenseCache,
+        }, key, deviceId);
+        const currentStore = readStoreConfigSafe();
+        const storedSession = buildStoredAccountSession({
+          current: currentStore?.userCredentials || {},
+          username,
+          key,
+          deviceId,
+          tenantId: String(authenticated.tenant_id || input.tenantId || '').trim(),
+          platformName: String(resolved.platformName || '').trim(),
+          serverBase: String(resolved.serverBase || '').trim(),
+          account: authenticated.account || {},
+          validation: resolved,
+        });
+        writeStoreConfigSafe({
+          ...currentStore,
+          userCredentials: storedSession,
+        });
+
+        if (licenseCache && typeof licenseCache.setValidationState === 'function') {
+          licenseCache.setValidationState({
+            key,
+            deviceId,
+            validated: true,
+            bound: true,
+            licenseValidated: true,
+            result: resolved,
+            message: authenticated.message || '登录成功',
+          });
+        }
+        try {
+          const { normalizeValidationRuntimeConfig } = require('../lib/http-client');
+          setLicenseRuntimeConfig(licenseCache, normalizeValidationRuntimeConfig(resolved));
+          licenseCache?.setRuntimeConfig?.({ autoValidatePending: false });
+        } catch (_) {}
+
+        const httpClient = getGlobalHttpClient?.();
+        if (httpClient && Object.prototype.hasOwnProperty.call(httpClient, 'runtimeServerBase')) {
+          httpClient.runtimeServerBase = String(resolved.serverBase || '').trim().replace(/\/+$/, '');
+        }
+
+        const validationState = licenseCache?.getValidationState?.() || resolved;
+        // 平台通知、教程页和浏览器初始化都是登录后的附加动作，不阻塞登录响应。
+        setImmediate(() => {
+          void Promise.resolve(deps.refreshAllowedPlatformsAndNotify?.())
+            .catch((refreshError) => {
+              logger.warn?.('[账号] 登录后同步平台配置失败:', refreshError?.message || refreshError);
+            });
+        });
+        deps.sendToSide?.('license-credentials-updated', {
+          key,
+          deviceId,
+          username,
+          account: authenticated.account || {},
+          validation: validationState,
+        });
+        deps.sendToSide?.('account-session-updated', {
+          authenticated: true,
+          username,
+          tenantId: String(authenticated.tenant_id || input.tenantId || '').trim(),
+          platformName: String(resolved.platformName || '').trim(),
+        });
+        return {
+          ok: true,
+          message: mode === 'register' ? '注册成功' : '登录成功',
+          account: authenticated.account || {},
+          platformName: resolved.platformName,
+          validation: validationState,
+        };
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error) };
+      }
+    });
+
+    ipcMain.handle('account-logout', async () => {
+      try {
+        const currentStore = readStoreConfigSafe() || {};
+        const nextStore = { ...currentStore };
+        delete nextStore.userCredentials;
+        writeStoreConfigSafe(nextStore);
+        licenseCache?.setCredentials?.({ key: '', deviceId: '' });
+        licenseCache?.clearValidationState?.();
+        licenseCache?.setRuntimeConfig?.({
+          serverBase: '',
+          platformName: '',
+          targetUrl: '',
+          tutorialUrl: '',
+          allowedPlatforms: [],
+          autoValidatePending: false,
+        });
+        deps.setRuntimeServerBase?.('');
+        deps.setRuntimeTcpConfig?.(null);
+        const httpClient = getGlobalHttpClient?.();
+        if (httpClient && Object.prototype.hasOwnProperty.call(httpClient, 'runtimeServerBase')) {
+          httpClient.runtimeServerBase = '';
+        }
+        try {
+          await stopClashMiniProcess({ sendToSide });
+        } catch (error) {
+          logger.warn?.('[账号] 退出时关闭 Clash Mini 失败:', error?.message || error);
+        }
+        try {
+          await deps.browserRuntimeManager?.stopAll({ timeoutMs: 4000 });
+        } catch (error) {
+          logger.warn?.('[账号] 退出时关闭 Chromium 环境失败:', error?.message || error);
+        }
+        deps.sendToSide?.('license-credentials-updated', {
+          key: '',
+          deviceId: '',
+          username: '',
+          loggedOut: true,
+        });
+        deps.sendToSide?.('account-session-updated', { authenticated: false });
+        return { ok: true, message: '已退出账号' };
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error) };
+      }
     });
 
     ipcMain.handle('license-get-saved-key', async () => {
@@ -339,11 +551,6 @@ function registerAppLifecycle(deps = {}) {
           throw bootstrapErr;
         }
 
-        const licenseWindow = resolveLicenseWindow();
-        if (licenseWindow && !licenseWindow.isDestroyed()) {
-          try { licenseWindow.close(); } catch (_) {}
-        }
-
         deps.revealMainWindow?.();
         try {
           if (typeof deps.sendToSide === 'function') {
@@ -371,36 +578,39 @@ function registerAppLifecycle(deps = {}) {
 
     ipcMain.handle('license-close-window', async () => {
       try {
-        const licenseWindow = resolveLicenseWindow();
-        if (licenseWindow && !licenseWindow.isDestroyed()) {
-          licenseWindow.close();
-        }
         return { ok: true };
       } catch (e) {
         return { ok: false, message: e?.message || String(e) };
       }
     });
 
-    if (skipLicenseWindow) {
-      logger.log?.('[启动] 调试模式：跳过首屏卡密窗口，直接进入主界面');
-      try {
-        await bootstrapMainApp();
-      } catch (e) {
-        logger.warn?.('[启动] 调试模式直接进入主界面失败:', e?.message || e);
-        createLicenseWindow();
+    try {
+      const credentials = normalizeAccountSession(readStoreConfigSafe()?.userCredentials || {});
+      if (credentials.authenticated) {
+        licenseCache?.setCredentials?.({ key: credentials.key, deviceId: credentials.deviceId });
+        deps.applyResolvedConfigToStore?.({
+          resolved: {
+            ...credentials.validation,
+            serverBase: credentials.serverBase,
+            platformName: credentials.platformName,
+          },
+        });
+        licenseCache?.setValidationState?.({
+          key: credentials.key,
+          deviceId: credentials.deviceId,
+          validated: true,
+          bound: true,
+          licenseValidated: true,
+          result: credentials.validation,
+          message: '账号登录状态已恢复',
+        });
+        setLicenseRuntimeConfig(licenseCache, credentials.validation);
+        licenseCache?.setRuntimeConfig?.({ autoValidatePending: false });
+        logger.log?.('[账号] 已恢复账号登录状态:', credentials.username);
       }
-      return;
-    }
-
-    const licenseWindow = resolveLicenseWindow();
-    if (licenseWindow && !licenseWindow.isDestroyed()) {
-      try {
-        if (licenseWindow.isMinimized()) licenseWindow.restore();
-        licenseWindow.show();
-        licenseWindow.focus();
-      } catch (e) {
-        logger.warn?.('[启动] 显示首屏卡密窗口失败:', e?.message || e);
-      }
+      await bootstrapMainApp();
+    } catch (e) {
+      logger.error?.('[启动] 打开主界面失败:', e?.message || e);
     }
   });
 
@@ -530,11 +740,7 @@ function registerAppLifecycle(deps = {}) {
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      if (typeof deps.isMainBootstrapped === 'function' && deps.isMainBootstrapped()) {
-        createMainWindow();
-      } else {
-        createLicenseWindow();
-      }
+      createMainWindow();
     }
   });
 

@@ -28,14 +28,6 @@ if errorlevel 1 (
   exit /b 1
 )
 
-node scripts\set-side-url.js --mode=local
-if errorlevel 1 (
-  echo [ERROR] Failed to set local sideUrl.
-  popd >nul
-  pause
-  exit /b 1
-)
-
 @echo off
 
 echo ========================================

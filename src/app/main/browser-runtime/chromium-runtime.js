@@ -337,15 +337,30 @@ class ChromiumRuntime extends BrowserRuntime {
     return { ok: true, imported, skipped };
   }
 
-  async restart(profileId) {
+  async restart(profileId, options = {}) {
     const id = String(profileId);
     const instance = this.instances.get(id);
     const state = this.store.getState(id);
     if (!instance || !state) throw new Error(`Chromium Profile ${id} 不存在`);
     const profile = { ...instance.profile };
+    const rememberedInitialUrl = String(profile.initialUrl || '');
+    const rememberedRestoreLastSession = profile.restoreLastSession === true;
+    // 内部重启（插件开关、指纹参数更新）必须只恢复现有会话。若再次把
+    // initialUrl 作为命令行参数传给 Chromium，Chrome 会在恢复旧标签后
+    // 额外新建同一网址，表现为“记忆页面 + 重复打开”。
+    if (options.reopenInitialUrl !== true) {
+      profile.initialUrl = '';
+      profile.restoreLastSession = true;
+    }
     const bounds = { ...state.bounds };
     await this.stop(id, { timeoutMs: 3000 });
-    return this.launchProfile(profile, bounds);
+    const runtimeState = await this.launchProfile(profile, bounds);
+    const restartedInstance = this.instances.get(id);
+    if (restartedInstance?.profile) {
+      restartedInstance.profile.initialUrl = rememberedInitialUrl;
+      restartedInstance.profile.restoreLastSession = rememberedRestoreLastSession;
+    }
+    return runtimeState;
   }
 
   async stop(profileId, options = {}) {

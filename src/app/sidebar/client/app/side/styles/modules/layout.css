@@ -71,7 +71,7 @@ body.expanding {
 }
 
 .side-panel {
-  padding: 20px;
+  padding: 18px max(16px, calc((100% - var(--content-max)) / 2));
   background: rgba(255, 255, 255, 0.16);
   color: #2c3f58;
 }

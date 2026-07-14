@@ -211,8 +211,6 @@ function createAppShell(deps = {}) {
     }
     return null;
   };
-// 获取/读取/解析：resolveLicenseWindow的具体业务逻辑。
-  const resolveLicenseWindow = () => (typeof getLicenseWindow === 'function' ? getLicenseWindow() : null);
 // 获取/读取/解析：resolveExtPopupWin的具体业务逻辑。
   const resolveExtPopupWin = () => (typeof getExtPopupWin === 'function' ? getExtPopupWin() : null);
 // 获取/读取/解析：resolveTabs的具体业务逻辑。
@@ -249,79 +247,8 @@ function createAppShell(deps = {}) {
   const resolveGlobalHttpClient = () => (typeof getGlobalHttpClient === 'function' ? getGlobalHttpClient() : null);
 // 获取/读取/解析：resolveIsMainBootstrapped的具体业务逻辑。
   const resolveIsMainBootstrapped = () => (typeof getIsMainBootstrapped === 'function' ? getIsMainBootstrapped() : false);
-// 获取/读取/解析：resolveIsSwitchingToLicense的具体业务逻辑。
-  const resolveIsSwitchingToLicense = () => (typeof getIsSwitchingToLicense === 'function' ? getIsSwitchingToLicense() : false);
-// 获取/读取/解析：resolveLatestAllowedPlatforms的具体业务逻辑。
-  const resolveLatestAllowedPlatforms = () => (typeof getLatestAllowedPlatforms === 'function' ? getLatestAllowedPlatforms() : []);
-// 停止/关闭/清理：clearLicenseCacheValidation的具体业务逻辑。
-  const clearLicenseCacheValidation = () => {
-    try {
-      if (deps.licenseCache && typeof deps.licenseCache.clearValidationState === 'function') {
-        deps.licenseCache.clearValidationState();
-      }
-    } catch (e) {
-      logger.warn?.('[启动] 清理卡密缓存失败:', e?.message || e);
-    }
-  };
-
 // 处理：sleep的具体业务逻辑。
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// 创建/初始化：createLicenseWindow的具体业务逻辑。
-  function createLicenseWindow() {
-    const iconPath = typeof resolveAppIconPath === 'function'
-      ? resolveAppIconPath()
-      : path.join(__dirname, '../../../', FIXED_ICON_RELATIVE_PATH);
-
-    const licenseWindow = new BrowserWindow({
-      width: 1120,
-      height: 760,
-      resizable: false,
-      title: `${APP_DISPLAY_NAME} - 卡密搜索`,
-      icon: iconPath,
-      backgroundColor: '#050807',
-      show: false,
-      frame: true,
-      titleBarStyle: 'default',
-      autoHideMenuBar: false,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        backgroundThrottling: false,
-        preload: path.join(__dirname, '../preload.js'),
-      },
-    });
-
-    setLicenseWindow?.(licenseWindow);
-    licenseWindow.setMenu(null);
-    licenseWindow.loadFile(path.join(__dirname, '../../views/license.html'));
-    licenseWindow.once('ready-to-show', () => {
-      try {
-        if (licenseWindow.isDestroyed()) return;
-        licenseWindow.show();
-      } catch (e) {
-        logger.warn?.('[启动] 首屏卡密窗口显示失败:', e?.message || e);
-      }
-    });
-    licenseWindow.on('closed', () => {
-      if (typeof setLicenseWindow === 'function') {
-        setLicenseWindow(null);
-      }
-
-      // 调试窗口是独立顶层窗口；未验证时直接关闭卡密窗口后，它会阻止
-      // window-all-closed 触发。此时主动退出，让 before-quit 统一关闭调试
-      // 窗口并执行其余清理。验证成功进入主界面后的程序化关闭不退出应用。
-      if (!resolveIsMainBootstrapped()) {
-        try {
-          app.quit();
-        } catch (e) {
-          logger.warn?.('[启动] 关闭卡密窗口后退出应用失败:', e?.message || e);
-        }
-      }
-    });
-
-    return licenseWindow;
-  }
 
 // 创建/初始化：createDevConsoleWindow的具体业务逻辑。
   function createDevConsoleWindow() {
@@ -499,73 +426,6 @@ function createAppShell(deps = {}) {
     }
   }
 
-// 处理：backToLicenseWindow的具体业务逻辑。
-  async function backToLicenseWindow() {
-    try {
-      if (typeof setIsSwitchingToLicense === 'function') {
-        setIsSwitchingToLicense(true);
-      }
-
-      try {
-        if (typeof stopClashMiniProcess === 'function') {
-          await stopClashMiniProcess({ sendToSide });
-        }
-      } catch (clashErr) {
-        logger.warn?.('[启动] 返回首页时关闭 Clash Mini 失败:', clashErr?.message || clashErr);
-      }
-
-      try {
-        await deps.browserRuntimeManager?.stopAll({ timeoutMs: 4000 });
-      } catch (runtimeError) {
-        logger.warn?.('[ChromiumRuntime] 返回首页时关闭 Profile 失败:', runtimeError?.message || runtimeError);
-      }
-
-      resetMainRuntimeForRelicense();
-      const licenseWindow = resolveLicenseWindow();
-      if (!licenseWindow || licenseWindow.isDestroyed()) {
-        createLicenseWindow();
-      } else {
-        if (licenseWindow.isMinimized()) licenseWindow.restore();
-        licenseWindow.show();
-        licenseWindow.focus();
-      }
-
-      const extPopupWin = resolveExtPopupWin();
-      if (extPopupWin && !extPopupWin.isDestroyed()) {
-        try { extPopupWin.close(); } catch (_) {}
-        if (typeof setExtPopupWin === 'function') {
-          setExtPopupWin(null);
-        }
-      }
-
-      const mainWindow = resolveMainWindow();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        closeDevConsoleWindow();
-        try { mainWindow.close(); } catch (_) {}
-      }
-      if (typeof setMainWindow === 'function') {
-        setMainWindow(null);
-      }
-
-      if (typeof setSideView === 'function') setSideView(null);
-      if (typeof setActiveTabId === 'function') setActiveTabId(null);
-      resolveTabs().clear();
-
-      setTimeout(() => {
-        if (typeof setIsSwitchingToLicense === 'function') {
-          setIsSwitchingToLicense(false);
-        }
-      }, 300);
-
-      return { ok: true };
-    } catch (e) {
-      if (typeof setIsSwitchingToLicense === 'function') {
-        setIsSwitchingToLicense(false);
-      }
-      return { ok: false, message: e?.message || String(e) };
-    }
-  }
-
 // 创建/初始化：bootstrapMainApp的具体业务逻辑。
   async function bootstrapMainApp() {
     if (resolveIsMainBootstrapped()) {
@@ -631,7 +491,6 @@ function createAppShell(deps = {}) {
           getMainWindow: () => resolveMainWindow(),
           openExtensionPopup: resolveOpenExtensionPopup(),
           openExtensionOptions: resolveOpenExtensionOptions(),
-          backToLicenseWindow,
           applyPluginSettings,
           extensionManager,
           statePluginGetter,
@@ -856,7 +715,7 @@ function createAppShell(deps = {}) {
     mainWindow.addBrowserView(sideView);
     attachContextMenu(sideView.webContents, { addTab: resolveAddTab(), downloadOrSaveMedia: deps.downloadOrSaveMedia, tabs: resolveTabs(), activeTabId: resolveActiveTabId(), refreshPage: resolveRefreshActiveTab() });
 
-    try { auth.applyZhHantRequestPrefs(sideView.webContents.session, sideView.webContents); } catch (_) {}
+    try { resolveAuth()?.applyZhHantRequestPrefs(sideView.webContents.session, sideView.webContents); } catch (_) {}
 
     sideView.webContents.on('console-message', (details) => {
       if (!details || typeof details !== 'object') return;
@@ -998,45 +857,11 @@ function createAppShell(deps = {}) {
     }
   }
 
-// 停止/关闭/清理：resetMainRuntimeForRelicense的具体业务逻辑。
-  function resetMainRuntimeForRelicense() {
-    try {
-      if (typeof setIsMainBootstrapped === 'function') setIsMainBootstrapped(false);
-      if (typeof setAuth === 'function') setAuth(null);
-      if (typeof setLatestAllowedPlatforms === 'function') setLatestAllowedPlatforms([]);
-      if (deps.licenseCache && typeof deps.licenseCache.setRuntimeConfig === 'function') {
-        deps.licenseCache.setRuntimeConfig({
-          platformName: '',
-          allowedPlatforms: [],
-          targetUrl: '',
-          tutorialUrl: '',
-        });
-      }
-      if (typeof setDreamTargetUrl === 'function') {
-        setDreamTargetUrl(DREAM_TARGET_URL);
-      }
-      if (typeof resetRuntimeTutorialUrlState === 'function') {
-        resetRuntimeTutorialUrlState();
-      }
-      const client = resolveGlobalHttpClient();
-      if (client && typeof client.close === 'function') {
-        try { client.close(); } catch (_) {}
-      }
-      if (typeof setGlobalHttpClient === 'function') setGlobalHttpClient(null);
-      clearLicenseCacheValidation();
-    } catch (e) {
-      logger.warn?.('[启动] 重置运行态失败:', e?.message || e);
-    }
-  }
-
   return {
-    createLicenseWindow,
     createDevConsoleWindow,
-    backToLicenseWindow,
     bootstrapMainApp,
     createMainWindow,
     revealMainWindow,
-    resetMainRuntimeForRelicense,
   };
 }
 

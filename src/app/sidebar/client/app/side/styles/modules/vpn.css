@@ -31,14 +31,14 @@
   justify-content: space-between;
   gap: 10px;
   border: none;
-  border-radius: 5px;
-  background-color: #8A2BE2;
+  border-radius: var(--r-md);
+  background: var(--brand-grad);
   color: #fff;
-  box-shadow: none;
+  box-shadow: var(--brand-shadow);
   cursor: pointer;
   transition: transform 160ms ease, filter 160ms ease, opacity 160ms ease;
   overflow: hidden;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   text-align: center;
 }
@@ -77,7 +77,7 @@
 }
 
 .vpn-node-selector-label {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: 0;
   color: inherit;
@@ -86,7 +86,7 @@
 }
 
 .vpn-node-selector-toggle-text {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: 0;
   color: inherit;
@@ -101,11 +101,11 @@
   right: 0;
   margin-top: 0;
   padding: 12px;
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   background:
     linear-gradient(180deg, rgba(13, 18, 30, 0.98), rgba(21, 27, 42, 0.96)),
     #101521;
-  border: 1px solid rgba(120, 106, 255, 0.22);
+  border: 1px solid var(--brand-border);
   box-shadow: 0 24px 56px rgba(3, 7, 18, 0.48);
   transform-origin: top center;
   transform: translateY(-8px) scale(0.99);
@@ -208,15 +208,15 @@
 
 .vpn-node-option:hover {
   transform: translateY(-1px);
-  border-color: rgba(124, 102, 255, 0.42);
+  border-color: rgba(88, 140, 240, 0.46);
   box-shadow: 0 10px 22px rgba(6, 10, 22, 0.28);
 }
 
 .vpn-node-option.is-selected {
-  border-color: rgba(152, 140, 255, 0.72);
+  border-color: rgba(96, 150, 245, 0.72);
   background:
-    linear-gradient(135deg, var(--vpn-delay-bg-selected, rgba(89, 73, 220, 0.35)) 0%, rgba(28, 34, 53, 0.98) 100%),
-    linear-gradient(135deg, rgba(89, 73, 220, 0.35), rgba(28, 34, 53, 0.98));
+    linear-gradient(135deg, var(--vpn-delay-bg-selected, rgba(63, 110, 235, 0.32)) 0%, rgba(28, 34, 53, 0.98) 100%),
+    linear-gradient(135deg, rgba(63, 110, 235, 0.32), rgba(28, 34, 53, 0.98));
   box-shadow: 0 12px 24px rgba(4, 8, 18, 0.32);
 }
 
@@ -260,7 +260,7 @@
 }
 
 .vpn-node-option.is-selected .vpn-node-option-check {
-  background: linear-gradient(135deg, #7c6bff, #a78bfa);
+  background: var(--brand-grad);
   border-color: transparent;
   color: #fff;
 }

@@ -349,11 +349,33 @@ function bindLicenseCredentialsListener() {
   }
 
   window.electronAPI.on('license-credentials-updated', (data = {}) => {
+    const usernameEl = safeGetEl('account-username-display');
+    if (usernameEl) usernameEl.value = String(data.username || '');
+    if (data.loggedOut === true) {
+      const keyInput = safeGetEl('key-input');
+      const deviceIdInput = safeGetEl('device-id');
+      if (keyInput) keyInput.value = '';
+      if (deviceIdInput) deviceIdInput.value = '';
+      globalCurrentKey = '';
+      globalCurrentDeviceId = '';
+      hasValidatedInSession = false;
+      resetLicenseStateToValidate();
+      setLicenseButtonsDisabled(true);
+      return;
+    }
     try {
       applyLicenseCredentialsToInput({
         key: data.key,
         deviceId: data.deviceId,
       });
+      if (data.validation && typeof data.validation === 'object') {
+        displayExpirationInfo(data.validation);
+        applyValidatedLicenseResult(data.validation, {
+          key: data.key,
+          deviceId: data.deviceId,
+        });
+        enableAllLicenseRequiredButtons();
+      }
     } catch (error) {
       console.warn('[侧边栏] 处理卡密回填失败:', error?.message || error);
     }
@@ -516,72 +538,29 @@ function bindLicenseValidationControls() {
 
         setLicenseButtonsDisabled(true);
 
-        const autoValidate = await consumeAutoValidateFlag();
-        if (autoValidate.pending) {
-          const autoKey = String(autoValidate.key || loadedKey || '').trim();
-          if (autoKey) {
-            keyInput.value = autoKey;
-            globalCurrentKey = autoKey;
-            currentLicenseState.key = autoKey;
-          }
-          const cachedValidation = autoValidate.validation && typeof autoValidate.validation === 'object'
-            ? autoValidate.validation
-            : autoValidate;
-          if (autoValidate.validated === true && autoValidate.bound === true) {
-            displayExpirationInfo(cachedValidation);
-            applyValidatedLicenseResult(cachedValidation, {
-              key: autoKey,
-              deviceId: String(autoValidate.deviceId || loadedDeviceId || '').trim(),
-            });
-            enableAllLicenseRequiredButtons();
-            setAutoValidateStatus('已同步首页验证结果，无需重复请求');
-            const cachedDeviceId = String(autoValidate.deviceId || loadedDeviceId || '').trim();
-            try {
-              const vpnBtn = safeGetEl('VPN-switch');
-              const startBtn = safeGetEl('start-clash-mini-btn');
-              if (typeof autoStartClashMiniAfterValidation === 'function') {
-                void autoStartClashMiniAfterValidation({
-                  startBtn,
-                  vpnBtn,
-                  key: autoKey,
-                  deviceId: cachedDeviceId,
-                });
-              }
-            } catch (error) {
-              console.warn('[侧边栏] 复用验证结果后自动开启网络魔法失败:', error?.message || error);
+        // 清除旧版本遗留的自动卡密验证标记，但不再向中台调用 /api/validate_key。
+        await consumeAutoValidateFlag();
+        if (loadedKey && credentials.validated === true && credentials.bound === true) {
+          displayExpirationInfo(credentials);
+          applyValidatedLicenseResult(credentials, {
+            key: loadedKey,
+            deviceId: loadedDeviceId,
+          });
+          enableAllLicenseRequiredButtons();
+          setAutoValidateStatus('已恢复账号登录状态');
+          try {
+            const vpnBtn = safeGetEl('VPN-switch');
+            const startBtn = safeGetEl('start-clash-mini-btn');
+            if (typeof autoStartClashMiniAfterValidation === 'function') {
+              void autoStartClashMiniAfterValidation({
+                startBtn,
+                vpnBtn,
+                key: loadedKey,
+                deviceId: loadedDeviceId,
+              });
             }
-
-            // 首页结果先立即生效；到期时间、使用次数等详细字段在后台刷新，
-            // 不锁定按钮，也不阻塞教程和其他侧边栏数据加载。
-            void (async () => {
-              try {
-                const resp = await window.electronAPI.invoke('validate-key', {
-                  key: autoKey,
-                  device_id: cachedDeviceId,
-                });
-                if (!resp?.ok) {
-                  console.warn('[侧边栏][自动验证] 后台刷新详细数据失败:', resp?.error || resp?.message || '未知错误');
-                  return;
-                }
-                const payload = extractValidationPayload(resp?.result || resp);
-                displayExpirationInfo(payload || resp);
-                applyValidatedLicenseResult(payload || resp, {
-                  key: autoKey,
-                  deviceId: cachedDeviceId,
-                });
-                enableAllLicenseRequiredButtons();
-                setAutoValidateStatus('卡密详细数据已后台刷新');
-              } catch (error) {
-                console.warn('[侧边栏][自动验证] 后台刷新详细数据异常:', error?.message || error);
-              }
-            })();
-          } else {
-            setAutoValidateStatus('缓存验证状态缺失，立即补充验证...');
-            clearAutoValidateTimer();
-            autoValidateTimer = setTimeout(() => {
-              autoValidateTimer = null;
-              void handleValidateClick();
-            }, 0);
+          } catch (error) {
+            console.warn('[侧边栏] 恢复账号状态后自动开启网络魔法失败:', error?.message || error);
           }
         }
       }

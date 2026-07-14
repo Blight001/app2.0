@@ -13,6 +13,9 @@ Push-Location $script:SourceRoot
 try {
   & gn gen ([string]$script:Lock.build.output) --fail-on-unused-args
   if ($LASTEXITCODE -ne 0) { throw 'gn gen failed' }
-  & autoninja -C ([string]$script:Lock.build.output) -j 16 ([string]$script:Lock.build.target)
+  $pythonRelDir = (Get-Content -Raw (Join-Path $script:DepotToolsRoot 'python3_bin_reldir.txt')).Trim()
+  $depotPython = Join-Path (Join-Path $script:DepotToolsRoot $pythonRelDir) 'python3.exe'
+  $autoninjaScript = Join-Path $script:DepotToolsRoot 'autoninja.py'
+  & $depotPython $autoninjaScript -C ([string]$script:Lock.build.output) -j 16 ([string]$script:Lock.build.target)
   if ($LASTEXITCODE -ne 0) { throw 'Chromium build failed' }
 } finally { Pop-Location }

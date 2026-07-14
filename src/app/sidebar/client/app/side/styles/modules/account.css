@@ -5,11 +5,11 @@
   width: min(360px, calc(100vw - 40px));
   margin-top: 0;
   padding: 0;
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   background:
     linear-gradient(180deg, rgba(13, 18, 30, 0.98), rgba(21, 27, 42, 0.96)),
     #101521;
-  border: 1px solid rgba(120, 106, 255, 0.22);
+  border: 1px solid var(--brand-border);
   box-shadow: 0 24px 56px rgba(3, 7, 18, 0.48);
   transform-origin: top center;
   transform: translateY(-8px) scale(0.99);
@@ -59,12 +59,12 @@
 
 .account-item:hover {
   transform: translateY(-1px);
-  border-color: rgba(124, 102, 255, 0.42);
+  border-color: rgba(88, 140, 240, 0.46);
   box-shadow: 0 10px 22px rgba(6, 10, 22, 0.28);
 }
 
 .account-item.selected {
-  border-color: rgba(152, 140, 255, 0.72);
+  border-color: rgba(96, 150, 245, 0.72);
   box-shadow: 0 12px 24px rgba(4, 8, 18, 0.32);
 }
 
@@ -108,7 +108,7 @@
 }
 
 .account-actions .btn-switch {
-  background: linear-gradient(135deg, #7c6bff, #a78bfa);
+  background: var(--brand-grad);
   color: #fff;
 }
 

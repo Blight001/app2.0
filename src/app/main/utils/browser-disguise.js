@@ -5,6 +5,7 @@ const {
   getBrowserRegionPreset,
   inferBrowserRegionKeyFromLocale,
 } = require('./browser-region');
+const { registerRequestHeaderTransformer } = require('./session-request-headers');
 
 const TAB_PLATFORM = 'Win32';
 const GEO_IP_ENDPOINTS = [
@@ -200,7 +201,13 @@ function buildBrowserProfileFromRegion(regionKey, browserSettings = {}, geoInfo 
     || getAcceptLanguageFromLocale(locale)
   ).trim();
   const browserType = 'chrome';
-  const major = String(browserSettings.browserVersion || getChromiumMajorVersion()).split('.')[0] || getChromiumMajorVersion();
+  // 「内核版本」优先级高于「浏览器版本」：Chrome 的 UA 版本即引擎版本，用户显式指定内核版本时应作为准。
+  // kernelVersion 为空或 'auto' 时回退到浏览器版本，再回退到当前运行时内核。
+  const kernelVersionRaw = String(browserSettings.kernelVersion || '').trim();
+  const kernelMajor = kernelVersionRaw && kernelVersionRaw.toLowerCase() !== 'auto' && /^\d/.test(kernelVersionRaw)
+    ? kernelVersionRaw.split('.')[0]
+    : '';
+  const major = String(kernelMajor || browserSettings.browserVersion || getChromiumMajorVersion()).split('.')[0] || getChromiumMajorVersion();
   const os = String(browserSettings.os || 'win11').toLowerCase();
   const osToken = os === 'win7' ? 'Windows NT 6.1' : os === 'win8' ? 'Windows NT 6.2' : 'Windows NT 10.0';
   const defaultUserAgent = `Mozilla/5.0 (${osToken}; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`;
@@ -1084,6 +1091,59 @@ async function resolveTabBrowserProfile(options = {}) {
   return buildBrowserProfileFromRegion(localeRegion || 'us', browserSettings);
 }
 
+// 创建/初始化：formatClientHintBrandList的具体业务逻辑。
+// 把 [{brand, version}] 序列化成结构化头值：'"Chromium";v="147", "Google Chrome";v="147"'。
+// useFullVersion=false 只取主版本（低熵头 sec-ch-ua 用），true 保留完整版本（sec-ch-ua-full-version-list 用）。
+function formatClientHintBrandList(brands, useFullVersion) {
+  return (Array.isArray(brands) ? brands : [])
+    .map((item) => {
+      const brand = String(item?.brand || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      if (!brand) return '';
+      const rawVersion = String(item?.version || '');
+      const version = useFullVersion ? rawVersion : (rawVersion.split('.')[0] || rawVersion);
+      return `"${brand}";v="${version}"`;
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
+// 设置/更新/持久化：applyClientHintsToHeaders的具体业务逻辑。
+// 让 Sec-CH-UA* 请求头与注入脚本伪造的 navigator.userAgentData 保持一致，堵住内核真实版本的 HTTP 泄露。
+// 仅当 Chromium 本身已发送 sec-ch-ua（安全上下文）时才改写，避免在 http 等场景凭空添加而暴露异常。
+function applyClientHintsToHeaders(headers, profile) {
+  if (!headers || typeof headers !== 'object') return headers;
+  const lowerToActual = new Map(Object.keys(headers).map((key) => [key.toLowerCase(), key]));
+  if (!lowerToActual.has('sec-ch-ua')) return headers;
+
+  const present = new Set([...lowerToActual.keys()].filter((key) => key.startsWith('sec-ch-ua')));
+  for (const lower of present) delete headers[lowerToActual.get(lower)];
+
+  const baseBrands = formatClientHintBrandList(profile.uaBrands, false);
+  if (baseBrands) headers['Sec-CH-UA'] = baseBrands;
+  headers['Sec-CH-UA-Mobile'] = '?0';
+  headers['Sec-CH-UA-Platform'] = '"Windows"';
+
+  // 高熵头只有站点通过 Accept-CH 请求后 Chromium 才会发送，因此仅在原请求已包含时才改写。
+  const rewriteIfPresent = (lowerKey, headerName, value) => {
+    if (present.has(lowerKey) && value) headers[headerName] = value;
+  };
+  rewriteIfPresent('sec-ch-ua-platform-version', 'Sec-CH-UA-Platform-Version', `"${String(profile.platformVersion || '')}"`);
+  rewriteIfPresent('sec-ch-ua-arch', 'Sec-CH-UA-Arch', `"${String(profile.architecture || 'x86')}"`);
+  rewriteIfPresent('sec-ch-ua-bitness', 'Sec-CH-UA-Bitness', `"${String(profile.bitness || '64')}"`);
+  rewriteIfPresent('sec-ch-ua-full-version-list', 'Sec-CH-UA-Full-Version-List', formatClientHintBrandList(profile.uaFullVersionList, true));
+  rewriteIfPresent('sec-ch-ua-full-version', 'Sec-CH-UA-Full-Version', `"${String(profile.uaFullVersion || '')}"`);
+  rewriteIfPresent('sec-ch-ua-model', 'Sec-CH-UA-Model', '""');
+  rewriteIfPresent('sec-ch-ua-wow64', 'Sec-CH-UA-Wow64', '?0');
+  return headers;
+}
+
+// 设置/更新/持久化：installClientHintsForSession的具体业务逻辑。
+function installClientHintsForSession(webContents, profile) {
+  const session = webContents && webContents.session;
+  if (!session) return;
+  registerRequestHeaderTransformer(session, 'ai-free-client-hints', (headers) => applyClientHintsToHeaders(headers, profile));
+}
+
 // 处理：configureTabBrowserView的具体业务逻辑。
 async function configureTabBrowserView(webContents, options = {}) {
   if (!webContents || typeof webContents.isDestroyed === 'function' && webContents.isDestroyed()) {
@@ -1113,6 +1173,13 @@ async function configureTabBrowserView(webContents, options = {}) {
       webContents.setUserAgent(browserProfile.userAgent, acceptLanguages);
     }
   } catch (_) {}
+
+  // 同步改写 Sec-CH-UA* 请求头，使其与伪造的 UA / userAgentData 一致，避免内核真实版本从 HTTP 头泄露。
+  try {
+    installClientHintsForSession(webContents, browserProfile);
+  } catch (error) {
+    options.logger?.warn?.('[BrowserMask] Client Hints 头改写安装失败:', error?.message || error);
+  }
 
 // 处理：injectScript的具体业务逻辑。
   const injectScript = async () => {

@@ -4,6 +4,24 @@
   --text: #e6e8ee;
   --muted: #a0a7b4;
   --accent: #4da3ff;
+
+  /* ---- shared design tokens (radius scale is theme-independent) ---- */
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-pill: 999px;
+
+  /* ---- brand accent system (flat; dark defaults, overridden for light theme) ---- */
+  --brand: #4d9cff;
+  --brand-grad: #3d8bee;          /* flat solid button fill */
+  --brand-grad-hover: #4f97f2;
+  --brand-soft: rgba(77, 163, 255, 0.12);
+  --brand-border: rgba(120, 150, 210, 0.24);
+  --brand-shadow: none;           /* flat: no coloured drop shadow */
+  --teal: #21b0a5;
+  --card-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  --content-max: 560px;           /* cap content width so it never stretches */
 }
 
 body {

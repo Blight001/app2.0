@@ -15,8 +15,8 @@ function initSidePanelBindings() {
   bindLicenseValidationControls();
   bindServerAccountCookieListener();
   bindAccountPanel();
+  bindSidebarAccountAuth();
   bindTutorialLink();
-  bindBackToLicenseButton();
   bindSecondaryEntryButtons();
   bindRuntimeValueListeners();
 }

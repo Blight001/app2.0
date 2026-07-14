@@ -40,13 +40,17 @@
     </section>
 
     <nav class="tab-nav" aria-label="侧边栏栏目">
+      <button class="tab-button active" type="button" data-tab="ai-control-panel" aria-controls="ai-control-panel">
+        <span class="tab-button-icon" aria-hidden="true">✦</span>
+        <span>AI 控制</span>
+      </button>
+      <button class="tab-button" type="button" data-tab="personal-center-panel" aria-controls="personal-center-panel">
+        <span class="tab-button-icon" aria-hidden="true">●</span>
+        <span>个人中心</span>
+      </button>
       <button class="tab-button" type="button" data-tab="ai-free-settings-panel" aria-controls="ai-free-settings-panel">
         <span class="tab-button-icon" aria-hidden="true">⚙</span>
         <span>AI-FREE 参数</span>
-      </button>
-      <button class="tab-button active" type="button" data-tab="side-panel" aria-controls="side-panel">
-        <span class="tab-button-icon" aria-hidden="true">⌂</span>
-        <span>控制中心</span>
       </button>
     </nav>
 
@@ -54,6 +58,57 @@
       <section id="ai-free-settings-panel" class="ai-free-settings-panel panel" aria-label="AI-FREE 参数配置">
         <form id="ai-free-settings-form" class="settings-container vb-form" autocomplete="off">
           <header class="settings-hero"><div><div class="settings-eyebrow">Browser Profile</div><h1>AI-FREE 环境配置</h1><p>按 VirtualBrowser 的环境配置结构管理网络、身份与高级指纹。</p></div><button id="randomize-ai-free-settings" class="settings-secondary-btn" type="button">随机指纹</button></header>
+
+          <section class="settings-network-tools" aria-labelledby="network-tools-title">
+            <div class="settings-network-tools-heading">
+              <div>
+                <div class="settings-network-tools-eyebrow">Network & Extensions</div>
+                <h2 id="network-tools-title">网络魔法与插件</h2>
+              </div>
+              <span class="settings-network-tools-hint">路线和插件保持原有控制逻辑</span>
+            </div>
+
+            <div class="vpn-buttons-container">
+              <button id="VPN-switch" class="main-button btn-large-purple VPN-btn" type="button" disabled>关闭网络魔法</button>
+            </div>
+
+            <div class="vpn-node-selector-shell">
+              <div class="vpn-node-selector-row">
+                <button id="test-min-latency-btn" class="main-button btn-large-purple VPN-btn vpn-node-selector-btn vpn-node-selector-btn-primary" type="button" disabled>
+                  <span class="vpn-node-selector-btn-main">
+                    <span class="vpn-node-selector-label">检测最优路线</span>
+                  </span>
+                </button>
+                <button id="vpn-node-selector-toggle-btn" class="main-button btn-large-purple vpn-node-selector-btn vpn-node-selector-btn-toggle" type="button" disabled aria-expanded="false">
+                  <span class="vpn-node-selector-toggle-text">手动选择路线</span>
+                </button>
+              </div>
+              <div id="vpn-node-selector-panel" class="vpn-node-selector-panel" hidden>
+                <div class="vpn-node-selector-panel-head">
+                  <span class="vpn-node-selector-panel-title">切换节点</span>
+                  <span id="vpn-node-selector-group" class="vpn-node-selector-panel-subtitle">节点选择</span>
+                </div>
+                <div id="vpn-node-selector-grid" class="vpn-node-selector-grid"></div>
+              </div>
+            </div>
+
+            <button id="start-clash-mini-btn" class="main-button btn-large-teal" type="button" data-loading-text="启动中..." hidden>启动 Clash Mini</button>
+
+            <div class="plugin-switch-group">
+              <div class="settings-network-tools-subtitle">插件</div>
+              <div id="extension-plugin-list" class="extension-plugin-list" aria-live="polite"></div>
+            </div>
+
+            <div class="footer settings-network-tools-footer">
+              <div class="footer-left">
+                <a id="tutorial-link" target="_blank" rel="noopener noreferrer">使用教程</a>
+              </div>
+              <div class="footer-right">
+                <span id="app-version">v2.5.1</span>
+              </div>
+            </div>
+          </section>
+
           <div id="ai-free-settings-runtime" class="settings-runtime-card">正在读取当前环境…</div>
 
           <section class="vb-stage" aria-labelledby="basic-settings-title">
@@ -90,14 +145,14 @@
             <div class="vb-row"><span class="vb-label">Speech Voices</span><div class="segmented" data-field="speechVoices.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="noise">随机</button></div></div>
             <div class="vb-row"><label class="vb-label" for="browser-cpu">CPU</label><select id="browser-cpu" class="tiny-select"><option>2</option><option>4</option><option>6</option><option>8</option><option>12</option><option>16</option><option>32</option></select><span class="unit">核</span></div>
             <div class="vb-row"><label class="vb-label" for="browser-memory">内存</label><select id="browser-memory" class="tiny-select"><option>2</option><option>4</option><option>8</option><option>16</option><option>32</option><option>64</option></select><span class="unit">GB</span></div>
-            <div class="vb-row"><span class="vb-label">设备名称</span><div class="vb-grow vb-inline"><div class="segmented" data-field="deviceName.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="custom">自定义</button></div><input id="device-name" type="text"><button class="link-action" type="button" data-random-target="device-name">换一换</button></div></div>
-            <div class="vb-row"><span class="vb-label">MAC 地址</span><div class="vb-grow vb-inline"><div class="segmented" data-field="macAddress.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="custom">自定义</button></div><input id="mac-address" type="text"><button class="link-action" type="button" data-random-target="mac-address">换一换</button></div></div>
+            <div class="vb-row"><span class="vb-label">设备名称</span><div class="vb-grow vb-inline"><div class="segmented" data-field="deviceName.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="custom">自定义</button></div><input id="device-name" type="text"><button class="link-action" type="button" data-random-target="device-name">换一换</button><span class="kernel-badge">内核项</span></div></div>
+            <div class="vb-row"><span class="vb-label">MAC 地址</span><div class="vb-grow vb-inline"><div class="segmented" data-field="macAddress.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="custom">自定义</button></div><input id="mac-address" type="text"><button class="link-action" type="button" data-random-target="mac-address">换一换</button><span class="kernel-badge">内核项</span></div></div>
             <div class="vb-row"><span class="vb-label">Do Not Track</span><label class="switch"><input id="do-not-track" type="checkbox"><span></span></label></div>
             <div class="vb-row"><span class="vb-label">SSL</span><div class="segmented" data-field="sslEnabled"><button type="button" data-value="true">开启</button><button type="button" data-value="false">关闭</button></div><span class="kernel-badge">内核项</span></div>
             <div class="vb-row"><span class="vb-label">端口扫描保护</span><div class="segmented" data-field="portScanProtection.enabled"><button type="button" data-value="true">开启</button><button type="button" data-value="false">关闭</button></div></div>
             <div class="vb-row"><label class="vb-label" for="port-scan-allow-list">扫描白名单</label><input id="port-scan-allow-list" type="text" placeholder="输入端口号，多个用英文逗号隔开"></div>
             <div class="vb-row"><span class="vb-label">硬件加速</span><label class="switch"><input id="hardware-acceleration" type="checkbox"><span></span></label><span class="kernel-badge">重启生效</span></div>
-            <div class="vb-row vb-row-top"><span class="vb-label">启动参数</span><div class="vb-grow"><div class="segmented" data-field="launchArgs.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="custom">自定义</button></div><textarea id="launch-args" rows="3" placeholder="每行一个 --switch=value"></textarea></div></div>
+            <div class="vb-row vb-row-top"><span class="vb-label">启动参数</span><div class="vb-grow"><div class="segmented" data-field="launchArgs.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="custom">自定义</button></div><textarea id="launch-args" rows="3" placeholder="每行一个 --switch=value"></textarea><span class="kernel-badge">仅 Chromium 内核</span></div></div>
           </section>
 
           <div class="settings-apply-options">
@@ -112,40 +167,76 @@
         </form>
       </section>
 
-      <div id="side-panel" class="side-panel panel active">
+      <section id="personal-center-panel" class="side-panel personal-center-panel panel" aria-label="个人中心">
         <div class="container">
           <div class="info-group">
-            
+            <section id="sidebar-account-auth" class="sidebar-account-auth" aria-labelledby="sidebar-account-auth-title">
+              <div class="sidebar-auth-heading">
+                <div>
+                  <div class="sidebar-auth-eyebrow">AI-FREE Account</div>
+                  <h2 id="sidebar-account-auth-title">登录账号</h2>
+                </div>
+                <span class="sidebar-auth-state">未登录</span>
+              </div>
+              <div class="sidebar-auth-tabs" role="tablist" aria-label="账号操作">
+                <button class="sidebar-auth-tab active" type="button" data-auth-mode="login" role="tab" aria-selected="true">登录</button>
+                <button class="sidebar-auth-tab" type="button" data-auth-mode="register" role="tab" aria-selected="false">注册</button>
+              </div>
+              <div class="sidebar-auth-form">
+                <div id="sidebar-auth-platform-group" class="sidebar-auth-field">
+                  <label id="sidebar-auth-platform-label" for="sidebar-auth-platform">登录平台（可自动查找）</label>
+                  <select id="sidebar-auth-platform" autocomplete="off">
+                    <option value="">正在加载平台...</option>
+                  </select>
+                </div>
+                <div class="sidebar-auth-field">
+                  <label for="sidebar-auth-username">用户名</label>
+                  <input id="sidebar-auth-username" type="text" maxlength="32" placeholder="请输入用户名" autocomplete="username">
+                </div>
+                <div class="sidebar-auth-field">
+                  <label for="sidebar-auth-password">密码</label>
+                  <input id="sidebar-auth-password" type="password" maxlength="128" placeholder="请输入密码（至少 6 位）" autocomplete="current-password">
+                </div>
+                <div id="sidebar-auth-confirm-group" class="sidebar-auth-field" hidden>
+                  <label for="sidebar-auth-password-confirm">确认密码</label>
+                  <input id="sidebar-auth-password-confirm" type="password" maxlength="128" placeholder="请再次输入密码" autocomplete="new-password">
+                </div>
+                <button id="sidebar-auth-submit" class="sidebar-auth-submit" type="button" data-loading-text="登录中...">登录</button>
+              </div>
+              <div id="sidebar-auth-status" class="sidebar-auth-status" role="status" aria-live="polite"></div>
+            </section>
 
-            <div class="form-group device-id-row">
-              <label for="device-id">设备号:</label>
-              <input type="text" id="device-id" value="" readonly>
-
-            </div>
-              
-            <div class="form-group key-row">
-              <label for="key-input">卡密:</label>
-              <div class="key-input-shell">
-                <input type="text" id="key-input" value="" placeholder="请输入您的卡密" maxlength="30">
-                <button id="validate-key-btn" class="btn-blue">验证</button>
+            <section id="sidebar-account-session" class="sidebar-account-session" aria-label="当前账号" hidden>
+              <div class="form-group device-id-row">
+                <label for="device-id">设备号:</label>
+                <input type="text" id="device-id" value="" readonly>
               </div>
-            </div>
-            <div class="info-line license-summary-line">
-              <div class="license-summary-item">
-                <span>有效期: </span>
-                <span id="expire-time">未验证</span>
+              <div class="form-group key-row account-session-row">
+                <label for="account-username-display">账号:</label>
+                <div class="key-input-shell">
+                  <input type="text" id="account-username-display" value="" placeholder="已登录账号" readonly>
+                  <button id="account-logout-btn" class="btn-blue" type="button">退出登录</button>
+                </div>
               </div>
-              <div class="license-summary-item">
-                <span>剩余: </span>
-                <span id="usage-times">未验证</span>
+              <div class="info-line license-summary-line">
+                <div class="license-summary-item">
+                  <span>有效期: </span>
+                  <span id="expire-time">同步中</span>
+                </div>
+                <div class="license-summary-item">
+                  <span>剩余: </span>
+                  <span id="usage-times">同步中</span>
+                </div>
               </div>
+            </section>
+            <div hidden aria-hidden="true">
+              <input type="password" id="key-input" value="" tabindex="-1" autocomplete="off">
+              <button id="validate-key-btn" type="button" tabindex="-1">同步账号状态</button>
             </div>
           </div>
 
-
-
           <div class="account-launch-row">
-            <button id="open-dream-page-btn" class="main-button btn-large-blue requires-license" disabled>一键启动 即梦AI</button>
+            <button id="open-dream-page-btn" class="main-button btn-large-blue requires-license" disabled>一键启动 AI-FREEAI</button>
             <div class="account-history-shell">
               <button id="account-history-toggle-btn" class="main-button btn-large-blue requires-license">历史账号</button>
               <div id="account-panel" class="account-popup-panel" hidden>
@@ -159,42 +250,6 @@
                 </div>
               </div>
             </div>
-          </div>
-
-          <div class="ai-launch-buttons">
-            <button id="keling-ai-btn" class="main-button btn-large-yellow">一键启动  可灵AI</button>
-            <button id="hailuo-ai-btn" class="main-button btn-large-yellow">一键启动  海螺AI</button>
-          </div>
-
-          <div class="vpn-buttons-container">
-            <button id="VPN-switch" class="main-button btn-large-purple VPN-btn" disabled>关闭网络魔法</button>
-          </div>
-
-
-          <div class="vpn-node-selector-shell">
-            <div class="vpn-node-selector-row">
-              <button id="test-min-latency-btn" class="main-button btn-large-purple VPN-btn vpn-node-selector-btn vpn-node-selector-btn-primary" disabled>
-                <span class="vpn-node-selector-btn-main">
-                  <span class="vpn-node-selector-label">检测最优路线</span>
-                </span>
-              </button>
-              <button id="vpn-node-selector-toggle-btn" class="main-button btn-large-purple vpn-node-selector-btn vpn-node-selector-btn-toggle" disabled aria-expanded="false" type="button">
-                <span class="vpn-node-selector-toggle-text">手动选择路线</span>
-              </button>
-            </div>
-            <div id="vpn-node-selector-panel" class="vpn-node-selector-panel" hidden>
-              <div class="vpn-node-selector-panel-head">
-                <span class="vpn-node-selector-panel-title">切换节点</span>
-                <span id="vpn-node-selector-group" class="vpn-node-selector-panel-subtitle">节点选择</span>
-              </div>
-              <div id="vpn-node-selector-grid" class="vpn-node-selector-grid"></div>
-            </div>
-          </div>
-
-          <button id="start-clash-mini-btn" class="main-button btn-large-teal" data-loading-text="启动中..." hidden>启动 Clash Mini</button>
-          
-          <div class="plugin-switch-group">
-            <div id="extension-plugin-list" class="extension-plugin-list" aria-live="polite"></div>
           </div>
 
           <!-- 公告栏 -->
@@ -220,7 +275,7 @@
                     <circle cx="12" cy="12" r="4.2"></circle>
                     <path d="M12 1.8v3.1M12 19.1v3.1M4.6 4.6l2.2 2.2M17.2 17.2l2.2 2.2M1.8 12h3.1M19.1 12h3.1M4.6 19.4l2.2-2.2M17.2 6.8l2.2-2.2"></path>
                   </svg>
-                <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+                  <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M20.4 14.2A8.5 8.5 0 0 1 9.8 3.6a9 9 0 1 0 10.6 10.6Z"></path>
                     <path d="M18.8 5.2l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4-1.4-.5 1.4-.5.5-1.4Z"></path>
                   </svg>
@@ -228,20 +283,37 @@
               </div>
             </div>
             <div class="announcement-content" id="announcement-content">
-              <p>欢迎使用AI无限积分工具，最新功能已上线！</p>
-            </div>
-          </div>
-
-          <div class="footer">
-            <div class="footer-left">
-              <a id="tutorial-link" target="_blank" rel="noopener noreferrer">使用教程</a>
-            </div>
-            <div class="footer-right">
-              <span id="app-version">v2.5.1</span>
+              <p>欢迎使用 AI-FREE，最新功能已上线！</p>
             </div>
           </div>
         </div>
-      </div>
+      </section>
+
+      <section id="ai-control-panel" class="ai-control-panel panel active" aria-label="AI 控制">
+        <header class="ai-chat-header">
+          <div class="ai-chat-model-row">
+            <label for="ai-chat-model">模型</label>
+            <select id="ai-chat-model" disabled>
+              <option value="">正在读取可用模型...</option>
+            </select>
+            <button id="ai-chat-refresh-models" type="button" title="刷新模型" aria-label="刷新模型">↻</button>
+          </div>
+          <button id="ai-chat-clear" class="ai-chat-clear" type="button" title="清空当前对话">新对话</button>
+        </header>
+        <div id="ai-chat-quota" class="ai-chat-quota">选择模型后即可开始对话</div>
+        <div id="ai-chat-messages" class="ai-chat-messages" role="log" aria-live="polite">
+          <div class="ai-chat-welcome">
+            <span class="ai-chat-welcome-icon">✦</span>
+            <strong>有什么可以帮你？</strong>
+            <p>选择管理员配置的模型，然后开始对话。</p>
+          </div>
+        </div>
+        <form id="ai-chat-form" class="ai-chat-composer">
+          <textarea id="ai-chat-input" rows="1" maxlength="12000" placeholder="输入消息，Enter 发送，Shift + Enter 换行"></textarea>
+          <button id="ai-chat-send" type="submit" disabled aria-label="发送消息">↑</button>
+        </form>
+      </section>
+
     </div>
   </div>
 
@@ -254,6 +326,7 @@
   <script src="./client/scripts/control-panel.js"></script>
 
   <script src="./client/app/side/controllers/pages/side-panel/tabs.js"></script>
+  <script src="./client/app/side/controllers/pages/ai-control.js"></script>
 
   <!-- 针对 key-input 的左/右键弹出粘贴菜单逻辑 -->
   <script src="./client/app/side/controllers/pages/side-panel/context-menu.js"></script>
@@ -271,6 +344,7 @@
   <script src="./client/app/side/controllers/pages/side-panel/modules/shared.js"></script>
   <script src="./client/app/side/controllers/pages/side-panel/modules/feature-toggles.js"></script>
   <script src="./client/app/side/controllers/pages/side-panel/modules/connection-sync.js"></script>
+  <script src="./client/app/side/controllers/pages/side-panel/modules/account-auth.js"></script>
   <script src="./client/app/side/controllers/pages/side-panel/modules/entry-links.js"></script>
   <script src="./client/app/side/controllers/pages/side-panel/modules/region.js"></script>
   <script src="./client/app/side/controllers/pages/side-panel/modules/vpn.js"></script>

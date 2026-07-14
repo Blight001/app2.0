@@ -575,13 +575,11 @@ function createAccountItem(account) {
   item.classList.toggle('active', currentAccountId === accountId);
 
   const recordLabel = getAccountRecordLabel(account);
-  const keyLabel = maskCardKey(account.key || '');
   const accountTypeLabel = getAccountTypeLabel(account);
   const expiryText = formatAccountExpiryDiff(account);
   const lastUsedText = formatAccountLastUsedText(account);
   const metaParts = [];
   if (accountTypeLabel) metaParts.push(`类型: ${accountTypeLabel}`);
-  if (keyLabel && keyLabel !== '未绑定卡密') metaParts.push(`卡密: ${keyLabel}`);
 
   item.innerHTML = `
     <div class="account-info">
@@ -746,7 +744,7 @@ function bindAccountPanel() {
     accountToggleBtn.dataset.bound = '1';
   }
 
-  const mainPanelTabBtn = document.querySelector('[data-tab="side-panel"]');
+  const mainPanelTabBtn = document.querySelector('[data-tab="personal-center-panel"]');
   if (mainPanelTabBtn && mainPanelTabBtn.dataset.accountUnlockBound !== '1') {
     mainPanelTabBtn.addEventListener('dblclick', handleAccountRecordButtonDoubleClick);
     mainPanelTabBtn.dataset.accountUnlockBound = '1';
@@ -755,6 +753,10 @@ function bindAccountPanel() {
   if (!window.__accountHistoryPanelOpenBound) {
     window.__accountHistoryPanelOpenBound = true;
     window.addEventListener('account-history-panel-open-request', () => {
+      const personalCenterTab = document.querySelector('[data-tab="personal-center-panel"]');
+      if (personalCenterTab && !personalCenterTab.classList.contains('active')) {
+        personalCenterTab.click();
+      }
       const wasOpened = setAccountPanelOpen(true);
       if (wasOpened) {
         void loadAccountList();

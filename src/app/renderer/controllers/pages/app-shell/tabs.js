@@ -68,7 +68,6 @@ if (IPC && typeof IPC.on === 'function') {
 
 let tabsContainer = document.getElementById('tabs-container');
 let addTabBtn = document.getElementById('add-tab-btn');
-let backToLicenseBtn = document.getElementById('back-to-license-btn');
 
 // 监听/绑定：onReady的具体业务逻辑。
 function onReady(fn) {
@@ -389,34 +388,9 @@ function bindAddTabBtnOnce() {
   addTabBtn.dataset.bound = '1';
 }
 
-// 同步/连接：bindBackToLicenseBtnOnce的具体业务逻辑。
-function bindBackToLicenseBtnOnce() {
-  backToLicenseBtn = document.getElementById('back-to-license-btn');
-  if (!backToLicenseBtn) return;
-  if (backToLicenseBtn.dataset.bound === '1') return;
-  backToLicenseBtn.addEventListener('click', async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      const invokeFn = window.electronAPI && typeof window.electronAPI.invoke === 'function'
-        ? window.electronAPI.invoke.bind(window.electronAPI)
-        : null;
-      if (!invokeFn) throw new Error('当前环境不支持回退操作');
-      const resp = await invokeFn('back-to-license-window');
-      if (!resp || resp.ok !== true) {
-        throw new Error((resp && (resp.message || resp.error)) || '切换失败');
-      }
-    } catch (err) {
-      showControllerError('回退验证界面失败', err);
-    }
-  });
-  backToLicenseBtn.dataset.bound = '1';
-}
-
 onReady(() => {
   tabsContainer = document.getElementById('tabs-container');
   bindAddTabBtnOnce();
-  bindBackToLicenseBtnOnce();
 
   // 初始化设置按钮动画监听器
   initSettingsBtnAnimation();

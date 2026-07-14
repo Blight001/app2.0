@@ -95,6 +95,42 @@ function assertSafeChromiumArgs(args = []) {
   }
 }
 
+function applyChromiumSessionStartupPolicy(paths = {}, logger = console) {
+  const userDataDir = String(paths.chromiumData || '').trim();
+  if (!userDataDir) return false;
+  const preferencesPath = path.join(userDataDir, 'Default', 'Preferences');
+  let preferences = {};
+  try {
+    if (fs.existsSync(preferencesPath)) {
+      preferences = JSON.parse(fs.readFileSync(preferencesPath, 'utf8') || '{}');
+      if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) preferences = {};
+    }
+  } catch (error) {
+    logger?.warn?.('[ChromiumRuntime] Preferences 无法解析，保留原文件并跳过会话启动策略:', error?.message || error);
+    return false;
+  }
+
+  preferences.session = preferences.session && typeof preferences.session === 'object'
+    ? preferences.session
+    : {};
+  preferences.session.restore_on_startup = 5;
+  preferences.session.startup_urls = [];
+  preferences.profile = preferences.profile && typeof preferences.profile === 'object'
+    ? preferences.profile
+    : {};
+  preferences.profile.exit_type = 'Normal';
+  preferences.profile.exited_cleanly = true;
+
+  try {
+    fs.mkdirSync(path.dirname(preferencesPath), { recursive: true });
+    fs.writeFileSync(preferencesPath, JSON.stringify(preferences), 'utf8');
+    return true;
+  } catch (error) {
+    logger?.warn?.('[ChromiumRuntime] 写入单页启动策略失败:', error?.message || error);
+    return false;
+  }
+}
+
 function buildChromiumArgs(options = {}) {
   const profile = options.profile || {};
   const paths = options.paths || {};
@@ -122,6 +158,7 @@ function buildChromiumArgs(options = {}) {
   const extensionPaths = (profile.extensionPaths || []).map((item) => path.resolve(String(item || ''))).filter((item) => fs.existsSync(item));
   if (extensionPaths.length) args.push(`--load-extension=${extensionPaths.join(',')}`);
   if (profile.remoteDebuggingPipe === true) args.push('--remote-debugging-pipe');
+  if (profile.restoreLastSession === true) args.push('--restore-last-session');
   args.push(...(Array.isArray(profile.extraArgs) ? profile.extraArgs : []));
   if (profile.initialUrl) args.push(String(profile.initialUrl));
   assertSafeChromiumArgs(args);
@@ -130,6 +167,7 @@ function buildChromiumArgs(options = {}) {
 
 function launchChromium(options = {}) {
   const executablePath = resolveChromiumExecutable(options);
+  applyChromiumSessionStartupPolicy(options.paths, options.logger);
   const args = buildChromiumArgs(options);
   const child = spawn(executablePath, args, {
     cwd: path.dirname(executablePath),
@@ -147,6 +185,7 @@ function launchChromium(options = {}) {
 
 module.exports = {
   FORBIDDEN_SWITCHES,
+  applyChromiumSessionStartupPolicy,
   assertSafeChromiumArgs,
   buildChromiumArgs,
   buildChromiumEnvironment,

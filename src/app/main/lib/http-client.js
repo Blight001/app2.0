@@ -93,6 +93,36 @@ class HttpClient {
         return this.runtimeServerBase || getServerBase() || '';
     }
 
+    _getClientGatewayFallbackBases() {
+        const preferred = this._getPreferredHttpBase();
+        if (!preferred) return [];
+        try {
+            const parsed = new URL(preferred);
+            const candidates = [];
+            const push = (value) => {
+                const normalized = String(value || '').replace(/\/+$/, '');
+                if (normalized && normalized !== preferred.replace(/\/+$/, '') && !candidates.includes(normalized)) {
+                    candidates.push(normalized);
+                }
+            };
+
+            // 59000 是统一控制入口；未登录状态下的公开客户端能力由同主机 58111 提供。
+            parsed.port = '58111';
+            push(parsed.toString());
+
+            // 若控制入口带有自身路径，再尝试客户端网关根地址。
+            if (parsed.pathname && parsed.pathname !== '/') {
+                parsed.pathname = '/';
+                parsed.search = '';
+                parsed.hash = '';
+                push(parsed.toString());
+            }
+            return candidates;
+        } catch (_) {
+            return [];
+        }
+    }
+
     async _executeHttpRequest({
         path,
         method = 'POST',
@@ -300,6 +330,51 @@ class HttpClient {
             path: '/api/control_proxy',
             method: 'POST',
             data: { key, device_id: deviceId, action },
+        });
+    }
+
+    async getAIControlModels(key, deviceId) {
+        const primary = await this._request({
+            actionLabel: 'getAIControlModels',
+            path: '/api/ai-control/models',
+            method: 'POST',
+            data: { key, device_id: deviceId },
+        });
+        if (primary?.ok) return primary;
+
+        let lastResult = primary;
+        for (const base of this._getClientGatewayFallbackBases()) {
+            console.log(`[HTTP] getAIControlModels 回退客户端网关: ${base}`);
+            const result = await executeHttpRequest({
+                getServerBase: () => base,
+                getJson,
+                postJson,
+                path: '/api/ai-control/models',
+                method: 'POST',
+                data: { key, device_id: deviceId },
+                timeoutMs: NETWORK_DIAG_CONFIG.REQUEST_TIMEOUT,
+            }).catch((error) => ({
+                ok: false,
+                status: 0,
+                error: error?.message || String(error),
+            }));
+            lastResult = result;
+            if (result?.ok) {
+                return { ...result, transportMode: 'http' };
+            }
+        }
+        return lastResult && typeof lastResult === 'object'
+            ? { ...lastResult, transportMode: 'http' }
+            : primary;
+    }
+
+    async sendAIControlMessage(key, deviceId, modelId, messages) {
+        return this._request({
+            actionLabel: 'sendAIControlMessage',
+            path: '/api/ai-control/chat',
+            method: 'POST',
+            data: { key, device_id: deviceId, model_id: modelId, messages },
+            timeoutMs: 120000,
         });
     }
 

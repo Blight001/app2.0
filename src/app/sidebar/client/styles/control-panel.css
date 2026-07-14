@@ -20,6 +20,16 @@ html.theme-light {
   --muted: #5a6c80;
   --accent: #409eff;
   --accent-strong: #2f7fe6;
+
+  /* brand accent system for light theme (flat) */
+  --brand: #2f8ae6;
+  --brand-grad: #2f8ae6;          /* flat solid button fill */
+  --brand-grad-hover: #1f7bd8;
+  --brand-soft: rgba(47, 138, 230, 0.10);
+  --brand-border: rgba(86, 121, 165, 0.24);
+  --brand-shadow: none;           /* flat: no coloured drop shadow */
+  --teal: #17a99f;
+  --card-shadow: 0 6px 18px rgba(27, 52, 83, 0.07);
 }
 
 body {
@@ -283,10 +293,8 @@ html.theme-light .preview-toolbar input:focus {
 }
 
 html.theme-light .tab-nav {
-  background: rgba(255, 255, 255, 0.64);
-  border-bottom: 1px solid rgba(84, 120, 165, 0.18);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: transparent;
+  border-bottom: 1px solid rgba(84, 120, 165, 0.2);
 }
 
 html.theme-light .theme-toggle-btn {

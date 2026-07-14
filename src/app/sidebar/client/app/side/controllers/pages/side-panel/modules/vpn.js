@@ -69,7 +69,7 @@ function applyVpnActionAvailability() {
 // 处理：lockSidePanelButtons的具体业务逻辑。
 function lockSidePanelButtons() {
   if (sideButtonLockSnapshot) return;
-  const panel = document.getElementById('side-panel');
+  const panel = document.querySelector('.settings-network-tools') || document.getElementById('side-panel');
   if (!panel) return;
   const buttons = Array.from(panel.querySelectorAll('button'));
   sideButtonLockSnapshot = buttons.map((button) => ({
@@ -391,7 +391,7 @@ async function syncClashMiniConfigFromServer(options = {}) {
   const { key, deviceId } = await resolveClashMiniCredentialsSnapshot(options);
 
   if (!key || !deviceId) {
-    throw new Error('缺少卡密或设备号，无法获取 Clash 配置');
+    throw new Error('账号未登录或缺少设备号，无法获取 Clash 配置');
   }
 
   console.log('[侧边栏][Clash] 开始获取客户端配置...');
@@ -443,7 +443,7 @@ async function syncClashMiniConfigFromServer(options = {}) {
 async function ensureClashMiniConfigPreheated(options = {}) {
   const { key, deviceId } = await resolveClashMiniCredentialsSnapshot(options);
   if (!key || !deviceId) {
-    throw new Error('缺少卡密或设备号，无法预热 Clash 配置');
+    throw new Error('账号未登录或缺少设备号，无法预热 Clash 配置');
   }
 
   const signature = getClashMiniConfigSignature(key, deviceId);

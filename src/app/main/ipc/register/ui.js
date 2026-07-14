@@ -693,17 +693,6 @@ function registerUiIPC(ctx) {
   ipcMain.on('refresh-active-tab-to-url', (_e, url) => ui.refreshActiveTabToUrl(url));
   ipcMain.on('refresh-active-tab', () => ui.refreshActiveTab());
 
-  ipcMain.handle('back-to-license-window', async () => {
-    try {
-      if (ui && typeof ui.backToLicenseWindow === 'function') {
-        return await ui.backToLicenseWindow();
-      }
-      return { ok: false, message: '回退验证界面功能不可用' };
-    } catch (e) {
-      return { ok: false, message: e?.message || String(e) };
-    }
-  });
-
   ipcMain.on('smart-refresh-active-tab', async () => {
     try {
       const wc = ui.getActiveWC && ui.getActiveWC();

@@ -1,0 +1,180 @@
+.sidebar-account-auth[hidden],
+.sidebar-account-session[hidden],
+.sidebar-auth-field[hidden] {
+  display: none !important;
+}
+
+.sidebar-account-auth {
+  display: grid;
+  gap: 14px;
+}
+
+.sidebar-auth-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sidebar-auth-heading h2 {
+  margin: 3px 0 0;
+  color: #edf5ff;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.sidebar-auth-eyebrow {
+  display: none;
+}
+
+.sidebar-auth-state {
+  padding: 5px 9px;
+  border: 1px solid rgba(123, 174, 255, .22);
+  border-radius: 999px;
+  background: rgba(72, 122, 205, .1);
+  color: #9dbce9;
+  font-size: 11px;
+}
+
+.sidebar-auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  padding: 4px;
+  border: 1px solid rgba(78, 101, 139, .62);
+  border-radius: 10px;
+  background: rgba(10, 15, 24, .42);
+}
+
+.sidebar-auth-tab {
+  height: 34px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #8f9db2;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background-color .18s ease, color .18s ease, box-shadow .18s ease;
+}
+
+.sidebar-auth-tab.active {
+  background: var(--brand-grad);
+  box-shadow: var(--brand-shadow);
+  color: #fff;
+  font-weight: 700;
+}
+
+.sidebar-auth-form {
+  display: grid;
+  gap: 11px;
+}
+
+.sidebar-auth-field {
+  display: grid;
+  gap: 6px;
+}
+
+.sidebar-auth-field label {
+  color: #9ba9bd;
+  font-size: 12px;
+}
+
+.sidebar-auth-field input,
+.sidebar-auth-field select {
+  box-sizing: border-box;
+  width: 100%;
+  height: 38px;
+  min-width: 0;
+  padding: 0 11px;
+  border: 1px solid rgba(71, 88, 116, .78);
+  border-radius: 9px;
+  outline: none;
+  background: rgba(12, 18, 28, .56);
+  color: #e8effa;
+  font: inherit;
+}
+
+.sidebar-auth-field input:focus,
+.sidebar-auth-field select:focus {
+  border-color: rgba(77, 163, 255, .95);
+  box-shadow: 0 0 0 2px rgba(77, 163, 255, .18);
+}
+
+.sidebar-auth-field input::placeholder {
+  color: #68768b;
+}
+
+.sidebar-auth-submit {
+  height: 40px;
+  margin-top: 2px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--brand-grad);
+  box-shadow: var(--brand-shadow);
+  color: #fff;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.sidebar-auth-submit:disabled {
+  cursor: wait;
+  opacity: .68;
+}
+
+.sidebar-auth-status {
+  min-height: 18px;
+  color: #91a4bd;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.sidebar-auth-status[data-type='error'] {
+  color: #ff8585;
+}
+
+.sidebar-auth-status[data-type='success'] {
+  color: #64d99b;
+}
+
+.sidebar-account-session .account-session-row {
+  margin-bottom: 10px;
+}
+
+html.theme-light .sidebar-auth-heading h2 {
+  color: #203448;
+}
+
+html.theme-light .sidebar-auth-eyebrow {
+  color: #3973bf;
+}
+
+html.theme-light .sidebar-auth-state {
+  border-color: rgba(64, 120, 192, .18);
+  background: rgba(73, 130, 203, .08);
+  color: #53749d;
+}
+
+html.theme-light .sidebar-auth-tabs {
+  border-color: rgba(86, 121, 165, .18);
+  background: rgba(226, 236, 248, .72);
+}
+
+html.theme-light .sidebar-auth-tab {
+  color: #61748b;
+}
+
+html.theme-light .sidebar-auth-field label {
+  color: #5a6c80;
+}
+
+html.theme-light .sidebar-auth-field input,
+html.theme-light .sidebar-auth-field select {
+  border-color: rgba(90, 129, 179, .24);
+  background: rgba(255, 255, 255, .86);
+  color: #1f3044;
+}
+
+html.theme-light .sidebar-auth-field input::placeholder {
+  color: #94a0af;
+}

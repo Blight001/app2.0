@@ -16,6 +16,7 @@
     "accept:chromium-input": "node scripts/run-electron.js scripts/accept-chromium-input.js",
     "accept:chromium-phase3": "node scripts/run-electron.js scripts/accept-chromium-phase3.js",
     "check:http-routing": "node scripts/check-http-tenant-routing.js",
+    "check:account-session": "node scripts/check-account-session.js",
     "check:announcements": "node scripts/check-announcement-polling.js",
     "check:extension-compat": "node scripts/check-extension-compat.js",
     "check:extension-refresh": "node scripts/check-extension-refresh.js",

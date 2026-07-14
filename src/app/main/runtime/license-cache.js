@@ -86,7 +86,7 @@ function createLicenseCache() {
       state.credentials.key = nextKey;
       state.validation.key = nextKey;
     }
-    if (deviceId !== undefined && nextDeviceId) {
+    if (deviceId !== undefined) {
       state.credentials.deviceId = nextDeviceId;
       state.validation.deviceId = nextDeviceId;
     }

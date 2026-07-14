@@ -301,6 +301,7 @@ const extensionManager = createExtensionManager({
 
 let platformRefreshInFlight = false;
 let runtimeTutorialUrlOpened = false;
+let runtimeTutorialUrlOpening = false;
 
 // 停止/关闭/清理：resetRuntimeTutorialUrlState的具体业务逻辑。
 function resetRuntimeTutorialUrlState() {
@@ -345,21 +346,31 @@ async function refreshAllowedPlatformsAndNotify() {
     if (tutorialUrl) {
       try {
         sendToSide('tutorial-url-updated', { tutorialUrl });
-        if (!runtimeTutorialUrlOpened) {
+        if (!runtimeTutorialUrlOpened && !runtimeTutorialUrlOpening) {
           if (typeof addTab === 'function') {
-            const openedTabId = await addTab(tutorialUrl, {
-              browserProxyMode: 'direct',
-              browserSettings: {
-                region: 'cn',
-                locale: 'zh-CN',
-                acceptLanguage: 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-              },
-            });
-            if (openedTabId) {
-              runtimeTutorialUrlOpened = true;
-            } else {
-              console.warn('[启动] 教程页未能打开，稍后将重试:', tutorialUrl);
-            }
+            runtimeTutorialUrlOpening = true;
+            // 教程页属于登录后的附加动作，不能阻塞账号登录 IPC。
+            void (async () => {
+              try {
+                const openedTabId = await addTab(tutorialUrl, {
+                  browserProxyMode: 'direct',
+                  browserSettings: {
+                    region: 'cn',
+                    locale: 'zh-CN',
+                    acceptLanguage: 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+                  },
+                });
+                if (openedTabId) {
+                  runtimeTutorialUrlOpened = true;
+                } else {
+                  console.warn('[启动] 教程页未能打开，稍后将重试:', tutorialUrl);
+                }
+              } catch (error) {
+                console.warn('[启动] 后台打开教程地址失败:', error?.message || error);
+              } finally {
+                runtimeTutorialUrlOpening = false;
+              }
+            })();
           }
         }
       } catch (e) {
@@ -505,12 +516,9 @@ const appShellDeps = {
 const appShell = createAppShell(appShellDeps);
 
 const {
-  createLicenseWindow,
-  backToLicenseWindow,
   bootstrapMainApp,
   createMainWindow,
   revealMainWindow,
-  resetMainRuntimeForRelicense,
 } = appShell;
 
 tabManager = createTabManager({
@@ -589,7 +597,6 @@ registerAppLifecycle({
   computeDeviceId,
   licenseCache,
   bootstrapMainApp,
-  createLicenseWindow,
   sendToSide,
   cleanupAllBrowserSessionData,
   cleanupBrowserPartitionsRootDir,
@@ -597,7 +604,12 @@ registerAppLifecycle({
 
   shortcutManager,
   resolveServerConfigForKey: serverResolver.resolveServerConfigForKey,
+  authenticateAccount: serverResolver.authenticateAccount,
+  getAccountPlatforms: serverResolver.getAccountPlatforms,
   applyResolvedConfigToStore: serverResolver.applyResolvedConfigToStore,
+  refreshAllowedPlatformsAndNotify,
+  setRuntimeServerBase,
+  setRuntimeTcpConfig,
   getGlobalHttpClient: appRuntime.getGlobalHttpClient,
   isSwitchingToLicense: appRuntime.getIsSwitchingToLicense,
   isMainBootstrapped: appRuntime.getIsMainBootstrapped,

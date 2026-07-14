@@ -14,6 +14,7 @@ const {
   resolveCurrentAccountType,
 } = require('../utils/normalizers');
 const { sanitizeUserFacingMessage } = require('../utils/messages');
+const { registerRequestHeaderTransformer } = require('../utils/session-request-headers');
 const {
   extractNestedText,
   extractValidationState,
@@ -1087,11 +1088,10 @@ function createAuthCookie({ serverBase: serverBaseInput, httpClient: injectedHtt
       if (!patchedSessions.has(electronSession)) {
         patchedSessions.add(electronSession);
 
-        // 1) HTTP Accept-Language 头
-        electronSession.webRequest.onBeforeSendHeaders((details, callback) => {
-          if (!matchesLocaleTargets(details.url)) return callback({ requestHeaders: details.requestHeaders });
-          const headers = { ...details.requestHeaders, 'Accept-Language': ZH_HANT_ACCEPT_LANGUAGE };
-          callback({ requestHeaders: headers });
+        // 1) HTTP Accept-Language 头（经多路复用器注册，与指纹 Client Hints 改写共存于同一 session）
+        registerRequestHeaderTransformer(electronSession, 'zh-hant-accept-language', (headers, details) => {
+          if (!matchesLocaleTargets(details.url)) return headers;
+          return { ...headers, 'Accept-Language': ZH_HANT_ACCEPT_LANGUAGE };
         });
 
         // 2) Cookie 预置 + 首个请求兜底

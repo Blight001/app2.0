@@ -3,6 +3,7 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const {
+  applyChromiumSessionStartupPolicy,
   assertSafeChromiumArgs,
   buildChromiumArgs,
   buildChromiumEnvironment,
@@ -41,6 +42,25 @@ try {
   });
   assert(args.some((arg) => arg.startsWith('--user-data-dir=')));
   assert(args.includes('--hs-profile-id=profile_001'));
+  assert(args.includes('https://example.com'));
+  const restoreArgs = buildChromiumArgs({
+    profile: { profileId: 'profile_001', initialUrl: '', restoreLastSession: true },
+    paths: rebuiltPaths,
+    pipeName: '\\\\.\\pipe\\test',
+    launchToken: 'one-time',
+  });
+  assert(restoreArgs.includes('--restore-last-session'));
+  assert(!restoreArgs.includes('https://example.com'));
+  const preferencesPath = path.join(rebuiltPaths.chromiumData, 'Default', 'Preferences');
+  fs.mkdirSync(path.dirname(preferencesPath), { recursive: true });
+  fs.writeFileSync(preferencesPath, JSON.stringify({ session: { restore_on_startup: 1 }, preserved: { value: true } }));
+  assert.equal(applyChromiumSessionStartupPolicy(rebuiltPaths, { warn() {} }), true);
+  const preferences = JSON.parse(fs.readFileSync(preferencesPath, 'utf8'));
+  assert.equal(preferences.session.restore_on_startup, 5);
+  assert.deepEqual(preferences.session.startup_urls, []);
+  assert.equal(preferences.profile.exit_type, 'Normal');
+  assert.equal(preferences.profile.exited_cleanly, true);
+  assert.equal(preferences.preserved.value, true);
   const managedExtension = path.join(root, 'managed-extension');
   const configuredExtension = path.join(root, 'configured-extension');
   fs.mkdirSync(managedExtension);
@@ -182,6 +202,22 @@ try {
   assert.equal(bridgeTimeoutImport.ok, true);
   assert.equal(bridgeTimeoutImport.navigation.pending, true);
   assert.equal(bridgeTimeoutImport.navigation.timedOut, true);
+  const restartRuntime = new ChromiumRuntime({ logger: { info() {}, warn() {} } });
+  const originalProfile = { profileId: 'restart-profile', initialUrl: 'https://example.com/work', extensionPaths: ['extension-a'] };
+  restartRuntime.store = { getState: () => ({ bounds: { x: 0, y: 0, width: 800, height: 600 } }) };
+  restartRuntime.instances.set('restart-profile', { profile: originalProfile });
+  restartRuntime.stop = async () => {};
+  let relaunchedProfile = null;
+  restartRuntime.launchProfile = async (profile) => {
+    relaunchedProfile = { ...profile };
+    restartRuntime.instances.set('restart-profile', { profile: { ...profile } });
+    return { status: 'ready' };
+  };
+  await restartRuntime.restart('restart-profile');
+  assert.equal(relaunchedProfile.initialUrl, '');
+  assert.equal(relaunchedProfile.restoreLastSession, true);
+  assert.equal(restartRuntime.instances.get('restart-profile').profile.initialUrl, 'https://example.com/work');
+  assert.equal(restartRuntime.instances.get('restart-profile').profile.restoreLastSession, false);
   console.log('browser runtime checks passed');
 } finally {
   fs.rmSync(root, { recursive: true, force: true });

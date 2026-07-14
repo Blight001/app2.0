@@ -10,7 +10,7 @@ index f5831f33..192fae30 100644
  #include "chrome/common/content_restriction.h"
  #include "chrome/common/pref_names.h"
  #include "chrome/common/url_constants.h"
-@@ -194,6 +195,37 @@ namespace chrome {
+@@ -194,6 +195,30 @@ namespace chrome {
  
  namespace {
  
@@ -21,14 +21,7 @@ index f5831f33..192fae30 100644
 +
 +bool IsAiFreeBlockedUserWindowCommand(int command_id) {
 +  switch (command_id) {
-+    case IDC_NEW_WINDOW:
-+    case IDC_NEW_INCOGNITO_WINDOW:
 +    case IDC_CLOSE_WINDOW:
-+    case IDC_NEW_TAB:
-+    case IDC_NEW_TAB_TO_RIGHT:
-+    case IDC_CLOSE_TAB:
-+    case IDC_RESTORE_TAB:
-+    case IDC_MOVE_TAB_TO_NEW_WINDOW:
 +    case IDC_EXIT:
 +#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
 +    case IDC_MINIMIZE_WINDOW:
@@ -48,7 +41,7 @@ index f5831f33..192fae30 100644
  // Ensures that - if we have not popped up an infobar to prompt the user to e.g.
  // reload the current page - that the content pane of the browser is refocused.
  void AppInfoDialogClosedCallback(SessionID session_id,
-@@ -598,6 +630,10 @@ bool BrowserCommandController::SupportsCommand(int id) const {
+@@ -598,6 +623,10 @@ bool BrowserCommandController::SupportsCommand(int id) const {
  }
  
  bool BrowserCommandController::IsCommandEnabled(int id) const {
@@ -59,75 +52,6 @@ index f5831f33..192fae30 100644
    return command_updater_.IsCommandEnabled(id);
  }
  
-diff --git a/chrome/browser/ui/tabs/tab_strip_model.cc b/chrome/browser/ui/tabs/tab_strip_model.cc
-index 3326a79d..a5c96d7b 100644
---- a/chrome/browser/ui/tabs/tab_strip_model.cc
-+++ b/chrome/browser/ui/tabs/tab_strip_model.cc
-@@ -18,6 +18,7 @@
- 
- #include "base/check.h"
- #include "base/check_op.h"
-+#include "base/command_line.h"
- #include "base/containers/adapters.h"
- #include "base/containers/flat_map.h"
- #include "base/containers/span.h"
-@@ -83,6 +84,7 @@
- #include "chrome/browser/web_applications/web_app_provider.h"
- #include "chrome/browser/web_applications/web_app_tab_helper.h"
- #include "chrome/common/chrome_features.h"
-+#include "chrome/common/chrome_switches.h"
- #include "chrome/common/webui_url_constants.h"
- #include "components/commerce/core/commerce_utils.h"
- #include "components/content_settings/core/browser/host_content_settings_map.h"
-@@ -122,6 +124,24 @@ using content::WebContents;
- 
- namespace {
- 
-+bool IsAiFreeEmbeddedChildWindow() {
-+  return base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-+             switches::kHsEmbedMode) == "child-window";
-+}
-+
-+bool IsAiFreeBlockedTabContextCommand(
-+    TabStripModel::ContextMenuCommand command_id) {
-+  switch (command_id) {
-+    case TabStripModel::CommandNewTabToRight:
-+    case TabStripModel::CommandCloseTab:
-+    case TabStripModel::CommandCloseOtherTabs:
-+    case TabStripModel::CommandCloseTabsToRight:
-+      return true;
-+    default:
-+      return false;
-+  }
-+}
-+
- TabGroupModelFactory* factory_instance = nullptr;
- 
- // Works similarly to base::AutoReset but checks for access from the wrong
-@@ -2409,6 +2429,11 @@ bool TabStripModel::IsContextMenuCommandEnabled(
-   // Command must be valid.
-   DCHECK(command_id > CommandFirst && command_id < CommandLast);
- 
-+  if (IsAiFreeEmbeddedChildWindow() &&
-+      IsAiFreeBlockedTabContextCommand(command_id)) {
-+    return false;
-+  }
-+
-   // Context Index having an index greater than tab strip model doesnt make
-   // sense since this context menu must target a tab.
-   if (!ContainsIndex(context_index)) {
-@@ -2524,6 +2549,11 @@ void TabStripModel::ExecuteContextMenuCommand(int context_index,
-   // This should have been tested by IsContextMenuCommandEnabled.
-   CHECK(command_id > CommandFirst && command_id < CommandLast);
- 
-+  if (IsAiFreeEmbeddedChildWindow() &&
-+      IsAiFreeBlockedTabContextCommand(command_id)) {
-+    return;
-+  }
-+
-   // The tab strip may have been modified while the context menu was open,
-   // including closing the tab originally at |context_index|.
-   if (!ContainsIndex(context_index)) {
 diff --git a/chrome/browser/ui/views/frame/browser_caption_button_container_win.cc b/chrome/browser/ui/views/frame/browser_caption_button_container_win.cc
 index cfe5d2c3..a2a78538 100644
 --- a/chrome/browser/ui/views/frame/browser_caption_button_container_win.cc
@@ -201,135 +125,3 @@ index 7d15371e..5a75ba47 100644
  #if BUILDFLAG(IS_MAC)
    // The top container while in immersive fullscreen on macOS lives in another
    // Widget (OverlayWidgetMac). This means that BrowserView does not need to
-diff --git a/chrome/browser/ui/views/frame/horizontal_tab_strip_region_view.cc b/chrome/browser/ui/views/frame/horizontal_tab_strip_region_view.cc
-index 63985d1f..28abe039 100644
---- a/chrome/browser/ui/views/frame/horizontal_tab_strip_region_view.cc
-+++ b/chrome/browser/ui/views/frame/horizontal_tab_strip_region_view.cc
-@@ -4,6 +4,7 @@
- 
- #include "chrome/browser/ui/views/frame/horizontal_tab_strip_region_view.h"
- 
-+#include "base/command_line.h"
- #include "base/feature_list.h"
- #include "base/functional/bind.h"
- #include "base/strings/utf_string_conversions.h"
-@@ -46,6 +47,7 @@
- #include "chrome/browser/ui/web_applications/app_browser_controller.h"
- #include "chrome/common/buildflags.h"
- #include "chrome/common/chrome_features.h"
-+#include "chrome/common/chrome_switches.h"
- #include "chrome/grit/generated_resources.h"
- #include "components/commerce/core/commerce_feature_list.h"
- #include "components/vector_icons/vector_icons.h"
-@@ -123,6 +125,11 @@ BEGIN_METADATA(FrameGrabHandle)
- END_METADATA
- 
- bool ShouldShowNewTabButton(BrowserWindowInterface* browser) {
-+  if (base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-+          switches::kHsEmbedMode) == "child-window") {
-+    return false;
-+  }
-+
-   // `browser` can be null in tests and `app_controller` will be null if
-   // the browser is not for an app.
-   if (browser) {
-diff --git a/chrome/browser/ui/views/tabs/browser_tab_strip_controller.cc b/chrome/browser/ui/views/tabs/browser_tab_strip_controller.cc
-index 1f4375a2..25b084be 100644
---- a/chrome/browser/ui/views/tabs/browser_tab_strip_controller.cc
-+++ b/chrome/browser/ui/views/tabs/browser_tab_strip_controller.cc
-@@ -346,6 +346,11 @@ void BrowserTabStripController::OnCloseTab(
-     int model_index,
-     CloseTabSource source,
-     base::OnceCallback<void(CloseTabSource)> callback) {
-+  if (base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-+          switches::kHsEmbedMode) == "child-window") {
-+    return;
-+  }
-+
-   if (!web_app::IsTabClosable(model_, model_index)) {
-     return;
-   }
-diff --git a/chrome/browser/ui/views/tabs/tab.cc b/chrome/browser/ui/views/tabs/tab.cc
-index f80c98d3..b4a94198 100644
---- a/chrome/browser/ui/views/tabs/tab.cc
-+++ b/chrome/browser/ui/views/tabs/tab.cc
-@@ -14,6 +14,7 @@
- #include <string_view>
- #include <utility>
- 
-+#include "base/command_line.h"
- #include "base/debug/alias.h"
- #include "base/functional/bind.h"
- #include "base/i18n/rtl.h"
-@@ -62,6 +63,7 @@
- #include "chrome/browser/ui/views/tabs/tab_strip.h"
- #include "chrome/browser/ui/views/tabs/tab_style_views.h"
- #include "chrome/common/chrome_features.h"
-+#include "chrome/common/chrome_switches.h"
- #include "chrome/grit/generated_resources.h"
- #include "chrome/grit/theme_resources.h"
- #include "components/collaboration/public/messaging/message.h"
-@@ -1042,6 +1044,10 @@ void Tab::MaybeAdjustLeftForPinnedTab(gfx::Rect* bounds,
- }
- 
- void Tab::UpdateIconVisibility() {
-+  const bool hide_close_button =
-+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-+          switches::kHsEmbedMode) == "child-window";
-+
-   // When a tab is less than it's minimum inactive width its implied that its
-   // collapsed, but some favicon functionality can escape the bounds of the tab
-   // causing artifacts. Fix this by explicitly disabling the visibility of the
-@@ -1066,6 +1072,9 @@ void Tab::UpdateIconVisibility() {
- 
-   showing_icon_ = showing_alert_indicator_ = false;
-   extra_alert_indicator_padding_ = false;
-+  if (hide_close_button) {
-+    showing_close_button_ = false;
-+  }
- 
-   if (height() < GetLayoutConstant(LayoutConstant::kTabHeight)) {
-     return;
-@@ -1230,6 +1239,10 @@ void Tab::UpdateIconVisibility() {
-   extra_alert_indicator_padding_ = showing_alert_indicator_ &&
-                                    showing_close_button_ &&
-                                    large_enough_for_close_button;
-+  if (hide_close_button) {
-+    showing_close_button_ = false;
-+    extra_alert_indicator_padding_ = false;
-+  }
- }
- 
- bool Tab::ShouldRenderAsNormalTab() const {
-diff --git a/chrome/browser/ui/views/tabs/tab_strip.cc b/chrome/browser/ui/views/tabs/tab_strip.cc
-index dc2fe4f2..5e53723b 100644
---- a/chrome/browser/ui/views/tabs/tab_strip.cc
-+++ b/chrome/browser/ui/views/tabs/tab_strip.cc
-@@ -18,6 +18,7 @@
- #include <vector>
- 
- #include "base/check.h"
-+#include "base/command_line.h"
- #include "base/compiler_specific.h"
- #include "base/containers/adapters.h"
- #include "base/containers/flat_map.h"
-@@ -78,6 +79,7 @@
- #include "chrome/browser/ui/views/tabs/z_orderable_tab_container_element.h"
- #include "chrome/browser/ui/web_applications/app_browser_controller.h"
- #include "chrome/browser/ui/web_applications/web_app_tabbed_utils.h"
-+#include "chrome/common/chrome_switches.h"
- #include "chrome/grit/generated_resources.h"
- #include "chrome/grit/theme_resources.h"
- #include "components/crash/core/common/crash_key.h"
-@@ -1892,6 +1894,11 @@ bool TabStrip::ShouldCompactLeadingEdge() const {
- void TabStrip::MaybeStartDrag(TabSlotView* source,
-                               const ui::LocatedEvent& event,
-                               ui::ListSelectionModel original_selection) {
-+  if (base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-+          switches::kHsEmbedMode) == "child-window") {
-+    return;
-+  }
-+
-   // Don't accidentally start any drag operations during animations if the
-   // mouse is down... during an animation tabs are being resized automatically,
-   // so the View system can misinterpret this easily if the mouse is down that

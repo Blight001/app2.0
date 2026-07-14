@@ -49,7 +49,7 @@ function setDreamButtonPlatformName(platformName) {
   currentPlatformName = normalized;
   const dreamBtn = safeGetEl('open-dream-page-btn');
   if (dreamBtn) {
-    dreamBtn.textContent = `一键启动 ${normalized}AI`;
+    dreamBtn.textContent = '一键启动 AI-FREEAI';
   }
 }
 

@@ -50,14 +50,14 @@
         const key = (getEl('key-input')?.value || '').trim();
 // 处理：deviceId的具体业务逻辑。
         const deviceId = (getEl('device-id')?.value || '').trim();
-        if (!key) throw new Error('请先输入卡密');
+        if (!key) throw new Error('请先登录账号');
 
         if (!window.electron || typeof window.electron.openDreamPage !== 'function') {
           throw new Error('Electron 桥接未就绪（缺少 openDreamPage），请在 preload/main 中实现后再试');
         }
 
         console.log('[前端] 用户点击"一键启动 即梦AI"按钮');
-        console.log('[前端] 发送请求参数 - 卡密:', key.substring(0, 8) + '***', '设备ID:', deviceId);
+        console.log('[前端] 发送账号授权请求，设备ID:', deviceId);
 
         const result = await window.electron.openDreamPage({ key, deviceId });
         if (!result || result.ok !== true) {
