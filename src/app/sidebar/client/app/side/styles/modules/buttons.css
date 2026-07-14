@@ -105,21 +105,17 @@
   z-index: 40;
 }
 
+/* 历史账号与一键启动同款式同高度（btn-large-blue 渐变，40px） */
 .account-history-shell > .main-button,
 .account-history-toggle-btn {
   width: 100%;
   min-width: 0;
+  min-height: 40px;
+  height: auto;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  line-height: 1.35;
   white-space: nowrap;
-  background: var(--brand-soft);
-  color: var(--brand);
-  box-shadow: none;
-  border: 1px solid var(--brand-border);
-}
-
-.account-history-shell > .main-button:hover:not(:disabled):not([aria-disabled='true']),
-.account-history-toggle-btn:hover:not(:disabled):not([aria-disabled='true']) {
-  background: color-mix(in srgb, var(--brand) 18%, transparent);
-  transform: translateY(-1px);
 }
 
 .account-history-shell > .main-button.is-disabled,

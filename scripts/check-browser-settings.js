@@ -53,6 +53,34 @@ async function main() {
   const settingsIpcScript = fs.readFileSync(path.join(__dirname, '../src/app/main/ipc/register/settings.js'), 'utf8');
   const sidebarSettingsScript = fs.readFileSync(path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/browser-settings.js'), 'utf8');
   assert.ok(settingsIpcScript.includes("ipcMain.handle('delete-browser-history'"));
+  assert.match(
+    settingsIpcScript,
+    /ipcMain\.handle\('open-browser-history',[\s\S]*?record\.profileId[\s\S]*?accountId: record\.accountId[\s\S]*?restoreLastSession: true/,
+  );
+  assert.ok(settingsIpcScript.includes('profileId: String(item?.profileId'));
+  assert.ok(settingsIpcScript.includes('accountId: String(item?.accountId'));
+  const accountIpcScript = fs.readFileSync(path.join(__dirname, '../src/app/main/ipc/account_remember.js'), 'utf8');
+  const switchAccountFlow = accountIpcScript.slice(accountIpcScript.indexOf("ipcMain.handle('switch-account'"));
+  assert.ok(switchAccountFlow.includes('restoreLastSession: true'));
+  assert.ok(!switchAccountFlow.includes('fetchCookieFromServerForDream'));
+  assert.ok(!switchAccountFlow.includes('browserRuntimeManager.importSession'));
+  const licenseIpcScript = fs.readFileSync(path.join(__dirname, '../src/app/main/ipc/register/license.js'), 'utf8');
+  const serverAccountFlow = licenseIpcScript.slice(
+    licenseIpcScript.indexOf("ipcMain.handle('open-dream-page'"),
+    licenseIpcScript.indexOf("ipcMain.handle('refresh-subscription-url'"),
+  );
+  const openBrowserAt = serverAccountFlow.indexOf('await ui.addTab');
+  const openPageAt = serverAccountFlow.indexOf('await ui.browserRuntimeManager.navigate');
+  const injectSessionAt = serverAccountFlow.indexOf('await ui.browserRuntimeManager.importSession');
+  const reloadAt = serverAccountFlow.indexOf('await ui.browserRuntimeManager.reload');
+  assert.ok(
+    openBrowserAt >= 0
+    && openPageAt > openBrowserAt
+    && injectSessionAt > openPageAt
+    && reloadAt > injectSessionAt,
+  );
+  assert.ok(serverAccountFlow.includes('deferChromiumNavigation: true'));
+  assert.ok(serverAccountFlow.includes('navigateAfterImport: false'));
   assert.ok(sidebarSettingsScript.includes("electronAPI.invoke('delete-browser-history'"));
   const messageModalScript = fs.readFileSync(path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/shared/message-modal.js'), 'utf8');
   assert.ok(sidebarSettingsScript.includes('MessageModal.showConfirmDialog'));

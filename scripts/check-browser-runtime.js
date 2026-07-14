@@ -243,6 +243,57 @@ try {
   assert.equal(redirectedNavigationImport.navigation.pending, true);
   assert.equal(redirectedNavigationImport.navigation.interrupted, true);
   assert.equal(redirectedNavigationImport.navigation.timedOut, false);
+  const injectionOnlyCommands = [];
+  const injectionOnlyRuntime = new ChromiumRuntime({ logger: { info() {}, warn() {} } });
+  injectionOnlyRuntime.getReadyInstance = () => ({
+    commandClient: {
+      async send(command) {
+        injectionOnlyCommands.push(command);
+        return { result: { imported: command === 'set-cookies' ? 1 : 0 } };
+      },
+    },
+  });
+  const injectionOnlyResult = await injectionOnlyRuntime.importSession('account-profile', {
+    targetUrl: 'https://app.example.com/work',
+    cookies: [{ name: 'auth', value: 'token', domain: '.example.com' }],
+    navigateAfterImport: false,
+  });
+  assert.deepEqual(injectionOnlyCommands, ['clear-session', 'set-cookies']);
+  assert.equal(injectionOnlyResult.cookiesImported, 1);
+  assert.equal(injectionOnlyResult.navigation.skipped, true);
+  const reloadWarnings = [];
+  const slowReloadRuntime = new ChromiumRuntime({
+    logger: { warn(message) { reloadWarnings.push(message); } },
+  });
+  slowReloadRuntime.getReadyInstance = () => ({
+    commandClient: {
+      async send(command) {
+        assert.equal(command, 'reload');
+        const error = new Error('Runtime Bridge 命令超时: reload');
+        error.code = 'RUNTIME_COMMAND_TIMEOUT';
+        throw error;
+      },
+    },
+  });
+  const slowReloadResult = await slowReloadRuntime.reload('slow-reload-profile');
+  assert.equal(slowReloadResult.ok, true);
+  assert.equal(slowReloadResult.result.pending, true);
+  assert.equal(slowReloadResult.result.timedOut, true);
+  assert.equal(reloadWarnings.length, 1);
+  const failedReloadRuntime = new ChromiumRuntime({ logger: { warn() {} } });
+  failedReloadRuntime.getReadyInstance = () => ({
+    commandClient: {
+      async send() {
+        const error = new Error('Runtime Bridge 连接已关闭');
+        error.code = 'RUNTIME_BRIDGE_DISCONNECTED';
+        throw error;
+      },
+    },
+  });
+  await assert.rejects(
+    failedReloadRuntime.reload('failed-reload-profile'),
+    (error) => error.code === 'RUNTIME_BRIDGE_DISCONNECTED',
+  );
   const restartRuntime = new ChromiumRuntime({ logger: { info() {}, warn() {} } });
   const originalProfile = { profileId: 'restart-profile', initialUrl: 'https://example.com/work', extensionPaths: ['extension-a'] };
   restartRuntime.store = { getState: () => ({ bounds: { x: 0, y: 0, width: 800, height: 600 } }) };
@@ -279,6 +330,13 @@ try {
   let tutorialSideFocused = false;
   let tutorialSideFocusCalls = 0;
   const tutorialRuntimeManager = {
+    store: {
+      readProfile(profileId) {
+        return profileId === 'browser-tab-tutorial-history'
+          ? { profileId, createdAt: '2026-01-01T00:00:00.000Z' }
+          : {};
+      },
+    },
     chromium: { on() {} },
     async launchProfile(profile) {
       tutorialLaunches.push(profile);
@@ -326,7 +384,9 @@ try {
   assert.equal(firstTutorialId, duplicateTutorialId);
   assert.equal(tutorialTabs.size, 1);
   assert.equal(tutorialLaunches.length, 1);
-  assert.equal(tutorialLaunches[0].initialUrl, 'https://server.example.com/tutorial');
+  assert.equal(tutorialLaunches[0].profileId, 'browser-tab-tutorial-history');
+  assert.equal(tutorialLaunches[0].initialUrl, '');
+  assert.equal(tutorialLaunches[0].restoreLastSession, true);
   assert.equal(tutorialTabs.get(firstTutorialId).browserHistoryId, 'tutorial-history');
   assert.equal(tutorialTabs.get(firstTutorialId).isTutorialTab, true);
   assert.equal(tutorialFocusCalls, 0);

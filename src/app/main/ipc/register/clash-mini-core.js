@@ -733,6 +733,153 @@ function resolveClashMiniProfileFile(coreDir, profilesIndex) {
   return null;
 }
 
+const MIN_USABLE_GEO_DATABASE_SIZE = 1024 * 1024;
+
+// Mihomo 会在控制端口监听前同步初始化 GEOIP/GEOSITE 数据。首次启动时如果
+// 本地没有数据库且 GitHub 不可达，进程会卡在下载阶段，形成“代理尚未启动，
+// 但启动代理又需要先下载”的死锁。数据库存在时保留完整分流；数据库缺失时
+// 只移除依赖 Geo 数据的规则，让代理先以现有域名/IP/MATCH 规则离线启动。
+function hasUsableClashMiniGeoFile(coreDir, candidates) {
+  if (!coreDir) return false;
+  return candidates.some((name) => {
+    try {
+      return fs.statSync(path.join(coreDir, name)).size >= MIN_USABLE_GEO_DATABASE_SIZE;
+    } catch (_) {
+      return false;
+    }
+  });
+}
+
+function getClashMiniGeoDatabaseAvailability(coreDir, config = {}) {
+  const geodataMode = config && config['geodata-mode'] === true;
+  const geoIpCandidates = geodataMode
+    ? ['GeoIP.dat', 'geoip.dat']
+    : ['geoip.metadb'];
+  return {
+    geoIp: hasUsableClashMiniGeoFile(coreDir, geoIpCandidates),
+    geoSite: hasUsableClashMiniGeoFile(coreDir, ['GeoSite.dat', 'geosite.dat']),
+  };
+}
+
+function repairMalformedHttpsUrls(value, stats) {
+  if (typeof value === 'string') {
+    const repaired = value.replace(/^https:\/{3,}(?=[^/])/i, 'https://');
+    if (repaired !== value) stats.fixedUrls += 1;
+    return repaired;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => repairMalformedHttpsUrls(item, stats));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, repairMalformedHttpsUrls(item, stats)]),
+    );
+  }
+  return value;
+}
+
+function normalizeClashMiniStartupConfig(config, coreDir) {
+  const stats = {
+    changed: false,
+    controlFieldAdded: false,
+    fixedUrls: 0,
+    removedGeoRules: 0,
+    disabledDnsGeoFilter: false,
+    geoDatabaseAvailable: false,
+    geoIpDatabaseAvailable: false,
+    geoSiteDatabaseAvailable: false,
+  };
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    return { config, ...stats };
+  }
+
+  let next = repairMalformedHttpsUrls(config, stats);
+  stats.controlFieldAdded = !String(next['external-controller'] || next.external_controller || '').trim();
+  next = ensureClashMiniControlFields(next);
+  const geoAvailability = getClashMiniGeoDatabaseAvailability(coreDir, next);
+  stats.geoIpDatabaseAvailable = geoAvailability.geoIp;
+  stats.geoSiteDatabaseAvailable = geoAvailability.geoSite;
+  stats.geoDatabaseAvailable = geoAvailability.geoIp && geoAvailability.geoSite;
+
+  if (!stats.geoDatabaseAvailable) {
+    if (Array.isArray(next.rules)) {
+      const rules = next.rules.filter((rule) => {
+        const dependsOnMissingGeoIp = !geoAvailability.geoIp
+          && typeof rule === 'string'
+          && /(?:^|[,(])\s*GEOIP\s*,/i.test(rule);
+        const dependsOnMissingGeoSite = !geoAvailability.geoSite
+          && typeof rule === 'string'
+          && /(?:^|[,(])\s*GEOSITE\s*,/i.test(rule);
+        const dependsOnGeoData = dependsOnMissingGeoIp || dependsOnMissingGeoSite;
+        if (dependsOnGeoData) stats.removedGeoRules += 1;
+        return !dependsOnGeoData;
+      });
+      next = { ...next, rules };
+    }
+
+    if (next.dns && typeof next.dns === 'object' && !Array.isArray(next.dns)) {
+      const dns = { ...next.dns };
+      const fallbackFilter = dns['fallback-filter'];
+      if (fallbackFilter && typeof fallbackFilter === 'object' && !Array.isArray(fallbackFilter)) {
+        const normalizedFilter = { ...fallbackFilter };
+        if (!geoAvailability.geoIp
+          && (normalizedFilter.geoip !== false || 'geoip-code' in normalizedFilter)) {
+          normalizedFilter.geoip = false;
+          delete normalizedFilter['geoip-code'];
+          stats.disabledDnsGeoFilter = true;
+        }
+        if (!geoAvailability.geoSite && 'geosite' in normalizedFilter) {
+          delete normalizedFilter.geosite;
+          stats.disabledDnsGeoFilter = true;
+        }
+        dns['fallback-filter'] = normalizedFilter;
+      }
+
+      const nameserverPolicy = dns['nameserver-policy'];
+      if (!geoAvailability.geoSite
+        && nameserverPolicy
+        && typeof nameserverPolicy === 'object'
+        && !Array.isArray(nameserverPolicy)) {
+        const entries = Object.entries(nameserverPolicy);
+        const retained = entries.filter(([key]) => !/(?:^|,)\s*geosite:/i.test(key));
+        if (retained.length !== entries.length) {
+          dns['nameserver-policy'] = Object.fromEntries(retained);
+          stats.disabledDnsGeoFilter = true;
+        }
+      }
+      next = { ...next, dns };
+    }
+  }
+
+  stats.changed = stats.controlFieldAdded
+    || stats.fixedUrls > 0
+    || stats.removedGeoRules > 0
+    || stats.disabledDnsGeoFilter;
+  return { config: next, ...stats };
+}
+
+function getClashMiniCompatibilitySummary(normalized) {
+  const { config: _config, ...summary } = normalized || {};
+  return summary;
+}
+
+function normalizeAndWriteClashMiniRuntimeConfig(coreDir, runtimeConfigPath, config) {
+  const normalized = normalizeClashMiniStartupConfig(config, coreDir);
+  if (normalized.changed) {
+    fs.writeFileSync(runtimeConfigPath, YAML.stringify(normalized.config), 'utf8');
+    if (!normalized.geoDatabaseAvailable && (normalized.removedGeoRules > 0 || normalized.disabledDnsGeoFilter)) {
+      console.warn(
+        '[IPC] Clash Mini 未找到可用 Geo 数据库，已启用离线启动兼容配置:',
+        `移除 ${normalized.removedGeoRules} 条 Geo 规则`,
+      );
+    }
+    if (normalized.fixedUrls > 0) {
+      console.warn('[IPC] Clash Mini 已修复配置中的异常 HTTPS 地址:', normalized.fixedUrls);
+    }
+  }
+  return normalized;
+}
+
 // 校验/保护：ensureClashMiniRuntimeConfig的具体业务逻辑。
 function ensureClashMiniRuntimeConfig(coreDir) {
   const runtimeConfigPath = path.join(coreDir, 'config.yaml');
@@ -741,13 +888,21 @@ function ensureClashMiniRuntimeConfig(coreDir) {
 
   const runtimeConfig = readYamlIfExists(runtimeConfigPath);
   if (looksLikeRuntimeClashConfig(runtimeConfig)) {
-    return { ok: true, configPath: runtimeConfigPath, source: runtimeConfigPath, repaired: false };
+    const normalized = normalizeAndWriteClashMiniRuntimeConfig(coreDir, runtimeConfigPath, runtimeConfig);
+    return {
+      ok: true,
+      configPath: runtimeConfigPath,
+      source: runtimeConfigPath,
+      repaired: normalized.changed,
+      offlineGeoFallback: !normalized.geoDatabaseAvailable,
+    };
   }
 
   const profilesYaml = readYamlIfExists(profilesIndexPath);
   if (looksLikeRuntimeClashConfig(profilesYaml)) {
-    fs.writeFileSync(runtimeConfigPath, YAML.stringify(profilesYaml), 'utf8');
-    return { ok: true, configPath: runtimeConfigPath, source: profilesIndexPath, repaired: true };
+    const normalized = normalizeAndWriteClashMiniRuntimeConfig(coreDir, runtimeConfigPath, profilesYaml);
+    if (!normalized.changed) fs.writeFileSync(runtimeConfigPath, YAML.stringify(normalized.config), 'utf8');
+    return { ok: true, configPath: runtimeConfigPath, source: profilesIndexPath, repaired: true, offlineGeoFallback: !normalized.geoDatabaseAvailable };
   }
 
   if (looksLikeProfilesIndex(profilesYaml)) {
@@ -755,16 +910,18 @@ function ensureClashMiniRuntimeConfig(coreDir) {
     if (profileFilePath) {
       const profileConfig = readYamlIfExists(profileFilePath);
       if (looksLikeRuntimeClashConfig(profileConfig)) {
-        fs.writeFileSync(runtimeConfigPath, YAML.stringify(profileConfig), 'utf8');
-        return { ok: true, configPath: runtimeConfigPath, source: profileFilePath, repaired: true };
+        const normalized = normalizeAndWriteClashMiniRuntimeConfig(coreDir, runtimeConfigPath, profileConfig);
+        if (!normalized.changed) fs.writeFileSync(runtimeConfigPath, YAML.stringify(normalized.config), 'utf8');
+        return { ok: true, configPath: runtimeConfigPath, source: profileFilePath, repaired: true, offlineGeoFallback: !normalized.geoDatabaseAvailable };
       }
     }
   }
 
   const legacyConfig = readYamlIfExists(legacyConfigPath);
   if (looksLikeRuntimeClashConfig(legacyConfig)) {
-    fs.writeFileSync(runtimeConfigPath, YAML.stringify(legacyConfig), 'utf8');
-    return { ok: true, configPath: runtimeConfigPath, source: legacyConfigPath, repaired: true };
+    const normalized = normalizeAndWriteClashMiniRuntimeConfig(coreDir, runtimeConfigPath, legacyConfig);
+    if (!normalized.changed) fs.writeFileSync(runtimeConfigPath, YAML.stringify(normalized.config), 'utf8');
+    return { ok: true, configPath: runtimeConfigPath, source: legacyConfigPath, repaired: true, offlineGeoFallback: !normalized.geoDatabaseAvailable };
   }
 
   return {
@@ -1007,7 +1164,7 @@ function ensureClashMiniControlFields(config) {
 }
 
 // 格式化/规范化：normalizeDirectClashRuntimeConfig的具体业务逻辑。
-function normalizeDirectClashRuntimeConfig(rawContent) {
+function normalizeDirectClashRuntimeConfig(rawContent, options = {}) {
   const text = extractDirectClashConfigContent(rawContent);
   if (!text) {
     return { ok: false, error: '空的 Clash 配置内容', rawContent: '' };
@@ -1015,7 +1172,13 @@ function normalizeDirectClashRuntimeConfig(rawContent) {
   try {
     const parsed = YAML.parse(text);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return { ok: true, content: YAML.stringify(ensureClashMiniControlFields(parsed)), rawContent: text };
+      const normalized = normalizeClashMiniStartupConfig(parsed, options.coreDir);
+      return {
+        ok: true,
+        content: YAML.stringify(normalized.config),
+        rawContent: text,
+        compatibility: getClashMiniCompatibilitySummary(normalized),
+      };
     }
     if (typeof parsed === 'string') {
       const stringConverted = buildClashRuntimeConfigFromSubscription(parsed);
@@ -1034,7 +1197,13 @@ function normalizeDirectClashRuntimeConfig(rawContent) {
     try {
       const parsed = YAML.parse(decodedBase64);
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return { ok: true, content: YAML.stringify(ensureClashMiniControlFields(parsed)), rawContent: decodedBase64 };
+        const normalized = normalizeClashMiniStartupConfig(parsed, options.coreDir);
+        return {
+          ok: true,
+          content: YAML.stringify(normalized.config),
+          rawContent: decodedBase64,
+          compatibility: getClashMiniCompatibilitySummary(normalized),
+        };
       }
       if (typeof parsed === 'string') {
         const stringConverted = buildClashRuntimeConfigFromSubscription(parsed);
@@ -1087,7 +1256,7 @@ function normalizeDirectClashRuntimeConfig(rawContent) {
 // 处理：importDirectClashRuntimeConfig的具体业务逻辑。
 function importDirectClashRuntimeConfig(coreDir, payload, sourceLabel = 'server-config') {
   const rawContent = extractDirectClashConfigContent(payload);
-  const normalized = normalizeDirectClashRuntimeConfig(rawContent);
+  const normalized = normalizeDirectClashRuntimeConfig(rawContent, { coreDir });
   if (!normalized.ok) {
     return {
       ...normalized,
@@ -1125,6 +1294,7 @@ let clashMiniExePath = null;
 let clashMiniConfigPath = null;
 let clashMiniProxyAppliedByApp = false;
 let runtimeLicenseCache = null;
+let clashMiniStartPromise = null;
 const intentionallyStoppedClashProcesses = new WeakSet();
 
 // 设置/更新/持久化：setRuntimeLicenseCache的具体业务逻辑。
@@ -1210,7 +1380,7 @@ async function detectNetworkMagicStatus() {
 }
 
 // 启动/打开/显示：startClashMiniProcess的具体业务逻辑。
-async function startClashMiniProcess(ui, options = {}) {
+async function startClashMiniProcessOnce(ui, options = {}) {
   if (isClashMiniProcessRunning()) {
     const runningCoreDir = clashMiniCoreDir || getClashMiniRuntimeRoot();
     const controlApiReady = await waitForClashMiniControlApi(runningCoreDir, 10000);
@@ -1321,9 +1491,9 @@ async function startClashMiniProcess(ui, options = {}) {
       emitClashMiniLog(ui, 'error', `Clash Mini 启动失败: ${error?.message || error}`);
     });
 
-    const controlApiReady = await waitForClashMiniControlApi(runtimePrep.runtimeDir, 15000);
+    const controlApiReady = await waitForClashMiniControlApi(runtimePrep.runtimeDir, 30000);
     if (!controlApiReady || !isClashMiniProcessRunning()) {
-      const message = 'Mihomo 控制端口未能在 15 秒内启动，请检查 Clash YAML 配置或端口占用';
+      const message = 'Mihomo 控制端口未能在 30 秒内启动，请检查 Clash YAML 配置或端口占用';
       emitClashMiniLog(ui, 'error', message);
       await stopClashMiniProcess(ui);
       return { ok: false, error: message, controlApiReady: false };
@@ -1352,6 +1522,22 @@ async function startClashMiniProcess(ui, options = {}) {
     clashMiniProxyAppliedByApp = false;
     return { ok: false, error: error?.message || String(error) };
   }
+}
+
+// 自动预热、账号验证和手动点击可能同时请求启动。所有调用方共享同一个任务，
+// 防止后到的请求把“正在初始化”的 Mihomo 误判为异常进程并提前终止。
+function startClashMiniProcess(ui, options = {}) {
+  if (clashMiniStartPromise) {
+    return clashMiniStartPromise;
+  }
+
+  const sharedPromise = startClashMiniProcessOnce(ui, options).finally(() => {
+    if (clashMiniStartPromise === sharedPromise) {
+      clashMiniStartPromise = null;
+    }
+  });
+  clashMiniStartPromise = sharedPromise;
+  return sharedPromise;
 }
 
 // 停止/关闭/清理：stopClashMiniProcess的具体业务逻辑。
@@ -1431,6 +1617,8 @@ module.exports = {
   getClashMiniStatus,
   importDirectClashRuntimeConfig,
   invokeClashMiniControl,
+  normalizeClashMiniStartupConfig,
+  normalizeDirectClashRuntimeConfig,
   normalizeProbeTimeout,
   normalizeProbeUrl,
   probeClashMiniProxyDelay,

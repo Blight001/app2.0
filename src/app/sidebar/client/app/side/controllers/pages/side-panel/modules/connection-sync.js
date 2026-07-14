@@ -125,6 +125,9 @@ function renderWoolPlatformButtons(platforms) {
     }))
     .filter((item) => item.name && item.targetUrl);
 
+  const sectionTitle = safeGetEl('wool-resource-title');
+  if (sectionTitle) sectionTitle.hidden = items.length === 0;
+
   container.innerHTML = '';
   woolPlatformQuotaText.clear();
   items.forEach((item) => {

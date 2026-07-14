@@ -4,6 +4,8 @@
   let browserHistory = [];
   let selectedHistoryId = '';
   let historyRefreshTimer = null;
+  let browserSettingsPreviousFocus = null;
+  let editingDefaultSettings = false;
   const el = (id) => document.getElementById(id);
   const value = (id, fallback = '') => el(id)?.value ?? fallback;
   const checked = (id) => el(id)?.checked === true;
@@ -26,6 +28,26 @@
     target.classList.toggle('is-success', type === 'success');
   }
 
+  function openBrowserSettingsDialog(title = '浏览器参数配置') {
+    const dialog = el('browser-settings-dialog');
+    if (!dialog) return;
+    browserSettingsPreviousFocus = document.activeElement;
+    const titleElement = el('browser-settings-dialog-title');
+    if (titleElement) titleElement.textContent = title;
+    dialog.hidden = false;
+    document.body.classList.add('browser-settings-dialog-open');
+    setTimeout(() => el('browser-settings-dialog-close')?.focus(), 0);
+  }
+
+  function closeBrowserSettingsDialog() {
+    const dialog = el('browser-settings-dialog');
+    if (!dialog || dialog.hidden) return;
+    dialog.hidden = true;
+    document.body.classList.remove('browser-settings-dialog-open');
+    browserSettingsPreviousFocus?.focus?.();
+    browserSettingsPreviousFocus = null;
+  }
+
   function renderBrowserHistory() {
     const list = el('browser-history-list');
     if (!list) return;
@@ -33,36 +55,37 @@
     if (!browserHistory.length) {
       const empty = document.createElement('div');
       empty.className = 'browser-history-empty';
-      empty.textContent = '暂无浏览器历史，点击窗口栏的“+”新建。';
+      empty.textContent = '暂无浏览器记录，点击窗口栏的“+”新建。';
       list.appendChild(empty);
       return;
     }
     browserHistory.forEach((item) => {
       const row = document.createElement('div');
-      row.className = `browser-history-item${item.id === selectedHistoryId ? ' is-selected' : ''}`;
+      row.className = 'browser-history-item';
+      row.classList.toggle('is-selected', item.id === selectedHistoryId);
+      row.classList.toggle('is-open', item.isOpen === true);
+      row.classList.toggle('is-active', item.isActive === true);
+      row.classList.toggle('has-error', !!item.lastError);
       row.dataset.historyId = item.id;
 
       const main = document.createElement('button');
       main.type = 'button';
       main.className = 'browser-history-main';
-      main.title = '选择并设置此浏览器的参数';
+      main.title = String(item.name || '未命名浏览器');
+      main.setAttribute('aria-label', `${item.name || '未命名浏览器'}，${item.isActive ? '当前浏览器' : (item.isOpen ? '已打开' : '已关闭')}，打开参数配置`);
       const name = document.createElement('span');
       name.className = 'browser-history-name';
-      name.textContent = item.name;
-      const meta = document.createElement('span');
-      meta.className = 'browser-history-meta';
-      meta.textContent = item.lastError
-        ? `上次打开失败 · ${item.lastError}`
-        : `${item.isOpen ? (item.isActive ? '当前打开' : '已打开') : '已关闭'}${item.url ? ` · ${item.url}` : ''}`;
-      main.append(name, meta);
-      main.addEventListener('click', () => void selectBrowserHistory(item.id));
+      name.textContent = item.name || '未命名浏览器';
+      main.append(name);
+      main.addEventListener('click', () => void selectBrowserHistory(item.id, { openDialog: true }));
 
       const actions = document.createElement('div');
       actions.className = 'browser-history-actions';
       const open = document.createElement('button');
       open.type = 'button';
-      open.className = 'browser-history-action';
-      open.textContent = item.isOpen ? '切换' : '打开';
+      open.className = 'browser-history-action browser-history-open';
+      open.textContent = '打开';
+      open.title = '打开浏览器';
       open.addEventListener('click', () => void openBrowserHistory(item.id));
       const rename = document.createElement('button');
       rename.type = 'button';
@@ -73,12 +96,12 @@
       configure.type = 'button';
       configure.className = 'browser-history-action';
       configure.textContent = '参数';
-      configure.addEventListener('click', () => void selectBrowserHistory(item.id));
+      configure.addEventListener('click', () => void selectBrowserHistory(item.id, { openDialog: true }));
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'browser-history-action browser-history-delete';
       remove.textContent = '删除';
-      remove.title = item.isOpen ? '关闭窗口并删除历史' : '删除浏览器历史';
+      remove.title = item.isOpen ? '关闭窗口并删除记录' : '删除浏览器记录';
       remove.addEventListener('click', () => void deleteBrowserHistory(item));
       actions.append(open, rename, configure, remove);
       row.append(main, actions);
@@ -89,34 +112,52 @@
   async function refreshBrowserHistory(options = {}) {
     try {
       const response = await window.electronAPI.invoke('get-browser-history');
-      if (!response?.ok) throw new Error(response?.error || '读取浏览器历史失败');
+      if (!response?.ok) throw new Error(response?.error || '读取浏览器记录失败');
       browserHistory = Array.isArray(response.history) ? response.history : [];
-      if (options.keepSelection !== true || !browserHistory.some((item) => item.id === selectedHistoryId)) {
+      const keepEmptySelection = !selectedHistoryId && (options.keepEmptySelection === true || editingDefaultSettings);
+      if (!keepEmptySelection && (options.keepSelection !== true || !browserHistory.some((item) => item.id === selectedHistoryId))) {
         selectedHistoryId = browserHistory.find((item) => item.isActive)?.id || browserHistory[0]?.id || '';
       }
       renderBrowserHistory();
       return browserHistory;
     } catch (error) {
       const list = el('browser-history-list');
-      if (list) list.innerHTML = '<div class="browser-history-empty">浏览器历史读取失败</div>';
+      if (list) list.innerHTML = '<div class="browser-history-empty">浏览器记录读取失败</div>';
       if (options.silent !== true) setStatus(error?.message || String(error), 'error');
       return [];
     }
   }
 
-  async function selectBrowserHistory(historyId) {
+  async function selectBrowserHistory(historyId, options = {}) {
+    editingDefaultSettings = false;
     selectedHistoryId = String(historyId || '');
     renderBrowserHistory();
+    const item = browserHistory.find((entry) => entry.id === selectedHistoryId);
+    if (options.openDialog === true) {
+      openBrowserSettingsDialog(item ? `${item.name} · 参数配置` : '浏览器参数配置');
+    }
     setStatus('正在读取独立浏览器参数…');
     try {
       const response = await window.electronAPI.invoke('get-ai-free-browser-settings', { historyId: selectedHistoryId });
       if (!response?.ok) throw new Error(response?.error || '读取参数失败');
       fillForm(response.settings, response.runtimeInfo);
-      const item = browserHistory.find((entry) => entry.id === selectedHistoryId);
-      el('ai-free-settings-runtime').textContent = item
-        ? `独立浏览器：${item.name} · ${item.isOpen ? '已打开，可立即应用参数' : '已关闭，参数将在下次打开时应用'}`
-        : '当前没有浏览器环境。';
       setStatus('已载入该浏览器的独立参数');
+    } catch (error) {
+      setStatus(error?.message || String(error), 'error');
+    }
+  }
+
+  async function openDefaultBrowserSettings() {
+    editingDefaultSettings = true;
+    selectedHistoryId = '';
+    renderBrowserHistory();
+    openBrowserSettingsDialog('浏览器默认环境配置');
+    setStatus('正在读取默认环境参数…');
+    try {
+      const response = await window.electronAPI.invoke('get-ai-free-browser-settings', {});
+      if (!response?.ok) throw new Error(response?.error || '读取默认参数失败');
+      fillForm(response.settings, response.runtimeInfo);
+      setStatus('已载入浏览器默认环境参数');
     } catch (error) {
       setStatus(error?.message || String(error), 'error');
     }
@@ -163,8 +204,8 @@
   async function deleteBrowserHistory(item) {
     const name = String(item?.name || '新建窗口');
     const message = item?.isOpen
-      ? `确认关闭“${name}”并删除该条浏览器历史？`
-      : `确认删除“${name}”的浏览器历史？`;
+      ? `确认关闭“${name}”并删除该条浏览器记录？`
+      : `确认删除“${name}”的浏览器记录？`;
     if (!window.MessageModal?.showConfirmDialog) {
       setStatus('软件确认弹窗未就绪', 'error');
       return;
@@ -178,8 +219,6 @@
         await refreshBrowserHistory({ silent: true });
         if (selectedHistoryId) {
           await selectBrowserHistory(selectedHistoryId);
-        } else {
-          el('ai-free-settings-runtime').textContent = '当前没有浏览器环境。';
         }
         setStatus(`已删除“${response.name || name}”`, 'success');
       } catch (error) {
@@ -301,15 +340,18 @@
 
   async function loadSettings(force = false) {
     if (loaded && !force) return; setStatus('正在读取本地参数…');
-    try { await refreshBrowserHistory({ silent: true }); const response = await window.electronAPI.invoke('get-ai-free-browser-settings', selectedHistoryId ? { historyId: selectedHistoryId } : {}); if (!response?.ok) throw new Error(response?.error || '读取参数失败'); fillForm(response.settings,response.runtimeInfo); const selected=browserHistory.find((item)=>item.id===selectedHistoryId); el('ai-free-settings-runtime').textContent = selected ? `独立浏览器：${selected.name} · ${selected.isOpen ? '已打开，可立即应用参数' : '已关闭，参数将在下次打开时应用'}` : (response.activeTab ? `当前环境：${response.activeTab.title} · Chromium Fork（内核项需重启）` : '当前没有浏览器环境。'); loaded = true; setStatus('参数已从本机载入'); } catch (error) { setStatus(error?.message || String(error),'error'); }
+    try { await refreshBrowserHistory({ silent: true }); const response = await window.electronAPI.invoke('get-ai-free-browser-settings', selectedHistoryId ? { historyId: selectedHistoryId } : {}); if (!response?.ok) throw new Error(response?.error || '读取参数失败'); fillForm(response.settings,response.runtimeInfo); loaded = true; setStatus('参数已从本机载入'); } catch (error) { setStatus(error?.message || String(error),'error'); }
   }
 
   async function saveSettings(event) {
-    event?.preventDefault?.(); const button=el('save-ai-free-settings'); if(button)button.disabled=true; setStatus('正在保存并应用…');
-    try { const settings=collectForm();validateSettings(settings);const response=await window.electronAPI.invoke('set-ai-free-browser-settings',{settings,historyId:selectedHistoryId,applyToActive:checked('apply-settings-to-active'),restartChromium:checked('restart-chromium-settings')}); if(!response?.ok)throw new Error(response?.error||'保存失败'); fillForm(response.settings,response.runtimeInfo); await refreshBrowserHistory({keepSelection:true,silent:true}); const result=response.activeResult; setStatus(result?.restarted?'已保存并重启 Chromium 环境。':result?.restartRequired?'已保存独立参数；部分内核项需重启后生效。':result?.applied?'已保存并应用到该浏览器。':selectedHistoryId?'已保存该浏览器的独立参数。':'已保存为默认环境配置。','success'); } catch(error){setStatus(error?.message||String(error),'error');} finally{if(button)button.disabled=false;}
+    event?.preventDefault?.();
+    // 表单内包含羊毛资源等非配置按钮，仅“保存参数”按钮可触发保存
+    if(event?.submitter&&event.submitter.id!=='save-ai-free-settings')return;
+    const button=el('save-ai-free-settings'); if(button)button.disabled=true; setStatus('正在保存并应用…');
+    try { const targetHistoryId=editingDefaultSettings?'':selectedHistoryId;const settings=collectForm();validateSettings(settings);const response=await window.electronAPI.invoke('set-ai-free-browser-settings',{settings,historyId:targetHistoryId,applyToActive:checked('apply-settings-to-active'),restartChromium:checked('restart-chromium-settings')}); if(!response?.ok)throw new Error(response?.error||'保存失败'); fillForm(response.settings,response.runtimeInfo); await refreshBrowserHistory({keepSelection:true,keepEmptySelection:!targetHistoryId,silent:true}); const result=response.activeResult; setStatus(result?.restarted?'已保存并重启 Chromium 环境。':result?.restartRequired?'已保存独立参数；部分内核项需重启后生效。':result?.applied?'已保存并应用到该浏览器。':targetHistoryId?'已保存该浏览器的独立参数。':'已保存为默认环境配置。','success'); } catch(error){setStatus(error?.message||String(error),'error');} finally{if(button)button.disabled=false;}
   }
 
-  async function resetSettings(){try{const response=await window.electronAPI.invoke('reset-ai-free-browser-settings',{historyId:selectedHistoryId,applyToActive:checked('apply-settings-to-active'),restartChromium:checked('restart-chromium-settings')});if(response?.ok){fillForm(response.settings,response.runtimeInfo);await refreshBrowserHistory({keepSelection:true,silent:true});setStatus(selectedHistoryId?'该浏览器已恢复默认配置。':'已恢复默认配置。','success');}else throw new Error(response?.error||'恢复默认失败');}catch(error){setStatus(error?.message||String(error),'error');}}
+  async function resetSettings(){try{const targetHistoryId=editingDefaultSettings?'':selectedHistoryId;const response=await window.electronAPI.invoke('reset-ai-free-browser-settings',{historyId:targetHistoryId,applyToActive:checked('apply-settings-to-active'),restartChromium:checked('restart-chromium-settings')});if(response?.ok){fillForm(response.settings,response.runtimeInfo);await refreshBrowserHistory({keepSelection:true,keepEmptySelection:!targetHistoryId,silent:true});setStatus(targetHistoryId?'该浏览器已恢复默认配置。':'已恢复默认配置。','success');}else throw new Error(response?.error||'恢复默认失败');}catch(error){setStatus(error?.message||String(error),'error');}}
   async function testProxy(){setStatus('正在检测代理…');const response=await window.electronAPI.invoke('test-ai-free-proxy',{proxy:collectForm().proxy});setStatus(response?.ok?`代理可用：${response.ip||'连接成功'}（${response.elapsedMs||0}ms）`:response?.error||'代理不可用',response?.ok?'success':'error');}
   async function extractProxy(){const response=await window.electronAPI.invoke('extract-ai-free-proxy',{apiUrl:value('proxy-api-url')});if(response?.ok){setValue('proxy-protocol',response.proxy.protocol);setValue('proxy-host',response.proxy.host);setValue('proxy-port',response.proxy.port);setValue('proxy-username',response.proxy.username);setValue('proxy-password',response.proxy.password);setStatus('已从 API 提取代理。','success');}else setStatus(response?.error||'提取代理失败','error');}
 
@@ -319,9 +361,12 @@
     el('ai-free-settings-form')?.addEventListener('submit',saveSettings); el('randomize-ai-free-settings')?.addEventListener('click',randomIdentity); el('randomize-user-agent')?.addEventListener('click',randomIdentity); el('reset-ai-free-settings')?.addEventListener('click',()=>void resetSettings());
     el('test-ai-free-proxy')?.addEventListener('click',()=>void testProxy()); el('extract-ai-free-proxy')?.addEventListener('click',()=>void extractProxy());
     el('refresh-browser-history')?.addEventListener('click',()=>void refreshBrowserHistory({keepSelection:true}));
+    el('open-default-browser-settings')?.addEventListener('click',()=>void openDefaultBrowserSettings());
+    document.querySelectorAll('[data-browser-settings-close]').forEach((element)=>element.addEventListener('click',closeBrowserSettingsDialog));
     document.querySelectorAll('[data-random-target]').forEach((button)=>button.addEventListener('click',()=>{if(button.dataset.randomTarget==='device-name')setValue('device-name',`DESKTOP-${Math.random().toString(36).slice(2,9).toUpperCase()}`);else setValue('mac-address',Array.from({length:6},()=>Math.floor(Math.random()*256).toString(16).padStart(2,'0')).join('-').toUpperCase());}));
     document.querySelector('[data-tab="ai-free-settings-panel"]')?.addEventListener('click',()=>void loadSettings());
     window.electronAPI?.on?.('update-tabs', scheduleBrowserHistoryRefresh);
     window.electronAPI?.on?.('browser-history-changed', scheduleBrowserHistoryRefresh);
+    document.addEventListener('keydown',(event)=>{if(event.key==='Escape'&&!el('browser-settings-dialog')?.hidden)closeBrowserSettingsDialog();});
   });
 }());

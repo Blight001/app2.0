@@ -415,6 +415,7 @@
   /* ---------------- 额度圆环 ---------------- */
   function renderQuota(quota) {
     state.quota = quota || null;
+    window.renderAccountAiUsage?.(state.quota);
     const widget = el('ai-chat-quota');
     const ring = el('ai-chat-quota-ring');
     const valueEl = el('ai-chat-quota-value');

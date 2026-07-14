@@ -1,6 +1,8 @@
 const { BrowserWindow, ipcMain, net, session: electronSession } = require('electron');
 const fs = require('fs');
 const { getStorePath } = require('../../config');
+const accountStorage = require('../../lib/account-storage');
+const { buildManagedTabPartitionName } = require('../../services/tab-common');
 const {
   readStoreConfigSafe,
   saveLicenseCredentialsSafe,
@@ -29,6 +31,8 @@ function readBrowserHistorySafe() {
     id: String(item?.id || '').trim(),
     name: String(item?.name || DEFAULT_BROWSER_WINDOW_NAME).trim() || DEFAULT_BROWSER_WINDOW_NAME,
     url: String(item?.url || '').trim(),
+    profileId: String(item?.profileId || '').trim(),
+    accountId: String(item?.accountId || '').trim(),
     partition: String(item?.partition || '').trim(),
     runtimeType: 'chromium',
     lastError: String(item?.lastError || '').trim(),
@@ -36,7 +40,27 @@ function readBrowserHistorySafe() {
     createdAt: Number(item?.createdAt || 0) || Date.now(),
     lastOpenedAt: Number(item?.lastOpenedAt || 0) || Number(item?.createdAt || 0) || Date.now(),
   })).filter((item) => item.id);
-  if (source.some((item) => String(item?.runtimeType || '').trim() !== 'chromium')) {
+  let changed = source.some((item) => String(item?.runtimeType || '').trim() !== 'chromium');
+  try {
+    const summaries = Array.isArray(accountStorage.getAllAccounts?.()) ? accountStorage.getAllAccounts() : [];
+    const accountByPartition = new Map(summaries.map((summary) => [
+      `persist:${buildManagedTabPartitionName(summary?.id)}`,
+      summary,
+    ]));
+    for (const record of history) {
+      if (record.profileId || !record.partition) continue;
+      const summary = accountByPartition.get(record.partition);
+      const accountId = String(summary?.id || '').trim();
+      if (!accountId) continue;
+      const accountResult = accountStorage.getAccount(accountId);
+      const account = accountResult?.ok ? accountResult.account : null;
+      record.profileId = accountId;
+      record.accountId = accountId;
+      if (!record.url && account?.currentUrl) record.url = String(account.currentUrl).trim();
+      changed = true;
+    }
+  } catch (_) {}
+  if (changed) {
     writeStoreConfigSafe({
       ...(store && typeof store === 'object' ? store : {}),
       browserHistory: history,
@@ -70,7 +94,11 @@ function makeUniqueBrowserName(requestedName, history = [], excludeId = '') {
 }
 
 function getManagedTabUrl(tab) {
-  return String(tab?.runtimeUrl || '').trim();
+  const runtimeUrl = String(tab?.runtimeUrl || '').trim();
+  if (runtimeUrl && runtimeUrl !== 'about:blank' && !runtimeUrl.startsWith('data:text/html')) {
+    return runtimeUrl;
+  }
+  return String(tab?.requestedUrl || '').trim();
 }
 
 function syncOpenTabsToBrowserHistory(ui) {
@@ -80,6 +108,15 @@ function syncOpenTabsToBrowserHistory(ui) {
   for (const tab of tabs?.values?.() || []) {
     let historyId = String(tab?.browserHistoryId || '').trim();
     let record = history.find((item) => item.id === historyId);
+    const accountId = String(tab?.accountId || '').trim();
+    const profileId = String(tab?.id || '').trim();
+    const partition = String(tab?.partition || '').trim();
+    // 兼容旧记录：账号浏览器过去没有保存 profileId，但 partition 是稳定的。
+    // 再次打开账号浏览器时直接绑定旧记录，避免生成第二条历史。
+    if (!record && accountId && partition) {
+      record = history.find((item) => String(item?.partition || '').trim() === partition) || null;
+      if (record) historyId = record.id;
+    }
     if (!record) {
       historyId = createBrowserHistoryId();
       const resolvedTitle = String(tab?.fixedTitle || tab?.runtimeTitle || '').trim();
@@ -88,7 +125,9 @@ function syncOpenTabsToBrowserHistory(ui) {
         name: makeUniqueBrowserName(resolvedTitle || DEFAULT_BROWSER_WINDOW_NAME, history),
         kind: tab?.isTutorialTab === true ? 'tutorial' : '',
         url: getManagedTabUrl(tab),
-        partition: String(tab?.partition || '').trim(),
+        profileId,
+        accountId,
+        partition,
         runtimeType: 'chromium',
         settings: normalizeAiFreeBrowserSettings(tab?.browserSettings || {}),
         createdAt: Date.now(),
@@ -97,9 +136,24 @@ function syncOpenTabsToBrowserHistory(ui) {
       history.push(record);
       tab.browserHistoryId = historyId;
       changed = true;
-    } else if (tab?.isTutorialTab === true && record.kind !== 'tutorial') {
-      record.kind = 'tutorial';
-      changed = true;
+    } else {
+      const liveUrl = getManagedTabUrl(tab);
+      const updates = {
+        profileId,
+        accountId,
+        partition,
+        ...(liveUrl ? { url: liveUrl } : {}),
+        ...(tab?.isTutorialTab === true ? { kind: 'tutorial' } : {}),
+      };
+      for (const [field, value] of Object.entries(updates)) {
+        if (record[field] === value) continue;
+        record[field] = value;
+        changed = true;
+      }
+      if (tab.browserHistoryId !== historyId) {
+        tab.browserHistoryId = historyId;
+        changed = true;
+      }
     }
   }
   if (changed) {
@@ -271,12 +325,22 @@ function registerSettingsIPC(ctx) {
       const record = history.find((item) => item.id === historyId);
       if (!record) throw new Error('浏览器历史不存在');
       const openTab = Array.from(ui?.getTabs?.().values?.() || [])
-        .find((tab) => String(tab?.browserHistoryId || '') === historyId);
+        .find((tab) => (
+          String(tab?.browserHistoryId || '') === historyId
+          || (!!record.profileId && String(tab?.id || '') === record.profileId)
+          || (!!record.accountId && String(tab?.accountId || '') === record.accountId)
+        ));
       let tabId = openTab?.id;
       if (tabId) {
         ui.switchTab?.(tabId);
       } else {
-        tabId = await ui.addTab(record.url || DEFAULT_BROWSER_WINDOW_URL, {
+        tabId = record.profileId
+          || record.accountId
+          || `browser-tab-${record.id.replace(/[^a-z0-9_-]/gi, '_')}`;
+        const openUrl = record.url || (record.accountId ? 'about:blank' : DEFAULT_BROWSER_WINDOW_URL);
+        tabId = await ui.addTab(openUrl, {
+          tabId,
+          accountId: record.accountId,
           fixedTitle: record.name,
           browserHistoryId: record.id,
           partition: record.partition,
@@ -284,6 +348,7 @@ function registerSettingsIPC(ctx) {
           browserSettings: record.settings,
           resolveProfileInBackground: true,
           showLoadingPage: true,
+          restoreLastSession: true,
         });
       }
       record.lastOpenedAt = Date.now();

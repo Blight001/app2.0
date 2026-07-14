@@ -285,7 +285,27 @@ class ChromiumRuntime extends BrowserRuntime {
     return instance;
   }
 
-  async reload(profileId) { return this.getReadyInstance(profileId).commandClient.send('reload'); }
+  async reload(profileId) {
+    try {
+      return await this.getReadyInstance(profileId).commandClient.send('reload');
+    } catch (error) {
+      if (error?.code !== 'RUNTIME_COMMAND_TIMEOUT') throw error;
+      // The reload command has already reached Chromium. Its response is sent
+      // only after the page finishes loading, so a slow site can exceed the
+      // bridge deadline even though the refresh itself is proceeding normally.
+      this.logger?.warn?.(
+        `[ChromiumRuntime] reload ${profileId}: 页面仍在加载，忽略 Runtime Bridge 回包超时`,
+      );
+      return {
+        ok: true,
+        result: {
+          pending: true,
+          timedOut: true,
+          message: '页面仍在加载',
+        },
+      };
+    }
+  }
   async navigate(profileId, url) {
     return this.getReadyInstance(profileId).commandClient.send('navigate', { url: String(url || '') }, { timeoutMs: 30000 });
   }
@@ -318,38 +338,41 @@ class ChromiumRuntime extends BrowserRuntime {
         targetUrl: prepared.targetUrl,
       }, { timeoutMs: 30000 }));
     }
-    this.logger?.info?.(`[ChromiumRuntime] importSession ${profileId}: navigate ${prepared.targetUrl}`);
-    let navigation;
-    try {
-      navigation = await commandClient.send('navigate', {
-        url: prepared.targetUrl,
-      }, { timeoutMs: 30000 });
-    } catch (error) {
-      const message = String(error?.message || '');
-      const navigationTimedOut = ['NAVIGATION_TIMEOUT', 'RUNTIME_COMMAND_TIMEOUT'].includes(error?.code);
-      const navigationInterrupted = error?.code === 'NAVIGATION_FAILED'
-        && (/页面加载失败:\s*-3(?:\s|$)/.test(message) || /ERR_ABORTED/i.test(message));
-      if (!navigationTimedOut && !navigationInterrupted) throw error;
-      // navigate has already been delivered to Chromium. A slow page can keep
-      // loading after the bridge response deadline. ERR_ABORTED (-3) also means
-      // that the site replaced this navigation (usually a redirect), not that
-      // the destination is unreachable. Neither condition should tear down a
-      // valid imported session or turn browser startup into a hard failure.
-      this.logger?.warn?.(
-        navigationInterrupted
-          ? `[ChromiumRuntime] importSession ${profileId}: 页面导航被站点重定向，保留浏览器并等待最终页面`
-          : `[ChromiumRuntime] importSession ${profileId}: 页面加载超过等待时间，保留浏览器并继续加载`,
-      );
-      navigation = {
-        result: {
-          pending: true,
-          timedOut: navigationTimedOut,
-          interrupted: navigationInterrupted,
-          message: navigationInterrupted
-            ? '页面正在重定向，已保留浏览器窗口'
-            : '页面仍在加载，已保留浏览器窗口',
-        },
-      };
+    const navigateAfterImport = rawSession.navigateAfterImport !== false;
+    let navigation = { result: { skipped: true } };
+    if (navigateAfterImport) {
+      this.logger?.info?.(`[ChromiumRuntime] importSession ${profileId}: navigate ${prepared.targetUrl}`);
+      try {
+        navigation = await commandClient.send('navigate', {
+          url: prepared.targetUrl,
+        }, { timeoutMs: 30000 });
+      } catch (error) {
+        const message = String(error?.message || '');
+        const navigationTimedOut = ['NAVIGATION_TIMEOUT', 'RUNTIME_COMMAND_TIMEOUT'].includes(error?.code);
+        const navigationInterrupted = error?.code === 'NAVIGATION_FAILED'
+          && (/页面加载失败:\s*-3(?:\s|$)/.test(message) || /ERR_ABORTED/i.test(message));
+        if (!navigationTimedOut && !navigationInterrupted) throw error;
+        // navigate has already been delivered to Chromium. A slow page can keep
+        // loading after the bridge response deadline. ERR_ABORTED (-3) also means
+        // that the site replaced this navigation (usually a redirect), not that
+        // the destination is unreachable. Neither condition should tear down a
+        // valid imported session or turn browser startup into a hard failure.
+        this.logger?.warn?.(
+          navigationInterrupted
+            ? `[ChromiumRuntime] importSession ${profileId}: 页面导航被站点重定向，保留浏览器并等待最终页面`
+            : `[ChromiumRuntime] importSession ${profileId}: 页面加载超过等待时间，保留浏览器并继续加载`,
+        );
+        navigation = {
+          result: {
+            pending: true,
+            timedOut: navigationTimedOut,
+            interrupted: navigationInterrupted,
+            message: navigationInterrupted
+              ? '页面正在重定向，已保留浏览器窗口'
+              : '页面仍在加载，已保留浏览器窗口',
+          },
+        };
+      }
     }
     return {
       ok: true,

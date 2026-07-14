@@ -162,6 +162,401 @@
   margin-top: 14px;
 }
 
+.account-usage-details {
+  display: grid;
+  width: 100%;
+  gap: 8px;
+  margin-top: 10px;
+  text-align: left;
+}
+
+.account-usage-details[hidden] {
+  display: none !important;
+}
+
+/* 卡片：自上而下 标题 / 主指标 / 进度 / 明细 / 附加 */
+.account-usage-card {
+  position: relative;
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid rgba(128, 159, 202, .16);
+  border-radius: 14px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .045), rgba(255, 255, 255, .015)),
+    rgba(12, 18, 28, .35);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04);
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+
+.account-usage-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 14px 0 0 14px;
+  background: #6b7f96;
+  z-index: 1;
+  transition: background .2s ease;
+}
+
+.account-usage-card[data-status="ok"]::before { background: linear-gradient(180deg, #3dd68c, #1faa63); }
+.account-usage-card[data-status="warn"]::before { background: linear-gradient(180deg, #f5c542, #d99212); }
+.account-usage-card[data-status="critical"]::before { background: linear-gradient(180deg, #ff9b5e, #e86a28); }
+.account-usage-card[data-status="exhausted"]::before { background: linear-gradient(180deg, #ff6b7a, #d93a4a); }
+.account-usage-card[data-status="unlimited"]::before { background: linear-gradient(180deg, #5ec8ff, #3b82f6); }
+.account-usage-card[data-status="pending"]::before { background: #6b7f96; }
+
+.account-usage-card[data-status="ok"] {
+  border-color: rgba(61, 214, 140, .22);
+  box-shadow: inset 0 1px 0 rgba(61, 214, 140, .08), 0 0 0 1px rgba(61, 214, 140, .04);
+}
+.account-usage-card[data-status="warn"] {
+  border-color: rgba(245, 197, 66, .24);
+  box-shadow: inset 0 1px 0 rgba(245, 197, 66, .08);
+}
+.account-usage-card[data-status="critical"] {
+  border-color: rgba(255, 155, 94, .28);
+  box-shadow: inset 0 1px 0 rgba(255, 155, 94, .1);
+}
+.account-usage-card[data-status="exhausted"] {
+  border-color: rgba(255, 107, 122, .32);
+  background:
+    linear-gradient(145deg, rgba(255, 80, 100, .08), rgba(255, 255, 255, .015)),
+    rgba(28, 14, 18, .4);
+  box-shadow: inset 0 1px 0 rgba(255, 107, 122, .1);
+}
+.account-usage-card[data-status="unlimited"] {
+  border-color: rgba(94, 200, 255, .24);
+  box-shadow: inset 0 1px 0 rgba(94, 200, 255, .08);
+}
+
+/* 1. 标题行 */
+.account-usage-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px 0 12px;
+  color: #dceaff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.account-usage-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.account-usage-icon {
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .06);
+  position: relative;
+}
+
+.account-usage-icon::before,
+.account-usage-icon::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+}
+
+.account-usage-icon-traffic::before {
+  width: 0;
+  height: 0;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-bottom: 4px solid #5ec8ff;
+  top: -3px;
+  bottom: auto;
+}
+.account-usage-icon-traffic::after {
+  width: 0;
+  height: 0;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-top: 4px solid #7ee2a8;
+  top: auto;
+  bottom: 3px;
+}
+
+.account-usage-icon-ai {
+  background: linear-gradient(135deg, rgba(126, 92, 255, .35), rgba(93, 201, 255, .2));
+}
+.account-usage-icon-ai::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #c4b5fd;
+  box-shadow: 0 0 6px rgba(167, 139, 250, .8);
+}
+
+.account-usage-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px 1px 5px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  line-height: 1.4;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.account-usage-badge::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.account-usage-badge[data-status="ok"] {
+  color: #3dd68c;
+  background: rgba(61, 214, 140, .12);
+  border-color: rgba(61, 214, 140, .28);
+}
+.account-usage-badge[data-status="warn"] {
+  color: #f5c542;
+  background: rgba(245, 197, 66, .12);
+  border-color: rgba(245, 197, 66, .3);
+}
+.account-usage-badge[data-status="critical"] {
+  color: #ff9b5e;
+  background: rgba(255, 155, 94, .14);
+  border-color: rgba(255, 155, 94, .32);
+}
+.account-usage-badge[data-status="exhausted"] {
+  color: #ff7a88;
+  background: rgba(255, 107, 122, .14);
+  border-color: rgba(255, 107, 122, .35);
+}
+.account-usage-badge[data-status="unlimited"] {
+  color: #5ec8ff;
+  background: rgba(94, 200, 255, .12);
+  border-color: rgba(94, 200, 255, .3);
+}
+.account-usage-badge[data-status="pending"] {
+  color: #8fa3bb;
+  background: rgba(143, 163, 187, .1);
+  border-color: rgba(143, 163, 187, .22);
+}
+
+/* 2. 主指标：剩余 + 已用占比（单行） */
+.account-usage-hero {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px 0 12px;
+}
+
+.account-usage-hero-main {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.account-usage-hero-label {
+  color: #7f94ad;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: none;
+  flex-shrink: 0;
+}
+
+.account-usage-hero-value {
+  margin: 0;
+  color: #edf5ff;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -.02em;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.account-usage-hero-side {
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.account-usage-hero-side-label {
+  color: #6d829b;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.account-usage-hero-percent {
+  margin: 0;
+  color: #b8c9dc;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
+}
+
+.account-usage-card[data-status="ok"] .account-usage-hero-value { color: #3dd68c; }
+.account-usage-card[data-status="warn"] .account-usage-hero-value { color: #f5c542; }
+.account-usage-card[data-status="critical"] .account-usage-hero-value { color: #ff9b5e; }
+.account-usage-card[data-status="exhausted"] .account-usage-hero-value { color: #ff7a88; }
+.account-usage-card[data-status="unlimited"] .account-usage-hero-value { color: #5ec8ff; }
+
+.account-usage-card[data-status="ok"] .account-usage-hero-percent { color: #7f94ad; }
+.account-usage-card[data-status="warn"] .account-usage-hero-percent { color: #e0b43a; }
+.account-usage-card[data-status="critical"] .account-usage-hero-percent { color: #e8894a; }
+.account-usage-card[data-status="exhausted"] .account-usage-hero-percent { color: #e86a78; }
+.account-usage-card[data-status="unlimited"] .account-usage-hero-percent { color: #7f94ad; }
+
+/* 3. 进度条 */
+.account-usage-progress {
+  height: 4px;
+  margin: 6px 10px 0 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .06);
+  overflow: hidden;
+}
+
+.account-usage-progress-bar {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #3b82f6, #5ec8ff);
+  transition: width .35s ease, background .2s ease;
+  min-width: 0;
+}
+
+.account-usage-progress-bar[data-status="ok"] {
+  background: linear-gradient(90deg, #1faa63, #3dd68c);
+}
+.account-usage-progress-bar[data-status="warn"] {
+  background: linear-gradient(90deg, #d99212, #f5c542);
+}
+.account-usage-progress-bar[data-status="critical"] {
+  background: linear-gradient(90deg, #e86a28, #ff9b5e);
+}
+.account-usage-progress-bar[data-status="exhausted"] {
+  background: linear-gradient(90deg, #d93a4a, #ff6b7a);
+}
+.account-usage-progress-bar[data-status="unlimited"] {
+  background: linear-gradient(90deg, #3b82f6, #5ec8ff, #a78bfa);
+  width: 100% !important;
+  opacity: .55;
+}
+.account-usage-progress-bar[data-status="pending"] {
+  background: #6b7f96;
+  width: 0 !important;
+}
+
+/* 4. 额度明细：总额度 | 已使用（单行 标签—数值） */
+.account-usage-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 14px;
+  margin: 7px 10px 0 12px;
+}
+
+.account-usage-stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.account-usage-stat-label {
+  color: #7f94ad;
+  font-size: 10px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.account-usage-stat-value {
+  margin: 0;
+  color: #edf5ff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+/* 5. 上下行明细（仅流量） */
+.account-usage-io {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 14px;
+  margin: 3px 10px 9px 12px;
+  padding: 0;
+  border: 0;
+}
+
+.account-ai-usage .account-usage-stats {
+  margin-bottom: 9px;
+}
+
+.account-usage-io-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.account-usage-io-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #8fa3bb;
+  font-size: 10px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.account-usage-io-label::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+}
+
+.account-usage-io-up .account-usage-io-label::before {
+  border-bottom: 5px solid #5ec8ff;
+}
+.account-usage-io-down .account-usage-io-label::before {
+  border-top: 5px solid #7ee2a8;
+}
+
+.account-usage-io-item strong {
+  color: #dceaff;
+  font-size: 11px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+  text-align: right;
+}
+
+.account-usage-io-up strong { color: #9fd9ff; }
+.account-usage-io-down strong { color: #a8ecc4; }
+
 .account-profile-actions button {
   min-width: 86px;
   height: 34px;
@@ -401,6 +796,75 @@ html.theme-light .account-profile-cover {
 
 html.theme-light .account-profile-presence { border-color: #fff; }
 html.theme-light .account-profile-secondary { color: #60758f; background: #f5f8fc; }
+html.theme-light .account-usage-card {
+  border-color: rgba(78, 116, 166, .14);
+  background: linear-gradient(145deg, #f7fafd, #f0f5fb);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8);
+}
+html.theme-light .account-usage-card[data-status="ok"] {
+  border-color: rgba(22, 142, 91, .2);
+  box-shadow: inset 0 1px 0 rgba(22, 142, 91, .06);
+}
+html.theme-light .account-usage-card[data-status="warn"] {
+  border-color: rgba(200, 140, 20, .22);
+}
+html.theme-light .account-usage-card[data-status="critical"] {
+  border-color: rgba(220, 110, 40, .24);
+}
+html.theme-light .account-usage-card[data-status="exhausted"] {
+  border-color: rgba(200, 55, 70, .28);
+  background: linear-gradient(145deg, #fff5f6, #f7f0f1);
+}
+html.theme-light .account-usage-card[data-status="unlimited"] {
+  border-color: rgba(45, 120, 200, .22);
+}
+html.theme-light .account-usage-heading { color: #294057; }
+html.theme-light .account-usage-icon { background: rgba(60, 100, 150, .08); }
+html.theme-light .account-usage-hero-label,
+html.theme-light .account-usage-hero-side-label,
+html.theme-light .account-usage-stat-label { color: #74869a; }
+html.theme-light .account-usage-hero-value { color: #203448; }
+html.theme-light .account-usage-hero-percent { color: #60758f; }
+html.theme-light .account-usage-stat-value { color: #263b52; }
+html.theme-light .account-usage-card[data-status="ok"] .account-usage-hero-value { color: #168e5b; }
+html.theme-light .account-usage-card[data-status="warn"] .account-usage-hero-value { color: #c48a0a; }
+html.theme-light .account-usage-card[data-status="critical"] .account-usage-hero-value { color: #d96a20; }
+html.theme-light .account-usage-card[data-status="exhausted"] .account-usage-hero-value { color: #d63d4d; }
+html.theme-light .account-usage-card[data-status="unlimited"] .account-usage-hero-value { color: #1a7fd4; }
+html.theme-light .account-usage-progress { background: rgba(60, 100, 150, .1); }
+html.theme-light .account-usage-io-label { color: #6b7f96; }
+html.theme-light .account-usage-io-up strong { color: #1a7fd4; }
+html.theme-light .account-usage-io-down strong { color: #168e5b; }
+html.theme-light .account-usage-badge[data-status="ok"] {
+  color: #168e5b;
+  background: rgba(22, 142, 91, .1);
+  border-color: rgba(22, 142, 91, .22);
+}
+html.theme-light .account-usage-badge[data-status="warn"] {
+  color: #b8860b;
+  background: rgba(200, 140, 20, .1);
+  border-color: rgba(200, 140, 20, .24);
+}
+html.theme-light .account-usage-badge[data-status="critical"] {
+  color: #d96a20;
+  background: rgba(220, 110, 40, .1);
+  border-color: rgba(220, 110, 40, .24);
+}
+html.theme-light .account-usage-badge[data-status="exhausted"] {
+  color: #d63d4d;
+  background: rgba(200, 55, 70, .1);
+  border-color: rgba(200, 55, 70, .24);
+}
+html.theme-light .account-usage-badge[data-status="unlimited"] {
+  color: #1a7fd4;
+  background: rgba(45, 120, 200, .1);
+  border-color: rgba(45, 120, 200, .22);
+}
+html.theme-light .account-usage-badge[data-status="pending"] {
+  color: #6b7f96;
+  background: rgba(107, 127, 150, .08);
+  border-color: rgba(107, 127, 150, .18);
+}
 html.theme-light .account-profile-menu {
   border-color: rgba(78, 116, 166, .18);
   background: #fff;

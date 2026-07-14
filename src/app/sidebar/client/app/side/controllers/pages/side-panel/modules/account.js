@@ -591,7 +591,7 @@ function createAccountItem(account) {
       <div class="account-meta">${escapeHtml(`剩余时间: ${expiryText}`)}</div>
     </div>
     <div class="account-actions">
-      <button class="btn-switch" data-account-id="${escapeHtml(accountId)}">打开</button>
+      <button type="button" class="btn-switch" data-account-id="${escapeHtml(accountId)}">打开</button>
     </div>
   `;
 
@@ -767,9 +767,10 @@ function bindAccountPanel() {
   if (!window.__accountHistoryPanelOpenBound) {
     window.__accountHistoryPanelOpenBound = true;
     window.addEventListener('account-history-panel-open-request', () => {
-      const personalCenterTab = document.querySelector('[data-tab="personal-center-panel"]');
-      if (personalCenterTab && !personalCenterTab.classList.contains('active')) {
-        personalCenterTab.click();
+      // 历史账号按钮已移至“浏览器配置”面板的羊毛资源栏目
+      const settingsTab = document.querySelector('[data-tab="ai-free-settings-panel"]');
+      if (settingsTab && !settingsTab.classList.contains('active')) {
+        settingsTab.click();
       }
       const wasOpened = setAccountPanelOpen(true);
       if (wasOpened) {

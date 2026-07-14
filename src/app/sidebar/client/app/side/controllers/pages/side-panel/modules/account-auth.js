@@ -91,6 +91,125 @@ function toggleAccountProfileMenu(event) {
   avatar.setAttribute('aria-expanded', opening ? 'true' : 'false');
 }
 
+function formatAccountUsageNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '--';
+  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(Math.max(0, number));
+}
+
+function setAccountUsageText(id, value) {
+  const element = safeGetEl(id);
+  if (element) element.textContent = value;
+}
+
+/** 根据剩余比例返回状态：pending | unlimited | ok | warn | critical | exhausted */
+function resolveAccountUsageStatus({ hasData, unlimited, exhausted, remainingRatio }) {
+  if (!hasData) return 'pending';
+  if (unlimited) return 'unlimited';
+  if (exhausted) return 'exhausted';
+  if (!Number.isFinite(remainingRatio)) return 'ok';
+  if (remainingRatio <= 0) return 'exhausted';
+  if (remainingRatio <= 0.1) return 'critical';
+  if (remainingRatio <= 0.25) return 'warn';
+  return 'ok';
+}
+
+function setAccountUsageStatus(cardSelector, badgeId, status, label) {
+  const card = document.querySelector(cardSelector);
+  const badge = safeGetEl(badgeId);
+  if (card) card.dataset.status = status;
+  if (badge) {
+    badge.dataset.status = status;
+    badge.textContent = label;
+  }
+}
+
+function formatAccountUsagePercent(ratio) {
+  if (!Number.isFinite(ratio)) return '--';
+  const percent = Math.max(0, Math.min(100, ratio * 100));
+  if (percent > 0 && percent < 0.1) return '<0.1%';
+  if (percent >= 99.95 && percent < 100) return '99.9%';
+  return `${percent.toFixed(percent >= 10 || percent === 0 ? 0 : 1)}%`;
+}
+
+function setAccountUsageProgress(barId, percent, status) {
+  const bar = safeGetEl(barId);
+  if (!bar) return;
+  const clamped = Math.max(0, Math.min(100, Number(percent) || 0));
+  bar.style.width = `${clamped}%`;
+  bar.dataset.status = status;
+}
+
+function renderAccountProxyTrafficUsage(quota) {
+  const usage = quota && typeof quota === 'object' ? quota : null;
+  const unlimited = Boolean(usage?.unlimited);
+  const exhausted = Boolean(usage?.exhausted);
+  const totalBytes = usage ? Number(usage.quota_bytes) : NaN;
+  const remainingBytes = usage ? Number(usage.remaining_bytes) : NaN;
+  const usedBytes = usage ? Number(usage.used_bytes) : NaN;
+  const remainingRatio = unlimited
+    ? 1
+    : (Number.isFinite(totalBytes) && totalBytes > 0 && Number.isFinite(remainingBytes)
+      ? remainingBytes / totalBytes
+      : (exhausted ? 0 : NaN));
+  const usedRatio = unlimited
+    ? 0
+    : (Number.isFinite(totalBytes) && totalBytes > 0 && Number.isFinite(usedBytes)
+      ? usedBytes / totalBytes
+      : (exhausted ? 1 : NaN));
+  const status = resolveAccountUsageStatus({
+    hasData: Boolean(usage),
+    unlimited,
+    exhausted,
+    remainingRatio,
+  });
+  const statusLabel = !usage ? '待同步' : (unlimited ? '不限量' : (status === 'exhausted' ? '已用完' : status === 'critical' || status === 'warn' ? '偏低' : '可用'));
+
+  setAccountUsageStatus('.account-traffic-usage', 'account-traffic-status', status, statusLabel);
+  setAccountUsageProgress('account-traffic-progress', unlimited ? 8 : (Number.isFinite(remainingRatio) ? remainingRatio * 100 : 0), status);
+  setAccountUsageText('account-traffic-percent', !usage ? '--' : (unlimited ? '—' : formatAccountUsagePercent(usedRatio)));
+  setAccountUsageText('account-traffic-total', usage ? (unlimited ? '不限量' : formatProxyTrafficBytes(usage.quota_bytes)) : '--');
+  setAccountUsageText('account-traffic-remaining', usage ? (unlimited ? '不限量' : formatProxyTrafficBytes(usage.remaining_bytes)) : '--');
+  setAccountUsageText('account-traffic-used', usage ? formatProxyTrafficBytes(usage.used_bytes) : '--');
+  setAccountUsageText('account-traffic-upload', usage ? formatProxyTrafficBytes(usage.upload_used_bytes) : '--');
+  setAccountUsageText('account-traffic-download', usage ? formatProxyTrafficBytes(usage.download_used_bytes) : '--');
+}
+
+function renderAccountAiUsage(quota) {
+  const usage = quota && typeof quota === 'object' ? quota : null;
+  const unlimited = Boolean(usage?.unlimited);
+  const total = usage ? Number(usage.quota) : NaN;
+  const used = usage ? Number(usage.used) : NaN;
+  const remaining = usage ? Number(usage.remaining ?? (total - used)) : NaN;
+  const remainingRatio = unlimited
+    ? 1
+    : (Number.isFinite(total) && total > 0 && Number.isFinite(remaining)
+      ? remaining / total
+      : (Number.isFinite(remaining) && remaining <= 0 ? 0 : NaN));
+  const usedRatio = unlimited
+    ? 0
+    : (Number.isFinite(total) && total > 0 && Number.isFinite(used)
+      ? used / total
+      : (Number.isFinite(remaining) && remaining <= 0 ? 1 : NaN));
+  const exhausted = !unlimited && (Number.isFinite(remaining) ? remaining <= 0 : false);
+  const status = resolveAccountUsageStatus({
+    hasData: Boolean(usage),
+    unlimited,
+    exhausted,
+    remainingRatio,
+  });
+  const statusLabel = !usage ? '待同步' : (unlimited ? '不限量' : (status === 'exhausted' ? '已用完' : status === 'critical' || status === 'warn' ? '偏低' : '可用'));
+
+  setAccountUsageStatus('.account-ai-usage', 'account-ai-status', status, statusLabel);
+  setAccountUsageProgress('account-ai-progress', unlimited ? 8 : (Number.isFinite(remainingRatio) ? remainingRatio * 100 : 0), status);
+  setAccountUsageText('account-ai-percent', !usage ? '--' : (unlimited ? '—' : formatAccountUsagePercent(usedRatio)));
+  setAccountUsageText('account-ai-total', usage ? (unlimited ? '不限量' : `${formatAccountUsageNumber(total)} 点`) : '--');
+  setAccountUsageText('account-ai-remaining', usage ? (unlimited ? '不限量' : `${formatAccountUsageNumber(remaining)} 点`) : '--');
+  setAccountUsageText('account-ai-used', usage ? `${formatAccountUsageNumber(used)} 点` : '--');
+}
+
+window.renderAccountAiUsage = renderAccountAiUsage;
+
 function renderSidebarAccountSession(session = {}) {
   const authenticated = session.authenticated === true;
   const profile = safeGetEl('sidebar-account-session');
@@ -101,6 +220,7 @@ function renderSidebarAccountSession(session = {}) {
   const registerButton = safeGetEl('account-register-open-btn');
   const giftInput = safeGetEl('unified-gift-code');
   const giftButton = safeGetEl('unified-redeem-gift');
+  const usageDetails = safeGetEl('account-usage-details');
   const username = authenticated ? String(session.username || '').trim() : '';
 
   if (profile) profile.dataset.authenticated = authenticated ? 'true' : 'false';
@@ -116,9 +236,15 @@ function renderSidebarAccountSession(session = {}) {
     if (!authenticated) giftInput.value = '';
   }
   if (giftButton) giftButton.disabled = !authenticated;
+  if (usageDetails) usageDetails.hidden = !authenticated;
 
   if (!authenticated && typeof setWoolPlatformRemainingUsage === 'function') {
     setWoolPlatformRemainingUsage('');
+  }
+
+  if (!authenticated) {
+    renderAccountProxyTrafficUsage(null);
+    renderAccountAiUsage(null);
   }
 
   if (authenticated) {
@@ -132,6 +258,9 @@ function renderSidebarAccountSession(session = {}) {
       if (result?.ok && result.quota && typeof renderProxyTrafficQuota === 'function') {
         renderProxyTrafficQuota(result.quota);
       }
+    }).catch(() => {});
+    window.electronAPI?.invoke?.('ai-control-get-models').then((result) => {
+      if (result?.ok) renderAccountAiUsage(result.quota || null);
     }).catch(() => {});
   }
 }

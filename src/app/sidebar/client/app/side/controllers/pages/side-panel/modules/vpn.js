@@ -10,22 +10,14 @@ function formatProxyTrafficBytes(value) {
   return `${Math.round(bytes)}B`;
 }
 
-function getProxyTrafficButtonText() {
-  const quota = proxyTrafficQuotaSnapshot;
-  if (!quota) return '流量待同步';
-  const direction = `↑${formatProxyTrafficBytes(quota.upload_used_bytes)} ↓${formatProxyTrafficBytes(quota.download_used_bytes)}`;
-  return quota.unlimited
-    ? `不限量 · ${direction}`
-    : `剩余${formatProxyTrafficBytes(quota.remaining_bytes)} · ${direction}`;
-}
-
 function renderProxyTrafficQuota(quota) {
   proxyTrafficQuotaSnapshot = quota && typeof quota === 'object' ? quota : null;
+  if (typeof renderAccountProxyTrafficUsage === 'function') {
+    renderAccountProxyTrafficUsage(proxyTrafficQuotaSnapshot);
+  }
   if (vpnSwitchBtn) {
-    vpnSwitchBtn.textContent = `${isVpnEnabled ? '关闭网络魔法' : '开启网络魔法'} · ${getProxyTrafficButtonText()}`;
-    vpnSwitchBtn.title = proxyTrafficQuotaSnapshot?.unlimited
-      ? `网络魔法流量不限量，已用 ${formatProxyTrafficBytes(proxyTrafficQuotaSnapshot.used_bytes)}`
-      : `网络魔法剩余 ${formatProxyTrafficBytes(proxyTrafficQuotaSnapshot?.remaining_bytes)}`;
+    vpnSwitchBtn.textContent = isVpnEnabled ? '关闭网络魔法' : '开启网络魔法';
+    vpnSwitchBtn.title = isVpnEnabled ? '点击关闭网络魔法' : '点击开启网络魔法';
   }
 }
 const decodeBase64Preview = TextPreviewUtils.decodeBase64Preview || (() => '');
@@ -537,7 +529,7 @@ async function warmupClashMiniProcess() {
       }
 
       console.log('[侧边栏][Clash] 开始预热 Clash 运行环境，先同步客户端配置，再提前启动代理端口...');
-      await syncClashMiniConfigFromServer();
+      await ensureClashMiniConfigPreheated();
       return await window.electron.startClashMini();
     } catch (error) {
       console.warn('[侧边栏][Clash] 预热 Clash 运行环境失败:', error?.message || error);
@@ -828,7 +820,7 @@ function applyClashMiniStatus(status, { startBtn, vpnBtn } = {}) {
       startBtn.disabled = running || isBusy;
     }
     if (vpnBtn) {
-      vpnBtn.textContent = `${enabled ? '关闭网络魔法' : '开启网络魔法'} · ${getProxyTrafficButtonText()}`;
+      vpnBtn.textContent = enabled ? '关闭网络魔法' : '开启网络魔法';
       vpnBtn.title = enabled ? '点击关闭网络魔法' : '点击开启网络魔法';
       if (isBusy) {
         vpnBtn.disabled = true;
@@ -885,7 +877,7 @@ async function stopClashMiniFlow({ startBtn, vpnBtn } = {}) {
 }
 
 // 启动/打开/显示：startClashMiniFlow的具体业务逻辑。
-async function startClashMiniFlow({ startBtn, vpnBtn, fetchConfig = true } = {}) {
+async function startClashMiniFlow({ startBtn, vpnBtn, fetchConfig = true, silent = false } = {}) {
   if (typeof window.electron.startClashMini !== 'function') {
     throw new Error('当前环境不支持启动 Clash Mini');
   }
@@ -919,7 +911,7 @@ async function startClashMiniFlow({ startBtn, vpnBtn, fetchConfig = true } = {})
   let autoSelectLoadingVisible = false;
   try {
     await loadVpnNodeSelectorOptions({ force: true, probeDelays: false }).catch(() => {});
-    if (window.MessageModal && typeof window.MessageModal.showLoadingMessage === 'function') {
+    if (!silent && window.MessageModal && typeof window.MessageModal.showLoadingMessage === 'function') {
       window.MessageModal.showLoadingMessage('网络魔法已开启，正在自动选择最佳路线...');
       autoSelectLoadingVisible = true;
     }
@@ -1005,15 +997,15 @@ async function restoreClashMiniIfNeeded({ startBtn, vpnBtn } = {}) {
   }
 
   try {
-    await syncClashMiniConfigFromServer();
-    await startClashMiniFlow({ startBtn, vpnBtn, fetchConfig: false });
+    await ensureClashMiniConfigPreheated();
+    await startClashMiniFlow({ startBtn, vpnBtn, fetchConfig: false, silent: true });
   } catch (error) {
     console.warn('[侧边栏] 恢复网络魔法状态失败:', error?.message || error);
   }
 }
 
 // 处理：autoStartClashMiniAfterValidation的具体业务逻辑。
-async function autoStartClashMiniAfterValidation({ startBtn, vpnBtn } = {}) {
+async function autoStartClashMiniAfterValidation({ startBtn, vpnBtn, key = '', deviceId = '' } = {}) {
   if (!vpnBtn) {
     return;
   }
@@ -1045,29 +1037,15 @@ async function autoStartClashMiniAfterValidation({ startBtn, vpnBtn } = {}) {
   }
 
   autoStartClashMiniInFlight = true;
-// 停止/关闭/清理：hideAutoStartLoading的具体业务逻辑。
-  const hideAutoStartLoading = () => {
-    if (window.__autoStartVpnLoading === true && window.MessageModal && typeof window.MessageModal.hideLoadingMessage === 'function') {
-      window.__autoStartVpnLoading = false;
-      window.MessageModal.hideLoadingMessage();
-    }
-  };
   try {
-    if (window.MessageModal && typeof window.MessageModal.showLoadingMessage === 'function') {
-      window.MessageModal.showLoadingMessage('网络魔法正在提前启动...\n如自行魔法，请先关闭当前软件魔法，再开启自己的魔法，防止冲突；\n软件关闭魔法后退出，下次打开不再自动开启魔法！');
-      window.__autoStartVpnLoading = true;
-      setTimeout(hideAutoStartLoading, 20000);
-    }
     if (vpnBtn.disabled) {
       vpnBtn.disabled = false;
     }
     console.log('[侧边栏][Clash] 验证完成，开始启用网络魔法');
-    await syncClashMiniConfigFromServer();
-    await startClashMiniFlow({ startBtn, vpnBtn, fetchConfig: false });
-    hideAutoStartLoading();
+    await ensureClashMiniConfigPreheated({ key, deviceId });
+    await startClashMiniFlow({ startBtn, vpnBtn, fetchConfig: false, silent: true });
   } catch (error) {
     console.warn('[侧边栏] 验证成功后自动开启网络魔法失败:', error?.message || error);
-    hideAutoStartLoading();
   } finally {
     autoStartClashMiniInFlight = false;
   }

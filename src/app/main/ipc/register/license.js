@@ -636,8 +636,24 @@ function registerLicenseIPC(ctx) {
         if (historicalAccount) {
           launchAccount = historicalAccount;
           launchAccountId = String(historicalAccount.id || launchAccountId || fetchedAccountId || '').trim();
-          launchCookies = Array.isArray(historicalAccount.cookies) ? historicalAccount.cookies : [];
-          launchBrowserStorage = Array.isArray(historicalAccount.browserStorage) ? historicalAccount.browserStorage : [];
+          // 服务器本次成功下发的会话优先于历史快照；账号历史按钮本身不会再
+          // 触发拉取或注入，但服务器入口必须把最新会话写入原账号 Profile。
+          launchCookies = fetchedCookies.length > 0
+            ? fetchedCookies
+            : (Array.isArray(historicalAccount.cookies) ? historicalAccount.cookies : []);
+          launchBrowserStorage = fetchedBrowserStorage.length > 0
+            ? fetchedBrowserStorage
+            : (Array.isArray(historicalAccount.browserStorage) ? historicalAccount.browserStorage : []);
+          if (fetchResult) {
+            const updated = accountStorage.updateAccount(launchAccountId, {
+              cookies: launchCookies,
+              browserStorage: launchBrowserStorage,
+              currentUrl: targetUrl,
+              platform: fetchResult.platform || historicalAccount.platform,
+              currentPlatform: fetchResult.currentPlatform || platformName || historicalAccount.currentPlatform,
+            });
+            if (updated?.ok && updated.account) launchAccount = updated.account;
+          }
           console.log('[open-dream-page] 命中历史账号记录:', launchAccountId);
         }
       }
@@ -694,18 +710,39 @@ function registerLicenseIPC(ctx) {
         throw new Error('本地无账号');
       }
 
+      const browserName = String(
+        platformName
+        || launchAccount.currentPlatform
+        || launchAccount.platform
+        || launchAccount.accountName
+        || launchAccountId
+      ).trim();
       const tabId = await ui.addTab(targetUrl, {
         accountId: launchAccountId,
-        fixedTitle: platformName,
-        tabTitle: platformName,
+        fixedTitle: browserName,
+        tabTitle: browserName,
         deferChromiumNavigation: true,
       });
       try {
+        try {
+          await ui.browserRuntimeManager.navigate(tabId, 'chromium', targetUrl);
+        } catch (navigationError) {
+          const message = String(navigationError?.message || '');
+          const deliveredButPending = ['NAVIGATION_TIMEOUT', 'RUNTIME_COMMAND_TIMEOUT'].includes(navigationError?.code)
+            || (navigationError?.code === 'NAVIGATION_FAILED'
+              && (/页面加载失败:\s*-3(?:\s|$)/.test(message) || /ERR_ABORTED/i.test(message)));
+          if (!deliveredButPending) throw navigationError;
+          console.warn('[open-dream-page] 目标页仍在加载或正在重定向，继续注入账号会话:', message);
+        }
         const importResult = await ui.browserRuntimeManager.importSession(tabId, {
           cookies: launchCookies,
           browserStorage: launchBrowserStorage,
           targetUrl,
+          // 账号专属浏览器已经按顺序完成创建、命名和目标页打开；这里只注入
+          // 会话，随后刷新页面让后注入的 Cookie / Storage 立即生效。
+          navigateAfterImport: false,
         });
+        await ui.browserRuntimeManager.reload(tabId, 'chromium');
         console.log('[open-dream-page] 独立 Chromium Profile 会话导入完成:', {
           tabId,
           cookiesImported: importResult.cookiesImported,

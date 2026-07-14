@@ -131,6 +131,19 @@ function createTabManager(deps = {}) {
   const resolveActiveTabId = () => (typeof getActiveTabId === 'function' ? getActiveTabId() : null);
 // 获取/读取/解析：resolveIsSidebarVisible的具体业务逻辑。
   const resolveIsSidebarVisible = () => (typeof getIsSidebarVisible === 'function' ? getIsSidebarVisible() : true);
+
+  // 只有已经落盘过的 Chromium Profile 才能恢复上次会话。首次创建时仍打开
+  // 调用方给出的首页，避免 --restore-last-session 把首屏变成空白新标签页。
+  function hasPersistedChromiumProfile(profileId) {
+    try {
+      const runtimeStore = browserRuntimeManager?.store;
+      if (!runtimeStore || typeof runtimeStore.readProfile !== 'function') return false;
+      const profile = runtimeStore.readProfile(String(profileId || ''));
+      return !!(profile && typeof profile === 'object' && profile.createdAt);
+    } catch (_) {
+      return false;
+    }
+  }
   const isChromiumTab = (tab) => String(tab?.runtimeType || '') === 'chromium';
 
   function refreshBrowserProfileInBackground(tabId, browserSettings) {
@@ -274,13 +287,17 @@ function createTabManager(deps = {}) {
         || historyRecord?.url
         || DEFAULT_TUTORIAL_URL;
       const historyId = String(historyRecord?.id || '').trim();
+      const tutorialTabId = historyId
+        ? `browser-tab-${historyId.replace(/[^a-z0-9_-]/gi, '_')}`
+        : 'browser-tab-tutorial-default';
       return addTab(targetUrl, {
-        tabId: historyId ? `browser-tab-${historyId.replace(/[^a-z0-9_-]/gi, '_')}` : undefined,
+        tabId: tutorialTabId,
         fixedTitle: TUTORIAL_TAB_TITLE,
         isTutorialTab: true,
         browserHistoryId: historyId,
         partition: historyRecord?.partition || undefined,
         browserProxyMode: 'direct',
+        restoreLastSession: true,
         focusBrowser,
         browserSettings: {
           ...(historyRecord?.settings || {}),
@@ -428,6 +445,8 @@ function createTabManager(deps = {}) {
     }
 
     const newTabId = String(options.tabId || accountId || Date.now().toString());
+    const restoreLastSession = options.restoreLastSession === true
+      && hasPersistedChromiumProfile(newTabId);
     const partitionName = accountId
       ? buildManagedTabPartitionName(accountId)
       : buildDefaultManagedTabPartitionName();
@@ -471,10 +490,14 @@ function createTabManager(deps = {}) {
     const requestedRuntimeType = 'chromium';
     if (requestedRuntimeType === 'chromium') {
       const chromiumExtensionPaths = resolveChromiumExtensionPaths(browserSettings, extensionManager);
-      const targetInitialUrl = options.deferChromiumNavigation === true
+      const targetInitialUrl = restoreLastSession
+        ? ''
+        : options.deferChromiumNavigation === true
         ? 'about:blank'
         : (url || resolveConfiguredHomepage(browserSettings, resolveDefaultTabUrl()));
-      const initialUrl = options.showLoadingPage === true
+      const initialUrl = restoreLastSession
+        ? ''
+        : options.showLoadingPage === true
         ? buildBrowserStatusPageUrl(fixedTitle || '新建窗口', '正在启动独立浏览器…')
         : targetInitialUrl;
       const [contentWidth, contentHeight] = mainWindow.getContentSize();
@@ -489,6 +512,8 @@ function createTabManager(deps = {}) {
         isTutorialTab: options.isTutorialTab === true,
         fixedTitle,
         runtimeTitle: fixedTitle || 'AI-FREE',
+        requestedUrl: String(url || '').trim(),
+        runtimeUrl: targetInitialUrl && targetInitialUrl !== 'about:blank' ? targetInitialUrl : '',
         runtimeType: 'chromium',
         runtimeStatus: 'starting',
         browserProxyMode,
@@ -503,6 +528,7 @@ function createTabManager(deps = {}) {
           runtimeType: 'chromium',
           displayName: fixedTitle,
           initialUrl,
+          restoreLastSession,
           locale: browserProfile?.locale,
           acceptLanguage: browserProfile?.acceptLanguage,
           timezoneId: browserProfile?.timezoneId,

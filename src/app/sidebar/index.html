@@ -44,23 +44,57 @@
         <span class="tab-button-icon" aria-hidden="true">✦</span>
         <span>AI 控制</span>
       </button>
-      <button class="tab-button" type="button" data-tab="personal-center-panel" aria-controls="personal-center-panel">
-        <span class="tab-button-icon" aria-hidden="true">●</span>
-        <span>个人中心</span>
-      </button>
       <button class="tab-button" type="button" data-tab="ai-free-settings-panel" aria-controls="ai-free-settings-panel">
         <span class="tab-button-icon" aria-hidden="true">⚙</span>
         <span>浏览器配置</span>
+      </button>
+      <button class="tab-button" type="button" data-tab="personal-center-panel" aria-controls="personal-center-panel">
+        <span class="tab-button-icon" aria-hidden="true">●</span>
+        <span>个人中心</span>
       </button>
     </nav>
 
     <div class="main-wrapper">
       <section id="ai-free-settings-panel" class="ai-free-settings-panel panel" aria-label="AI-FREE 参数配置">
         <form id="ai-free-settings-form" class="settings-container vb-form" autocomplete="off">
-          <header class="settings-hero"><h1>浏览器配置</h1></header>
+          <section class="settings-network-tools" aria-label="浏览器记录、网络魔法与插件">
 
-          <section class="settings-network-tools" aria-label="网络魔法与插件">
+            <section class="browser-history-inline" aria-labelledby="browser-history-title">
+              <div class="browser-history-heading">
+                <h2 id="browser-history-title">浏览器记录</h2>
+                <div class="browser-history-heading-actions">
+                  <button id="open-default-browser-settings" class="browser-default-settings-btn" type="button">浏览器默认环境配置</button>
+                  <button id="refresh-browser-history" class="browser-history-refresh" type="button" title="刷新浏览器记录" aria-label="刷新浏览器记录">↻</button>
+                </div>
+              </div>
+              <div id="browser-history-list" class="browser-history-list" aria-live="polite">
+                <div class="browser-history-empty">正在读取浏览器记录…</div>
+              </div>
+            </section>
 
+            <div class="wool-resource-inline" aria-label="羊毛资源">
+              <div id="wool-resource-title" class="settings-network-tools-subtitle wool-resource-title" hidden>羊毛资源</div>
+              <div class="account-launch-row">
+                <div id="wool-platform-buttons" class="wool-platform-buttons">
+                  <button id="open-dream-page-btn" class="main-button btn-large-blue requires-license open-wool-platform-btn" type="button" disabled>暂无可用羊毛平台</button>
+                </div>
+                <div class="account-history-shell">
+                  <button id="account-history-toggle-btn" class="main-button btn-large-blue requires-license account-history-toggle-btn" type="button">历史账号</button>
+                  <div id="account-panel" class="account-popup-panel" hidden>
+                    <div class="info-group account-popup-panel-body">
+                      <div class="account-list" id="account-list">
+                        <div class="account-empty" id="account-empty">暂无保存的账号</div>
+                      </div>
+                      <div id="cookie-import-section" class="cookie-import-section" hidden>
+                        <button id="cookie-import-btn" class="main-button btn-large-teal cookie-import-btn" type="button" data-loading-text="导入中...">导入账号</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-network-tools-subtitle settings-network-tools-proxy-title">内置代理</div>
             <div class="vpn-buttons-container">
               <button id="VPN-switch" class="main-button btn-large-purple VPN-btn" type="button" disabled>关闭网络魔法</button>
             </div>
@@ -93,18 +127,14 @@
             </div>
           </section>
 
-          <section class="browser-history-card" aria-labelledby="browser-history-title">
-            <div class="browser-history-heading">
-              <h2 id="browser-history-title">浏览器历史</h2>
-              <button id="refresh-browser-history" class="browser-history-refresh" type="button" title="刷新浏览器历史" aria-label="刷新浏览器历史">↻</button>
-            </div>
-            <div id="browser-history-list" class="browser-history-list" aria-live="polite">
-              <div class="browser-history-empty">正在读取浏览器历史…</div>
-            </div>
-          </section>
-
-          <div id="ai-free-settings-runtime" class="settings-runtime-card">正在读取当前环境…</div>
-
+          <section id="browser-settings-dialog" class="browser-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="browser-settings-dialog-title" hidden>
+            <button class="browser-settings-dialog-backdrop" type="button" data-browser-settings-close aria-label="关闭浏览器参数配置"></button>
+            <div class="browser-settings-dialog-panel">
+              <header class="browser-settings-dialog-header">
+                <h2 id="browser-settings-dialog-title">浏览器参数配置</h2>
+                <button id="browser-settings-dialog-close" class="browser-settings-dialog-close" type="button" data-browser-settings-close aria-label="关闭">&times;</button>
+              </header>
+              <div class="browser-settings-dialog-body">
           <div class="vb-stage-group">
           <section class="vb-stage" aria-labelledby="basic-settings-title">
             <h2 id="basic-settings-title">基础设置</h2>
@@ -151,6 +181,9 @@
           </details>
           </div>
 
+              </div>
+              <footer class="browser-settings-dialog-footer">
+
           <div class="settings-apply-options">
             <label><input id="apply-settings-to-active" type="checkbox" checked> 同时应用到当前环境</label>
             <label><input id="restart-chromium-settings" type="checkbox"> Chromium 环境保存后立即重启</label>
@@ -161,6 +194,9 @@
             <button id="save-ai-free-settings" class="settings-primary-btn" type="submit">保存参数</button>
           </div>
           <div id="ai-free-settings-status" class="settings-status" role="status" aria-live="polite"></div>
+              </footer>
+            </div>
+          </section>
         </form>
       </section>
 
@@ -183,6 +219,92 @@
                   <input type="hidden" id="account-username-display" value="">
                   <h2 id="account-profile-name">未登录</h2>
                 </div>
+                <section id="account-usage-details" class="account-usage-details" aria-label="账号使用详情" hidden>
+                  <!-- 网络流量：标题 → 剩余主指标 → 进度 → 额度明细 → 上下行 -->
+                  <article class="account-usage-card account-traffic-usage" data-status="pending">
+                    <header class="account-usage-heading">
+                      <span class="account-usage-title">
+                        <span class="account-usage-icon account-usage-icon-traffic" aria-hidden="true"></span>
+                        网络流量
+                      </span>
+                      <strong id="account-traffic-status" class="account-usage-badge" data-status="pending">待同步</strong>
+                    </header>
+
+                    <div class="account-usage-hero">
+                      <div class="account-usage-hero-main">
+                        <span class="account-usage-hero-label">剩余</span>
+                        <strong id="account-traffic-remaining" class="account-usage-hero-value">--</strong>
+                      </div>
+                      <div class="account-usage-hero-side">
+                        <span class="account-usage-hero-side-label">已用</span>
+                        <strong id="account-traffic-percent" class="account-usage-hero-percent">--</strong>
+                      </div>
+                    </div>
+
+                    <div class="account-usage-progress" aria-hidden="true">
+                      <div id="account-traffic-progress" class="account-usage-progress-bar" style="width: 0%"></div>
+                    </div>
+
+                    <div class="account-usage-stats">
+                      <div class="account-usage-stat">
+                        <span class="account-usage-stat-label">总额度</span>
+                        <strong id="account-traffic-total" class="account-usage-stat-value">--</strong>
+                      </div>
+                      <div class="account-usage-stat">
+                        <span class="account-usage-stat-label">已使用</span>
+                        <strong id="account-traffic-used" class="account-usage-stat-value">--</strong>
+                      </div>
+                    </div>
+
+                    <footer class="account-usage-io">
+                      <div class="account-usage-io-item account-usage-io-up">
+                        <span class="account-usage-io-label">上传</span>
+                        <strong id="account-traffic-upload">--</strong>
+                      </div>
+                      <div class="account-usage-io-item account-usage-io-down">
+                        <span class="account-usage-io-label">下载</span>
+                        <strong id="account-traffic-download">--</strong>
+                      </div>
+                    </footer>
+                  </article>
+
+                  <!-- AI 额度：标题 → 剩余主指标 → 进度 → 额度明细 -->
+                  <article class="account-usage-card account-ai-usage" data-status="pending">
+                    <header class="account-usage-heading">
+                      <span class="account-usage-title">
+                        <span class="account-usage-icon account-usage-icon-ai" aria-hidden="true"></span>
+                        AI 使用详情
+                      </span>
+                      <strong id="account-ai-status" class="account-usage-badge" data-status="pending">待同步</strong>
+                    </header>
+
+                    <div class="account-usage-hero">
+                      <div class="account-usage-hero-main">
+                        <span class="account-usage-hero-label">剩余</span>
+                        <strong id="account-ai-remaining" class="account-usage-hero-value">--</strong>
+                      </div>
+                      <div class="account-usage-hero-side">
+                        <span class="account-usage-hero-side-label">已用</span>
+                        <strong id="account-ai-percent" class="account-usage-hero-percent">--</strong>
+                      </div>
+                    </div>
+
+                    <div class="account-usage-progress" aria-hidden="true">
+                      <div id="account-ai-progress" class="account-usage-progress-bar" style="width: 0%"></div>
+                    </div>
+
+                    <div class="account-usage-stats">
+                      <div class="account-usage-stat">
+                        <span class="account-usage-stat-label">总额度</span>
+                        <strong id="account-ai-total" class="account-usage-stat-value">--</strong>
+                      </div>
+                      <div class="account-usage-stat">
+                        <span class="account-usage-stat-label">已使用</span>
+                        <strong id="account-ai-used" class="account-usage-stat-value">--</strong>
+                      </div>
+                    </div>
+                  </article>
+                </section>
                 <div class="account-profile-actions">
                   <button id="account-login-open-btn" class="account-profile-primary" type="button">登录账号</button>
                   <button id="account-register-open-btn" class="account-profile-secondary" type="button">注册</button>
@@ -236,25 +358,6 @@
               <input type="text" id="device-id" value="" readonly>
               <input type="password" id="key-input" value="" tabindex="-1" autocomplete="off">
               <button id="validate-key-btn" type="button" tabindex="-1">同步账号状态</button>
-            </div>
-          </div>
-
-          <div class="account-launch-row">
-            <div id="wool-platform-buttons" class="wool-platform-buttons">
-              <button id="open-dream-page-btn" class="main-button btn-large-blue requires-license open-wool-platform-btn" disabled>暂无可用羊毛平台</button>
-            </div>
-            <div class="account-history-shell">
-              <button id="account-history-toggle-btn" class="main-button btn-large-blue requires-license account-history-toggle-btn">历史账号</button>
-              <div id="account-panel" class="account-popup-panel" hidden>
-                <div class="info-group account-popup-panel-body">
-                  <div class="account-list" id="account-list">
-                    <div class="account-empty" id="account-empty">暂无保存的账号</div>
-                  </div>
-                  <div id="cookie-import-section" class="cookie-import-section" hidden>
-                    <button id="cookie-import-btn" class="main-button btn-large-teal cookie-import-btn" type="button" data-loading-text="导入中...">导入账号</button>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
 

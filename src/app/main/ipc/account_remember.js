@@ -5,9 +5,7 @@ const path = require('path');
 const accountStorage = require('../lib/account-storage');
 const { updateAccountRecycleTimer } = require('../utils/accountCleanup');
 const { getCoreDir, getStorePath } = require('../config');
-const { isUsageExhaustedFetchError } = require('../utils/account-errors');
 const {
-  findPermanentAccountByKey: findPermanentAccountRecordByKey,
   resolveDreamTargetUrl: resolveConfiguredDreamTargetUrl,
 } = require('../utils/account-records');
 const { normalizeBrowserStorageEntries } = require('../utils/browser-storage');
@@ -59,8 +57,6 @@ function registerAccountIPC(ctx) {
     }
     return '';
   }
-
-  const findPermanentAccountByKey = (key) => findPermanentAccountRecordByKey(accountStorage, key, { logger: console });
 
 // 格式化/规范化：normalizeImportedCookieEntry的具体业务逻辑。
   function normalizeImportedCookieEntry(entry, defaultUrl) {
@@ -739,253 +735,51 @@ function registerAccountIPC(ctx) {
     }
   });
 
-  // 切换账号（使用保存的账号打开即梦）
+  // 账号历史只负责打开账号已经绑定的专属浏览器 Profile。服务器拉取、账号
+  // 迁移和 Cookie 注入只允许发生在 open-dream-page 的新账号流程中。
   ipcMain.handle('switch-account', async (_event, { accountId }) => {
     try {
-      if (!accountId) {
+      const normalizedAccountId = String(accountId || '').trim();
+      if (!normalizedAccountId) {
         return { ok: false, error: '缺少账号ID' };
       }
-      const accountResult = accountStorage.getAccount(accountId);
+      const accountResult = accountStorage.getAccount(normalizedAccountId);
       if (!accountResult.ok || !accountResult.account) {
         return { ok: false, error: '账号不存在' };
       }
-      // 直接调用 open-dream-page 的逻辑
       const account = accountResult.account;
-
-      // 报告打开的链接（优先使用账号记录中的网址，但过滤掉占位值）
       const serverTargetUrl = String(resolveDreamTargetUrl() || '').trim();
       const savedTargetUrl = String(account.currentUrl || '').trim();
-      const targetUrl = !isPlaceholderTargetUrl(savedTargetUrl)
+      const targetUrl = (!isPlaceholderTargetUrl(savedTargetUrl)
         ? savedTargetUrl
-        : serverTargetUrl;
-      console.log('[网页打开] 使用保存账号打开链接:', targetUrl);
-      console.log('[网页打开] 账号ID:', accountId);
-      console.log('[网页打开] 卡密:', account.key.substring(0, 8) + '***');
-      console.log('[网页打开] 设备ID:', account.deviceId);
-
-      let prefetchedAccountResult = null;
-      let launchAccountId = String(accountId || '').trim();
-      const hasBrowserStorage = Array.isArray(account.browserStorage) && account.browserStorage.length > 0;
-      if (!Array.isArray(account.cookies) || account.cookies.length === 0) {
-        if (hasBrowserStorage) {
-          console.log('[switch-account] 账号没有cookies但存在browserStorage，跳过服务器预拉');
-        } else {
-          try {
-            console.log('[switch-account] 预拉账号以便创建标签页ID');
-            prefetchedAccountResult = await auth.fetchCookieFromServerForDream(account.key, account.deviceId);
-            const prefetchedAccountId = String(prefetchedAccountResult?.account || accountId || '').trim();
-            if (prefetchedAccountId) {
-            launchAccountId = prefetchedAccountId;
-            console.log('[switch-account] 预拉账号成功，创建标签页使用账号ID:', launchAccountId);
-            }
-          } catch (e) {
-            console.warn('[switch-account] 预拉账号失败，继续使用原账号ID创建标签页:', e?.message || e);
-          }
-        }
-      }
-
-      if (!targetUrl || typeof targetUrl !== 'string') {
-        throw new Error('缺少有效打开地址');
-      }
-
+        : serverTargetUrl) || 'about:blank';
       if (!ui || typeof ui.addTab !== 'function') {
         throw new Error('打开账号失败：标签页能力不可用');
       }
+      const browserName = String(
+        account.currentPlatform
+        || account.platform
+        || account.accountName
+        || account.displayName
+        || getCurrentServerPlatformLabel()
+        || normalizedAccountId
+      ).trim();
+      const tabId = await ui.addTab(targetUrl, {
+        accountId: normalizedAccountId,
+        fixedTitle: browserName,
+        tabTitle: browserName,
+        restoreLastSession: true,
+      });
+      if (!tabId) throw new Error('账号对应的浏览器打开失败');
 
-      let tabId = null;
-      try {
-        tabId = await ui.addTab(targetUrl, {
-          accountId: launchAccountId,
-          browserStorage: hasBrowserStorage ? account.browserStorage : [],
-          deferChromiumNavigation: true,
-        });
-      } catch (addTabError) {
-        console.warn('[switch-account] 使用账号ID创建标签页失败，尝试降级为普通标签页:', addTabError?.message || addTabError);
-        tabId = await ui.addTab(targetUrl, {
-          browserStorage: hasBrowserStorage ? account.browserStorage : [],
-          deferChromiumNavigation: true,
-        });
-      }
-
-      if (!tabId) {
-        throw new Error('创建标签页失败');
-      }
-      if (targetUrl && targetUrl !== savedTargetUrl && !isPlaceholderTargetUrl(targetUrl)) {
-        const saveTargetResult = accountStorage.updateAccount(accountId, {
-          currentUrl: targetUrl,
-        });
-        if (!saveTargetResult || saveTargetResult.ok !== true) {
-          console.warn('[switch-account] 修正账号目标地址失败:', saveTargetResult?.error || 'unknown');
-        } else {
-          try { ui.sendToSide('account-list-updated', {}); } catch (_) {}
-        }
-      }
-
-      try {
-        let cookies;
-        let browserStorageToInject = hasBrowserStorage ? account.browserStorage : null;
-        // 如果账号有保存的 cookies，直接使用；否则从服务器获取
-        if (account.cookies && Array.isArray(account.cookies) && account.cookies.length > 0) {
-          console.log('[switch-account] 使用本地保存的cookies，数量:', account.cookies.length);
-          cookies = account.cookies;
-          // 更新最后使用时间
-          accountStorage.updateLastUsedTime(accountId);
-        } else if (hasBrowserStorage) {
-          console.log('[switch-account] 使用本地browserStorage，跳过服务器获取');
-          accountStorage.updateLastUsedTime(accountId);
-        } else if (prefetchedAccountResult) {
-          console.log('[switch-account] 使用预拉账号结果');
-          cookies = prefetchedAccountResult.cookies;
-          const prefetchedBrowserStorage = Array.isArray(prefetchedAccountResult.browserStorage) && prefetchedAccountResult.browserStorage.length > 0
-            ? prefetchedAccountResult.browserStorage
-            : undefined;
-          if (prefetchedBrowserStorage) browserStorageToInject = prefetchedBrowserStorage;
-          const fetchedAccountId = String(prefetchedAccountResult.account || accountId || '').trim();
-          const targetAccountId = fetchedAccountId || accountId;
-          if (fetchedAccountId && fetchedAccountId !== accountId) {
-            const migrateResult = accountStorage.migrateAccountId(accountId, fetchedAccountId);
-            if (!migrateResult.ok) {
-              console.warn('[switch-account] 账号ID迁移失败，继续使用预拉账号ID写入:', migrateResult.error);
-            }
-          }
-          const saveResult = fetchedAccountId && fetchedAccountId !== accountId
-            ? accountStorage.updateAccount(targetAccountId, {
-                cookies,
-                browserStorage: prefetchedBrowserStorage,
-                currentUrl: targetUrl,
-                currentAccountType: prefetchedAccountResult.currentAccountType,
-                currentAccountTypeLabel: prefetchedAccountResult.currentAccountTypeLabel,
-              })
-            : accountStorage.updateAccount(accountId, {
-                cookies,
-                browserStorage: prefetchedBrowserStorage,
-                currentUrl: targetUrl,
-                currentAccountType: prefetchedAccountResult.currentAccountType,
-                currentAccountTypeLabel: prefetchedAccountResult.currentAccountTypeLabel,
-              });
-          if (!saveResult || saveResult.ok !== true) {
-            console.warn('[switch-account] 预拉账号信息更新失败，尝试新建记录:', saveResult?.error || 'unknown');
-          }
-          try { ui.sendToSide('account-list-updated', {}); } catch (_) {}
-        } else {
-          console.log('[switch-account] 本地无cookies，从服务器获取新的cookies');
-          console.log('[switch-account] 账号信息:', {
-            id: accountId,
-            hasKey: !!account.key,
-            hasDeviceId: !!account.deviceId,
-            cookiesType: account.cookies ? typeof account.cookies : 'null',
-            cookiesLength: Array.isArray(account.cookies) ? account.cookies.length : 'not array'
-          });
-
-          try {
-            const fetchResult = await auth.fetchCookieFromServerForDream(account.key, account.deviceId);
-            cookies = fetchResult.cookies;
-            const fetchedBrowserStorage = Array.isArray(fetchResult.browserStorage) && fetchResult.browserStorage.length > 0
-              ? fetchResult.browserStorage
-              : undefined;
-            if (fetchedBrowserStorage) browserStorageToInject = fetchedBrowserStorage;
-            const fetchedAccountId = String(fetchResult.account || accountId || '').trim();
-            const targetAccountId = fetchedAccountId || accountId;
-            if (fetchedAccountId && fetchedAccountId !== accountId) {
-              const migrateResult = accountStorage.migrateAccountId(accountId, fetchedAccountId);
-              if (!migrateResult.ok) {
-                console.warn('[switch-account] 账号ID迁移失败，继续使用拉取账号ID写入:', migrateResult.error);
-              }
-            }
-            const saveResult = fetchedAccountId && fetchedAccountId !== accountId
-              ? accountStorage.updateAccount(targetAccountId, {
-                  cookies,
-                  browserStorage: fetchedBrowserStorage,
-                  currentUrl: targetUrl,
-                  currentAccountType: fetchResult.currentAccountType,
-                  currentAccountTypeLabel: fetchResult.currentAccountTypeLabel,
-                })
-              : accountStorage.updateAccount(accountId, {
-                  cookies,
-                  browserStorage: fetchedBrowserStorage,
-                  currentUrl: targetUrl,
-                  currentAccountType: fetchResult.currentAccountType,
-                  currentAccountTypeLabel: fetchResult.currentAccountTypeLabel,
-                });
-            if (!saveResult || saveResult.ok !== true) {
-              console.warn('[switch-account] 账号信息更新失败，尝试新建记录:', saveResult?.error || 'unknown');
-              if (targetAccountId && targetAccountId !== accountId) {
-                const fallbackSave = accountStorage.addAccount({
-                  accountId: targetAccountId,
-                  key: account.key,
-                  deviceId: account.deviceId,
-                  cookies,
-                  browserStorage: fetchedBrowserStorage,
-                  platform: fetchResult.platform,
-                  currentPlatform: fetchResult.currentPlatform,
-                  currentUrl: targetUrl,
-                  currentAccountType: fetchResult.currentAccountType,
-                  currentAccountTypeLabel: fetchResult.currentAccountTypeLabel,
-                  current_account_type: fetchResult.currentAccountType,
-                  current_account_type_label: fetchResult.currentAccountTypeLabel,
-                  serverRecycleTime: fetchResult.serverRecycleTime,
-                  serverRecycleTimeTs: fetchResult.serverRecycleTimeTs,
-                  serverRecycleTimeIso: fetchResult.serverRecycleTimeIso,
-                  server_recycle_time: fetchResult.serverRecycleTime,
-                  ai_account_expiry_time: fetchResult.serverRecycleTime,
-                  aiAccountExpiryTime: fetchResult.serverRecycleTime,
-                });
-                if (!fallbackSave || fallbackSave.ok !== true) {
-                  console.warn('[switch-account] 新建拉取账号记录失败:', fallbackSave?.error || 'unknown');
-                }
-              }
-            }
-            // 通知前端刷新账号列表
-            try { ui.sendToSide('account-list-updated', {}); } catch (_) {}
-          } catch (fetchErr) {
-            const permanentAccount = findPermanentAccountByKey(account.key);
-            if (permanentAccount && isUsageExhaustedFetchError(fetchErr)) {
-              console.log('[switch-account] 绑定账号服务器次数已用尽，改用本地账号:', permanentAccount.id);
-              cookies = Array.isArray(permanentAccount.cookies) ? permanentAccount.cookies : [];
-              const localBrowserStorage = Array.isArray(permanentAccount.browserStorage) && permanentAccount.browserStorage.length > 0
-                ? permanentAccount.browserStorage
-                : null;
-              if (localBrowserStorage) browserStorageToInject = localBrowserStorage;
-              const localAccountId = String(permanentAccount.id || accountId || '').trim();
-              if (localAccountId) {
-                launchAccountId = localAccountId;
-              }
-              const localSaveResult = accountStorage.updateAccount(localAccountId || accountId, {
-                cookies,
-                browserStorage: localBrowserStorage,
-                currentUrl: targetUrl,
-                currentAccountType: permanentAccount.currentAccountType,
-                currentAccountTypeLabel: permanentAccount.currentAccountTypeLabel,
-              });
-              if (!localSaveResult || localSaveResult.ok !== true) {
-                console.warn('[switch-account] 本地账号回写失败:', localSaveResult?.error || 'unknown');
-              }
-              try { ui.sendToSide('account-list-updated', {}); } catch (_) {}
-            } else {
-              throw fetchErr;
-            }
-          }
-        }
-
-        const importResult = await ui.browserRuntimeManager.importSession(tabId, {
-          cookies: Array.isArray(cookies) ? cookies : [],
-          browserStorage: Array.isArray(browserStorageToInject) ? browserStorageToInject : [],
-          targetUrl,
-        });
-        console.log('[switch-account] 独立 Chromium Profile 会话导入完成:', {
-          tabId,
-          cookiesImported: importResult.cookiesImported,
-          cookiesSkipped: importResult.cookiesSkipped,
-          storageOriginsImported: importResult.storageOriginsImported,
-          storageOriginsSkipped: importResult.storageOriginsSkipped,
-        });
-        return { ok: true, tabId };
-      } catch (e) {
-        console.warn('[switch-account] Chromium 会话导入失败，保留浏览器供用户重试:', e?.message || e);
-        throw e;
-      }
-
-      return { ok: true, tabId };
+      accountStorage.updateLastUsedTime(normalizedAccountId);
+      try { ui.sendToSide('account-list-updated', {}); } catch (_) {}
+      console.log('[switch-account] 已打开账号专属 Chromium Profile:', {
+        accountId: normalizedAccountId,
+        tabId,
+        restored: true,
+      });
+      return { ok: true, tabId, accountId: normalizedAccountId };
     } catch (e) {
       return { ok: false, error: e?.message || String(e) };
     }
