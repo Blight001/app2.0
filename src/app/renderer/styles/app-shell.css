@@ -525,3 +525,27 @@ html.theme-light #new-browser-window-btn:hover:not(:disabled) {
 #add-tab-btn.expanding {
   animation: btnExpand 0.15s ease-in-out forwards;
 }
+
+@keyframes sidebarReopenAttention {
+  0% { transform: scale(1); }
+  24% { transform: scale(2); }
+  68% { transform: scale(2); }
+  100% { transform: scale(1); }
+}
+
+#add-tab-btn.sidebar-reopen-hint {
+  position: relative;
+  z-index: 50;
+  box-shadow: 0 8px 22px rgba(77, 163, 255, 0.62);
+}
+
+/* Chromium is a native child HWND above the Electron renderer. Scaling the
+   whole 30px button to 60px would cross the 41px toolbar boundary and the
+   browser would cover that overflow. Scale only the 18px gear to 36px so the
+   complete attention animation stays inside the toolbar. */
+#add-tab-btn.sidebar-reopen-hint .settings-icon {
+  position: relative;
+  z-index: 1;
+  transform-origin: center;
+  animation: sidebarReopenAttention 1.8s ease-in-out forwards;
+}

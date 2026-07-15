@@ -653,11 +653,8 @@ function registerAppLifecycle(deps = {}) {
         } catch (error) {
           logger.warn?.('[账号] 退出时关闭 Clash Mini 失败:', error?.message || error);
         }
-        try {
-          await deps.browserRuntimeManager?.stopAll({ timeoutMs: 4000 });
-        } catch (error) {
-          logger.warn?.('[账号] 退出时关闭 Chromium 环境失败:', error?.message || error);
-        }
+        // 退出账号只撤销软件账号会话，不终止已经打开的 Chromium 环境。
+        // 浏览器页面继续保留，由用户自行关闭；应用真正退出时仍会统一 stopAll。
         deps.sendToSide?.('license-credentials-updated', {
           key: '',
           deviceId: '',

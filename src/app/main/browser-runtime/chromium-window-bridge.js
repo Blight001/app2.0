@@ -50,6 +50,18 @@ class ChromiumWindowBridge {
   showHostWindow(hostHwnd) { return this.load().showHostWindow({ hostHwnd }); }
   hideHostWindow(hostHwnd) { return this.load().hideHostWindow({ hostHwnd }); }
   focusChildWindow(childHwnd) { return this.load().focusChildWindow({ childHwnd }); }
+  watchChildWindowClicks(childHwnd, callback) {
+    const binding = this.load();
+    return typeof binding.watchChildWindowClicks === 'function'
+      ? binding.watchChildWindowClicks({ childHwnd }, callback)
+      : false;
+  }
+  unwatchChildWindowClicks(childHwnd) {
+    const binding = this.load();
+    return typeof binding.unwatchChildWindowClicks === 'function'
+      ? binding.unwatchChildWindowClicks({ childHwnd })
+      : false;
+  }
   isWindowAlive(hwnd) { return this.load().isWindowAlive({ hwnd }); }
   getWindowProcessId(hwnd) { return this.load().getWindowProcessId({ hwnd }); }
   findMainWindowByProcessId(pid) { return this.load().findMainWindowByProcessId({ pid }); }

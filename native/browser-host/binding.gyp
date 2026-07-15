@@ -8,6 +8,7 @@
         "src/child_window_manager.cc",
         "src/dpi_manager.cc",
         "src/focus_manager.cc",
+        "src/mouse_click_monitor.cc",
         "src/process_monitor.cc",
         "src/win_delay_load_hook.cc"
       ],

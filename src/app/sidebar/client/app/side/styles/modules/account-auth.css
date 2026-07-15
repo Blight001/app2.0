@@ -715,68 +715,41 @@ html.account-center-popup .account-center-dialog-body {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-.sidebar-auth-heading,
-.sidebar-auth-brand {
+.sidebar-auth-mode-row {
   display: flex;
+  justify-content: flex-end;
+  margin-top: -3px;
+}
+
+.sidebar-auth-mode-switch {
+  display: inline-flex;
   align-items: center;
-}
-
-.sidebar-auth-heading {
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.sidebar-auth-brand {
-  gap: 11px;
-}
-
-.sidebar-auth-brand img {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  object-fit: cover;
-  box-shadow: 0 7px 20px rgba(0, 0, 0, .24);
-}
-
-.sidebar-auth-heading h2 {
-  margin: 2px 0 0;
-  color: #edf5ff;
-  font-size: 18px;
-  line-height: 1.2;
-}
-
-.sidebar-auth-eyebrow {
-  color: #6faeff;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: .13em;
-}
-
-.sidebar-auth-tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
   gap: 5px;
-  padding: 4px;
-  border: 1px solid rgba(78, 101, 139, .62);
-  border-radius: 11px;
-  background: rgba(7, 12, 20, .42);
-}
-
-.sidebar-auth-tab {
-  height: 34px;
+  padding: 2px 0;
   border: 0;
-  border-radius: 8px;
-  color: #8f9db2;
-  background: transparent;
-  font-size: 13px;
+  color: #6faeff;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
   cursor: pointer;
+  transition: color .16s ease;
 }
 
-.sidebar-auth-tab.active {
-  color: #fff;
-  background: var(--brand-grad);
-  box-shadow: var(--brand-shadow);
-  font-weight: 700;
+.sidebar-auth-mode-switch:hover {
+  color: #a5d2ff;
+}
+
+.sidebar-auth-mode-arrow {
+  display: inline-block;
+  font-size: 16px;
+  transition: transform .16s ease;
+}
+
+.sidebar-auth-mode-switch:hover .sidebar-auth-mode-arrow {
+  transform: translateX(3px);
 }
 
 .sidebar-auth-form,
@@ -843,6 +816,10 @@ html.account-center-popup .account-center-dialog-body {
   color: #91a4bd;
   font-size: 12px;
   line-height: 1.45;
+}
+
+.sidebar-auth-status:empty {
+  display: none;
 }
 
 .sidebar-auth-status[data-type='error'] { color: #ff8585; }
@@ -963,9 +940,10 @@ html.theme-light .sidebar-auth-dialog {
   box-shadow: none;
 }
 
-html.theme-light .sidebar-auth-heading h2 { color: #203448; }
-html.theme-light .sidebar-auth-tabs { border-color: rgba(86, 121, 165, .18); background: #e8f0f8; }
-html.theme-light .sidebar-auth-tab { color: #61748b; }
+html.theme-light .sidebar-auth-mode-switch {
+  color: #2676bd;
+}
+html.theme-light .sidebar-auth-mode-switch:hover { color: #155f9f; }
 html.theme-light .sidebar-auth-field label { color: #5a6c80; }
 html.theme-light .sidebar-auth-field input { border-color: rgba(90, 129, 179, .24); color: #1f3044; background: #fff; }
 html.theme-light .sidebar-auth-field input::placeholder { color: #94a0af; }

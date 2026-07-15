@@ -7,16 +7,24 @@ const {
   assertSafeChromiumArgs,
   buildChromiumArgs,
   buildChromiumEnvironment,
+  captureChromiumSessionFiles,
   getSystemChromiumCandidates,
+  repairBlankLatestSession,
   resolveChromiumExecutable,
+  restoreChromiumSessionFiles,
   shouldIgnoreChromiumDiagnostic,
 } = require('../src/app/main/browser-runtime/chromium-launcher');
 const { encodeFrame, MAX_MESSAGE_BYTES, PROTOCOL_VERSION } = require('../src/app/main/browser-runtime/chromium-command-client');
-const { ProfileRuntimeStore } = require('../src/app/main/browser-runtime/profile-runtime-store');
+const {
+  legacySafeProfileId,
+  ProfileRuntimeStore,
+  safeProfileId,
+} = require('../src/app/main/browser-runtime/profile-runtime-store');
 const { RUNTIME_STATUS } = require('../src/app/main/browser-runtime/runtime-types');
 const { prepareSessionImport } = require('../src/app/main/browser-runtime/session-import');
 const { ChromiumRuntime } = require('../src/app/main/browser-runtime/chromium-runtime');
 const { createTabManager, resolveChromiumExtensionPaths } = require('../src/app/main/services/tab-manager');
+const { createBrowserPartitionCleaner } = require('../src/app/main/services/browser-partitions');
 const { cleanupAccountProfile } = require('../src/app/main/services/account-profile-cleanup');
 const { initializeAccountCleanup } = require('../src/app/main/utils/accountCleanup');
 
@@ -38,6 +46,23 @@ try {
   store.releaseLock('profile_001');
   assert.equal(store.deleteProfile('profile_001'), true);
   assert.equal(fs.existsSync(paths.root), false);
+
+  const legacyElectronUserData = path.join(root, 'electron-user-data');
+  const legacyPartitionRoot = path.join(legacyElectronUserData, 'Partitions');
+  fs.mkdirSync(path.join(legacyPartitionRoot, 'tab-account@example.com'), { recursive: true });
+  fs.writeFileSync(path.join(legacyPartitionRoot, 'tab-account@example.com', 'Cookies'), 'legacy');
+  const partitionCleaner = createBrowserPartitionCleaner({
+    app: { getPath: () => legacyElectronUserData },
+    fs,
+    path,
+    BrowserWindow: { getAllWindows: () => [] },
+    logger: { log() {}, warn() {} },
+  });
+  assert.equal(partitionCleaner.isPersistentManagedTabPartitionName('tab-account@example.com'), false);
+  const partitionCleanup = await partitionCleaner.cleanupBrowserPartitionsRootDir();
+  assert.equal(partitionCleanup.removed, true);
+  assert.equal(partitionCleanup.keptPersistentCount, 0);
+  assert.equal(fs.existsSync(legacyPartitionRoot), false, '旧 Electron Partitions 必须整体回收');
 
   const sharedPaths = store.ensureProfile({ profileId: 'shared-account', runtimeType: 'chromium' });
   const configPath = path.join(root, 'store.json');
@@ -119,6 +144,33 @@ try {
   assert(localizedArgs.includes('--hs-timezone-id=Asia/Tokyo'));
   const unicodeProfilePaths = store.ensureProfile({ profileId: '豆包::account@example.com', runtimeType: 'chromium' });
   assert.match(unicodeProfilePaths.id, /^[\x21-\x7e]+$/, '握手 Profile ID 必须是可见 ASCII');
+  assert.notEqual(
+    safeProfileId('豆包::same@example.com'),
+    safeProfileId('本地::same@example.com'),
+    '不同业务账号不能再映射到同一个 Chromium Profile 目录',
+  );
+  assert.equal(
+    legacySafeProfileId('豆包::same@example.com'),
+    legacySafeProfileId('本地::same@example.com'),
+    '测试数据必须能够复现旧版有损目录名碰撞',
+  );
+  store.createState('豆包::account@example.com', 'chromium');
+  assert.equal(store.getState('豆包::account@example.com').profileId, '豆包::account@example.com');
+  store.clearState('豆包::account@example.com');
+
+  const legacyBusinessId = '豆包::legacy@example.com';
+  const legacyProfileRoot = path.join(root, legacySafeProfileId(legacyBusinessId));
+  fs.mkdirSync(path.join(legacyProfileRoot, 'chromium-data'), { recursive: true });
+  fs.writeFileSync(path.join(legacyProfileRoot, 'migration-marker'), 'preserved');
+  fs.writeFileSync(path.join(legacyProfileRoot, 'profile.json'), JSON.stringify({ createdAt: '2026-01-01T00:00:00.000Z' }));
+  const migratedPaths = store.ensureProfile({ profileId: legacyBusinessId, displayName: '迁移测试' });
+  assert.notEqual(migratedPaths.root, legacyProfileRoot);
+  assert.equal(fs.existsSync(legacyProfileRoot), false);
+  assert.equal(fs.readFileSync(path.join(migratedPaths.root, 'migration-marker'), 'utf8'), 'preserved');
+  assert.equal(JSON.parse(fs.readFileSync(migratedPaths.config, 'utf8')).profileId, legacyBusinessId);
+  const profileAudit = store.auditProfiles(['豆包::account@example.com', legacyBusinessId]);
+  assert(!profileAudit.orphanProfiles.some((profile) => profile.storageId === unicodeProfilePaths.id));
+  assert(!profileAudit.orphanProfiles.some((profile) => profile.storageId === migratedPaths.id));
   const unicodeProfileArgs = buildChromiumArgs({
     profile: { profileId: '豆包::account@example.com' },
     runtimeProfileId: unicodeProfilePaths.id,
@@ -152,6 +204,54 @@ try {
   assert.equal(preferences.intl.accept_languages, 'en-SG,en,en-US');
   assert.equal(preferences.intl.selected_languages, 'en-SG,en,en-US');
   assert.equal(preferences.preserved.value, true);
+  assert.equal(applyChromiumSessionStartupPolicy(rebuiltPaths, { warn() {} }, {
+    restoreLastSession: true,
+  }), true);
+  const restorePreferences = JSON.parse(fs.readFileSync(preferencesPath, 'utf8'));
+  assert.equal(restorePreferences.session.restore_on_startup, 1);
+
+  const sessionRecoveryPaths = {
+    root: path.join(root, 'session-recovery-profile'),
+    chromiumData: path.join(root, 'session-recovery-profile', 'chromium-data'),
+  };
+  const sessionsDir = path.join(sessionRecoveryPaths.chromiumData, 'Default', 'Sessions');
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  fs.writeFileSync(path.join(sessionsDir, 'Session_100'), Buffer.from('https://example.com/work'));
+  fs.writeFileSync(path.join(sessionsDir, 'Tabs_101'), Buffer.from('https://example.com/work'));
+  fs.writeFileSync(path.join(sessionsDir, 'Session_200'), Buffer.from('chrome://newtab/'));
+  fs.writeFileSync(path.join(sessionsDir, 'Tabs_201'), Buffer.from('chrome://newtab/'));
+  const repairResult = repairBlankLatestSession(sessionRecoveryPaths, { warn() {} });
+  assert.equal(repairResult.repaired, true, '最新空白会话应回退至上一组有效网页会话');
+  assert.deepEqual(repairResult.removed.sort(), ['Session_200', 'Tabs_201']);
+  assert.equal(fs.existsSync(path.join(sessionsDir, 'Session_100')), true);
+  assert.equal(fs.existsSync(path.join(sessionsDir, 'Session_200')), false);
+
+  const preCloseSnapshot = captureChromiumSessionFiles(sessionRecoveryPaths, { warn() {} });
+  assert.equal(preCloseSnapshot.files.length, 2);
+  fs.rmSync(sessionsDir, { recursive: true, force: true });
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  fs.writeFileSync(path.join(sessionsDir, 'Session_300'), Buffer.from('chrome://newtab/'));
+  fs.writeFileSync(path.join(sessionsDir, 'Tabs_301'), Buffer.from('chrome://newtab/'));
+  assert.equal(restoreChromiumSessionFiles(preCloseSnapshot, { warn() {} }), true);
+  assert.equal(fs.readFileSync(path.join(sessionsDir, 'Session_100'), 'utf8'), 'https://example.com/work');
+  assert.equal(fs.readFileSync(path.join(sessionsDir, 'Tabs_101'), 'utf8'), 'https://example.com/work');
+  assert.equal(fs.existsSync(path.join(sessionsDir, 'Session_300')), false);
+
+  const nativeRuntimeBridge = fs.readFileSync(path.join(
+    __dirname,
+    '..',
+    'native',
+    'chromium-fork',
+    'overlay',
+    'chrome',
+    'browser',
+    'ui',
+    'views',
+    'frame',
+    'ai_free_runtime_bridge_win.cc',
+  ), 'utf8');
+  assert(nativeRuntimeBridge.includes('chrome::CloseAllBrowsersAndQuit()'));
+  assert(!nativeRuntimeBridge.includes('browser->window()->Close()'));
   const managedExtension = path.join(root, 'managed-extension');
   const configuredExtension = path.join(root, 'configured-extension');
   fs.mkdirSync(managedExtension);
@@ -515,7 +615,43 @@ try {
   assert.equal(tutorialFocusCalls, 0);
   tutorialTabManager.switchTab(firstTutorialId);
   await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(tutorialFocusCalls, 0, '切换/显示浏览器不得默认抢走侧栏键盘焦点');
+  tutorialTabManager.switchTab(firstTutorialId, { focusBrowser: true });
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(tutorialFocusCalls, 1);
+
+  const browserClickHandlers = new Map();
+  const browserClickTabs = new Map([['active-browser', {
+    id: 'active-browser',
+    runtimeType: 'chromium',
+    runtimeStatus: 'ready',
+  }]]);
+  let browserClickSidebarVisible = true;
+  const browserClickShellMessages = [];
+  createTabManager({
+    browserRuntimeManager: {
+      chromium: {
+        on(name, handler) { browserClickHandlers.set(name, handler); },
+      },
+    },
+    getTabs: () => browserClickTabs,
+    getMainWindow: () => ({
+      isDestroyed: () => false,
+      webContents: { send: (name) => browserClickShellMessages.push(name) },
+      emit() {},
+    }),
+    getActiveTabId: () => 'active-browser',
+    getIsSidebarVisible: () => browserClickSidebarVisible,
+    setIsSidebarVisible: (visible) => { browserClickSidebarVisible = visible; },
+    getSideView: () => null,
+    updateTabs() {},
+    logger: { warn() {}, error() {} },
+  });
+  browserClickHandlers.get('browser-clicked')?.({ profileId: 'background-browser' });
+  assert.equal(browserClickSidebarVisible, true, '后台浏览器点击不得回收侧栏');
+  browserClickHandlers.get('browser-clicked')?.({ profileId: 'active-browser' });
+  assert.equal(browserClickSidebarVisible, false, '当前浏览器原生点击必须回收侧栏');
+  assert(browserClickShellMessages.includes('sidebar-reopen-hint'));
 
   const magicTabs = new Map([
     ['magic-direct', {

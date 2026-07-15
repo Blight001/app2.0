@@ -96,6 +96,10 @@ body.browser-settings-dialog-open { overflow: hidden; }
 .browser-history-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .browser-history-heading h2 { margin: 0; color: #eef3ff; font-size: 14px; }
 .browser-history-heading-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+.browser-profile-audit { color: #8492a8; font-size: 11px; white-space: nowrap; }
+.browser-profile-audit.has-orphans { color: #e7ab58; }
+.browser-profile-cleanup-btn { min-height: 28px; padding: 0 9px; border: 1px solid rgba(225, 158, 72, .45); border-radius: 7px; color: #e7ab58; background: rgba(74, 49, 23, .45); font: inherit; font-size: 11px; cursor: pointer; }
+.browser-profile-cleanup-btn:hover { border-color: #e7ab58; color: #ffd497; }
 .browser-history-refresh { width: 28px; height: 28px; padding: 0; border: 1px solid rgba(91, 116, 153, .52); border-radius: 7px; color: #aebdd2; background: rgba(29, 38, 53, .8); font: inherit; font-size: 15px; cursor: pointer; }
 .browser-history-refresh:hover { border-color: var(--brand); color: #fff; }
 .browser-history-list { display: grid; gap: 7px; max-height: 238px; overflow: auto; }

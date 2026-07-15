@@ -108,7 +108,7 @@ function verifyAsarIntegrity(appOutDir) {
     const sidebar = fs.readFileSync(sidebarPath, 'utf8');
     const appShell = fs.readFileSync(appShellPath, 'utf8');
     const logoResolver = fs.readFileSync(logoResolverPath, 'utf8');
-    if ((sidebar.match(/<img[^>]*data-app-logo/g) || []).length !== 3
+    if ((sidebar.match(/<img[^>]*data-app-logo/g) || []).length !== 2
       || !sidebar.includes('<script src="./client/scripts/logo-assets.js"></script>')
       || !logoResolver.includes("const PACKAGED_LOGO_PATH = '../../../../resource/logo.ico';")) {
       throw new Error('侧边栏 Logo 未通过运行时解析器指向打包后的外置资源');

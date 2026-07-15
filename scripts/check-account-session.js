@@ -140,12 +140,28 @@ const authControllerSource = fs.readFileSync(
   path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/account-auth.js'),
   'utf8',
 );
+const appLifecycleSource = fs.readFileSync(
+  path.join(__dirname, '../src/app/main/services/app-lifecycle.js'),
+  'utf8',
+);
+const logoutHandlerSource = appLifecycleSource.slice(
+  appLifecycleSource.indexOf("ipcMain.handle('account-logout'"),
+  appLifecycleSource.indexOf("ipcMain.handle('license-get-saved-key'"),
+);
+assert.ok(logoutHandlerSource.includes('stopClashMiniProcess'), '退出账号仍应清理账号代理会话');
+assert.equal(
+  logoutHandlerSource.includes('browserRuntimeManager?.stopAll'),
+  false,
+  '退出账号不得关闭已打开的 Chromium 浏览器页面',
+);
 const rendererContext = vm.createContext({
   window: {
+    location: { search: '' },
     electronAPI: {
       invoke: async () => new Promise(() => {}),
     },
   },
+  URLSearchParams,
   setTimeout,
   clearTimeout,
   Promise,

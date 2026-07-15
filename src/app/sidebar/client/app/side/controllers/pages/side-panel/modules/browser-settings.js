@@ -2,6 +2,7 @@
   let loaded = false;
   let current = {};
   let browserHistory = [];
+  let browserProfileAudit = null;
   let selectedHistoryId = '';
   let selectedHistoryIds = new Set();
   let historyRefreshTimer = null;
@@ -132,6 +133,24 @@
     });
   }
 
+  function renderBrowserProfileAudit() {
+    const audit = el('browser-profile-audit');
+    const cleanupButton = el('cleanup-orphan-browser-profiles');
+    const totalCount = Number(browserProfileAudit?.totalCount || 0);
+    const orphanCount = Number(browserProfileAudit?.orphanCount || 0);
+    if (audit) {
+      audit.hidden = !browserProfileAudit;
+      audit.textContent = browserProfileAudit
+        ? `环境 ${totalCount} · 孤立 ${orphanCount}`
+        : '';
+      audit.classList.toggle('has-orphans', orphanCount > 0);
+    }
+    if (cleanupButton) {
+      cleanupButton.hidden = orphanCount <= 0;
+      cleanupButton.textContent = `清理孤立环境（${orphanCount}）`;
+    }
+  }
+
   function getSelectedBrowserHistory() {
     return browserHistory.filter((item) => selectedHistoryIds.has(item.id));
   }
@@ -212,6 +231,9 @@
       const response = await window.electronAPI.invoke('get-browser-history');
       if (!response?.ok) throw new Error(response?.error || '读取浏览器记录失败');
       browserHistory = Array.isArray(response.history) ? response.history : [];
+      browserProfileAudit = response.profileAudit && typeof response.profileAudit === 'object'
+        ? response.profileAudit
+        : null;
       const availableIds = new Set(browserHistory.map((item) => item.id));
       selectedHistoryIds = new Set([...selectedHistoryIds].filter((id) => availableIds.has(id)));
       const keepEmptySelection = !selectedHistoryId && (options.keepEmptySelection === true || editingDefaultSettings);
@@ -219,6 +241,7 @@
         selectedHistoryId = browserHistory.find((item) => item.isActive)?.id || browserHistory[0]?.id || '';
       }
       renderBrowserHistory();
+      renderBrowserProfileAudit();
       return browserHistory;
     } catch (error) {
       const list = el('browser-history-list');
@@ -226,6 +249,31 @@
       if (options.silent !== true) setStatus(error?.message || String(error), 'error');
       return [];
     }
+  }
+
+  function cleanupOrphanBrowserProfiles() {
+    const orphanCount = Number(browserProfileAudit?.orphanCount || 0);
+    if (orphanCount <= 0) return;
+    if (!window.MessageModal?.showConfirmDialog) {
+      setStatus('软件确认弹窗未就绪', 'error');
+      return;
+    }
+    window.MessageModal.showConfirmDialog(
+      `确认永久删除 ${orphanCount} 个未被浏览器记录或账号引用的 Chromium 环境？此操作会释放磁盘空间，且不可恢复。`,
+      async () => {
+        setStatus(`正在清理 ${orphanCount} 个孤立 Chromium 环境…`);
+        try {
+          const response = await window.electronAPI.invoke('cleanup-orphan-browser-profiles', { confirm: true });
+          if (!response?.ok) throw new Error(response?.error || `有 ${response?.failedCount || 0} 个环境清理失败`);
+          await refreshBrowserHistory({ keepSelection: true, silent: true });
+          setStatus(`已清理 ${response.deletedCount || 0} 个孤立 Chromium 环境`, 'success');
+        } catch (error) {
+          setStatus(error?.message || String(error), 'error');
+        }
+      },
+      null,
+      'warning',
+    );
   }
 
   async function selectBrowserHistory(historyId, options = {}) {
@@ -545,6 +593,7 @@
     el('ai-free-settings-form')?.addEventListener('submit',saveSettings); el('randomize-ai-free-settings')?.addEventListener('click',randomIdentity); el('randomize-user-agent')?.addEventListener('click',randomIdentity); el('reset-ai-free-settings')?.addEventListener('click',()=>void resetSettings());
     el('test-ai-free-proxy')?.addEventListener('click',()=>void testProxy()); el('extract-ai-free-proxy')?.addEventListener('click',()=>void extractProxy());
     el('refresh-browser-history')?.addEventListener('click',()=>void refreshBrowserHistory({keepSelection:true}));
+    el('cleanup-orphan-browser-profiles')?.addEventListener('click', cleanupOrphanBrowserProfiles);
     el('open-default-browser-settings')?.addEventListener('click',()=>void openDefaultBrowserSettings());
     document.querySelectorAll('[data-browser-settings-close]').forEach((element)=>element.addEventListener('click',closeBrowserSettingsDialog));
     document.querySelectorAll('[data-random-target]').forEach((button)=>button.addEventListener('click',()=>{if(button.dataset.randomTarget==='device-name')setValue('device-name',`DESKTOP-${Math.random().toString(36).slice(2,9).toUpperCase()}`);else setValue('mac-address',Array.from({length:6},()=>Math.floor(Math.random()*256).toString(16).padStart(2,'0')).join('-').toUpperCase());}));

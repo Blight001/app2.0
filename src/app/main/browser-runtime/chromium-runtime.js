@@ -3,7 +3,11 @@ const { spawn } = require('child_process');
 const { BrowserRuntime } = require('./browser-runtime');
 const { ChromiumCommandClient, createPipeName } = require('./chromium-command-client');
 const { ChromiumHealthMonitor } = require('./chromium-health');
-const { launchChromium } = require('./chromium-launcher');
+const {
+  captureChromiumSessionFiles,
+  launchChromium,
+  restoreChromiumSessionFiles,
+} = require('./chromium-launcher');
 const { prepareSessionImport } = require('./session-import');
 const { normalizeBounds, RUNTIME_STATUS, RUNTIME_TYPES } = require('./runtime-types');
 
@@ -153,6 +157,10 @@ class ChromiumRuntime extends BrowserRuntime {
         embedded: true,
         lastHeartbeatAt: Date.now(),
       });
+      instance.browserClickWatching = this.windowBridge.watchChildWindowClicks(
+        browserHwnd,
+        () => this.emit('browser-clicked', { profileId }),
+      );
       this.scheduleVisualSync(profileId);
       instance.monitor = new ChromiumHealthMonitor({
         isWindowAlive: (hwnd) => this.windowBridge.isWindowAlive(hwnd),
@@ -483,8 +491,17 @@ class ChromiumRuntime extends BrowserRuntime {
     const state = this.store.getState(id);
     const instance = this.instances.get(id);
     if (!state) return null;
+    if (state.browserHwnd) {
+      try { this.windowBridge.unwatchChildWindowClicks(state.browserHwnd); } catch (_) {}
+    }
     if (![RUNTIME_STATUS.STOPPING, RUNTIME_STATUS.STOPPED].includes(state.status)) this.store.transition(id, RUNTIME_STATUS.STOPPING);
     if (instance) {
+      // 当前已发布 Chromium Bridge 的 close-browser 等价于关闭最后一个
+      // 窗口，会把 Session 重写为空。退出前捕获，进程完整落盘 Cookie/
+      // Storage 后再恢复窗口会话文件，兼顾数据完整性与下次标签恢复。
+      const sessionSnapshot = options.preserveSession === false
+        ? null
+        : captureChromiumSessionFiles(instance.paths, this.logger);
       instance.expectedExit = true;
       instance.monitor?.stop();
       this.unbindParentWindowFocus(instance);
@@ -504,6 +521,7 @@ class ChromiumRuntime extends BrowserRuntime {
         error.code = 'CHROMIUM_PROCESS_EXIT_TIMEOUT';
         throw error;
       }
+      if (sessionSnapshot) restoreChromiumSessionFiles(sessionSnapshot, this.logger);
       try { await instance.commandClient.close(); } catch (_) {}
     }
     if (state.browserHwnd) try { this.windowBridge.detachChildWindow({ hostHwnd: state.hostHwnd, childHwnd: state.browserHwnd }); } catch (_) {}
@@ -537,6 +555,9 @@ class ChromiumRuntime extends BrowserRuntime {
     try { if (context.hostHwnd) this.windowBridge.destroyHostWindow(context.hostHwnd); } catch (_) {}
     this.store.releaseLock(profileId);
     const state = this.store.getState(profileId);
+    if (state?.browserHwnd) {
+      try { this.windowBridge.unwatchChildWindowClicks(state.browserHwnd); } catch (_) {}
+    }
     if (state) this.store.patchState(profileId, {
       status: RUNTIME_STATUS.CRASHED,
       sessionId: '',
@@ -549,6 +570,9 @@ class ChromiumRuntime extends BrowserRuntime {
   markCrashed(profileId, error) {
     const state = this.store.getState(profileId);
     if (!state || [RUNTIME_STATUS.STOPPED, RUNTIME_STATUS.STOPPING, RUNTIME_STATUS.CRASHED].includes(state.status)) return;
+    if (state.browserHwnd) {
+      try { this.windowBridge.unwatchChildWindowClicks(state.browserHwnd); } catch (_) {}
+    }
     try { this.windowBridge.hideHostWindow(state.hostHwnd); } catch (_) {}
     this.store.patchState(profileId, { status: RUNTIME_STATUS.CRASHED, browserHwnd: null, bridgeConnected: false, embedded: false, lastError: error, crashCount: Number(state.crashCount || 0) + 1 });
     this.emit('crashed', this.getState(profileId));

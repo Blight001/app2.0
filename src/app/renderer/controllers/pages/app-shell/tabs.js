@@ -172,12 +172,25 @@ function onReady(fn) {
 }
 
 let toggleSidebarClickLock = false;
+let sidebarReopenHintTimer = null;
 let draggedTabId = null;
 let dragHoverTabId = null;
 let dragHoverPosition = null;
 let currentContextMenuTabId = null;
 const tabElementById = new Map();
 let pendingRenameTabId = null;
+
+function clearSidebarReopenHint() {
+  if (sidebarReopenHintTimer) {
+    clearTimeout(sidebarReopenHintTimer);
+    sidebarReopenHintTimer = null;
+  }
+  const button = document.getElementById('add-tab-btn');
+  if (!button) return;
+  button.classList.remove('sidebar-reopen-hint');
+  button.title = '单击切换侧栏，双击打开网页控制台';
+  button.setAttribute('aria-label', '切换侧栏');
+}
 
 function renderAppShellAccount(session = {}) {
   accountCenterBtn = document.getElementById('account-center-btn');
@@ -576,6 +589,7 @@ function bindAddTabBtnOnce() {
   addTabBtn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
+    clearSidebarReopenHint();
 
     if (toggleSidebarClickLock) return;
     toggleSidebarClickLock = true;
@@ -626,10 +640,22 @@ function initSettingsBtnAnimation() {
     }, 400);
   });
 
+  IPC.on('sidebar-reopen-hint', () => {
+    clearSidebarReopenHint();
+    sidebarReopenHintTimer = setTimeout(() => {
+      addTabBtn.classList.add('sidebar-reopen-hint');
+      addTabBtn.title = '点击这里重新打开侧栏';
+      addTabBtn.setAttribute('aria-label', '点击这里重新打开侧栏');
+      // CSS 完成平滑放大、停留和缩回；结束后只清理状态类。
+      sidebarReopenHintTimer = setTimeout(clearSidebarReopenHint, 1850);
+    }, 420);
+  });
+
   IPC.on('sidebar-expand', () => {
     console.log('[标签栏] 收到展开动画事件');
     addTabBtn.classList.add('expanding');
     addTabBtn.classList.remove('collapsing');
+    clearSidebarReopenHint();
     setTimeout(() => {
       addTabBtn.classList.remove('expanding');
     }, 150);

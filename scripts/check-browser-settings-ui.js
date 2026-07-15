@@ -149,11 +149,22 @@ app.whenReady().then(async () => {
       const inlineAuthVisible = authForm?.hidden === false
         && authForm.parentElement === accountCard
         && !authForm.hasAttribute('aria-modal')
-        && authForm.getAttribute('role') !== 'dialog';
-      dialog.querySelector('[data-auth-mode="register"]')?.click();
+        && authForm.getAttribute('role') !== 'dialog'
+        && dialog.querySelector('#sidebar-auth-username')?.spellcheck === false;
+      const emptyStatusSpaceCollapsed = getComputedStyle(
+        dialog.querySelector('#sidebar-auth-status'),
+      ).display === 'none';
+      const modeSwitch = dialog.querySelector('#sidebar-auth-mode-switch');
+      const modeLabel = dialog.querySelector('#sidebar-auth-mode-label');
+      modeSwitch?.click();
       const registerModeWorks = dialog.querySelector('#sidebar-auth-confirm-group')?.hidden === false
-        && dialog.querySelector('#sidebar-auth-submit')?.textContent === '注册并登录';
-      dialog.querySelector('[data-auth-mode="login"]')?.click();
+        && dialog.querySelector('#sidebar-auth-submit')?.textContent === '注册并登录'
+        && modeLabel?.textContent === '去登录';
+      modeSwitch?.click();
+      const loginModeWorks = dialog.querySelector('#sidebar-auth-confirm-group')?.hidden === true
+        && dialog.querySelector('#sidebar-auth-submit')?.textContent === '登录'
+        && modeLabel?.textContent === '去注册'
+        && dialog.querySelector('.sidebar-auth-mode-arrow')?.textContent === '→';
       document.getElementById('account-center-dialog-close').click();
       setTimeout(() => resolve({
         oldTabRemoved,
@@ -162,7 +173,9 @@ app.whenReady().then(async () => {
         sameColumn,
         titleAndBackgroundRemoved,
         inlineAuthVisible,
+        emptyStatusSpaceCollapsed,
         registerModeWorks,
+        loginModeWorks,
         closed: dialog.hidden,
       }), 30);
     }, 30);

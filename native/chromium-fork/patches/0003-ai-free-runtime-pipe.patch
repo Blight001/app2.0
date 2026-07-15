@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..307b59bb1272e1f5cf6a76028b2994eebdedb866
 --- /dev/null
 +++ b/chrome/browser/ui/views/frame/ai_free_runtime_bridge_win.cc
-@@ -0,0 +1,909 @@
+@@ -0,0 +1,915 @@
 +// Copyright 2026 AI-FREE Authors. All rights reserved.
 +
 +#include "chrome/browser/ui/views/frame/ai_free_runtime_bridge_win.h"
@@ -53,6 +53,7 @@ index 0000000000000000000000000000000000000000..307b59bb1272e1f5cf6a76028b2994ee
 +#include "base/values.h"
 +#include "base/win/scoped_handle.h"
 +#include "chrome/browser/profiles/profile.h"
++#include "chrome/browser/lifetime/application_lifetime_desktop.h"
 +#include "chrome/browser/ui/browser.h"
 +#include "chrome/browser/ui/browser_window.h"
 +#include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -742,7 +743,7 @@ index 0000000000000000000000000000000000000000..307b59bb1272e1f5cf6a76028b2994ee
 +                       command_name, base::DictValue()),
 +        base::BindOnce(
 +            [](base::WeakPtr<Browser> browser) {
-+              if (browser && browser->window()) browser->window()->Close();
++              if (browser) chrome::CloseAllBrowsersAndQuit();
 +            },
 +            browser->AsWeakPtr()));
 +    return;

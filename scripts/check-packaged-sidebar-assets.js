@@ -47,10 +47,10 @@ async function main() {
       naturalHeight: image.naturalHeight,
     }));
   })()`);
-  if (logos.length !== 3 || logos.some((logo) => (
+  if (logos.length !== 2 || logos.some((logo) => (
     !logo.complete || logo.naturalWidth <= 0 || logo.naturalHeight <= 0
   ))) {
-    throw new Error('侧边栏头像、登录图标或 AI 空白对话 Logo 无法加载');
+    throw new Error('侧边栏头像或 AI 空白对话 Logo 无法加载');
   }
   const accountDialog = await window.webContents.executeJavaScript(`(() => {
     window.openAccountCenterDialog?.();

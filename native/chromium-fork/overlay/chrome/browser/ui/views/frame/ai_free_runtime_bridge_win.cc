@@ -34,6 +34,7 @@
 #include "base/values.h"
 #include "base/win/scoped_handle.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/lifetime/application_lifetime_desktop.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -723,7 +724,7 @@ void HandleCommandOnUi(scoped_refptr<BridgeConnection> connection,
                        command_name, base::DictValue()),
         base::BindOnce(
             [](base::WeakPtr<Browser> browser) {
-              if (browser && browser->window()) browser->window()->Close();
+              if (browser) chrome::CloseAllBrowsersAndQuit();
             },
             browser->AsWeakPtr()));
     return;

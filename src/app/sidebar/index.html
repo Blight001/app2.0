@@ -62,6 +62,8 @@
               <div class="browser-history-heading">
                 <h2 id="browser-history-title">浏览器记录</h2>
                 <div class="browser-history-heading-actions">
+                  <span id="browser-profile-audit" class="browser-profile-audit" hidden></span>
+                  <button id="cleanup-orphan-browser-profiles" class="browser-profile-cleanup-btn" type="button" hidden>清理孤立环境</button>
                   <button id="open-default-browser-settings" class="browser-default-settings-btn" type="button">浏览器默认环境配置</button>
                   <button id="refresh-browser-history" class="browser-history-refresh" type="button" title="刷新浏览器记录" aria-label="刷新浏览器记录">↻</button>
                 </div>
@@ -295,25 +297,12 @@
                 </section>
               </div>
 
-              <section id="sidebar-account-auth" class="sidebar-account-auth" aria-labelledby="sidebar-account-auth-title" hidden>
+              <section id="sidebar-account-auth" class="sidebar-account-auth" aria-label="账号登录或注册" hidden>
                 <div class="sidebar-auth-dialog">
-                  <div class="sidebar-auth-heading">
-                    <div class="sidebar-auth-brand">
-                      <img data-app-logo alt="" aria-hidden="true">
-                      <div>
-                        <div class="sidebar-auth-eyebrow">AI-FREE ACCOUNT</div>
-                        <h2 id="sidebar-account-auth-title">登录账号</h2>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="sidebar-auth-tabs" role="tablist" aria-label="账号操作">
-                    <button class="sidebar-auth-tab active" type="button" data-auth-mode="login" role="tab" aria-selected="true">登录</button>
-                    <button class="sidebar-auth-tab" type="button" data-auth-mode="register" role="tab" aria-selected="false">注册</button>
-                  </div>
                   <div class="sidebar-auth-form">
                     <div class="sidebar-auth-field">
                       <label for="sidebar-auth-username">用户名</label>
-                      <input id="sidebar-auth-username" type="text" maxlength="32" placeholder="请输入用户名" autocomplete="username">
+                      <input id="sidebar-auth-username" type="text" maxlength="32" placeholder="请输入用户名" autocomplete="username" spellcheck="false" autocorrect="off" autocapitalize="none">
                     </div>
                     <div class="sidebar-auth-field">
                       <label for="sidebar-auth-password">密码</label>
@@ -324,6 +313,12 @@
                       <input id="sidebar-auth-password-confirm" type="password" maxlength="128" placeholder="请再次输入密码" autocomplete="new-password">
                     </div>
                     <button id="sidebar-auth-submit" class="sidebar-auth-submit" type="button" data-loading-text="登录中...">登录</button>
+                    <div class="sidebar-auth-mode-row">
+                      <button id="sidebar-auth-mode-switch" class="sidebar-auth-mode-switch" type="button">
+                        <span id="sidebar-auth-mode-label">去注册</span>
+                        <span class="sidebar-auth-mode-arrow" aria-hidden="true">→</span>
+                      </button>
+                    </div>
                   </div>
                   <div id="sidebar-auth-status" class="sidebar-auth-status" role="status" aria-live="polite"></div>
                 </div>

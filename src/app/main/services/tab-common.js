@@ -82,6 +82,15 @@ function toggleSidebarVisibility(options = {}) {
       if (isUsableWindow(win)) {
         win.emit('resize');
       }
+      // Opening the sidebar should make it the current input target. This also
+      // makes the subsequent focus handoff to the embedded browser observable.
+      if (nextVisible && (!win || typeof win.isFocused !== 'function' || win.isFocused())) {
+        const currentSideView = typeof getSideView === 'function' ? getSideView() : null;
+        const sideWebContents = currentSideView?.webContents;
+        if (isUsableWebContents(sideWebContents)) {
+          try { sideWebContents.focus(); } catch (_) {}
+        }
+      }
     }, delay);
 
     return nextVisible;

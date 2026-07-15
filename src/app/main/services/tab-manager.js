@@ -10,8 +10,6 @@ const {
   parseLaunchArgs,
 } = require('../utils/ai-free-browser-settings');
 const {
-  buildDefaultManagedTabPartitionName,
-  buildManagedTabPartitionName,
   toggleSidebarVisibility,
 } = require('./tab-common');
 
@@ -85,7 +83,6 @@ function createTabManager(deps = {}) {
     fs,
     logger = console,
     extensionManager,
-    cleanupBrowserSessionData,
     getStorePath,
     getTabs,
     getMainWindow,
@@ -224,6 +221,19 @@ function createTabManager(deps = {}) {
       if (event.type === 'url-changed') tab.runtimeUrl = String(event.url || '').trim();
       updateTabs();
     });
+    browserRuntimeManager.chromium.on('browser-clicked', (event) => {
+      const profileId = String(event?.profileId || '');
+      // Native hit testing reports clicks for every running Chromium profile.
+      // Collapse only for the visible active browser and only while the
+      // sidebar is currently open; shell/sidebar clicks never reach this path.
+      if (!profileId || profileId !== String(resolveActiveTabId() || '')) return;
+      if (!resolveIsSidebarVisible()) return;
+      const nextVisible = toggleSidebar();
+      const mainWindow = resolveMainWindow();
+      if (nextVisible === false && mainWindow && !mainWindow.isDestroyed?.()) {
+        mainWindow.webContents?.send?.('sidebar-reopen-hint');
+      }
+    });
   }
 // 获取/读取/解析：读取服务器下发的教程地址。
   const resolveConfiguredTutorialUrl = () => {
@@ -252,7 +262,6 @@ function createTabManager(deps = {}) {
       return {
         id: String(record.id).trim(),
         url: String(record.url || '').trim(),
-        partition: String(record.partition || '').trim(),
         settings: normalizeAiFreeBrowserSettings(record.settings || {}),
       };
     } catch (_) {
@@ -263,7 +272,10 @@ function createTabManager(deps = {}) {
 // 启动/打开/显示：openTutorialTab 的具体业务逻辑。
   async function openTutorialTab(requestedUrl = '', options = {}) {
     const requestedTutorialUrl = String(requestedUrl || '').trim();
-    const focusBrowser = options.focusBrowser !== false;
+    // Showing an embedded Chromium HWND must not imply keyboard focus. The
+    // caller has to opt in explicitly; an actual click inside Chromium still
+    // focuses it through the native child-window mouse activation path.
+    const focusBrowser = options.focusBrowser === true;
     // Chromium 创建顶层窗口后再嵌入，启动瞬间也可能被 Windows 激活。
     // 仅在调用前侧栏确实持有焦点时恢复，避免打断正在操作网页的用户。
     const shouldRestoreSideFocus = !focusBrowser
@@ -312,7 +324,6 @@ function createTabManager(deps = {}) {
         fixedTitle: TUTORIAL_TAB_TITLE,
         isTutorialTab: true,
         browserHistoryId: historyId,
-        partition: historyRecord?.partition || undefined,
         browserProxyMode: 'direct',
         // 教程窗口每次启动都必须进入教程地址，不能恢复到上次关闭前的
         // 空白页、跳转页或其它浏览记录。
@@ -459,17 +470,13 @@ function createTabManager(deps = {}) {
       ? Array.from(resolveTabs().values()).find((tab) => String(tab?.accountId || '').trim() === accountId)
       : null;
     if (existingTab && existingTab.id) {
-      switchTab(existingTab.id, { focusBrowser: options.focusBrowser !== false });
+      switchTab(existingTab.id, { focusBrowser: options.focusBrowser === true });
       return existingTab.id;
     }
 
     const newTabId = String(options.tabId || accountId || Date.now().toString());
     const restoreLastSession = options.restoreLastSession === true
       && hasPersistedChromiumProfile(newTabId);
-    const partitionName = accountId
-      ? buildManagedTabPartitionName(accountId)
-      : buildDefaultManagedTabPartitionName();
-    const partition = options.partition || `persist:${partitionName}`;
     const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
       ? licenseCache.getRuntimeConfig()
       : {};
@@ -525,7 +532,6 @@ function createTabManager(deps = {}) {
       const chromiumTab = {
         id: newTabId,
         zoomFactor: 1,
-        partition,
         accountId,
         browserHistoryId,
         isTutorialTab: options.isTutorialTab === true,
@@ -565,7 +571,7 @@ function createTabManager(deps = {}) {
         if (configuredCookies.length && typeof browserRuntimeManager.setCookies === 'function') {
           try { await browserRuntimeManager.setCookies(newTabId, configuredCookies); } catch (error) { logger.warn?.('[ChromiumRuntime] AI-FREE Cookie 注入失败:', error?.message || error); }
         }
-        switchTab(newTabId, { focusBrowser: options.focusBrowser !== false });
+        switchTab(newTabId, { focusBrowser: options.focusBrowser === true });
         if (options.showLoadingPage === true && targetInitialUrl && targetInitialUrl !== initialUrl) {
           void browserRuntimeManager.navigate(newTabId, 'chromium', targetInitialUrl).catch((error) => {
             logger.warn?.('[ChromiumRuntime] 新浏览器导航失败:', error?.message || error);
@@ -652,10 +658,13 @@ function createTabManager(deps = {}) {
     }
 
     const activeTab = tabs.get(tabId);
-    const focusBrowser = options.focusBrowser !== false;
+    // Do not turn a visibility/tab-selection change into a native Win32 focus
+    // transfer. This keeps the shell and sidebar editable until the user
+    // actually clicks the webpage (or a caller explicitly requests focus).
+    const focusBrowser = options.focusBrowser === true;
     void browserRuntimeManager?.show(activeTab.id, 'chromium').then(() => {
-      // 后台创建/刷新教程页时只能显示 Chromium，不能把 Win32 键盘焦点
-      // 从右侧 WebContentsView 抢走。用户主动切换标签时仍正常聚焦网页。
+      // 显示 Chromium 时不能把 Win32 键盘焦点从 shell/侧栏抢走；只有
+      // 明确传入 focusBrowser: true 的调用方才允许聚焦网页。
       if (focusBrowser) return browserRuntimeManager.focus(activeTab.id, 'chromium');
       return false;
     }).catch((error) => {
@@ -674,7 +683,6 @@ function createTabManager(deps = {}) {
     const orderedTabIds = Array.from(tabs.keys());
     const closeIndex = orderedTabIds.indexOf(tabId);
     const tabToClose = tabs.get(tabId);
-    const closePartition = tabToClose?.partition || '';
     const closedAccountId = String(tabToClose?.accountId || '').trim();
     try { await browserRuntimeManager?.stop(tabToClose.id, 'chromium', { timeoutMs: 4000 }); } catch (error) { logger.warn?.('[ChromiumRuntime] 关闭失败:', error?.message || error); }
     tabs.delete(tabId);
@@ -700,16 +708,6 @@ function createTabManager(deps = {}) {
     }
     updateTabs(true);
 
-    try {
-      await cleanupBrowserSessionData({
-        partition: closePartition,
-        session: null,
-        excludedTabId: tabId,
-        source: '标签页关闭',
-      });
-    } catch (e) {
-      logger.warn?.('[缓存清理] 标签页关闭后清理失败:', e?.message || e);
-    }
   }
 
 // 处理：reorderTab的具体业务逻辑。

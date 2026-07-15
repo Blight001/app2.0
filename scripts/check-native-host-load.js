@@ -13,7 +13,15 @@ console.log(JSON.stringify({
   node: process.versions.node,
   napi: process.versions.napi,
   createHostWindow: typeof binding.createHostWindow,
+  watchChildWindowClicks: typeof binding.watchChildWindowClicks,
+  unwatchChildWindowClicks: typeof binding.unwatchChildWindowClicks,
 }));
+
+if (typeof binding.createHostWindow !== 'function'
+    || typeof binding.watchChildWindowClicks !== 'function'
+    || typeof binding.unwatchChildWindowClicks !== 'function') {
+  throw new Error('Native browser host focus API is incomplete');
+}
 
 if (process.versions.electron) {
   require('electron').app.quit();

@@ -173,16 +173,10 @@ function registerLicenseIPC(ctx) {
     try {
       const tabs = ui && typeof ui.getTabs === 'function' ? ui.getTabs() : new Map();
       const normalizedAccountId = String(accountId || '').trim();
-      const expectedPartition = normalizedAccountId ? `tab-${String(normalizedAccountId).replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')}` : '';
-      const expectedPersistentPartition = expectedPartition ? `persist:${expectedPartition}` : '';
 
       for (const tab of tabs.values()) {
         const tabAccountId = String(tab?.accountId || '').trim();
-        const tabPartition = String(tab?.partition || '').trim();
         if (normalizedAccountId && tabAccountId === normalizedAccountId) {
-          return tab;
-        }
-        if (expectedPartition && (tabPartition === expectedPartition || tabPartition === expectedPersistentPartition)) {
           return tab;
         }
       }
@@ -580,6 +574,7 @@ function registerLicenseIPC(ctx) {
       let launchCookies = [];
       let launchBrowserStorage = [];
       let restoreProfileOnly = false;
+      let importedNewAccount = false;
       const sourceAccountIsPermanent = isPermanentDreamAccount(accountId, key);
 
       if (!key) throw new Error('缺少卡密');
@@ -703,6 +698,7 @@ function registerLicenseIPC(ctx) {
           targetUrl,
         });
         launchAccount = importedAccount.account;
+        importedNewAccount = true;
         launchAccountId = String(importedAccount.accountId || launchAccountId || fetchedAccountId || '').trim();
         launchCookies = Array.isArray(importedAccount.cookies) ? importedAccount.cookies : fetchedCookies;
         launchBrowserStorage = Array.isArray(importedAccount.browserStorage) ? importedAccount.browserStorage : fetchedBrowserStorage;
@@ -719,8 +715,13 @@ function registerLicenseIPC(ctx) {
       if (!launchAccountId) {
         throw new Error('缺少可用账号ID');
       }
+      // 服务器 Cookie 只负责首次创建 Profile。已经存在的账号环境必须优先
+      // 恢复本地 Chromium 会话，否则每次服务器请求成功都会 clear-session，
+      // 抹掉用户在浏览器中继续产生的登录状态和页面会话。
+      const restorePersistedProfile = restoreProfileOnly
+        || (!importedNewAccount && hasPersistedDreamProfile(launchAccountId));
       if (!launchAccount || (
-        !restoreProfileOnly
+        !restorePersistedProfile
         && (
           (!Array.isArray(launchCookies) || launchCookies.length === 0)
           && (!Array.isArray(launchBrowserStorage) || launchBrowserStorage.length === 0)
@@ -740,10 +741,10 @@ function registerLicenseIPC(ctx) {
         accountId: launchAccountId,
         fixedTitle: browserName,
         tabTitle: browserName,
-        deferChromiumNavigation: !restoreProfileOnly,
-        restoreLastSession: restoreProfileOnly,
+        deferChromiumNavigation: !restorePersistedProfile,
+        restoreLastSession: restorePersistedProfile,
       });
-      if (restoreProfileOnly) {
+      if (restorePersistedProfile) {
         accountStorage.updateLastUsedTime(launchAccountId);
         try { ui.sendToSide?.('browser-history-changed'); } catch (_) {}
         return { ok: true, tabId, accountId: launchAccountId, restored: true };

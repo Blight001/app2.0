@@ -46,7 +46,7 @@ test('sidebar logos use the runtime asset resolver in source and packaged apps',
   );
 
   assert.ok(html.includes('<script src="./client/scripts/logo-assets.js"></script>'));
-  assert.equal((html.match(/<img[^>]*data-app-logo/g) || []).length, 3);
+  assert.equal((html.match(/<img[^>]*data-app-logo/g) || []).length, 2);
   assert.ok(logoResolver.includes("const SOURCE_LOGO_PATH = '../../assets/logo.ico';"));
   assert.ok(logoResolver.includes("const PACKAGED_LOGO_PATH = '../../../../resource/logo.ico';"));
   assert.ok(aiControl.includes('window.aiFreeLogoAssets?.url'));

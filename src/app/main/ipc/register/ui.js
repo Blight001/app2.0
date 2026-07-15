@@ -598,7 +598,6 @@ function registerUiIPC(ctx) {
       url: String(tab.runtimeUrl || ''),
       active: String(tab.id || '') === String(activeTabId || ''),
       accountId: String(tab.accountId || '').trim(),
-      partition: String(tab.partition || '').trim(),
       browserProxyMode: String(tab.browserProxyMode || 'inherit').trim(),
       runtimeType: 'chromium',
     };
@@ -662,7 +661,6 @@ function registerUiIPC(ctx) {
         }
         const url = normalizeBridgeUrl(payload?.url);
         const openedId = await ui.addTab(url, {
-          partition: targetTab?.partition,
           browserSettings: targetTab?.browserSettings,
           runtimeType: 'chromium',
         });

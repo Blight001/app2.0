@@ -10,6 +10,7 @@ test('native host exports the documented API', { skip: !fs.existsSync(bindingPat
   for (const name of [
     'createHostWindow', 'destroyHostWindow', 'attachChildWindow', 'detachChildWindow',
     'setHostBounds', 'showHostWindow', 'hideHostWindow', 'focusChildWindow',
+    'watchChildWindowClicks', 'unwatchChildWindowClicks',
     'isWindowAlive', 'getWindowProcessId', 'findMainWindowByProcessId',
     'setChildWindowTitle', 'isChildWindowAttached',
   ]) {

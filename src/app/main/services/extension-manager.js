@@ -1791,13 +1791,12 @@ function createExtensionManager(deps = {}) {
     return { ok: true, state: getPublicState() };
   }
 
-  function createWebPanelView(partition) {
+  function createWebPanelView() {
     if (!WebContentsView) {
       throw new Error('当前环境无法创建插件浮窗');
     }
     return new WebContentsView({
       webPreferences: {
-        partition,
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: false,
@@ -1961,9 +1960,6 @@ function createExtensionManager(deps = {}) {
       return { ok: false, message: '插件尚未加载到当前网页' };
     }
 
-    const tabs = typeof getTabs === 'function' ? getTabs() : new Map();
-    const activeTab = tabs?.get?.(typeof getActiveTabId === 'function' ? getActiveTabId() : null);
-    const partition = activeTab?.partition || undefined;
     const url = `chrome-extension://${extensionId}/${pagePath}`;
     const title = pageType === 'options' ? `${plugin.name} 设置` : plugin.name;
     const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
@@ -1978,14 +1974,13 @@ function createExtensionManager(deps = {}) {
 
     closeWebPanel({ notify: false });
 
-    const view = createWebPanelView(partition);
+    const view = createWebPanelView();
     const defaultSize = normalizePanelContentSize({}, pageType);
     webPanel = {
       view,
       pluginId: plugin.id,
       name: plugin.name,
       pageType,
-      partition,
       title,
       contentWidth: defaultSize.width,
       contentHeight: defaultSize.height,

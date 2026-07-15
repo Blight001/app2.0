@@ -2,17 +2,36 @@
 
 namespace {
 
+bool IsFocusedWindowOrDescendant(HWND child) {
+  const DWORD target_thread = GetWindowThreadProcessId(child, nullptr);
+  if (!target_thread) return false;
+  GUITHREADINFO info = {};
+  info.cbSize = sizeof(info);
+  return GetGUIThreadInfo(target_thread, &info) != FALSE &&
+      (info.hwndFocus == child ||
+       (info.hwndFocus && IsChild(child, info.hwndFocus)));
+}
+
 bool FocusAcrossInputQueues(HWND child) {
   // Focus the Aura browser window, not Chrome_RenderWidgetHostHWND directly.
   // Aura must own the focus transition so it can synchronize its internal
   // FocusManager before forwarding keyboard events to Blink.
   HWND target = child;
 
-  DWORD target_process = 0;
-  const DWORD target_thread =
-      GetWindowThreadProcessId(target, &target_process);
-  const DWORD current_thread = GetCurrentThreadId();
+  HWND root = GetAncestor(child, GA_ROOT);
+  if (!root || !IsWindowVisible(root)) return false;
+
+  // A focus request for an embedded browser must never activate AI-FREE from
+  // the background. Besides stealing input from other applications, calling
+  // SetForegroundWindow here also makes automatic show/tab-layout work look
+  // like a user focus action. Only transfer focus while the Electron owner is
+  // already the foreground window.
   HWND foreground = GetForegroundWindow();
+  if (foreground != root) return false;
+
+  const DWORD target_thread =
+      GetWindowThreadProcessId(target, nullptr);
+  const DWORD current_thread = GetCurrentThreadId();
   const DWORD foreground_thread = foreground
       ? GetWindowThreadProcessId(foreground, nullptr)
       : 0;
@@ -25,17 +44,9 @@ bool FocusAcrossInputQueues(HWND child) {
       foreground_thread != target_thread &&
       AttachThreadInput(current_thread, foreground_thread, TRUE) != FALSE;
 
-  HWND root = GetAncestor(child, GA_ROOT);
-  if (root) {
-    SetForegroundWindow(root);
-  }
   SetFocus(target);
 
-  GUITHREADINFO info = {};
-  info.cbSize = sizeof(info);
-  const bool focused = target_thread != 0 &&
-      GetGUIThreadInfo(target_thread, &info) != FALSE &&
-      (info.hwndFocus == target || IsChild(child, info.hwndFocus));
+  const bool focused = IsFocusedWindowOrDescendant(child);
 
   if (attached_foreground) {
     AttachThreadInput(current_thread, foreground_thread, FALSE);

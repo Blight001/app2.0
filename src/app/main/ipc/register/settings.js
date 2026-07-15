@@ -38,7 +38,9 @@ function readBrowserHistorySafe() {
     url: String(item?.url || '').trim(),
     profileId: String(item?.profileId || '').trim(),
     accountId: String(item?.accountId || '').trim(),
-    partition: String(item?.partition || '').trim(),
+    ...(String(item?.partition || '').trim()
+      ? { partition: String(item.partition).trim() }
+      : {}),
     runtimeType: 'chromium',
     lastError: String(item?.lastError || '').trim(),
     settings: normalizeAiFreeBrowserSettings(item?.settings || {}),
@@ -50,7 +52,7 @@ function readBrowserHistorySafe() {
     const summaries = typeof accountStorage.getAllAccounts === 'function'
       ? accountStorage.getAllAccounts()
       : [];
-    const accountByPartition = new Map(summaries.map((summary) => [
+    const accountByLegacyPartition = new Map(summaries.map((summary) => [
       `persist:${buildManagedTabPartitionName(summary?.id)}`,
       summary,
     ]));
@@ -59,17 +61,24 @@ function readBrowserHistorySafe() {
       summary,
     ]));
     for (const record of history) {
-      if (record.accountId) continue;
-      const summary = accountById.get(record.profileId)
-        || accountByPartition.get(record.partition);
-      const accountId = String(summary?.id || '').trim();
-      if (!accountId) continue;
-      const accountResult = accountStorage.getAccount(accountId);
-      const account = accountResult?.ok ? accountResult.account : null;
-      if (!record.profileId) record.profileId = accountId;
-      record.accountId = accountId;
-      if (!record.url && account?.currentUrl) record.url = String(account.currentUrl).trim();
-      changed = true;
+      if (!record.accountId) {
+        // partition 只用于把旧索引迁移到 accountId，迁移完成后立即移除。
+        const summary = accountById.get(record.profileId)
+          || accountByLegacyPartition.get(record.partition);
+        const accountId = String(summary?.id || '').trim();
+        if (accountId) {
+          const accountResult = accountStorage.getAccount(accountId);
+          const account = accountResult?.ok ? accountResult.account : null;
+          if (!record.profileId) record.profileId = accountId;
+          record.accountId = accountId;
+          if (!record.url && account?.currentUrl) record.url = String(account.currentUrl).trim();
+          changed = true;
+        }
+      }
+      if (record.partition) {
+        delete record.partition;
+        changed = true;
+      }
     }
   } catch (_) {}
   if (changed) {
@@ -122,11 +131,13 @@ function syncOpenTabsToBrowserHistory(ui) {
     let record = history.find((item) => item.id === historyId);
     const accountId = String(tab?.accountId || '').trim();
     const profileId = String(tab?.id || '').trim();
-    const partition = String(tab?.partition || '').trim();
-    // 兼容旧记录：账号浏览器过去没有保存 profileId，但 partition 是稳定的。
-    // 再次打开账号浏览器时直接绑定旧记录，避免生成第二条历史。
-    if (!record && accountId && partition) {
-      record = history.find((item) => String(item?.partition || '').trim() === partition) || null;
+    // 账号浏览器以 accountId/profileId 绑定历史，避免继续依赖旧 Electron
+    // partition，也避免重开同一账号时生成第二条记录。
+    if (!record && accountId) {
+      record = history.find((item) => (
+        String(item?.accountId || '').trim() === accountId
+        || String(item?.profileId || '').trim() === profileId
+      )) || null;
       if (record) historyId = record.id;
     }
     if (!record) {
@@ -139,7 +150,6 @@ function syncOpenTabsToBrowserHistory(ui) {
         url: getManagedTabUrl(tab),
         profileId,
         accountId,
-        partition,
         runtimeType: 'chromium',
         settings: normalizeAiFreeBrowserSettings(tab?.browserSettings || {}),
         createdAt: Date.now(),
@@ -153,7 +163,6 @@ function syncOpenTabsToBrowserHistory(ui) {
       const updates = {
         profileId,
         accountId,
-        partition,
         ...(liveUrl ? { url: liveUrl } : {}),
         ...(tab?.isTutorialTab === true ? { kind: 'tutorial' } : {}),
       };
@@ -221,6 +230,32 @@ function serializeBrowserHistory(history, ui) {
     .sort((left, right) => Number(right.lastOpenedAt || 0) - Number(left.lastOpenedAt || 0));
 }
 
+function collectBrowserProfileReferences(history = [], ui = null) {
+  const references = new Set();
+  const remember = (value) => {
+    const id = String(value || '').trim();
+    if (id) references.add(id);
+  };
+  for (const record of history) {
+    remember(record?.profileId);
+    remember(record?.accountId);
+  }
+  for (const tab of ui?.getTabs?.()?.values?.() || []) {
+    remember(tab?.id);
+    remember(tab?.accountId);
+  }
+  try {
+    for (const account of accountStorage.getAllAccounts?.() || []) remember(account?.id);
+  } catch (_) {}
+  return Array.from(references);
+}
+
+function auditBrowserProfiles(history = [], ui = null) {
+  const store = ui?.browserRuntimeManager?.store;
+  if (!store || typeof store.auditProfiles !== 'function') return null;
+  return store.auditProfiles(collectBrowserProfileReferences(history, ui));
+}
+
 function validateBrowserSettingsPayload(input = {}) {
   const rawCookies = input?.cookies;
   if (rawCookies !== undefined && !Array.isArray(rawCookies)) {
@@ -278,9 +313,53 @@ function registerSettingsIPC(ctx) {
         }
       }
       if (changed) writeBrowserHistorySafe(history);
-      return { ok: true, history: serialized };
+      const profileAudit = auditBrowserProfiles(history, ui);
+      return {
+        ok: true,
+        history: serialized,
+        profileAudit: profileAudit ? {
+          totalCount: profileAudit.totalCount,
+          referencedCount: profileAudit.referencedCount,
+          orphanCount: profileAudit.orphanCount,
+        } : null,
+      };
     } catch (error) {
       return { ok: false, error: error?.message || String(error), history: [] };
+    }
+  });
+
+  ipcMain.handle('cleanup-orphan-browser-profiles', async (_event, payload = {}) => {
+    try {
+      if (payload?.confirm !== true) throw new Error('清理孤儿 Profile 需要明确确认');
+      const history = syncOpenTabsToBrowserHistory(ui);
+      const audit = auditBrowserProfiles(history, ui);
+      if (!audit) throw new Error('Chromium Profile 管理器不可用');
+      const requestedStorageIds = new Set((Array.isArray(payload?.storageIds) ? payload.storageIds : [])
+        .map((value) => String(value || '').trim())
+        .filter(Boolean));
+      const targets = audit.orphanProfiles.filter((profile) => (
+        requestedStorageIds.size === 0 || requestedStorageIds.has(profile.storageId)
+      ));
+      const deleted = [];
+      const failed = [];
+      for (const profile of targets) {
+        const deleteId = profile.profileId || profile.storageId;
+        try {
+          ui.browserRuntimeManager.deleteProfile(deleteId);
+          deleted.push(profile.storageId);
+        } catch (error) {
+          failed.push({ storageId: profile.storageId, error: error?.message || String(error) });
+        }
+      }
+      return {
+        ok: failed.length === 0,
+        deletedCount: deleted.length,
+        failedCount: failed.length,
+        deleted,
+        failed,
+      };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error), deletedCount: 0 };
     }
   });
 
@@ -301,7 +380,6 @@ function registerSettingsIPC(ctx) {
         id,
         name,
         url,
-        partition: `persist:browser-window-${id.replace(/[^a-z0-9_-]/gi, '_')}`,
         runtimeType: 'chromium',
         settings,
         createdAt: Date.now(),
@@ -314,7 +392,6 @@ function registerSettingsIPC(ctx) {
         tabId,
         fixedTitle: record.name,
         browserHistoryId: record.id,
-        partition: record.partition,
         runtimeType: 'chromium',
         browserSettings: record.settings,
         resolveProfileInBackground: true,
@@ -383,7 +460,6 @@ function registerSettingsIPC(ctx) {
           accountId: record.accountId,
           fixedTitle: record.name,
           browserHistoryId: record.id,
-          partition: record.partition,
           runtimeType: 'chromium',
           browserSettings: record.settings,
           resolveProfileInBackground: true,
@@ -479,12 +555,25 @@ function registerSettingsIPC(ctx) {
       if (nextHistory.length === latestHistory.length) throw new Error('浏览器历史不存在');
       if (!writeBrowserHistorySafe(nextHistory)) throw new Error('浏览器历史未能删除');
 
+      const profileId = String(record.profileId || openTab?.id || '').trim();
+      let profileDeleted = false;
+      if (profileId && ui?.browserRuntimeManager?.deleteProfile) {
+        try {
+          profileDeleted = ui.browserRuntimeManager.deleteProfile(profileId) === true;
+        } catch (error) {
+          // 索引已删除但 Profile 删除失败时必须显式报错，不能继续制造无主目录。
+          writeBrowserHistorySafe(latestHistory);
+          throw new Error(`Chromium Profile 删除失败: ${error?.message || error}`);
+        }
+      }
+
       ui.sendToSide?.('browser-history-changed');
       return {
         ok: true,
         historyId,
         name: record.name,
         closed: !!openTab?.id,
+        profileDeleted,
       };
     } catch (error) {
       return { ok: false, error: error?.message || String(error) };

@@ -34,7 +34,10 @@ function createBrowserPartitionCleaner(deps = {}) {
 
 // 处理：isPersistentManagedTabPartitionName的具体业务逻辑。
   function isPersistentManagedTabPartitionName(partitionName) {
-    return isManagedTabPartitionName(partitionName) && !isEphemeralManagedTabPartitionName(partitionName);
+    void partitionName;
+    // AI-FREE 网页已经迁移到独立 Chromium Profile。旧 tab-* Electron
+    // Partitions 不再承载网页 Cookie/Storage，可以统一回收。
+    return false;
   }
 
 // 处理：isPersistentSharedPartitionName的具体业务逻辑。
@@ -209,6 +212,7 @@ function createBrowserPartitionCleaner(deps = {}) {
     let cleanedCount = 0;
     let failedCount = 0;
     let keptPersistentCount = 0;
+    let removed = false;
     try {
       const entries = await fs.promises.readdir(partitionsRootDir, { withFileTypes: true });
       for (const entry of entries) {
@@ -234,9 +238,19 @@ function createBrowserPartitionCleaner(deps = {}) {
       logger.warn?.('[退出] 枚举 Partitions 子项失败:', error?.message || error);
     }
 
+    if (failedCount === 0) {
+      try {
+        await fs.promises.rm(partitionsRootDir, { recursive: true, force: true });
+        removed = !fs.existsSync(partitionsRootDir);
+      } catch (error) {
+        failedCount += 1;
+        logger.warn?.('[退出] 删除旧 Partitions 根目录失败:', error?.message || error);
+      }
+    }
+
     return {
       ok: true,
-      removed: false,
+      removed,
       cleanedCount,
       failedCount,
       keptPersistentCount,

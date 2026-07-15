@@ -86,6 +86,17 @@ async function main() {
   assert.ok(!sidebarHtml.includes('id="account-login-open-btn"'));
   assert.ok(!sidebarHtml.includes('id="account-register-open-btn"'));
   assert.ok(!sidebarHtml.includes('class="sidebar-auth-backdrop"'));
+  assert.ok(!sidebarHtml.includes('class="sidebar-auth-tabs"'));
+  assert.ok(!sidebarHtml.includes('sidebar-auth-eyebrow'));
+  assert.ok(!sidebarHtml.includes('sidebar-account-auth-title'));
+  assert.match(
+    sidebarHtml,
+    /id="sidebar-auth-submit"[\s\S]*?id="sidebar-auth-mode-switch"[\s\S]*?id="sidebar-auth-mode-label">去注册<\/span>[\s\S]*?sidebar-auth-mode-arrow[^>]*>→<\/span>/,
+  );
+  assert.match(
+    sidebarHtml,
+    /id="sidebar-auth-username"[^>]*spellcheck="false"[^>]*autocorrect="off"[^>]*autocapitalize="none"/,
+  );
   assert.match(
     sidebarHtml,
     /id="sidebar-account-session"[\s\S]*?id="sidebar-account-auth"[\s\S]*?id="sidebar-auth-username"/,
@@ -117,9 +128,15 @@ async function main() {
     && injectSessionAt > openPageAt
     && reloadAt > injectSessionAt,
   );
-  assert.ok(serverAccountFlow.includes('deferChromiumNavigation: !restoreProfileOnly'));
-  assert.ok(serverAccountFlow.includes('restoreLastSession: restoreProfileOnly'));
+  assert.ok(serverAccountFlow.includes('deferChromiumNavigation: !restorePersistedProfile'));
+  assert.ok(serverAccountFlow.includes('restoreLastSession: restorePersistedProfile'));
+  assert.ok(serverAccountFlow.includes('hasPersistedDreamProfile(launchAccountId)'));
   assert.ok(serverAccountFlow.includes('navigateAfterImport: false'));
+  assert.ok(settingsIpcScript.includes('ui.browserRuntimeManager.deleteProfile(profileId)'));
+  assert.ok(settingsIpcScript.includes("ipcMain.handle('cleanup-orphan-browser-profiles'"));
+  assert.ok(sidebarHtml.includes('id="browser-profile-audit"'));
+  assert.ok(sidebarHtml.includes('id="cleanup-orphan-browser-profiles"'));
+  assert.ok(sidebarSettingsScript.includes("electronAPI.invoke('cleanup-orphan-browser-profiles'"));
   assert.ok(sidebarSettingsScript.includes("electronAPI.invoke('delete-browser-history'"));
   assert.ok(sidebarSettingsScript.includes('browser-history-auto-delete'));
   const messageModalScript = fs.readFileSync(path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/shared/message-modal.js'), 'utf8');

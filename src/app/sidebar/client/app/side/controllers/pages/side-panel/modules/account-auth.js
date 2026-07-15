@@ -27,15 +27,14 @@ function setSidebarAuthStatus(message = '', type = '') {
 
 function setSidebarAuthMode(mode) {
   sidebarAccountAuthMode = mode === 'register' ? 'register' : 'login';
-  document.querySelectorAll('.sidebar-auth-tab').forEach((tab) => {
-    const active = tab.dataset.authMode === sidebarAccountAuthMode;
-    tab.classList.toggle('active', active);
-    tab.setAttribute('aria-selected', active ? 'true' : 'false');
-  });
-
   const registering = sidebarAccountAuthMode === 'register';
-  const title = safeGetEl('sidebar-account-auth-title');
-  if (title) title.textContent = registering ? '注册账号' : '登录账号';
+  const modeSwitch = safeGetEl('sidebar-auth-mode-switch');
+  const modeLabel = safeGetEl('sidebar-auth-mode-label');
+  if (modeSwitch) {
+    modeSwitch.dataset.targetMode = registering ? 'login' : 'register';
+    modeSwitch.setAttribute('aria-label', registering ? '切换到登录' : '切换到注册');
+  }
+  if (modeLabel) modeLabel.textContent = registering ? '去登录' : '去注册';
   const confirmGroup = safeGetEl('sidebar-auth-confirm-group');
   if (confirmGroup) confirmGroup.hidden = !registering;
 
@@ -446,8 +445,8 @@ function bindSidebarAccountAuth() {
   if (!modal || modal.dataset.bound === '1') return;
   modal.dataset.bound = '1';
 
-  document.querySelectorAll('.sidebar-auth-tab').forEach((tab) => {
-    tab.addEventListener('click', () => setSidebarAuthMode(tab.dataset.authMode));
+  safeGetEl('sidebar-auth-mode-switch')?.addEventListener('click', (event) => {
+    setSidebarAuthMode(event.currentTarget?.dataset.targetMode);
   });
   document.querySelectorAll('[data-account-center-close]').forEach((element) => {
     element.addEventListener('click', closeAccountCenterDialog);

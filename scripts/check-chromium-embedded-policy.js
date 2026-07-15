@@ -42,6 +42,14 @@ const nativeHost = fs.readFileSync(
   path.join(root, 'native', 'browser-host', 'src', 'child_window_manager.cc'),
   'utf8',
 );
+const nativeFocus = fs.readFileSync(
+  path.join(root, 'native', 'browser-host', 'src', 'focus_manager.cc'),
+  'utf8',
+);
+const tabManager = fs.readFileSync(
+  path.join(root, 'src', 'app', 'main', 'services', 'tab-manager.js'),
+  'utf8',
+);
 
 assert(series.includes('0007-ai-free-embedded-window-lockdown.patch'));
 assert(series.includes('0008-ai-free-extension-popup-auto-dismiss.patch'));
@@ -140,6 +148,13 @@ for (const style of [
 ]) {
   assert(nativeHost.includes(style), `native host style policy is missing: ${style}`);
 }
+
+assert(nativeFocus.includes('if (foreground != root) return false;'),
+  'embedded browser focus must be rejected while the Electron owner is in the background');
+assert(!nativeFocus.includes('SetForegroundWindow(root)'),
+  'embedded browser focus must not force the Electron owner to the foreground');
+assert(tabManager.includes('const focusBrowser = options.focusBrowser === true;'),
+  'showing or switching an embedded browser must require explicit focus opt-in');
 
 const automationManifest = JSON.parse(fs.readFileSync(
   path.join(root, 'src', 'assets', 'extensions', 'browser_automation', 'manifest.json'),

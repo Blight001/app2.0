@@ -118,7 +118,7 @@ function fallbackToNativeMenu(wc, params, dependencies) {
       template.push({
         label: '🔗 在新标签页打开链接',
         accelerator: 'CmdOrCtrl+Click',
-        click: () => { try { addTab && addTab(linkURL, { partition: tabs && activeTabId && tabs.get(activeTabId)?.partition }); } catch (_) {} }
+        click: () => { try { addTab && addTab(linkURL); } catch (_) {} }
       });
       template.push({ type: 'separator' });
     }

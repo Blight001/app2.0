@@ -2,6 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 
+const SESSION_FILE_PATTERN = /^(Session|Tabs)_(\d+)$/;
+
 const FORBIDDEN_SWITCHES = new Set([
   '--no-sandbox',
   '--single-process',
@@ -113,7 +115,9 @@ function applyChromiumSessionStartupPolicy(paths = {}, logger = console, profile
   preferences.session = preferences.session && typeof preferences.session === 'object'
     ? preferences.session
     : {};
-  preferences.session.restore_on_startup = 5;
+  // 与本次启动意图保持一致。旧逻辑无条件写 5（新标签页），同时又传
+  // --restore-last-session，两套策略相互冲突，可能最终得到空白页。
+  preferences.session.restore_on_startup = profile.restoreLastSession === true ? 1 : 5;
   preferences.session.startup_urls = [];
   preferences.profile = preferences.profile && typeof preferences.profile === 'object'
     ? preferences.profile
@@ -139,6 +143,120 @@ function applyChromiumSessionStartupPolicy(paths = {}, logger = console, profile
     return true;
   } catch (error) {
     logger?.warn?.('[ChromiumRuntime] 写入单页启动策略失败:', error?.message || error);
+    return false;
+  }
+}
+
+function getChromiumSessionsDir(paths = {}) {
+  return path.join(String(paths.chromiumData || ''), 'Default', 'Sessions');
+}
+
+function sessionFileTimestamp(name) {
+  const match = SESSION_FILE_PATTERN.exec(String(name || ''));
+  try { return match ? BigInt(match[2]) : 0n; } catch (_) { return 0n; }
+}
+
+function containsRestorableWebUrl(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) return false;
+  return buffer.includes(Buffer.from('https://', 'ascii'))
+    || buffer.includes(Buffer.from('http://', 'ascii'))
+    || buffer.includes(Buffer.from('https://', 'utf16le'))
+    || buffer.includes(Buffer.from('http://', 'utf16le'));
+}
+
+// 旧版 close-browser 会先关闭最后一个窗口，再正常退出 Chromium，导致最新
+// Session 被写成 0 窗口。若上一组 Session 仍包含网页，则隔离空白的最新组，
+// 让 Chromium 自动回退读取上一组有效会话。
+function repairBlankLatestSession(paths = {}, logger = console) {
+  const sessionsDir = getChromiumSessionsDir(paths);
+  let entries = [];
+  try {
+    entries = fs.readdirSync(sessionsDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && SESSION_FILE_PATTERN.test(entry.name))
+      .map((entry) => ({
+        name: entry.name,
+        path: path.join(sessionsDir, entry.name),
+        type: entry.name.startsWith('Session_') ? 'Session' : 'Tabs',
+        timestamp: sessionFileTimestamp(entry.name),
+      }));
+  } catch (_) {
+    return { repaired: false, removed: [] };
+  }
+
+  const sessionEntries = entries.filter((entry) => entry.type === 'Session')
+    .sort((left, right) => left.timestamp > right.timestamp ? -1 : 1);
+  if (sessionEntries.length < 2) return { repaired: false, removed: [] };
+  let latestBuffer = null;
+  try { latestBuffer = fs.readFileSync(sessionEntries[0].path); } catch (_) { return { repaired: false, removed: [] }; }
+  if (containsRestorableWebUrl(latestBuffer)) return { repaired: false, removed: [] };
+
+  const previousValid = sessionEntries.slice(1).find((entry) => {
+    try { return containsRestorableWebUrl(fs.readFileSync(entry.path)); } catch (_) { return false; }
+  });
+  if (!previousValid) return { repaired: false, removed: [] };
+
+  const latestSession = sessionEntries[0];
+  const closestTabs = entries.filter((entry) => entry.type === 'Tabs')
+    .sort((left, right) => {
+      const leftDistance = left.timestamp > latestSession.timestamp
+        ? left.timestamp - latestSession.timestamp
+        : latestSession.timestamp - left.timestamp;
+      const rightDistance = right.timestamp > latestSession.timestamp
+        ? right.timestamp - latestSession.timestamp
+        : latestSession.timestamp - right.timestamp;
+      return leftDistance < rightDistance ? -1 : 1;
+    })[0];
+  const recoveryDir = path.join(String(paths.root || path.dirname(paths.chromiumData || sessionsDir)), 'session-recovery-discarded');
+  const removed = [];
+  try {
+    fs.mkdirSync(recoveryDir, { recursive: true });
+    for (const entry of [latestSession, closestTabs].filter(Boolean)) {
+      const target = path.join(recoveryDir, `${Date.now()}-${entry.name}`);
+      fs.renameSync(entry.path, target);
+      removed.push(entry.name);
+    }
+    logger?.warn?.('[ChromiumRuntime] 已隔离空白的最新 Session，回退到上一组有效网页会话:', removed);
+    return { repaired: true, removed };
+  } catch (error) {
+    logger?.warn?.('[ChromiumRuntime] 修复空白 Session 失败:', error?.message || error);
+    return { repaired: false, removed };
+  }
+}
+
+function captureChromiumSessionFiles(paths = {}, logger = console) {
+  const sessionsDir = getChromiumSessionsDir(paths);
+  try {
+    const files = fs.readdirSync(sessionsDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && SESSION_FILE_PATTERN.test(entry.name))
+      .map((entry) => ({
+        name: entry.name,
+        data: fs.readFileSync(path.join(sessionsDir, entry.name)),
+      }));
+    return files.length ? { sessionsDir, files } : null;
+  } catch (error) {
+    logger?.warn?.('[ChromiumRuntime] 捕获退出前 Session 快照失败:', error?.message || error);
+    return null;
+  }
+}
+
+function restoreChromiumSessionFiles(snapshot, logger = console) {
+  if (!snapshot?.sessionsDir || !Array.isArray(snapshot.files) || snapshot.files.length === 0) return false;
+  try {
+    fs.mkdirSync(snapshot.sessionsDir, { recursive: true });
+    for (const entry of fs.readdirSync(snapshot.sessionsDir, { withFileTypes: true })) {
+      if (entry.isFile() && SESSION_FILE_PATTERN.test(entry.name)) {
+        fs.rmSync(path.join(snapshot.sessionsDir, entry.name), { force: true });
+      }
+    }
+    for (const file of snapshot.files) {
+      const target = path.join(snapshot.sessionsDir, file.name);
+      const temporary = `${target}.ai-free-tmp`;
+      fs.writeFileSync(temporary, file.data);
+      fs.renameSync(temporary, target);
+    }
+    return true;
+  } catch (error) {
+    logger?.warn?.('[ChromiumRuntime] 恢复退出前 Session 快照失败:', error?.message || error);
     return false;
   }
 }
@@ -189,6 +307,9 @@ function buildChromiumArgs(options = {}) {
 
 function launchChromium(options = {}) {
   const executablePath = resolveChromiumExecutable(options);
+  if (options.profile?.restoreLastSession === true) {
+    repairBlankLatestSession(options.paths, options.logger);
+  }
   applyChromiumSessionStartupPolicy(options.paths, options.logger, options.profile);
   const args = buildChromiumArgs(options);
   const child = spawn(executablePath, args, {
@@ -248,9 +369,12 @@ module.exports = {
   assertSafeChromiumArgs,
   buildChromiumArgs,
   buildChromiumEnvironment,
+  captureChromiumSessionFiles,
   forwardChromiumOutput,
   getSystemChromiumCandidates,
   launchChromium,
   resolveChromiumExecutable,
+  repairBlankLatestSession,
+  restoreChromiumSessionFiles,
   shouldIgnoreChromiumDiagnostic,
 };
