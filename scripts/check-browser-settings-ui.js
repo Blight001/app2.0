@@ -13,6 +13,15 @@ ipcMain.handle('get-ai-free-browser-settings', () => ({
   runtimeInfo: { chromiumVersion: process.versions.chrome, electronVersion: process.versions.electron },
   activeTab: null,
 }));
+ipcMain.handle('get-ai-control-settings', () => ({
+  ok: true,
+  settings: { mcpCallLimit: 100 },
+  limits: { mcpCallLimit: { min: 1, max: 1000 } },
+}));
+ipcMain.handle('set-ai-control-settings', (_event, payload = {}) => ({
+  ok: true,
+  settings: { mcpCallLimit: Number(payload.mcpCallLimit) },
+}));
 for (const [channel, response] of [
   ['get-extension-manager-state', { ok: true, extensions: [] }],
   ['get-clash-mini-status', { running: false }],
@@ -55,6 +64,16 @@ app.whenReady().then(async () => {
   await win.loadFile(path.join(__dirname, '../src/app/sidebar/index.html'));
   await new Promise((resolve) => setTimeout(resolve, 120));
   const result = await win.webContents.executeJavaScript(`(async () => {
+    const gear = document.getElementById('ai-chat-browser-trigger');
+    gear.click();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const mcpInput = document.getElementById('ai-browser-mcp-call-limit');
+    const mcpDefault = mcpInput?.value || '';
+    if (mcpInput) mcpInput.value = '125';
+    document.getElementById('ai-browser-mcp-call-limit-save')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const mcpSaved = mcpInput?.value || '';
+    const mcpStatus = document.getElementById('ai-browser-mcp-call-limit-status')?.textContent || '';
     document.querySelector('[data-tab="ai-free-settings-panel"]').click();
     await new Promise((resolve) => setTimeout(resolve, 120));
     const panel = document.getElementById('ai-free-settings-panel');
@@ -66,6 +85,10 @@ app.whenReady().then(async () => {
       labels,
       browserHistoryVisible: !!document.getElementById('browser-history-list'),
       browserHistoryText: document.getElementById('browser-history-list')?.textContent || '',
+      browserConfigLabel: document.querySelector('[data-tab="ai-free-settings-panel"] span:last-child')?.textContent.trim() || '',
+      mcpDefault,
+      mcpSaved,
+      mcpStatus,
       accountHistoryRemoved: !document.getElementById('account-history-toggle-btn') && !document.getElementById('account-panel'),
       removedNetworkHeading: !document.getElementById('network-tools-title') && !panel.querySelector('.settings-network-tools-hint'),
       overflowY: getComputedStyle(document.querySelector('.main-wrapper')).overflowY,
@@ -76,6 +99,10 @@ app.whenReady().then(async () => {
     !result.active
     || !result.controlInactive
     || !result.browserHistoryVisible
+    || result.browserConfigLabel !== '浏览器配置'
+    || result.mcpDefault !== '100'
+    || result.mcpSaved !== '125'
+    || result.mcpStatus !== '已保存'
     || !result.browserHistoryText.includes('账号123456')
     || !result.browserHistoryText.includes('循环账号')
     || !result.browserHistoryText.includes('自动删除：')

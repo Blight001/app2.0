@@ -1,4 +1,5 @@
 const { ipcMain } = require('electron');
+const { writeDebugConsoleOnly } = require('../../runtime/debug-console-log');
 const fs = require('fs');
 const accountStorage = require('../../lib/account-storage');
 const { getStorePath, getServerBase } = require('../../config');
@@ -351,7 +352,7 @@ function registerLicenseIPC(ctx) {
 
       const r = await httpClient.validateKey(key, device_id);
       if (r?.requestUrl) {
-        console.log(`[验证] HTTP请求地址: ${r.requestMethod || 'GET'} ${r.requestUrl}`);
+        writeDebugConsoleOnly('info', `[验证] HTTP请求地址: ${r.requestMethod || 'GET'} ${r.requestUrl}`);
       }
       console.log('[验证] HTTP响应摘要:', {
         ok: r?.ok === true,

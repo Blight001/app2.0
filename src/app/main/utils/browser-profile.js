@@ -6,15 +6,16 @@ const {
 } = require('./browser-region');
 
 const TAB_PLATFORM = 'Win32';
-// Cloudflare trace 在 Clash 国内直连/国外节点分流下会走节点，用它避免
-// api.ip.sb / ipwho.is / ipinfo.io 被 CN 规则直连后误报“代理未改变出口”。
-const GEO_IP_ENDPOINTS = [
-  'https://www.cloudflare.com/cdn-cgi/trace',
+// Cloudflare trace 作为权威首选。其余服务可能被 Clash 的国内规则分流为
+// DIRECT，不能再与 Cloudflare 并发抢答，否则较快的中国直连结果会误判出口。
+const GEO_IP_PRIMARY_ENDPOINT = 'https://www.cloudflare.com/cdn-cgi/trace';
+const GEO_IP_FALLBACK_ENDPOINTS = [
   'https://ipwho.is/',
   'https://ipinfo.io/json',
   'https://api.ip.sb/geoip',
 ];
 const GEO_IP_REQUEST_TIMEOUT_MS = 5000;
+const GEO_IP_PRIMARY_TIMEOUT_MS = 3000;
 const GEO_IP_OVERALL_TIMEOUT_MS = 6000;
 const GEO_IP_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -267,6 +268,7 @@ async function resolveGeoIpInfo(httpGetUniversal, logger = console, options = {}
   // 校验出口用：经代理探测若返回的 IP 等于直连基线 IP，说明该端点被 Clash
   // 直连规则（如 MATCH,DIRECT）路由，根本没走节点，必须丢弃、继续等其他端点。
   const rejectDirectIp = String(options.rejectDirectIp || '').trim();
+  const rejectDirectRegionKey = normalizeRegionKey(options.rejectDirectRegionKey || '');
   const cacheKey = proxyServer || 'direct';
   const cached = cachedGeoProfiles.get(cacheKey);
   if (options.forceRefresh !== true && cached && Date.now() - cached.cachedAt < GEO_IP_CACHE_TTL_MS) {
@@ -278,12 +280,14 @@ async function resolveGeoIpInfo(httpGetUniversal, logger = console, options = {}
   logger?.info?.(`[BrowserProfile] 开始按出口 IP 探测地区（${proxyServer ? `代理 ${proxyServer}` : '直连'}）`);
 
   const pendingGeoProfile = new Promise((resolve) => {
-    let completedCount = 0;
     let resolved = false;
+    let fallbackStarted = false;
+    let primaryTimer = null;
     const failures = [];
     const finish = (profile) => {
       if (resolved) return;
       resolved = true;
+      if (primaryTimer) clearTimeout(primaryTimer);
       clearTimeout(overallTimer);
       if (profile) {
         cachedGeoProfiles.set(cacheKey, { profile, cachedAt: Date.now() });
@@ -306,34 +310,74 @@ async function resolveGeoIpInfo(httpGetUniversal, logger = console, options = {}
     };
     const overallTimer = setTimeout(() => finish(null), GEO_IP_OVERALL_TIMEOUT_MS);
 
-    for (const endpoint of GEO_IP_ENDPOINTS) {
+    const requestEndpoint = (endpoint, timeoutMs = GEO_IP_REQUEST_TIMEOUT_MS) => (
       Promise.resolve()
-        .then(() => httpGetUniversal(endpoint, GEO_IP_REQUEST_TIMEOUT_MS, {
+        .then(() => httpGetUniversal(endpoint, timeoutMs, {
           proxyServer,
           headers: endpoint.includes('/cdn-cgi/trace')
-            ? { Accept: 'text/plain, application/json;q=0.9' }
+            ? {
+                Accept: 'text/plain, application/json;q=0.9',
+                'Cache-Control': 'no-cache',
+                Pragma: 'no-cache',
+              }
             : undefined,
         }))
         .then((response) => {
           const profile = buildGeoProfile(response, endpoint);
           if (!profile) {
             failures.push(`${new URL(endpoint).hostname}: 无有效地区数据`);
-            return;
+            return null;
           }
           if (rejectDirectIp && String(profile.sourceIp || '').trim() === rejectDirectIp) {
             failures.push(`${new URL(endpoint).hostname}: 出口=直连IP(${rejectDirectIp})，未过代理节点`);
-            return;
+            return null;
           }
-          finish(profile);
+          // 国内出口经常在同一运营商地址池内轮换，仅比较完整 IP 会把
+          // 220.x.x.66 -> 220.x.x.194 误判成代理成功。网络魔法使用境外节点时，
+          // 直连为 CN 而代理探测仍为 CN，说明节点尚未真正接管出口。
+          if (rejectDirectRegionKey === 'cn' && profile.regionKey === rejectDirectRegionKey) {
+            failures.push(`${new URL(endpoint).hostname}: 代理出口仍为直连地区(${rejectDirectRegionKey.toUpperCase()})`);
+            return null;
+          }
+          return profile;
         })
         .catch((error) => {
           failures.push(`${new URL(endpoint).hostname}: ${error?.message || error}`);
+          return null;
         })
-        .finally(() => {
-          completedCount += 1;
-          if (completedCount === GEO_IP_ENDPOINTS.length) finish(null);
-        });
-    }
+    );
+
+    const startFallbacks = () => {
+      if (fallbackStarted || resolved) return;
+      fallbackStarted = true;
+      let completedCount = 0;
+      for (const endpoint of GEO_IP_FALLBACK_ENDPOINTS) {
+        requestEndpoint(endpoint)
+          .then((profile) => {
+            if (profile) finish(profile);
+          })
+          .finally(() => {
+            completedCount += 1;
+            if (completedCount === GEO_IP_FALLBACK_ENDPOINTS.length) finish(null);
+          });
+      }
+    };
+
+    // 给 Cloudflare 独占首选窗口；只有它失败或超时才允许其他服务参与。
+    // 本地计时器也能约束测试桩或异常网络中完全不结束的 Promise。
+    primaryTimer = setTimeout(() => {
+      failures.push(`www.cloudflare.com: 超过 ${GEO_IP_PRIMARY_TIMEOUT_MS}ms，启用备用检测`);
+      startFallbacks();
+    }, GEO_IP_PRIMARY_TIMEOUT_MS);
+    requestEndpoint(GEO_IP_PRIMARY_ENDPOINT, GEO_IP_PRIMARY_TIMEOUT_MS)
+      .then((profile) => {
+        if (profile) {
+          finish(profile);
+          return;
+        }
+        clearTimeout(primaryTimer);
+        startFallbacks();
+      });
   }).finally(() => { pendingGeoProfiles.delete(cacheKey); });
 
   pendingGeoProfiles.set(cacheKey, pendingGeoProfile);
@@ -381,6 +425,7 @@ async function resolveTabBrowserProfile(options = {}) {
     proxyServer,
     forceRefresh: options.forceGeoLookup === true,
     rejectDirectIp: baselineIp,
+    rejectDirectRegionKey: directBaseline?.regionKey || '',
   });
   if (proxiedInfo) {
     return buildBrowserProfileFromRegion(proxiedInfo.regionKey || localeRegion || 'us', settings, proxiedInfo);

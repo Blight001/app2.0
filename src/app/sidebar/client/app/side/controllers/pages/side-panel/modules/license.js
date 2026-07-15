@@ -504,9 +504,6 @@ function bindLicenseValidationControls() {
         }
       }
 
-      if (typeof warmupClashMiniProcess === 'function') {
-        void warmupClashMiniProcess();
-      }
     } catch (e) {
       console.warn('[前端] 加载凭证失败:', e);
     }

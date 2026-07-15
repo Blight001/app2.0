@@ -76,7 +76,11 @@ if (IPC && typeof IPC.on === 'function') {
   });
   IPC.on('independent-browser-create-failed', (payload = {}) => {
     if (String(payload?.tabId || '') === String(pendingRenameTabId || '')) pendingRenameTabId = null;
+    finishIndependentBrowserCreation(payload);
     showControllerError('新建浏览器窗口失败', new Error(payload?.error || '浏览器环境启动失败'));
+  });
+  IPC.on('independent-browser-create-complete', (payload = {}) => {
+    finishIndependentBrowserCreation(payload);
   });
   IPC.on('app-shell-account-updated', (session = {}) => {
     renderAppShellAccount(session);
@@ -179,6 +183,28 @@ let dragHoverPosition = null;
 let currentContextMenuTabId = null;
 const tabElementById = new Map();
 let pendingRenameTabId = null;
+let pendingBrowserCreationTabId = null;
+let independentBrowserCreationPending = false;
+
+function setIndependentBrowserCreationPending(pending) {
+  independentBrowserCreationPending = pending === true;
+  newBrowserWindowBtn = document.getElementById('new-browser-window-btn');
+  if (!newBrowserWindowBtn) return;
+  newBrowserWindowBtn.disabled = independentBrowserCreationPending;
+  newBrowserWindowBtn.setAttribute('aria-busy', String(independentBrowserCreationPending));
+  newBrowserWindowBtn.title = independentBrowserCreationPending
+    ? '浏览器窗口正在后台创建…'
+    : '新建浏览器窗口';
+}
+
+function finishIndependentBrowserCreation(payload = {}) {
+  const completedTabId = String(payload?.tabId || '').trim();
+  if (pendingBrowserCreationTabId
+    && completedTabId
+    && completedTabId !== pendingBrowserCreationTabId) return;
+  pendingBrowserCreationTabId = null;
+  setIndependentBrowserCreationPending(false);
+}
 
 function clearSidebarReopenHint() {
   if (sidebarReopenHintTimer) {
@@ -275,8 +301,7 @@ function beginTabRename(tabElement, options = {}) {
     if (event.key === 'Enter') { event.preventDefault(); void finish(true); }
     if (event.key === 'Escape') { event.preventDefault(); void finish(false); }
   });
-  // 新建窗口期间 Chromium HWND 正在创建/嵌入，原生焦点可能短暂变化。
-  // 自动重命名必须等用户明确按 Enter；双击编辑仍保留失焦保存习惯。
+  // 点击窗口栏或软件内的其他位置导致编辑框失焦时，直接保存当前名称。
   if (options.commitOnBlur !== false) {
     input.addEventListener('blur', () => void finish(true));
   }
@@ -350,41 +375,283 @@ function bindTabContextMenuDismissal() {
   return;
 }
 
+function formatRuntimeStatus(status) {
+  return ({
+    starting: '正在启动',
+    'waiting-pipe': '正在连接内核',
+    'waiting-window': '正在等待浏览器窗口',
+    attaching: '正在嵌入窗口',
+    ready: '运行中',
+    hidden: '后台运行',
+    stopping: '正在关闭',
+    stopped: '已关闭',
+    crashed: '异常退出',
+    error: '运行异常',
+  })[String(status || '').trim().toLowerCase()] || '状态确认中';
+}
+
+function formatBrowserLocale(locale) {
+  const value = String(locale || '').trim();
+  if (!value) return '';
+  try {
+    const name = new Intl.DisplayNames(['zh-CN'], { type: 'language' }).of(value);
+    if (name && name !== value) return `${name}（${value}）`;
+  } catch (_) {}
+  return value;
+}
+
+function formatRequestLanguages(value) {
+  const languages = String(value || '').split(',')
+    .map((item) => item.split(';')[0].trim())
+    .filter((item, index, values) => item && values.indexOf(item) === index);
+  return languages.map((item) => formatBrowserLocale(item)).join('、');
+}
+
+function formatOperatingSystemFromUserAgent(userAgent) {
+  const value = String(userAgent || '');
+  if (/Windows NT 10\.0/i.test(value)) return /(?:Win64|x64)/i.test(value) ? 'Windows 10/11（64 位）' : 'Windows 10/11';
+  if (/Windows NT 6\.3/i.test(value)) return 'Windows 8.1';
+  if (/Windows NT 6\.2/i.test(value)) return 'Windows 8';
+  if (/Windows NT 6\.1/i.test(value)) return 'Windows 7';
+  if (/Android/i.test(value)) return 'Android';
+  if (/(?:iPhone|iPad|iPod)/i.test(value)) return 'iOS / iPadOS';
+  if (/Mac OS X/i.test(value)) return 'macOS';
+  if (/Linux/i.test(value)) return 'Linux';
+  return '';
+}
+
+function formatBrowserTimezone(timezoneId) {
+  const value = String(timezoneId || '').trim();
+  if (!value) return '';
+  return ({
+    'Asia/Shanghai': '中国标准时间（UTC+8）',
+    'Asia/Hong_Kong': '香港时间（UTC+8）',
+    'Asia/Taipei': '台北时间（UTC+8）',
+    'Asia/Tokyo': '日本标准时间（UTC+9）',
+    'Asia/Seoul': '韩国标准时间（UTC+9）',
+    'Asia/Singapore': '新加坡时间（UTC+8）',
+    'America/New_York': '美国东部时间',
+    'America/Toronto': '加拿大东部时间',
+    'Europe/London': '英国时间',
+    'Europe/Berlin': '德国时间',
+    'Europe/Paris': '法国时间',
+    'Europe/Amsterdam': '荷兰时间',
+    'Europe/Moscow': '莫斯科时间（UTC+3）',
+    'Australia/Sydney': '悉尼时间',
+    'Asia/Kolkata': '印度标准时间（UTC+5:30）',
+    'Asia/Bangkok': '泰国时间（UTC+7）',
+  })[value] || value;
+}
+
+function formatBrowserRegion(profile = {}) {
+  const countryCode = String(profile.sourceCountryCode || '').trim().toUpperCase();
+  const rawCountry = String(profile.sourceCountry || '').trim();
+  let country = '';
+  const regionCode = countryCode || (/^[a-z]{2}$/i.test(rawCountry) ? rawCountry.toUpperCase() : '');
+  if (regionCode) {
+    try { country = new Intl.DisplayNames(['zh-CN'], { type: 'region' }).of(regionCode) || ''; } catch (_) {}
+  }
+  if (!country) country = rawCountry || String(profile.regionLabel || profile.region || '').trim();
+  const details = [profile.sourceRegion, profile.sourceCity]
+    .map((item) => String(item || '').trim())
+    .filter((item, index, values) => item && item !== country && values.indexOf(item) === index);
+  return [country, ...details].filter(Boolean).join(' / ');
+}
+
+function resolveChromiumDisplayVersion(profile = {}) {
+  const explicit = String(profile.majorVersion || profile.browserVersion || '').trim().split('.')[0];
+  if (/^\d+$/.test(explicit)) return explicit;
+  const match = String(profile.userAgent || '').match(/(?:Chromium|Chrome)\/(\d+)/i);
+  return match ? match[1] : '';
+}
+
+function settingLabel(value, labels, fallback = '默认') {
+  return labels[String(value || '').trim()] || fallback;
+}
+
+function enabledLabel(value) {
+  return value === true ? '已开启' : '已关闭';
+}
+
+function safeDisplayUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw);
+    const suffix = parsed.search || parsed.hash ? '（含隐藏参数）' : '';
+    return `${parsed.origin}${parsed.pathname}${suffix}`;
+  } catch (_) {
+    return raw;
+  }
+}
+
+function safeDisplayLaunchArgs(value) {
+  return String(value || '').split(/\r?\n|\s+(?=--)/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      if (/^--[^=\s]*(?:password|passwd|token|secret|cookie|auth|key)[^=\s]*(?:=|\s+)/i.test(item)) {
+        return `${item.match(/^--[^=\s]+/)?.[0] || '--敏感参数'}=已配置（已隐藏）`;
+      }
+      return item.replace(/:\/\/[^/@\s]+@/g, '://***:***@');
+    })
+    .join('；');
+}
+
+function formatProxySetting(proxy = {}, networkMagicEnabled = false) {
+  const mode = String(proxy.mode || 'default');
+  let value = settingLabel(mode, {
+    default: '默认',
+    none: '不使用浏览器自定义代理',
+    custom: '自定义',
+  });
+  if (mode === 'custom') {
+    const endpoint = [String(proxy.host || '').trim(), proxy.port].filter(Boolean).join(':');
+    value += `${endpoint ? `（${String(proxy.protocol || 'http').toUpperCase()} ${endpoint}）` : ''}`;
+    if (proxy.authenticationConfigured) value += '；已配置认证';
+    if (proxy.apiConfigured) value += '；已配置提取接口';
+  }
+  if (networkMagicEnabled) value += '；当前由网络魔法接管';
+  return value;
+}
+
+function formatUaBrands(brands = []) {
+  return (Array.isArray(brands) ? brands : [])
+    .map((item) => `${String(item?.brand || '').trim()} ${String(item?.version || '').trim()}`.trim())
+    .filter(Boolean)
+    .join('、');
+}
+
+function buildBasicSettingsTooltip(settings = {}, profile = {}, networkMagicEnabled = false) {
+  const os = settingLabel(settings.os, {
+    win7: 'Windows 7', win8: 'Windows 8', win10: 'Windows 10', win11: 'Windows 11',
+  });
+  const currentVersion = resolveChromiumDisplayVersion(profile);
+  const browserVersion = settings.browserVersion
+    ? `指定 ${settings.browserVersion}`
+    : `自动匹配${currentVersion ? `（当前 ${currentVersion}）` : ''}`;
+  const kernelVersion = !settings.kernelVersion || settings.kernelVersion === 'auto'
+    ? '自动匹配'
+    : settings.kernelVersion;
+  const homepage = settings.homepage?.mode === 'custom'
+    ? `自定义（${safeDisplayUrl(settings.homepage?.url) || '未填写'}）`
+    : '默认主页';
+  return [
+    '【基础设置】',
+    `操作系统：${os}`,
+    `浏览器版本：${browserVersion}`,
+    `内核版本：${kernelVersion}`,
+    `代理设置：${formatProxySetting(settings.proxy, networkMagicEnabled)}`,
+    `Cookie：${Math.max(0, Number(settings.cookieCount) || 0)} 条`,
+    `启动主页：${homepage}`,
+  ];
+}
+
+function buildAdvancedSettingsTooltip(settings = {}, profile = {}, runtimeEnvironment = null) {
+  const locale = String(profile.locale || settings.language?.value || '').trim();
+  const timezone = String(profile.timezoneId || settings.timezone?.value || '').trim();
+  const acceptLanguage = String(profile.acceptLanguage || '').trim();
+  const userAgent = String(profile.userAgent || '').trim();
+  const actualBrands = formatUaBrands(profile.uaBrands);
+  const configuredBrands = formatUaBrands(settings.secChUa?.brands);
+  const geo = settings.geolocation || {};
+  const geoMode = geo.mode === 'custom'
+    ? `自定义（经度 ${geo.longitude}，纬度 ${geo.latitude}，精度 ${geo.accuracy} 米）`
+    : '基于 IP 自动匹配';
+  const resolution = settings.resolution?.mode === 'custom'
+    ? `自定义 ${settings.resolution.width} × ${settings.resolution.height}`
+    : '跟随电脑';
+  const actualWindow = runtimeEnvironment?.windowWidth > 0 && runtimeEnvironment?.windowHeight > 0
+    ? `；当前窗口 ${runtimeEnvironment.windowWidth} × ${runtimeEnvironment.windowHeight}`
+    : '';
+  const deviceName = settings.deviceName?.mode === 'custom'
+    ? `自定义（${settings.deviceName.value || '未填写'}）`
+    : '默认';
+  const macAddress = settings.macAddress?.mode === 'custom'
+    ? `自定义（${settings.macAddress.value || '未填写'}）`
+    : '默认';
+  const launchArgs = settings.launchArgs?.mode === 'custom'
+    ? `自定义（${safeDisplayLaunchArgs(settings.launchArgs.value) || '未填写'}）`
+    : '默认';
+  const permission = settingLabel(geo.permission, { ask: '询问', allow: '允许', block: '禁止' });
+  const portAllowList = Array.isArray(settings.portScanProtection?.allowList)
+    && settings.portScanProtection.allowList.length
+    ? settings.portScanProtection.allowList.join('、')
+    : '无';
+  return [
+    '【高级设置】',
+    `User Agent：${settingLabel(settings.ua?.mode, { default: '默认生成', custom: '自定义' })}`,
+    ...(userAgent ? [`用户代理（UA）：${userAgent}`] : []),
+    `Sec-CH-UA：${settingLabel(settings.secChUa?.mode, { default: '默认生成', custom: '自定义' })}${actualBrands || configuredBrands ? `（${actualBrands || configuredBrands}）` : ''}`,
+    `语言：${settings.language?.mode === 'custom' ? '自定义' : '基于 IP 自动匹配'}${locale ? `（当前 ${formatBrowserLocale(locale)}）` : ''}`,
+    `网页请求语言：${acceptLanguage ? formatRequestLanguages(acceptLanguage) : '自动'}`,
+    `时区：${settings.timezone?.mode === 'custom' ? '自定义' : '基于 IP 自动匹配'}${timezone ? `（当前 ${formatBrowserTimezone(timezone)}）` : ''}`,
+    `WebRTC：${settingLabel(settings.webrtc?.mode, { replace: '替换', allow: '允许', block: '禁止' })}`,
+    `地理位置权限：${permission}`,
+    `地理位置：${geoMode}`,
+    `分辨率：${resolution}${actualWindow}`,
+    `字体：${settingLabel(settings.fonts?.mode, { system: '系统默认', random: '随机匹配' })}`,
+    `Canvas：${settingLabel(settings.canvas?.mode, { default: '默认', noise: '随机噪声' })}`,
+    `WebGL 图像：${settingLabel(settings.webglImage?.mode, { default: '默认', noise: '随机噪声' })}`,
+    `WebGL 元数据：${settingLabel(settings.webglMetadata?.mode, { default: '默认', custom: '自定义' })}`,
+    `WebGL 厂商：${settings.webglMetadata?.vendor || '默认'}`,
+    `WebGL 渲染器：${settings.webglMetadata?.renderer || '默认'}`,
+    `WebGPU：${settingLabel(settings.webgpu?.mode, { default: '默认', webgl: '基于 WebGL' })}`,
+    `AudioContext：${settingLabel(settings.audioContext?.mode, { default: '默认', noise: '随机噪声' })}`,
+    `ClientRects：${settingLabel(settings.clientRects?.mode, { default: '默认', noise: '随机噪声' })}`,
+    `语音列表：${settingLabel(settings.speechVoices?.mode, { default: '默认', noise: '随机匹配' })}`,
+    `CPU：${Math.max(1, Number(settings.cpu) || 1)} 核`,
+    `内存：${Math.max(1, Number(settings.memory) || 1)} GB`,
+    `设备名称：${deviceName}`,
+    `MAC 地址：${macAddress}`,
+    `禁止跟踪（DNT）：${enabledLabel(settings.doNotTrack)}`,
+    `SSL：${enabledLabel(settings.sslEnabled)}`,
+    `端口扫描保护：${enabledLabel(settings.portScanProtection?.enabled)}`,
+    `端口扫描白名单：${portAllowList}`,
+    `硬件加速：${runtimeEnvironment ? enabledLabel(runtimeEnvironment.hardwareAcceleration !== false) : enabledLabel(settings.hardwareAcceleration)}`,
+    `启动参数：${launchArgs}`,
+  ];
+}
+
 // 创建/初始化：buildTabTooltip的具体业务逻辑。
 function buildTabTooltip(tab) {
   const title = String(tab?.title || '').trim() || '未命名标签页';
-  const tabId = String(tab?.id || '').trim() || 'unknown';
-  const accountId = String(tab?.accountId || '').trim() || 'none';
-  const browserProxyMode = String(tab?.browserProxyMode || 'inherit').trim() || 'inherit';
-  const activeText = tab?.isActive ? '是' : '否';
   const profile = tab?.browserProfile && typeof tab.browserProfile === 'object' ? tab.browserProfile : null;
-  const browserBrand = String(profile?.browserBrand || '未知').trim() || '未知';
-  const browserType = String(profile?.browserType || '').trim();
-  const regionLabel = String(profile?.regionLabel || '').trim();
-  const region = String(profile?.region || '').trim();
   const sourceIp = String(profile?.sourceIp || '').trim();
-  const sourceCountryCode = String(profile?.sourceCountryCode || '').trim();
-  const sourceCountry = String(profile?.sourceCountry || '').trim();
   const locale = String(profile?.locale || '').trim();
   const timezoneId = String(profile?.timezoneId || '').trim();
   const acceptLanguage = String(profile?.acceptLanguage || '').trim();
   const userAgent = String(profile?.userAgent || '').trim();
-  return [
-    `标题: ${title}`,
-    `tabId: ${tabId}`,
-    `accountId: ${accountId}`,
-    `当前激活: ${activeText}`,
-    `代理模式: ${browserProxyMode}`,
-    `运行时: ${String(tab?.runtimeType || 'chromium')} (${String(tab?.runtimeStatus || 'starting')})`,
-    `浏览器: ${browserBrand}${browserType ? ` (${browserType})` : ''}`,
-    `来源IP: ${sourceIp || '自动'}`,
-    `来源国家: ${sourceCountry || sourceCountryCode || '自动'}`,
-    `地区: ${regionLabel || region || '自动'}`,
-    `语言: ${locale || '自动'}`,
-    `时区: ${timezoneId || '自动'}`,
-    `Accept-Language: ${acceptLanguage || '自动'}`,
-    `UA: ${userAgent || '自动'}`,
-  ].join('\n');
+  const browserSettings = tab?.browserSettings && typeof tab.browserSettings === 'object'
+    ? tab.browserSettings
+    : null;
+  const runtimeEnvironment = tab?.runtimeEnvironment && typeof tab.runtimeEnvironment === 'object'
+    ? tab.runtimeEnvironment
+    : null;
+  const region = formatBrowserRegion(profile || {});
+  const version = resolveChromiumDisplayVersion(profile || {});
+  const lines = [
+    `浏览器名称：${title}`,
+    `运行状态：${formatRuntimeStatus(tab?.runtimeStatus)}`,
+    `浏览器内核：AI-FREE Chromium${version ? ` ${version}` : ''}`,
+  ];
+  if (sourceIp) lines.push(`出口 IP：${sourceIp}`);
+  if (region) lines.push(`出口地区：${region}`);
+  const operatingSystem = formatOperatingSystemFromUserAgent(userAgent);
+  if (operatingSystem) lines.push(`系统标识：${operatingSystem}`);
+  if (runtimeEnvironment) lines.push(`已加载扩展：${Math.max(0, Number(runtimeEnvironment.extensionCount) || 0)} 个`);
+  // 网络魔法关闭时完全不显示代理项；不再暴露 inherit/direct/rule 等内部枚举。
+  if (tab?.networkMagicEnabled === true) lines.push('网络魔法：已开启（当前浏览器已应用）');
+  if (browserSettings) {
+    lines.push(...buildBasicSettingsTooltip(browserSettings, profile || {}, tab?.networkMagicEnabled === true));
+    lines.push(...buildAdvancedSettingsTooltip(browserSettings, profile || {}, runtimeEnvironment));
+  } else {
+    if (locale) lines.push(`浏览器语言：${formatBrowserLocale(locale)}`);
+    if (timezoneId) lines.push(`浏览器时区：${formatBrowserTimezone(timezoneId)}`);
+    if (acceptLanguage) lines.push(`网页请求语言：${formatRequestLanguages(acceptLanguage)}`);
+    if (userAgent) lines.push(`用户代理（UA）：${userAgent}`);
+  }
+  return lines.join('\n');
 }
 
 // 设置/更新/持久化：applyAdaptiveTabSizing的具体业务逻辑。
@@ -419,13 +686,6 @@ function createTabElement(tab) {
   tabElement.dataset.id = tab.id;
   tabElement.draggable = true;
   tabElement.title = buildTabTooltip(tab);
-  tabElement.dataset.browserBrand = String(tab?.browserProfile?.browserBrand || '');
-  tabElement.dataset.browserType = String(tab?.browserProfile?.browserType || '');
-  tabElement.dataset.browserRegion = String(tab?.browserProfile?.region || '');
-  tabElement.dataset.browserSourceIp = String(tab?.browserProfile?.sourceIp || '');
-  tabElement.dataset.browserLocale = String(tab?.browserProfile?.locale || '');
-  tabElement.dataset.browserTimezone = String(tab?.browserProfile?.timezoneId || '');
-  tabElement.dataset.browserAcceptLanguage = String(tab?.browserProfile?.acceptLanguage || '');
   tabElement.dataset.runtimeType = String(tab?.runtimeType || 'chromium');
   tabElement.dataset.runtimeStatus = String(tab?.runtimeStatus || 'ready');
   tabElement.dataset.browserHistoryId = String(tab?.browserHistoryId || '');
@@ -439,13 +699,16 @@ function createTabElement(tab) {
   if (tab?.runtimeType === 'chromium') {
     const runtimeBadge = document.createElement('button');
     const crashed = tab.runtimeStatus === 'crashed';
+    const starting = tab.runtimeStatus === 'starting';
     runtimeBadge.type = 'button';
     runtimeBadge.className = `tab-runtime-badge${crashed ? ' crashed' : ''}`;
-    runtimeBadge.textContent = crashed ? '重启' : 'C';
-    runtimeBadge.title = crashed ? 'AI-FREE 已退出，点击重新启动环境' : `AI-FREE: ${tab.runtimeStatus || 'ready'}`;
+    runtimeBadge.textContent = crashed ? '重启' : (starting ? '…' : 'C');
+    runtimeBadge.title = crashed
+      ? 'AI-FREE 浏览器已退出，点击重新启动'
+      : `AI-FREE 浏览器：${formatRuntimeStatus(tab.runtimeStatus)}`;
     runtimeBadge.addEventListener('click', async (event) => {
       event.stopPropagation();
-      if (!crashed || typeof IPC.invoke !== 'function' || runtimeBadge.disabled) return;
+      if (!runtimeBadge.classList.contains('crashed') || typeof IPC.invoke !== 'function' || runtimeBadge.disabled) return;
       runtimeBadge.disabled = true;
       runtimeBadge.textContent = '…';
       try {
@@ -554,14 +817,18 @@ function syncTabElement(tabElement, tab) {
     titleSpan.title = buildTabTooltip(tab);
   }
   tabElement.title = buildTabTooltip(tab);
-  tabElement.dataset.browserBrand = String(tab?.browserProfile?.browserBrand || '');
-  tabElement.dataset.browserType = String(tab?.browserProfile?.browserType || '');
-  tabElement.dataset.browserRegion = String(tab?.browserProfile?.region || '');
-  tabElement.dataset.browserSourceIp = String(tab?.browserProfile?.sourceIp || '');
-  tabElement.dataset.browserLocale = String(tab?.browserProfile?.locale || '');
-  tabElement.dataset.browserTimezone = String(tab?.browserProfile?.timezoneId || '');
-  tabElement.dataset.browserAcceptLanguage = String(tab?.browserProfile?.acceptLanguage || '');
   tabElement.dataset.browserHistoryId = String(tab?.browserHistoryId || '');
+  tabElement.dataset.runtimeStatus = String(tab?.runtimeStatus || 'starting');
+  const runtimeBadge = tabElement.querySelector('.tab-runtime-badge');
+  if (runtimeBadge) {
+    const crashed = tab?.runtimeStatus === 'crashed';
+    const starting = tab?.runtimeStatus === 'starting';
+    runtimeBadge.classList.toggle('crashed', crashed);
+    runtimeBadge.textContent = crashed ? '重启' : (starting ? '…' : 'C');
+    runtimeBadge.title = crashed
+      ? 'AI-FREE 浏览器已退出，点击重新启动'
+      : `AI-FREE 浏览器：${formatRuntimeStatus(tab?.runtimeStatus)}`;
+  }
   tabElement.classList.toggle('active', !!tab.isActive);
 }
 
@@ -571,21 +838,27 @@ function bindNewBrowserWindowBtnOnce() {
   newBrowserWindowBtn.addEventListener('click', async (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (newBrowserWindowBtn.disabled) return;
-    newBrowserWindowBtn.disabled = true;
+    if (newBrowserWindowBtn.disabled || independentBrowserCreationPending) return;
+    let acceptedForBackgroundCreation = false;
+    setIndependentBrowserCreationPending(true);
     try {
       const response = await IPC.invoke('create-independent-browser', { name: '新建窗口' });
       if (!response?.ok) throw new Error(response?.error || '新建浏览器窗口失败');
+      acceptedForBackgroundCreation = response.pending === true;
+      pendingBrowserCreationTabId = String(response.tabId || '').trim();
       pendingRenameTabId = String(response.tabId || '');
       const tabElement = tabElementById.get(pendingRenameTabId);
       if (tabElement) {
-        beginTabRename(tabElement, { commitOnBlur: false });
+        beginTabRename(tabElement, { commitOnBlur: true });
         pendingRenameTabId = null;
       }
     } catch (error) {
       showControllerError('新建浏览器窗口失败', error);
     } finally {
-      newBrowserWindowBtn.disabled = false;
+      if (!acceptedForBackgroundCreation) {
+        pendingBrowserCreationTabId = null;
+        setIndependentBrowserCreationPending(false);
+      }
     }
   });
   newBrowserWindowBtn.dataset.bound = '1';
@@ -708,7 +981,7 @@ IPC.on('update-tabs', (tabs) => {
   if (pendingRenameTabId) {
     const pendingTabElement = tabElementById.get(String(pendingRenameTabId));
     if (pendingTabElement) {
-      beginTabRename(pendingTabElement, { commitOnBlur: false });
+      beginTabRename(pendingTabElement, { commitOnBlur: true });
       pendingRenameTabId = null;
     }
   }

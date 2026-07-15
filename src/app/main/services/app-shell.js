@@ -11,7 +11,6 @@ function createAppShell(deps = {}) {
     BrowserWindow,
     WebContentsView,
     dialog,
-    isDevMode = false,
     Menu,
     logger = console,
     FIXED_ICON_RELATIVE_PATH,
@@ -107,6 +106,7 @@ function createAppShell(deps = {}) {
     extIdBySession,
     clearInjectionRecord,
     getAppConsoleHistory,
+    getDebugConsoleHistory,
     statePluginGetter = () => state?.pluginSettings || {},
   } = deps;
 
@@ -266,10 +266,6 @@ function createAppShell(deps = {}) {
 
 // 创建/初始化：createDevConsoleWindow的具体业务逻辑。
   function createDevConsoleWindow() {
-    if (!isDevMode) {
-      return null;
-    }
-
     const existing = typeof getConsoleWindow === 'function' ? getConsoleWindow() : null;
     if (existing && !existing.isDestroyed()) {
       return existing;
@@ -516,6 +512,9 @@ function createAppShell(deps = {}) {
           setRuntimeServerBase,
           getTabs: () => resolveTabs(),
           getAppConsoleHistory: () => (typeof getAppConsoleHistory === 'function' ? getAppConsoleHistory() : []),
+          getDebugConsoleHistory: () => (typeof getDebugConsoleHistory === 'function'
+            ? getDebugConsoleHistory()
+            : (typeof getAppConsoleHistory === 'function' ? getAppConsoleHistory() : [])),
           ensureSidebarVisible: () => {
             if (!deps.getIsSidebarVisible?.()) {
               toggleSidebar();
@@ -562,9 +561,7 @@ function createAppShell(deps = {}) {
     }
 
     try {
-      if (isDevMode) {
-        createDevConsoleWindow();
-      }
+      createDevConsoleWindow();
     } catch (e) {
       logger.warn?.('[启动] 创建调试控制台窗口失败:', e?.message || e);
     }
@@ -860,9 +857,11 @@ function createAppShell(deps = {}) {
       }
       // 内部侧栏视图调整后，再同步原生 Chromium 宿主窗口的尺寸与层级。
       if (activeTab && chromiumBounds) {
-        void deps.browserRuntimeManager?.resize(activeTab.id, 'chromium', chromiumBounds).catch((error) => {
-          logger.warn?.('[ChromiumRuntime] 同步窗口尺寸失败:', error?.message || error);
-        });
+        void deps.browserRuntimeManager?.resize(activeTab.id, 'chromium', chromiumBounds)
+          .then(() => { if (typeof updateTabs === 'function') updateTabs(); })
+          .catch((error) => {
+            logger.warn?.('[ChromiumRuntime] 同步窗口尺寸失败:', error?.message || error);
+          });
       }
       if (extensionManager && typeof extensionManager.syncWebPanelBounds === 'function') {
         extensionManager.syncWebPanelBounds();

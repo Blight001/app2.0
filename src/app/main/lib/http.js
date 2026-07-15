@@ -3,7 +3,7 @@
 
 const https = require('https');
 const http = require('http');
-const tls = require('tls');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 
 function getProxyAuthorization(proxyUrl) {
   if (!proxyUrl?.username && !proxyUrl?.password) return '';
@@ -64,48 +64,27 @@ function requestJsonOverHttpProxy(method, targetUrl, proxyUrl, options = {}) {
       return;
     }
 
-    const connectRequest = proxyLib.request({
-      hostname: proxyUrl.hostname,
-      port: proxyUrl.port || (proxyUrl.protocol === 'https:' ? 443 : 80),
-      method: 'CONNECT',
-      path: `${targetUrl.hostname}:${targetUrl.port || 443}`,
+    // 必须由标准 Agent 持有并复用 CONNECT 返回的 socket。旧实现先手动
+    // CONNECT，再给 agent:false 的 https.request 传 createConnection；Node
+    // 实际忽略了该回调并另开直连 TLS，造成“浏览器是 JP、检测却是 CN”。
+    const agent = new HttpsProxyAgent(proxyUrl, {
+      rejectUnauthorized: false,
+      headers: proxyAuthorization ? { 'Proxy-Authorization': proxyAuthorization } : {},
+    });
+    const request = https.request({
+      hostname: targetUrl.hostname,
+      port: targetUrl.port || 443,
+      path: targetUrl.pathname + (targetUrl.search || ''),
+      method: upperMethod,
       timeout: timeoutMs,
-      ...(proxyUrl.protocol === 'https:' ? { rejectUnauthorized: false } : {}),
-      headers: {
-        Host: `${targetUrl.hostname}:${targetUrl.port || 443}`,
-        ...(proxyAuthorization ? { 'Proxy-Authorization': proxyAuthorization } : {}),
-      },
-    });
-    connectRequest.on('connect', (res, socket, head) => {
-      if (res.statusCode !== 200) {
-        socket.destroy();
-        reject(new Error(`代理隧道连接失败（HTTP ${res.statusCode}）`));
-        return;
-      }
-      if (head?.length) socket.unshift(head);
-      const request = https.request({
-        hostname: targetUrl.hostname,
-        port: targetUrl.port || 443,
-        path: targetUrl.pathname + (targetUrl.search || ''),
-        method: upperMethod,
-        timeout: timeoutMs,
-        rejectUnauthorized: false,
-        agent: false,
-        createConnection: () => tls.connect({
-          socket,
-          servername: targetUrl.hostname,
-          rejectUnauthorized: false,
-        }),
-        headers,
-      }, (response) => readResponse(response, request));
-      request.on('error', reject);
-      request.on('timeout', () => handleTimeout(request));
-      if (payload) request.write(payload);
-      request.end();
-    });
-    connectRequest.on('error', reject);
-    connectRequest.on('timeout', () => handleTimeout(connectRequest));
-    connectRequest.end();
+      rejectUnauthorized: false,
+      agent,
+      headers,
+    }, (response) => readResponse(response, request));
+    request.on('error', reject);
+    request.on('timeout', () => handleTimeout(request));
+    if (payload) request.write(payload);
+    request.end();
   });
 }
 

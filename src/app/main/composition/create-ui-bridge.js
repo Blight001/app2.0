@@ -24,9 +24,18 @@ function createUiBridge({ getSideView, getControlPanelWindow, getConsoleWindow }
       }
       return senders;
     },
+    getDebugSenders: () => {
+      consoleWindow = typeof getConsoleWindow === 'function' ? getConsoleWindow() : null;
+      if (consoleWindow && consoleWindow.webContents && !consoleWindow.webContents.isDestroyed()) {
+        return [consoleWindow.webContents];
+      }
+      return [];
+    },
   });
 
   appConsoleBridge.install();
+  // 供底层网络模块使用，刻意不回退到 console.*，避免调试专用日志泄漏到终端。
+  global.__APP_DEBUG_CONSOLE_WRITE__ = (level, args) => appConsoleBridge.pushDebugOnly(level, args);
   global.__APP_CONSOLE_HISTORY__ = appConsoleBridge.getHistory;
 
 // 处理：sendToSide的具体业务逻辑。
@@ -52,6 +61,7 @@ function createUiBridge({ getSideView, getControlPanelWindow, getConsoleWindow }
   return {
     sendToSide,
     getAppConsoleHistory: () => appConsoleBridge.getHistory(),
+    getDebugConsoleHistory: () => appConsoleBridge.getDebugHistory(),
   };
 }
 

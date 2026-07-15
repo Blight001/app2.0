@@ -834,7 +834,9 @@ function registerUiIPC(ctx) {
 
   ipcMain.handle('get-app-console-history', async () => {
     try {
-      const history = typeof getAppConsoleHistory === 'function' ? getAppConsoleHistory() : [];
+      const history = typeof ui.getDebugConsoleHistory === 'function'
+        ? ui.getDebugConsoleHistory()
+        : (typeof getAppConsoleHistory === 'function' ? getAppConsoleHistory() : []);
       return { ok: true, history: Array.isArray(history) ? history : [] };
     } catch (error) {
       return { ok: false, error: error?.message || String(error), history: [] };

@@ -6,6 +6,7 @@
   let selectedHistoryId = '';
   let selectedHistoryIds = new Set();
   let historyRefreshTimer = null;
+  let browserHistoryRefreshCount = 0;
   let browserSettingsPreviousFocus = null;
   let editingDefaultSettings = false;
   const el = (id) => document.getElementById(id);
@@ -30,6 +31,29 @@
     target.classList.toggle('is-success', type === 'success');
   }
 
+  function setBrowserHistoryRefreshing(refreshing) {
+    browserHistoryRefreshCount = Math.max(0, browserHistoryRefreshCount + (refreshing ? 1 : -1));
+    const active = browserHistoryRefreshCount > 0;
+    const button = el('refresh-browser-history');
+    const list = el('browser-history-list');
+    if (button) {
+      button.classList.toggle('is-refreshing', active);
+      button.disabled = active;
+      button.setAttribute('aria-label', active ? '正在刷新浏览器记录' : '刷新浏览器记录');
+    }
+    list?.setAttribute('aria-busy', active ? 'true' : 'false');
+  }
+
+  function animateBrowserHistoryRemoval(historyIds) {
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return Promise.resolve();
+    const ids = new Set((Array.isArray(historyIds) ? historyIds : [historyIds]).map(String));
+    const rows = [...document.querySelectorAll('.browser-history-item')]
+      .filter((row) => ids.has(String(row.dataset.historyId || '')));
+    if (!rows.length) return Promise.resolve();
+    rows.forEach((row) => row.classList.add('is-removing'));
+    return new Promise((resolve) => setTimeout(resolve, 190));
+  }
+
   function openBrowserSettingsDialog(title = '浏览器参数配置') {
     const dialog = el('browser-settings-dialog');
     if (!dialog) return;
@@ -50,7 +74,7 @@
     browserSettingsPreviousFocus = null;
   }
 
-  function renderBrowserHistory() {
+  function renderBrowserHistory(options = {}) {
     const list = el('browser-history-list');
     if (!list) return;
     list.replaceChildren();
@@ -61,14 +85,17 @@
       list.appendChild(empty);
       return;
     }
-    browserHistory.forEach((item) => {
+    browserHistory.forEach((item, index) => {
       const row = document.createElement('div');
       row.className = 'browser-history-item';
       row.classList.toggle('is-selected', selectedHistoryIds.has(item.id));
       row.classList.toggle('is-open', item.isOpen === true);
       row.classList.toggle('is-active', item.isActive === true);
       row.classList.toggle('has-error', !!item.lastError);
+      row.classList.toggle('is-entering', options.animate === true);
+      row.classList.toggle('is-selection-changing', options.selectionChangedId === item.id);
       row.dataset.historyId = item.id;
+      row.style.setProperty('--history-item-index', String(index));
 
       const main = document.createElement('button');
       main.type = 'button';
@@ -104,7 +131,7 @@
       open.className = 'browser-history-action browser-history-open';
       open.textContent = '打开';
       open.title = '打开浏览器';
-      open.addEventListener('click', () => void openBrowserHistory(item.id));
+      open.addEventListener('click', () => void openBrowserHistory(item.id, open));
       const rename = document.createElement('button');
       rename.type = 'button';
       rename.className = 'browser-history-action';
@@ -126,7 +153,7 @@
       row.addEventListener('contextmenu', (event) => {
         event.preventDefault();
         if (!selectedHistoryIds.has(item.id)) selectedHistoryIds = new Set([item.id]);
-        renderBrowserHistory();
+        renderBrowserHistory({ selectionChangedId: item.id });
         showBrowserHistoryContextMenu(event.clientX, event.clientY);
       });
       list.appendChild(row);
@@ -135,19 +162,12 @@
 
   function renderBrowserProfileAudit() {
     const audit = el('browser-profile-audit');
-    const cleanupButton = el('cleanup-orphan-browser-profiles');
     const totalCount = Number(browserProfileAudit?.totalCount || 0);
-    const orphanCount = Number(browserProfileAudit?.orphanCount || 0);
     if (audit) {
       audit.hidden = !browserProfileAudit;
       audit.textContent = browserProfileAudit
-        ? `环境 ${totalCount} · 孤立 ${orphanCount}`
+        ? `环境 ${totalCount}`
         : '';
-      audit.classList.toggle('has-orphans', orphanCount > 0);
-    }
-    if (cleanupButton) {
-      cleanupButton.hidden = orphanCount <= 0;
-      cleanupButton.textContent = `清理孤立环境（${orphanCount}）`;
     }
   }
 
@@ -162,7 +182,7 @@
     if (next.has(id)) next.delete(id); else next.add(id);
     selectedHistoryIds = next;
     hideBrowserHistoryContextMenu();
-    renderBrowserHistory();
+    renderBrowserHistory({ selectionChangedId: id });
   }
 
   function ensureBrowserHistoryContextMenu() {
@@ -227,6 +247,7 @@
   }
 
   async function refreshBrowserHistory(options = {}) {
+    setBrowserHistoryRefreshing(true);
     try {
       const response = await window.electronAPI.invoke('get-browser-history');
       if (!response?.ok) throw new Error(response?.error || '读取浏览器记录失败');
@@ -240,7 +261,7 @@
       if (!keepEmptySelection && (options.keepSelection !== true || !browserHistory.some((item) => item.id === selectedHistoryId))) {
         selectedHistoryId = browserHistory.find((item) => item.isActive)?.id || browserHistory[0]?.id || '';
       }
-      renderBrowserHistory();
+      renderBrowserHistory({ animate: options.animate !== false });
       renderBrowserProfileAudit();
       return browserHistory;
     } catch (error) {
@@ -248,32 +269,9 @@
       if (list) list.innerHTML = '<div class="browser-history-empty">浏览器记录读取失败</div>';
       if (options.silent !== true) setStatus(error?.message || String(error), 'error');
       return [];
+    } finally {
+      setBrowserHistoryRefreshing(false);
     }
-  }
-
-  function cleanupOrphanBrowserProfiles() {
-    const orphanCount = Number(browserProfileAudit?.orphanCount || 0);
-    if (orphanCount <= 0) return;
-    if (!window.MessageModal?.showConfirmDialog) {
-      setStatus('软件确认弹窗未就绪', 'error');
-      return;
-    }
-    window.MessageModal.showConfirmDialog(
-      `确认永久删除 ${orphanCount} 个未被浏览器记录或账号引用的 Chromium 环境？此操作会释放磁盘空间，且不可恢复。`,
-      async () => {
-        setStatus(`正在清理 ${orphanCount} 个孤立 Chromium 环境…`);
-        try {
-          const response = await window.electronAPI.invoke('cleanup-orphan-browser-profiles', { confirm: true });
-          if (!response?.ok) throw new Error(response?.error || `有 ${response?.failedCount || 0} 个环境清理失败`);
-          await refreshBrowserHistory({ keepSelection: true, silent: true });
-          setStatus(`已清理 ${response.deletedCount || 0} 个孤立 Chromium 环境`, 'success');
-        } catch (error) {
-          setStatus(error?.message || String(error), 'error');
-        }
-      },
-      null,
-      'warning',
-    );
   }
 
   async function selectBrowserHistory(historyId, options = {}) {
@@ -311,15 +309,20 @@
     }
   }
 
-  async function openBrowserHistory(historyId) {
+  async function openBrowserHistory(historyId, triggerButton = null) {
+    triggerButton?.classList.add('is-processing');
+    if (triggerButton) triggerButton.disabled = true;
     setStatus('正在打开浏览器…');
     try {
       const response = await window.electronAPI.invoke('open-browser-history', { historyId });
       if (!response?.ok) throw new Error(response?.error || '打开浏览器失败');
-      await refreshBrowserHistory({ keepSelection: true, silent: true });
+      await refreshBrowserHistory({ keepSelection: true, silent: true, animate: false });
       setStatus(`已打开“${response.name || '浏览器'}”`, 'success');
     } catch (error) {
       setStatus(error?.message || String(error), 'error');
+    } finally {
+      triggerButton?.classList.remove('is-processing');
+      if (triggerButton) triggerButton.disabled = false;
     }
   }
 
@@ -337,7 +340,7 @@
           if (!response?.ok) throw new Error(response?.error || '重命名失败');
           selectedHistoryId = item.id;
           selectedHistoryIds = new Set([item.id]);
-          await refreshBrowserHistory({ keepSelection: true, silent: true });
+          await refreshBrowserHistory({ keepSelection: true, silent: true, animate: false });
           setStatus(`已重命名为“${response.name}”`, 'success');
         } catch (error) {
           setStatus(error?.message || String(error), 'error');
@@ -363,9 +366,11 @@
       try {
         const response = await window.electronAPI.invoke('delete-browser-history', { historyId: item.id });
         if (!response?.ok) throw new Error(response?.error || '删除失败');
+        clearTimeout(historyRefreshTimer);
+        await animateBrowserHistoryRemoval(item.id);
         if (selectedHistoryId === item.id) selectedHistoryId = '';
         selectedHistoryIds.delete(item.id);
-        await refreshBrowserHistory({ silent: true });
+        await refreshBrowserHistory({ silent: true, animate: false });
         if (selectedHistoryId) {
           await selectBrowserHistory(selectedHistoryId);
         }
@@ -389,7 +394,7 @@
         failed.push(`${item.name}：${error?.message || String(error)}`);
       }
     }
-    await refreshBrowserHistory({ keepSelection: true, silent: true });
+    await refreshBrowserHistory({ keepSelection: true, silent: true, animate: false });
     if (failed.length) {
       setStatus(`已打开 ${items.length - failed.length} 个，失败 ${failed.length} 个：${failed.join('；')}`, 'error');
     } else {
@@ -419,7 +424,7 @@
           baseName,
         });
         if (!response?.ok) throw new Error(response?.error || '批量重命名失败');
-        await refreshBrowserHistory({ keepSelection: true, silent: true });
+        await refreshBrowserHistory({ keepSelection: true, silent: true, animate: false });
         setStatus(items.length === 1 ? `已重命名为“${baseName}”` : `已按“${baseName}[n]”重命名 ${items.length} 个浏览器`, 'success');
       } catch (error) {
         setStatus(error?.message || String(error), 'error');
@@ -439,18 +444,23 @@
     const detail = openCount ? `，其中 ${openCount} 个已打开的窗口会先关闭` : '';
     window.MessageModal.showConfirmDialog(`确认删除选中的 ${items.length} 条浏览器记录${detail}？`, async () => {
       const failed = [];
+      const deletedIds = [];
       setStatus(`正在删除 ${items.length} 个浏览器…`);
       for (const item of items) {
         try {
           const response = await window.electronAPI.invoke('delete-browser-history', { historyId: item.id });
           if (!response?.ok) throw new Error(response?.error || '删除失败');
+          clearTimeout(historyRefreshTimer);
+          deletedIds.push(item.id);
           selectedHistoryIds.delete(item.id);
           if (selectedHistoryId === item.id) selectedHistoryId = '';
         } catch (error) {
           failed.push(`${item.name}：${error?.message || String(error)}`);
         }
       }
-      await refreshBrowserHistory({ keepSelection: true, silent: true });
+      clearTimeout(historyRefreshTimer);
+      await animateBrowserHistoryRemoval(deletedIds);
+      await refreshBrowserHistory({ keepSelection: true, silent: true, animate: false });
       if (failed.length) {
         setStatus(`已删除 ${items.length - failed.length} 个，失败 ${failed.length} 个：${failed.join('；')}`, 'error');
       } else {
@@ -593,7 +603,6 @@
     el('ai-free-settings-form')?.addEventListener('submit',saveSettings); el('randomize-ai-free-settings')?.addEventListener('click',randomIdentity); el('randomize-user-agent')?.addEventListener('click',randomIdentity); el('reset-ai-free-settings')?.addEventListener('click',()=>void resetSettings());
     el('test-ai-free-proxy')?.addEventListener('click',()=>void testProxy()); el('extract-ai-free-proxy')?.addEventListener('click',()=>void extractProxy());
     el('refresh-browser-history')?.addEventListener('click',()=>void refreshBrowserHistory({keepSelection:true}));
-    el('cleanup-orphan-browser-profiles')?.addEventListener('click', cleanupOrphanBrowserProfiles);
     el('open-default-browser-settings')?.addEventListener('click',()=>void openDefaultBrowserSettings());
     document.querySelectorAll('[data-browser-settings-close]').forEach((element)=>element.addEventListener('click',closeBrowserSettingsDialog));
     document.querySelectorAll('[data-random-target]').forEach((button)=>button.addEventListener('click',()=>{if(button.dataset.randomTarget==='device-name')setValue('device-name',`DESKTOP-${Math.random().toString(36).slice(2,9).toUpperCase()}`);else setValue('mac-address',Array.from({length:6},()=>Math.floor(Math.random()*256).toString(16).padStart(2,'0')).join('-').toUpperCase());}));

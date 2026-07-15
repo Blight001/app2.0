@@ -23,10 +23,6 @@ const {
   switchClashMiniProxyNode,
   testClashMiniLowestLatency,
 } = require('./clash-mini-actions');
-const {
-  decodeBase64Preview,
-  previewText,
-} = require('../../../shared/text-preview-utils');
 const { createProxyTrafficMonitor } = require('./proxy-traffic-monitor');
 
 function registerClashIPC(ctx) {
@@ -236,19 +232,6 @@ function registerClashIPC(ctx) {
       } else if (directConfigContent) {
         source = 'extracted';
       }
-      console.log('[IPC] Clash配置摘要:', JSON.stringify({
-        ok: !!result?.ok,
-        accountType: result?.account_type || result?.accountType || '',
-        accountTypeLabel: result?.account_type_label || result?.accountTypeLabel || '',
-        expire_at: result?.expire_at || '',
-        days_left: result?.days_left,
-        proxySubscriptionUrl: String(result?.proxy_subscription_url || result?.proxySubscriptionUrl || '').trim(),
-        contentLength: String(directConfigContent || '').length,
-        source,
-        preview: previewText(directConfigContent),
-        decodedPreview: decodeBase64Preview(directConfigContent),
-      }, null, 2));
-
       return {
         ok: !!result?.ok,
         content: directConfigContent,
@@ -275,15 +258,12 @@ function registerClashIPC(ctx) {
 
   ipcMain.handle('save-clash-config', async (_event, payload = {}) => {
     try {
-      console.log('[IPC] 开始导入 Clash Mini 默认配置...');
-
       const runtimePrep = await prepareClashMiniRuntimeDirAsync();
       if (!runtimePrep.ok) {
         console.error('[IPC] Clash Mini 运行目录准备失败:', runtimePrep.error || 'unknown');
         return { ok: false, error: runtimePrep.error || '未找到 Clash Mini core 目录' };
       }
       const coreDir = runtimePrep.runtimeDir;
-      console.log('[IPC] Clash Mini 运行目录已准备:', coreDir);
 
       const {
         clashConfig,
@@ -371,16 +351,13 @@ function registerClashIPC(ctx) {
         return imported || { ok: false, error: '导入 Clash 配置失败' };
       }
 
-      if (imported.purgeResult) {
-        console.log('[IPC] Clash 运行配置已硬刷新:', JSON.stringify(imported.purgeResult, null, 2));
+      if (Array.isArray(imported.purgeResult?.failed) && imported.purgeResult.failed.length > 0) {
+        console.warn('[IPC] Clash 旧运行配置清理未完全成功:', imported.purgeResult.failed.join(', '));
       }
-      if (imported.generatedPreview) {
-        console.log('[IPC] Clash 运行配置内容预览:', imported.generatedPreview);
-      }
-      if (imported.generatedContent) {
-        console.log('[IPC] Clash 运行配置内容长度:', String(imported.generatedContent).length);
-      }
-      console.log('[IPC] 已直接导入 Clash 运行配置:', imported.runtimeConfigPath);
+      const generatedContentLength = String(imported.generatedContent || '').length;
+      console.log(
+        `[IPC] Clash 配置导入完成: source=${imported.source || 'unknown'}, length=${generatedContentLength}, path=${imported.runtimeConfigPath}`,
+      );
       return {
         ok: true,
         configPath: imported.runtimeConfigPath,
@@ -388,8 +365,7 @@ function registerClashIPC(ctx) {
         source: imported.source,
         directImport: true,
         refreshed: imported.refreshed === true,
-        generatedPreview: imported.generatedPreview || '',
-        generatedContentLength: String(imported.generatedContent || '').length,
+        generatedContentLength,
       };
     } catch (error) {
       console.error('[IPC] 直接导入 Clash Mini 配置失败:', error);

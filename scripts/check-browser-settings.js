@@ -10,7 +10,11 @@ const {
   buildBrowserProfileFromRegion,
   resolveTabBrowserProfile,
 } = require('../src/app/main/utils/browser-profile');
-const { buildBrowserHistoryAccountMeta, makeUniqueBrowserName } = require('../src/app/main/ipc/register/settings');
+const {
+  buildBrowserHistoryAccountMeta,
+  cleanupOrphanBrowserProfiles,
+  makeUniqueBrowserName,
+} = require('../src/app/main/ipc/register/settings');
 
 async function main() {
   const settings = normalizeAiFreeBrowserSettings({
@@ -45,6 +49,38 @@ async function main() {
   assert.equal(makeUniqueBrowserName('新建窗口', [{ id: '1', name: '新建窗口' }]), '新建窗口[2]');
   assert.equal(makeUniqueBrowserName('新建窗口', [{ id: '1', name: '新建窗口' }, { id: '2', name: '新建窗口[2]' }]), '新建窗口[3]');
   assert.equal(makeUniqueBrowserName('已命名', [{ id: '1', name: '已命名' }], '1'), '已命名');
+  const profileIds = new Set(['used-storage', 'orphan-storage']);
+  const deletedProfileIds = [];
+  const cleanupResult = cleanupOrphanBrowserProfiles(
+    [{ profileId: 'used-profile' }],
+    {
+      getTabs: () => new Map(),
+      browserRuntimeManager: {
+        store: {
+          auditProfiles(references) {
+            assert.ok(references.includes('used-profile'));
+            const orphanProfiles = profileIds.has('orphan-storage')
+              ? [{ storageId: 'orphan-storage', profileId: 'orphan-profile' }]
+              : [];
+            return {
+              totalCount: profileIds.size,
+              referencedCount: profileIds.size - orphanProfiles.length,
+              orphanCount: orphanProfiles.length,
+              orphanProfiles,
+            };
+          },
+        },
+        deleteProfile(profileId) {
+          deletedProfileIds.push(profileId);
+          profileIds.delete('orphan-storage');
+        },
+      },
+    },
+  );
+  assert.deepEqual(deletedProfileIds, ['orphan-profile']);
+  assert.equal(cleanupResult.deletedCount, 1);
+  assert.equal(cleanupResult.failedCount, 0);
+  assert.equal(cleanupResult.profileAudit.orphanCount, 0);
   const rotatingAccountMeta = buildBrowserHistoryAccountMeta({
     id: 'shared-account',
     displayName: '账号123456',
@@ -134,9 +170,12 @@ async function main() {
   assert.ok(serverAccountFlow.includes('navigateAfterImport: false'));
   assert.ok(settingsIpcScript.includes('ui.browserRuntimeManager.deleteProfile(profileId)'));
   assert.ok(settingsIpcScript.includes("ipcMain.handle('cleanup-orphan-browser-profiles'"));
+  assert.ok(settingsIpcScript.includes('const cleanupResult = cleanupOrphanBrowserProfiles(history, ui)'));
   assert.ok(sidebarHtml.includes('id="browser-profile-audit"'));
-  assert.ok(sidebarHtml.includes('id="cleanup-orphan-browser-profiles"'));
-  assert.ok(sidebarSettingsScript.includes("electronAPI.invoke('cleanup-orphan-browser-profiles'"));
+  assert.ok(!sidebarHtml.includes('id="cleanup-orphan-browser-profiles"'));
+  assert.ok(!sidebarSettingsScript.includes("electronAPI.invoke('cleanup-orphan-browser-profiles'"));
+  assert.ok(sidebarSettingsScript.includes('`环境 ${totalCount}`'));
+  assert.ok(!sidebarSettingsScript.includes('· 孤立'));
   assert.ok(sidebarSettingsScript.includes("electronAPI.invoke('delete-browser-history'"));
   assert.ok(sidebarSettingsScript.includes('browser-history-auto-delete'));
   const messageModalScript = fs.readFileSync(path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/shared/message-modal.js'), 'utf8');
@@ -150,7 +189,9 @@ async function main() {
   assert.ok(uiIpcScript.includes("ipcMain.handle('focus-sidebar-input'"));
   assert.ok(aiControlScript.includes("electronAPI.invoke('focus-sidebar-input'"));
   assert.ok(settingsIpcScript.includes('focusBrowser: false'));
-  assert.ok(shellTabsScript.includes('beginTabRename(tabElement, { commitOnBlur: false })'));
+  assert.ok(shellTabsScript.includes('beginTabRename(tabElement, { commitOnBlur: true })'));
+  assert.ok(shellTabsScript.includes('beginTabRename(pendingTabElement, { commitOnBlur: true })'));
+  assert.ok(!shellTabsScript.includes('commitOnBlur: false'));
   let geoLookupCalls = 0;
   const fastProfile = await resolveTabBrowserProfile({
     browserSettings: {},
@@ -195,7 +236,14 @@ async function main() {
   assert.equal(geoProfile.sourceIp, '203.0.113.8');
   assert.ok(Date.now() - geoStartedAt < 1000, 'IP 地区探测不应等待悬挂的服务');
   assert.equal(geoCalls.length, 4);
-  assert.ok(geoCalls.every((call) => call.timeoutMs === 5000));
+  assert.equal(
+    geoCalls.find((call) => call.endpoint.includes('/cdn-cgi/trace'))?.timeoutMs,
+    3000,
+  );
+  assert.ok(
+    geoCalls.filter((call) => !call.endpoint.includes('/cdn-cgi/trace'))
+      .every((call) => call.timeoutMs === 5000),
+  );
 
   const cachedProfile = await resolveTabBrowserProfile({
     browserSettings: {},
@@ -223,7 +271,7 @@ async function main() {
   assert.equal(proxiedProfile.region, 'jp');
   assert.equal(proxiedProfile.locale, 'ja-JP');
   assert.equal(proxiedProfile.timezoneId, 'Asia/Tokyo');
-  assert.equal(proxiedGeoCalls.length, 4);
+  assert.equal(proxiedGeoCalls.length, 1, 'Cloudflare 首选成功后不应继续请求备用服务');
   assert.ok(proxiedGeoCalls.every((call) => call.requestOptions.proxyServer === 'http://127.0.0.1:7890'));
 
   let legacyRegionGeoCalls = 0;
@@ -251,7 +299,7 @@ async function main() {
   assert.equal(legacyRegionProfile.region, 'sg', 'IP 模式不能被历史 region=cn 短路');
   assert.equal(legacyRegionProfile.locale, 'en-SG');
   assert.equal(legacyRegionProfile.timezoneId, 'Asia/Singapore');
-  assert.equal(legacyRegionGeoCalls, 4);
+  assert.equal(legacyRegionGeoCalls, 1, 'Cloudflare 首选成功后不应继续请求备用服务');
 
   const profile = buildBrowserProfileFromRegion('cn', settings);
   assert.equal(profile.browserBrand, 'AI-FREE');

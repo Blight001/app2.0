@@ -1,4 +1,6 @@
 // HTTP response normalization and request dispatch.
+const { writeDebugConsoleOnly } = require('../../runtime/debug-console-log');
+
 function normalizeHttpResult(resp) {
   if (!resp) return { ok: false, message: 'HTTP请求失败' };
   const body = resp.body;
@@ -31,7 +33,7 @@ async function executeHttpRequest({
   }
 
   const upperMethod = String(method || 'POST').toUpperCase();
-  console.log(`[HTTP] 请求地址: ${upperMethod} ${url}`);
+  writeDebugConsoleOnly('info', `[HTTP] 请求地址: ${upperMethod} ${url}`);
   const response = upperMethod === 'GET'
     ? await getJson(url, timeoutMs)
     : await postJson(url, data, timeoutMs);

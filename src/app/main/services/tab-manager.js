@@ -61,6 +61,112 @@ function resolveChromiumExtraArgs(browserSettings = {}) {
   return args;
 }
 
+function buildAppliedBrowserEnvironment(profile = {}) {
+  if (!profile || typeof profile !== 'object') return null;
+  return {
+    browserBrand: String(profile.browserBrand || '').trim(),
+    browserType: String(profile.browserType || '').trim(),
+    browserVersion: String(profile.browserVersion || '').trim(),
+    majorVersion: String(profile.majorVersion || '').trim(),
+    region: String(profile.region || '').trim(),
+    regionLabel: String(profile.regionLabel || '').trim(),
+    sourceIp: String(profile.sourceIp || '').trim(),
+    sourceCountryCode: String(profile.sourceCountryCode || '').trim(),
+    sourceCountry: String(profile.sourceCountry || '').trim(),
+    sourceRegion: String(profile.sourceRegion || '').trim(),
+    sourceCity: String(profile.sourceCity || '').trim(),
+    locale: String(profile.locale || '').trim(),
+    timezoneId: String(profile.timezoneId || '').trim(),
+    acceptLanguage: String(profile.acceptLanguage || '').trim(),
+    userAgent: String(profile.userAgent || '').trim(),
+    uaBrands: Array.isArray(profile.uaBrands)
+      ? profile.uaBrands.map((item) => ({
+        brand: String(item?.brand || '').trim(),
+        version: String(item?.version || '').trim(),
+      })).filter((item) => item.brand)
+      : [],
+  };
+}
+
+function buildAppliedBrowserSettings(settings = {}) {
+  if (!settings || typeof settings !== 'object') return null;
+  let cookieCount = 0;
+  try {
+    const cookies = JSON.parse(String(settings.cookies || '[]'));
+    cookieCount = Array.isArray(cookies) ? cookies.length : 0;
+  } catch (_) {}
+  const copyMode = (value, fallback = '') => String(value || fallback).trim();
+  return {
+    os: copyMode(settings.os, 'win11'),
+    browserVersion: copyMode(settings.browserVersion),
+    kernelVersion: copyMode(settings.kernelVersion, 'auto'),
+    proxy: {
+      mode: copyMode(settings.proxy?.mode, 'default'),
+      protocol: copyMode(settings.proxy?.protocol, 'http'),
+      host: copyMode(settings.proxy?.host),
+      port: settings.proxy?.port === '' || settings.proxy?.port == null ? '' : Number(settings.proxy.port),
+      authenticationConfigured: !!String(settings.proxy?.username || settings.proxy?.password || '').trim(),
+      apiConfigured: !!String(settings.proxy?.apiUrl || '').trim(),
+    },
+    cookieCount,
+    homepage: { mode: copyMode(settings.homepage?.mode, 'default'), url: copyMode(settings.homepage?.url) },
+    ua: { mode: copyMode(settings.ua?.mode, 'default') },
+    secChUa: {
+      mode: copyMode(settings.secChUa?.mode, 'default'),
+      brands: Array.isArray(settings.secChUa?.brands)
+        ? settings.secChUa.brands.map((item) => ({
+          brand: String(item?.brand || '').trim(),
+          version: String(item?.version || '').trim(),
+        })).filter((item) => item.brand)
+        : [],
+    },
+    language: { mode: copyMode(settings.language?.mode, 'ip'), value: copyMode(settings.language?.value) },
+    timezone: { mode: copyMode(settings.timezone?.mode, 'ip'), value: copyMode(settings.timezone?.value) },
+    webrtc: { mode: copyMode(settings.webrtc?.mode, 'replace') },
+    geolocation: {
+      permission: copyMode(settings.geolocation?.permission, 'ask'),
+      mode: copyMode(settings.geolocation?.mode, 'ip'),
+      longitude: Number(settings.geolocation?.longitude) || 0,
+      latitude: Number(settings.geolocation?.latitude) || 0,
+      accuracy: Math.max(1, Number(settings.geolocation?.accuracy) || 100),
+    },
+    resolution: {
+      mode: copyMode(settings.resolution?.mode, 'follow'),
+      width: Math.max(0, Number(settings.resolution?.width) || 0),
+      height: Math.max(0, Number(settings.resolution?.height) || 0),
+    },
+    fonts: { mode: copyMode(settings.fonts?.mode, 'system') },
+    canvas: { mode: copyMode(settings.canvas?.mode, 'default') },
+    webglImage: { mode: copyMode(settings.webglImage?.mode, 'default') },
+    webglMetadata: {
+      mode: copyMode(settings.webglMetadata?.mode, 'default'),
+      vendor: copyMode(settings.webglMetadata?.vendor),
+      renderer: copyMode(settings.webglMetadata?.renderer),
+    },
+    webgpu: { mode: copyMode(settings.webgpu?.mode, 'default') },
+    audioContext: { mode: copyMode(settings.audioContext?.mode, 'default') },
+    clientRects: { mode: copyMode(settings.clientRects?.mode, 'default') },
+    speechVoices: { mode: copyMode(settings.speechVoices?.mode, 'default') },
+    cpu: Math.max(1, Number(settings.cpu) || 1),
+    memory: Math.max(1, Number(settings.memory) || 1),
+    deviceName: { mode: copyMode(settings.deviceName?.mode, 'default'), value: copyMode(settings.deviceName?.value) },
+    macAddress: { mode: copyMode(settings.macAddress?.mode, 'default'), value: copyMode(settings.macAddress?.value) },
+    doNotTrack: settings.doNotTrack === true,
+    sslEnabled: settings.sslEnabled === true,
+    portScanProtection: {
+      enabled: settings.portScanProtection?.enabled === true,
+      allowList: Array.isArray(settings.portScanProtection?.allowList)
+        ? settings.portScanProtection.allowList.map((item) => Number(item)).filter(Number.isFinite)
+        : [],
+    },
+    hardwareAcceleration: settings.hardwareAcceleration !== false,
+    launchArgs: {
+      mode: copyMode(settings.launchArgs?.mode, 'default'),
+      value: copyMode(settings.launchArgs?.value),
+    },
+  };
+}
+
 function buildBrowserStatusPageUrl(title, message, tone = 'loading') {
   const safeTitle = String(title || '新建窗口').replace(/[&<>"']/g, (character) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -77,7 +183,9 @@ function buildBrowserStatusPageUrl(title, message, tone = 'loading') {
 // 创建/初始化：createTabManager的具体业务逻辑。
 function createTabManager(deps = {}) {
   const DEFAULT_TUTORIAL_URL = 'https://www.yuque.com/kelingaishipindian/tx5gwq/xbsl692ls9xope0e?singleDoc#';
+  const DEFAULT_BROWSER_TAB_URL = 'chrome://newtab/';
   const TUTORIAL_TAB_TITLE = '使用教程[AI-FREE]';
+  const MINIMUM_BROWSER_TAB_ID = '1';
   const {
     browserRuntimeManager,
     fs,
@@ -99,6 +207,8 @@ function createTabManager(deps = {}) {
     resolveTabBrowserProfile,
   } = deps;
   let tutorialTabOpeningPromise = null;
+  let minimumBrowserOpeningPromise = null;
+  const closingTabIds = new Set();
 
 // 获取/读取/解析：resolveTabs的具体业务逻辑。
   const resolveTabs = () => (typeof getTabs === 'function' ? getTabs() : new Map());
@@ -162,7 +272,9 @@ function createTabManager(deps = {}) {
       browserSettings,
       httpGetUniversal: deps.httpGetUniversal,
       logger,
-      forceGeoLookup: attempt > 0, // 重试时跳过成功缓存，真正重新探测出口
+      // 浏览器启动期间用户可能刚切换系统代理/VPN。即使没有软件内置代理，
+      // 也必须绕过最多 5 分钟的旧出口缓存，首探就读取当前网络。
+      forceGeoLookup: true,
     }).then(async (resolvedProfile) => {
       const tab = resolveTabs().get(String(tabId || ''));
       if (!tab || !resolvedProfile) return;
@@ -175,6 +287,21 @@ function createTabManager(deps = {}) {
           instance.profile.acceptLanguage = resolvedProfile.acceptLanguage || instance.profile.acceptLanguage;
           instance.profile.timezoneId = resolvedProfile.timezoneId || instance.profile.timezoneId;
           instance.profile.userAgent = resolvedProfile.userAgent || instance.profile.userAgent;
+        }
+        // 后台探测不会重启 Chromium，只能更新真实网络出口；语言、时区、UA
+        // 仍以 appliedProfile 中本次进程的启动快照为准。
+        if (instance?.appliedProfile) {
+          const previous = instance.appliedProfile.browserEnvironment || {};
+          instance.appliedProfile.browserEnvironment = {
+            ...previous,
+            region: String(resolvedProfile.region || '').trim(),
+            regionLabel: String(resolvedProfile.regionLabel || '').trim(),
+            sourceIp: String(resolvedProfile.sourceIp || '').trim(),
+            sourceCountryCode: String(resolvedProfile.sourceCountryCode || '').trim(),
+            sourceCountry: String(resolvedProfile.sourceCountry || '').trim(),
+            sourceRegion: String(resolvedProfile.sourceRegion || '').trim(),
+            sourceCity: String(resolvedProfile.sourceCity || '').trim(),
+          };
         }
       }
       updateTabs(true);
@@ -208,11 +335,24 @@ function createTabManager(deps = {}) {
       updateTabs(true);
     });
     browserRuntimeManager.chromium.on('crashed', (runtimeState) => {
-      const tab = resolveTabs().get(String(runtimeState?.profileId || ''));
+      const tabId = String(runtimeState?.profileId || '');
+      const tab = resolveTabs().get(tabId);
       if (!tab) return;
       tab.runtimeStatus = 'crashed';
       tab.runtimeError = runtimeState.lastError || null;
       updateTabs(true);
+      // Chromium 被用户关闭、进程异常退出或嵌入窗口失效时，
+      // 应同步移除对应的软件栏目。延后到当前运行时事件返回后
+      // 再清理，避免在 markCrashed 的同步 emit 过程中重入 stop。
+      if (global._isShuttingDown === true) return;
+      setImmediate(() => {
+        if (global._isShuttingDown === true
+          || !resolveTabs().has(tabId)
+          || closingTabIds.has(tabId)) return;
+        void closeTab(tabId).catch((error) => {
+          logger.warn?.('[ChromiumRuntime] 浏览器退出后关闭栏目失败:', error?.message || error);
+        });
+      });
     });
     browserRuntimeManager.chromium.on('runtime-event', (event) => {
       const tab = resolveTabs().get(String(event?.profileId || ''));
@@ -247,7 +387,9 @@ function createTabManager(deps = {}) {
     return '';
   };
 
-  const resolveDefaultTabUrl = () => resolveConfiguredTutorialUrl() || DEFAULT_TUTORIAL_URL;
+  // 教程地址只能由 openTutorialTab() 显式使用。普通浏览器的 URL 为空时
+  // 必须回到 Chromium 新标签页，不能把服务器教程地址当成通用主页。
+  const resolveDefaultTabUrl = () => DEFAULT_BROWSER_TAB_URL;
 
   function readTutorialHistoryRecord() {
     try {
@@ -272,6 +414,7 @@ function createTabManager(deps = {}) {
 // 启动/打开/显示：openTutorialTab 的具体业务逻辑。
   async function openTutorialTab(requestedUrl = '', options = {}) {
     const requestedTutorialUrl = String(requestedUrl || '').trim();
+    const requestedTabId = String(options.tabId || '').trim();
     // Showing an embedded Chromium HWND must not imply keyboard focus. The
     // caller has to opt in explicitly; an actual click inside Chromium still
     // focuses it through the native child-window mouse activation path.
@@ -316,9 +459,9 @@ function createTabManager(deps = {}) {
         || historyRecord?.url
         || DEFAULT_TUTORIAL_URL;
       const historyId = String(historyRecord?.id || '').trim();
-      const tutorialTabId = historyId
+      const tutorialTabId = requestedTabId || (historyId
         ? `browser-tab-${historyId.replace(/[^a-z0-9_-]/gi, '_')}`
-        : 'browser-tab-tutorial-default';
+        : 'browser-tab-tutorial-default');
       return addTab(targetUrl, {
         tabId: tutorialTabId,
         fixedTitle: TUTORIAL_TAB_TITLE,
@@ -344,6 +487,28 @@ function createTabManager(deps = {}) {
       return tabId;
     } finally {
       tutorialTabOpeningPromise = null;
+    }
+  }
+
+  // 浏览器管理器始终保留至少一个窗口。关闭最后一个窗口后，
+  // 固定使用 ID 1 重建默认浏览器；共享 Promise 避免并发关闭重复创建。
+  async function ensureMinimumBrowserTab() {
+    const tabs = resolveTabs();
+    if (tabs.size > 0) return String(tabs.keys().next().value || '');
+    if (minimumBrowserOpeningPromise) return minimumBrowserOpeningPromise;
+
+    if (typeof setActiveTabId === 'function') setActiveTabId(null);
+    minimumBrowserOpeningPromise = addTab(DEFAULT_BROWSER_TAB_URL, {
+      tabId: MINIMUM_BROWSER_TAB_ID,
+      fixedTitle: '新建窗口',
+      focusBrowser: false,
+      showLoadingPage: true,
+      restoreLastSession: false,
+    });
+    try {
+      return await minimumBrowserOpeningPromise;
+    } finally {
+      minimumBrowserOpeningPromise = null;
     }
   }
 
@@ -391,10 +556,11 @@ function createTabManager(deps = {}) {
   }
 
 // 设置/更新/持久化：applyClashMiniBrowserProxy的具体业务逻辑。
-  async function applyClashMiniBrowserProxy(enabled = true) {
+  async function applyClashMiniBrowserProxy(enabled = true, options = {}) {
     const entries = Array.from(resolveTabs().values());
     const browserProxy = getBrowserProxyEndpoint();
     const failures = [];
+    const forceProfileRefresh = options?.forceProfileRefresh === true;
 
     // 应用退出时由生命周期统一关闭 Chromium。此处若继续切换代理并重启实例，
     // 会和 stopAll 竞争，还可能让刚关闭的浏览器再次连到即将退出的 Mihomo。
@@ -408,14 +574,19 @@ function createTabManager(deps = {}) {
         // 关闭时统一清空，不能被单标签模式或历史代理配置覆盖。
         const tabProxy = enabled === true ? (browserProxy || { enabled: false }) : { enabled: false };
         const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(tab.id));
-        if (!instance?.profile) return false;
+        if (!instance?.profile) {
+          tab.networkMagicApplied = false;
+          return false;
+        }
         const nextProxyServer = tabProxy?.enabled ? String(tabProxy.server || '') : '';
         const nextProxyBypassList = tabProxy?.enabled ? String(tabProxy.bypassRules || '') : '';
         const proxyChanged = String(instance.profile.proxyServer || '') !== nextProxyServer
           || String(instance.profile.proxyBypassList || '') !== nextProxyBypassList;
-        // 启动失败时可能会要求恢复直连；已经是直连的浏览器无需关闭重启。
-        if (!proxyChanged) return false;
-        if (typeof resolveTabBrowserProfile === 'function') {
+        let runtimeProfileChanged = false;
+        if (typeof resolveTabBrowserProfile === 'function' && (proxyChanged || forceProfileRefresh)) {
+          const previousProfile = tab.browserProfile && typeof tab.browserProfile === 'object'
+            ? tab.browserProfile
+            : {};
           const resolvedProfile = await resolveTabBrowserProfile({
             browserSettings: tab.browserSettings || {},
             httpGetUniversal: deps.httpGetUniversal,
@@ -423,27 +594,51 @@ function createTabManager(deps = {}) {
             geoProxyServer: tabProxy?.enabled ? String(tabProxy.server || '') : '',
             forceGeoLookup: true,
           });
-          if (resolvedProfile) {
+          // 代理出口探测失败时 resolveTabBrowserProfile 会返回直连地区作为展示兜底。
+          // 这个兜底不能覆盖当前已应用的代理环境，更不能在代理地址未变化时触发一次重启。
+          const profileUsable = resolvedProfile
+            && (!nextProxyServer || resolvedProfile.proxyExitVerified !== false);
+          if (profileUsable) {
+            // sourceIp 变化只更新状态展示，不影响 Chromium 的语言/时区环境，
+            // 避免同一地区的出口 IP 轮换也造成整个浏览器重启。
+            runtimeProfileChanged = [
+              'region', 'locale', 'timezoneId', 'acceptLanguage',
+            ].some((key) => String(previousProfile[key] || '') !== String(resolvedProfile[key] || ''));
             tab.browserProfile = resolvedProfile;
             instance.profile.locale = resolvedProfile.locale || instance.profile.locale;
             instance.profile.acceptLanguage = resolvedProfile.acceptLanguage || instance.profile.acceptLanguage;
             instance.profile.timezoneId = resolvedProfile.timezoneId || instance.profile.timezoneId;
             instance.profile.userAgent = resolvedProfile.userAgent || instance.profile.userAgent;
+            instance.profile.browserEnvironment = buildAppliedBrowserEnvironment(resolvedProfile);
+          } else if (resolvedProfile?.proxyExitVerified === false) {
+            logger.warn?.(
+              `[ChromiumRuntime] 标签 ${tab.id} 的代理出口地区探测失败，保留当前浏览器环境且不因本次探测重启`,
+            );
           }
+        }
+        // 代理和地区都没有变化时不重启；自动/手动换节点导致出口变化时，
+        // 即便代理地址仍是 127.0.0.1:7890，也要重启以应用新语言和时区。
+        if (!proxyChanged && !runtimeProfileChanged) {
+          tab.networkMagicApplied = enabled === true && !!nextProxyServer;
+          return false;
         }
         instance.profile.proxyServer = nextProxyServer;
         instance.profile.proxyBypassList = nextProxyBypassList;
         if (global._isShuttingDown === true) return false;
         const runtimeState = await browserRuntimeManager.restart(tab.id);
         tab.runtimeStatus = runtimeState?.status || tab.runtimeStatus;
+        tab.networkMagicApplied = enabled === true && !!nextProxyServer;
         return true;
       } catch (error) {
+        tab.networkMagicApplied = false;
         const failure = { tabId: String(tab.id || ''), message: error?.message || String(error) };
         failures.push(failure);
         logger.warn?.(`[ChromiumRuntime] 网络魔法代理切换后重启失败 ${failure.tabId}:`, failure.message);
         return false;
       }
     }));
+
+    updateTabs(true);
 
     return {
       ok: failures.length === 0,
@@ -509,16 +704,6 @@ function createTabManager(deps = {}) {
     const effectiveProxy = shouldApplyClashMiniProxy
       ? (browserProxy || { enabled: false })
       : (configuredBrowserProxy || resolveTabBrowserProxy({ browserProxyMode }, null, false));
-    const browserProfile = typeof resolveTabBrowserProfile === 'function'
-      ? await resolveTabBrowserProfile({
-          browserSettings,
-          httpGetUniversal: deps.httpGetUniversal,
-          logger,
-          skipGeoLookup: options.resolveProfileInBackground === true && effectiveProxy?.enabled !== true,
-          geoProxyServer: effectiveProxy?.enabled ? effectiveProxy.server : '',
-          forceGeoLookup: effectiveProxy?.enabled === true,
-        })
-      : null;
     // 主网页标签只允许走编译好的 AI-FREE Chromium Fork，不接受其他网页运行时。
     const requestedRuntimeType = 'chromium';
     if (requestedRuntimeType === 'chromium') {
@@ -528,7 +713,13 @@ function createTabManager(deps = {}) {
         : options.deferChromiumNavigation === true
         ? 'about:blank'
         : (url || resolveConfiguredHomepage(browserSettings, resolveDefaultTabUrl()));
+      // chrome://newtab/ 是“让 Chromium 自己新建标签页”的意图，
+      // 不先打开 data:text/html 启动占位页。不传 URL 启动
+      // Chromium 比启动后再导航到 chrome:// 内部页更可靠。
+      const opensNativeNewTab = /^chrome:\/\/newtab\/?$/i.test(targetInitialUrl);
       const initialUrl = restoreLastSession
+        ? ''
+        : opensNativeNewTab
         ? ''
         : options.showLoadingPage === true
         ? buildBrowserStatusPageUrl(fixedTitle || '新建窗口', '正在启动独立浏览器…')
@@ -549,12 +740,35 @@ function createTabManager(deps = {}) {
         runtimeType: 'chromium',
         runtimeStatus: 'starting',
         browserProxyMode,
-        browserProfile,
+        networkMagicApplied: shouldApplyClashMiniProxy && effectiveProxy?.enabled === true,
+        browserProfile: null,
         browserSettings,
       };
+      const previouslyActiveTabId = String(resolveActiveTabId() || '');
+      const assertCreationStillActive = () => {
+        if (resolveTabs().get(newTabId) === chromiumTab) return;
+        const error = new Error('浏览器栏目已在创建过程中关闭');
+        error.code = 'BROWSER_TAB_CREATION_CANCELLED';
+        throw error;
+      };
+      // 先同步发布“正在启动”的栏目并切换选中状态，再做地区探测、进程
+      // 启动等慢操作。这样 IPC 可立即返回，用户也能立刻看到创建反馈。
       resolveTabs().set(newTabId, chromiumTab);
       updateTabs(true);
+      switchTab(newTabId, { focusBrowser: false });
       try {
+        const browserProfile = typeof resolveTabBrowserProfile === 'function'
+          ? await resolveTabBrowserProfile({
+              browserSettings,
+              httpGetUniversal: deps.httpGetUniversal,
+              logger,
+              skipGeoLookup: options.resolveProfileInBackground === true && effectiveProxy?.enabled !== true,
+              geoProxyServer: effectiveProxy?.enabled ? effectiveProxy.server : '',
+              forceGeoLookup: effectiveProxy?.enabled === true,
+            })
+          : null;
+        assertCreationStillActive();
+        chromiumTab.browserProfile = browserProfile;
         const runtimeState = await browserRuntimeManager.launchProfile({
           profileId: newTabId,
           runtimeType: 'chromium',
@@ -568,6 +782,8 @@ function createTabManager(deps = {}) {
           acceptLanguage: browserProfile?.acceptLanguage,
           timezoneId: browserProfile?.timezoneId,
           userAgent: browserProfile?.userAgent,
+          browserEnvironment: buildAppliedBrowserEnvironment(browserProfile),
+          browserSettingsSnapshot: buildAppliedBrowserSettings(browserSettings),
           proxyServer: effectiveProxy?.enabled ? effectiveProxy.server : '',
           proxyBypassList: effectiveProxy?.bypassRules || '',
           extraArgs: resolveChromiumExtraArgs(browserSettings),
@@ -576,13 +792,20 @@ function createTabManager(deps = {}) {
           allowPrototypeWindowDiscovery: browserSettings.allowPrototypeWindowDiscovery === true,
           remoteDebuggingPipe: browserSettings.remoteDebuggingPipe === true,
         }, bounds);
+        if (resolveTabs().get(newTabId) !== chromiumTab) {
+          try { await browserRuntimeManager.stop(newTabId, 'chromium', { timeoutMs: 4000 }); } catch (_) {}
+          assertCreationStillActive();
+        }
         chromiumTab.runtimeStatus = runtimeState.status;
         const configuredCookies = parseCookieJson(browserSettings);
         if (configuredCookies.length && typeof browserRuntimeManager.setCookies === 'function') {
           try { await browserRuntimeManager.setCookies(newTabId, configuredCookies); } catch (error) { logger.warn?.('[ChromiumRuntime] AI-FREE Cookie 注入失败:', error?.message || error); }
         }
         switchTab(newTabId, { focusBrowser: options.focusBrowser === true });
-        if (options.showLoadingPage === true && targetInitialUrl && targetInitialUrl !== initialUrl) {
+        if (options.showLoadingPage === true
+          && !opensNativeNewTab
+          && targetInitialUrl
+          && targetInitialUrl !== initialUrl) {
           void browserRuntimeManager.navigate(newTabId, 'chromium', targetInitialUrl).catch((error) => {
             logger.warn?.('[ChromiumRuntime] 新浏览器导航失败:', error?.message || error);
             return browserRuntimeManager.navigate(
@@ -597,7 +820,20 @@ function createTabManager(deps = {}) {
         }
         return newTabId;
       } catch (error) {
-        resolveTabs().delete(newTabId);
+        const tabs = resolveTabs();
+        if (tabs.get(newTabId) === chromiumTab) tabs.delete(newTabId);
+        if (String(resolveActiveTabId() || '') === newTabId) {
+          const fallbackTabId = tabs.has(previouslyActiveTabId)
+            ? previouslyActiveTabId
+            : String(tabs.keys().next().value || '');
+          if (fallbackTabId) switchTab(fallbackTabId);
+          else {
+            if (typeof setActiveTabId === 'function') setActiveTabId(null);
+            updateTabs(true);
+          }
+        } else {
+          updateTabs(true);
+        }
         logger.error?.('[ChromiumRuntime] 内置 AI-FREE Chromium 启动失败，禁止回退到其他网页运行时:', error?.message || error);
         throw error;
       }
@@ -689,34 +925,35 @@ function createTabManager(deps = {}) {
     const tabs = resolveTabs();
     const mainWindow = resolveMainWindow();
     if (!tabs.has(tabId) || !mainWindow) return;
+    if (closingTabIds.has(tabId)) return;
+    closingTabIds.add(tabId);
 
-    const orderedTabIds = Array.from(tabs.keys());
-    const closeIndex = orderedTabIds.indexOf(tabId);
-    const tabToClose = tabs.get(tabId);
-    const closedAccountId = String(tabToClose?.accountId || '').trim();
-    try { await browserRuntimeManager?.stop(tabToClose.id, 'chromium', { timeoutMs: 4000 }); } catch (error) { logger.warn?.('[ChromiumRuntime] 关闭失败:', error?.message || error); }
-    tabs.delete(tabId);
-    if (closedAccountId) {
-      try {
-        sendToSide('tab-closed', { tabId, accountId: closedAccountId });
-      } catch (_) {}
-    }
-
-    const remaining = Array.from(tabs.keys());
-    if (remaining.length === 0) {
-      // 未登录时关闭最后一页会恢复教程首页；登录后保持空白，避免再次
-      // 自动加载教程。用户仍可从侧边栏手动打开教程。
-      if (typeof setActiveTabId === 'function') {
-        setActiveTabId(null);
+    try {
+      const orderedTabIds = Array.from(tabs.keys());
+      const closeIndex = orderedTabIds.indexOf(tabId);
+      const tabToClose = tabs.get(tabId);
+      const closedAccountId = String(tabToClose?.accountId || '').trim();
+      try { await browserRuntimeManager?.stop(tabToClose.id, 'chromium', { timeoutMs: 4000 }); } catch (error) { logger.warn?.('[ChromiumRuntime] 关闭失败:', error?.message || error); }
+      tabs.delete(tabId);
+      if (closedAccountId) {
+        try {
+          sendToSide('tab-closed', { tabId, accountId: closedAccountId });
+        } catch (_) {}
       }
-      await openTutorialTab('', { auto: true });
-    } else if (resolveActiveTabId() === tabId) {
-      const preferredLeftId = orderedTabIds[closeIndex - 1];
-      const preferredRightId = orderedTabIds[closeIndex + 1];
-      const nextTabId = remaining.includes(preferredLeftId) ? preferredLeftId : (remaining.includes(preferredRightId) ? preferredRightId : remaining[0]);
-      switchTab(nextTabId);
+
+      const remaining = Array.from(tabs.keys());
+      if (remaining.length === 0) {
+        await ensureMinimumBrowserTab();
+      } else if (resolveActiveTabId() === tabId) {
+        const preferredLeftId = orderedTabIds[closeIndex - 1];
+        const preferredRightId = orderedTabIds[closeIndex + 1];
+        const nextTabId = remaining.includes(preferredLeftId) ? preferredLeftId : (remaining.includes(preferredRightId) ? preferredRightId : remaining[0]);
+        switchTab(nextTabId);
+      }
+      updateTabs(true);
+    } finally {
+      closingTabIds.delete(tabId);
     }
-    updateTabs(true);
 
   }
 
@@ -868,6 +1105,8 @@ function createTabManager(deps = {}) {
         instance.profile.acceptLanguage = browserProfile?.acceptLanguage || '';
         instance.profile.timezoneId = browserProfile?.timezoneId || '';
         instance.profile.userAgent = browserProfile?.userAgent || '';
+        instance.profile.browserEnvironment = buildAppliedBrowserEnvironment(browserProfile);
+        instance.profile.browserSettingsSnapshot = buildAppliedBrowserSettings(normalized);
         instance.profile.proxyServer = effectiveProxy?.enabled ? effectiveProxy.server : '';
         instance.profile.proxyBypassList = effectiveProxy?.enabled ? (effectiveProxy.bypassRules || '') : '';
         instance.profile.extraArgs = resolveChromiumExtraArgs(normalized);

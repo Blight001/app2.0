@@ -14,6 +14,7 @@ const {
 } = require('../src/app/main/utils/logger');
 const {
   importDirectClashRuntimeConfig,
+  normalizeProbeUrl,
   normalizeClashMiniStartupConfig,
   syncLocalGeoAssets,
 } = require('../src/app/main/ipc/register/clash-mini-core');
@@ -74,6 +75,21 @@ test('Clash Mini latency probing uses bounded low concurrency', () => {
   assert.equal(resolveLatencyConcurrency(40), 6);
   assert.equal(resolveLatencyConcurrency(144, 4), 4);
   assert.equal(resolveLatencyConcurrency(144, 100), 12);
+});
+
+test('Clash Mini latency probing verifies TLS instead of trusting an HTTP 204 response', () => {
+  assert.equal(
+    normalizeProbeUrl('http://www.gstatic.com/generate_204'),
+    'https://www.gstatic.com/generate_204',
+  );
+  assert.equal(
+    normalizeProbeUrl('http://cp.cloudflare.com/generate_204'),
+    'https://www.gstatic.com/generate_204',
+  );
+  assert.equal(
+    normalizeProbeUrl('https://example.com/health'),
+    'https://example.com/health',
+  );
 });
 
 test('background best-route selection locks controls before status refresh and keeps progress visible', () => {

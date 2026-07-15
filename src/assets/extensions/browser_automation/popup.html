@@ -41,54 +41,66 @@
             <span class="sidebar-editor-meta__chip">未载入卡片</span>
           </div>
         </div>
-        <button id="sidebar-close" class="sidebar-close-btn" type="button" title="关闭侧边栏">×</button>
+        <div class="sidebar-editor-actions">
+          <button id="sidebar-card-settings-open" class="button-secondary sidebar-card-settings-open" type="button" aria-haspopup="dialog" aria-expanded="false">卡片设置</button>
+          <button id="sidebar-close" class="sidebar-close-btn" type="button" title="关闭侧边栏">×</button>
+        </div>
+      </div>
+
+      <div id="sidebar-card-settings-modal" class="sidebar-card-settings-modal" role="dialog" aria-modal="true" aria-labelledby="sidebar-card-settings-title" hidden>
+        <div class="sidebar-card-settings-backdrop" data-sidebar-card-settings-dismiss></div>
+        <div class="sidebar-card-settings-dialog" tabindex="-1">
+          <div class="sidebar-card-settings-head">
+            <h3 id="sidebar-card-settings-title">卡片设置</h3>
+            <button id="sidebar-card-settings-close" class="sidebar-close-btn" type="button" aria-label="关闭卡片设置">×</button>
+          </div>
+          <div class="sidebar-card-settings-sections">
+            <section class="sidebar-section">
+              <h3 class="sidebar-section__title">基础信息</h3>
+              <div class="sidebar-field-grid">
+                <div class="full">
+                  <label for="sidebar-card-name">卡片名称</label>
+                  <input id="sidebar-card-name" type="text">
+                </div>
+                <div class="full">
+                  <label for="sidebar-card-website">目标网址</label>
+                  <input id="sidebar-card-website" type="text">
+                </div>
+                <div class="full">
+                  <label for="sidebar-card-description">卡片说明</label>
+                  <textarea id="sidebar-card-description" rows="4"></textarea>
+                </div>
+                <div>
+                  <label for="sidebar-card-points">积分</label>
+                  <input id="sidebar-card-points" type="number" min="0" step="1">
+                </div>
+                <div class="full">
+                  <label for="sidebar-card-popups">弹窗规则</label>
+                  <textarea id="sidebar-card-popups" rows="6"></textarea>
+                </div>
+              </div>
+            </section>
+
+            <section class="sidebar-section">
+              <h3 class="sidebar-section__title">附加信息</h3>
+              <div class="sidebar-field-grid">
+                <div class="full">
+                  <label for="sidebar-card-upload-server-url">上传服务器地址</label>
+                  <input id="sidebar-card-upload-server-url" type="text">
+                </div>
+                <div class="full">
+                  <label for="sidebar-card-upload-card-key">上传卡片密钥</label>
+                  <input id="sidebar-card-upload-card-key" type="text">
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
       </div>
 
       <div class="sidebar-editor-grid">
-        <div class="sidebar-column">
-          <section class="sidebar-section">
-            <h3 class="sidebar-section__title">基础信息</h3>
-            <div class="sidebar-field-grid">
-              <div class="full">
-                <label for="sidebar-card-name">卡片名称</label>
-                <input id="sidebar-card-name" type="text">
-              </div>
-              <div class="full">
-                <label for="sidebar-card-website">目标网址</label>
-                <input id="sidebar-card-website" type="text">
-              </div>
-              <div class="full">
-                <label for="sidebar-card-description">卡片说明</label>
-                <textarea id="sidebar-card-description" rows="4"></textarea>
-              </div>
-              <div>
-                <label for="sidebar-card-points">积分</label>
-                <input id="sidebar-card-points" type="number" min="0" step="1">
-              </div>
-              <div class="full">
-                <label for="sidebar-card-popups">弹窗规则</label>
-                <textarea id="sidebar-card-popups" rows="6"></textarea>
-              </div>
-            </div>
-          </section>
-
-          <section class="sidebar-section">
-            <h3 class="sidebar-section__title">附加信息</h3>
-            <div class="sidebar-field-grid">
-              <div class="full">
-                <label for="sidebar-card-upload-server-url">上传服务器地址</label>
-                <input id="sidebar-card-upload-server-url" type="text">
-              </div>
-              <div class="full">
-                <label for="sidebar-card-upload-card-key">上传卡片密钥</label>
-                <input id="sidebar-card-upload-card-key" type="text">
-              </div>
-            </div>
-          </section>
-        </div>
-
         <div class="sidebar-column sidebar-column--main">
-          <section class="sidebar-section">
+          <section class="sidebar-section sidebar-section--canvas">
             <h3 class="sidebar-section__title">自动化步骤</h3>
             <div class="sidebar-step-toolbar">
               <select id="sidebar-step-template">
@@ -108,16 +120,17 @@
               <button id="sidebar-flow-connect" class="button-secondary" type="button" aria-pressed="false">连线</button>
               <button id="sidebar-flow-layout" class="button-secondary" type="button">自动布局</button>
             </div>
-            <div id="sidebar-flow-canvas" class="sidebar-flow-canvas" aria-label="自动化流程图">
-              <svg id="sidebar-flow-svg" class="sidebar-flow-svg" aria-hidden="true"></svg>
-              <div id="sidebar-flow-nodes" class="sidebar-flow-nodes"></div>
-              <div id="sidebar-flow-empty" class="sidebar-flow-empty">暂无节点，先添加一个步骤。</div>
+            <div class="sidebar-flow-stage">
+              <div id="sidebar-flow-canvas" class="sidebar-flow-canvas" aria-label="自动化流程图">
+                <svg id="sidebar-flow-svg" class="sidebar-flow-svg" aria-hidden="true"></svg>
+                <div id="sidebar-flow-nodes" class="sidebar-flow-nodes"></div>
+                <div id="sidebar-flow-empty" class="sidebar-flow-empty">暂无节点，先添加一个步骤。</div>
+              </div>
+              <aside id="sidebar-step-list" class="sidebar-step-list sidebar-node-settings" aria-label="节点设置" aria-hidden="true">
+                <div class="sidebar-step-empty">点击画布中的节点查看设置。</div>
+              </aside>
             </div>
-            <div class="sidebar-flow-hint">拖拽节点调整位置；点击“连线”后依次点击两个节点创建边；点击连线可删除。</div>
-            <div class="sidebar-step-list-title">节点详情</div>
-            <div id="sidebar-step-list" class="sidebar-step-list">
-              <div class="sidebar-step-empty">暂无步骤</div>
-            </div>
+            <div class="sidebar-flow-hint">拖拽节点调整位置；点击节点可在画布右上角编辑设置；点击“连线”后依次点击两个节点创建边；点击连线可删除。</div>
           </section>
         </div>
       </div>

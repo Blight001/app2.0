@@ -187,7 +187,7 @@ async function testClashMiniLowestLatency(ui, options = {}) {
   }
 
   const probeSettings = readClashProbeSettings() || {};
-  const latencyUrl = normalizeProbeUrl(options.url || probeSettings.latencyUrl, 'http://www.gstatic.com/generate_204');
+  const latencyUrl = normalizeProbeUrl(options.url || probeSettings.latencyUrl, 'https://www.gstatic.com/generate_204');
   const timeout = normalizeProbeTimeout(options.timeout || probeSettings.latencyTimeoutMs, 5000);
   const groupName = String(options.groupName || getClashMiniManualGroupName(coreDir)).trim() || '节点选择';
 
@@ -267,6 +267,16 @@ async function testClashMiniLowestLatency(ui, options = {}) {
     timeoutMs: 10000,
   });
 
+  // 核心刚启动时默认节点可能尚未连通，浏览器会暂时得到国内直连地区。
+  // 自动选路完成后按最终节点重新检测出口，并应用新的语言和时区。
+  if (typeof ui?.applyClashMiniBrowserProxy === 'function') {
+    await Promise.resolve(ui.applyClashMiniBrowserProxy(true, {
+      forceProfileRefresh: true,
+    })).catch((error) => {
+      emitClashMiniLog(ui, 'warn', `最低延时节点切换后刷新浏览器地区失败: ${error?.message || error}`);
+    });
+  }
+
   emitClashMiniLog(ui, 'info', `最低延时节点已选中: ${best.name} (${best.delay}ms)`);
   reportProgress({
     phase: 'done',
@@ -319,7 +329,7 @@ async function getClashMiniProxyGroupOptions(ui, options = {}) {
   const names = Array.from(new Set(candidateNames.map((item) => String(item || '').trim()).filter(Boolean)));
 
   const probeSettings = readClashProbeSettings() || {};
-  const latencyUrl = normalizeProbeUrl(options.url || probeSettings.latencyUrl, 'http://www.gstatic.com/generate_204');
+  const latencyUrl = normalizeProbeUrl(options.url || probeSettings.latencyUrl, 'https://www.gstatic.com/generate_204');
   const timeout = normalizeProbeTimeout(options.timeout || probeSettings.latencyTimeoutMs, 5000);
   const includeDelays = options.includeDelays !== false;
   const concurrency = resolveLatencyConcurrency(names.length, options.concurrency);
@@ -387,6 +397,14 @@ async function switchClashMiniProxyNode(ui, options = {}) {
     data: { name: nodeName },
     timeoutMs: 10000,
   });
+
+  if (typeof ui?.applyClashMiniBrowserProxy === 'function') {
+    await Promise.resolve(ui.applyClashMiniBrowserProxy(true, {
+      forceProfileRefresh: true,
+    })).catch((error) => {
+      emitClashMiniLog(ui, 'warn', `节点切换后刷新浏览器地区失败: ${error?.message || error}`);
+    });
+  }
 
   emitClashMiniLog(ui, 'info', `节点已切换: ${groupName} -> ${nodeName}`);
 

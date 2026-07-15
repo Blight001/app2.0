@@ -49,6 +49,7 @@ function createBrowserAutomationBridge(options = {}) {
     return {
       id: connection.id,
       instanceId: connection.instanceId,
+      browserProcessId: connection.browserProcessId,
       name: connection.name,
       platform: connection.platform,
       version: connection.version,
@@ -89,6 +90,7 @@ function createBrowserAutomationBridge(options = {}) {
         for (const existing of connections.values()) {
           if (instanceId && sessionId && existing.instanceId === instanceId && existing.sessionId === sessionId) {
             existing.name = String(data.name || existing.name || 'AI自动化浏览器').trim();
+            existing.browserProcessId = Number(data.browserProcessId || existing.browserProcessId || 0) || 0;
             existing.platform = String(data.platform || existing.platform || 'browser-extension').trim();
             existing.version = String(data.version || existing.version || '').trim();
             existing.tools = Array.isArray(data.toolDefs) ? data.toolDefs : existing.tools;
@@ -109,6 +111,7 @@ function createBrowserAutomationBridge(options = {}) {
           token,
           instanceId: instanceId || id,
           sessionId,
+          browserProcessId: Number(data.browserProcessId || 0) || 0,
           name: String(data.name || 'AI自动化浏览器').trim(),
           platform: String(data.platform || 'browser-extension').trim(),
           version: String(data.version || '').trim(),

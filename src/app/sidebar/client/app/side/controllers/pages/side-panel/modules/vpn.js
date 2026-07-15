@@ -1,5 +1,4 @@
 // 侧边栏 VPN / Clash Mini 相关逻辑
-const TextPreviewUtils = window.AiFreeTextPreviewUtils || {};
 let proxyTrafficQuotaSnapshot = null;
 let backgroundBestRouteSelectionPending = false;
 
@@ -22,12 +21,6 @@ function renderProxyTrafficQuota(quota) {
     vpnSwitchBtn.title = isVpnEnabled ? '点击关闭网络魔法' : '点击开启网络魔法';
   }
 }
-const decodeBase64Preview = TextPreviewUtils.decodeBase64Preview || (() => '');
-const previewText = TextPreviewUtils.previewText || ((value, maxLen = 220) => {
-  const text = String(value || '').replace(/\s+/g, ' ').trim();
-  return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
-});
-
 // 设置/更新/持久化：setVpnNodeSelectorOpen的具体业务逻辑。
 function setVpnNodeSelectorOpen(open, { force = false } = {}) {
   const triggerBtn = vpnNodeSelectorToggleBtn;
@@ -377,10 +370,6 @@ const clashMiniConfigPreheatState = {
   result: null,
 };
 
-const clashMiniWarmupState = {
-  promise: null,
-};
-
 let autoStartClashMiniInFlight = false;
 let clashMiniStartFlowPromise = null;
 let vpnNodeSelectorRenderScheduled = false;
@@ -446,26 +435,14 @@ async function syncClashMiniConfigFromServer(options = {}) {
     throw new Error('账号未登录或缺少设备号，无法获取 Clash 配置');
   }
 
-  console.log('[侧边栏][Clash] 开始获取客户端配置...');
   const clashResp = await window.electronAPI.invoke('get-clash-config', { key, deviceId });
   if (!clashResp || clashResp.ok !== true) {
     throw new Error((clashResp && (clashResp.error || clashResp.message)) || '获取客户端配置失败');
   }
 
-  console.log('[侧边栏][Clash] 已获取客户端配置，开始导入...');
   const configContent = String(clashResp.content || clashResp.configContent || '').trim();
   const subscriptionUrl = String(clashResp.proxySubscriptionUrl || '').trim();
   const importContent = configContent || '';
-  const importSource = configContent ? 'content' : 'empty';
-  console.log('[侧边栏][Clash] 客户端配置摘要:', JSON.stringify({
-    ok: !!clashResp.ok,
-    proxySubscriptionUrl: subscriptionUrl,
-    contentLength: configContent.length,
-    contentSource: String(clashResp.contentSource || importSource),
-    importSource,
-    importPreview: previewText(importContent),
-    importDecodedPreview: decodeBase64Preview(importContent),
-  }, null, 2));
 
   const saveResp = await window.electronAPI.invoke('save-clash-config', {
     clashConfig: importContent,
@@ -482,7 +459,6 @@ async function syncClashMiniConfigFromServer(options = {}) {
     throw new Error((saveResp && (saveResp.error || saveResp.message)) || '导入 Clash 配置失败');
   }
 
-  console.log('[侧边栏][Clash] Clash 配置已同步到本地运行目录');
   return {
     key,
     deviceId,
@@ -534,47 +510,6 @@ async function ensureClashMiniConfigPreheated(options = {}) {
   } finally {
     if (clashMiniConfigPreheatState.promise === promise) {
       clashMiniConfigPreheatState.promise = null;
-    }
-  }
-}
-
-// 处理：warmupClashMiniProcess的具体业务逻辑。
-async function warmupClashMiniProcess() {
-  if (!window.electronAPI || typeof window.electronAPI.invoke !== 'function') {
-    return null;
-  }
-  if (!window.electron || typeof window.electron.startClashMini !== 'function') {
-    return null;
-  }
-
-  if (clashMiniWarmupState.promise) {
-    return clashMiniWarmupState.promise;
-  }
-
-// 处理：promise的具体业务逻辑。
-  const promise = (async () => {
-    try {
-      const autoStartEnabled = await getNetworkMagicAutoStartEnabled();
-      if (!autoStartEnabled) {
-        console.log('[侧边栏][Clash] 已关闭网络魔法记忆，跳过启动期预热...');
-        return { ok: true, skipped: true };
-      }
-
-      console.log('[侧边栏][Clash] 开始预热 Clash 运行环境，先同步客户端配置，再提前启动代理端口...');
-      await ensureClashMiniConfigPreheated();
-      return await window.electron.startClashMini();
-    } catch (error) {
-      console.warn('[侧边栏][Clash] 预热 Clash 运行环境失败:', error?.message || error);
-      return { ok: false, error: error?.message || String(error) };
-    }
-  })();
-
-  clashMiniWarmupState.promise = promise;
-  try {
-    return await promise;
-  } finally {
-    if (clashMiniWarmupState.promise === promise) {
-      clashMiniWarmupState.promise = null;
     }
   }
 }
@@ -969,7 +904,7 @@ async function stopClashMiniFlow({ startBtn, vpnBtn } = {}) {
 //  4. 记忆“自动启动”偏好；
 //  5. 调度后台自动选路（不阻塞“启动中”按钮，最慢节点的超时不占用开关）；
 //  6. 把最终状态应用到按钮 UI。
-async function startClashMiniFlowOnce({ startBtn, vpnBtn, fetchConfig = true } = {}) {
+async function startClashMiniFlowOnce({ startBtn, vpnBtn, fetchConfig = true, key = '', deviceId = '' } = {}) {
   if (typeof window.electron.startClashMini !== 'function') {
     throw new Error('当前环境不支持启动 Clash Mini');
   }
@@ -986,11 +921,10 @@ async function startClashMiniFlowOnce({ startBtn, vpnBtn, fetchConfig = true } =
   }
 
   if (fetchConfig) {
-    // 手动点击“开启网络魔法”必须以服务器当前配置为准。即使启动期已经
-    // 预热过相同账号，也重新请求并导入一次，save-clash-config 会清理
-    // 旧运行配置后覆盖 config.yaml。
-    console.log('[侧边栏][Clash] 手动开启网络魔法，强制获取最新 YAML 并覆盖旧配置...');
-    await ensureClashMiniConfigPreheated({ force: true });
+    // 获取服务器配置只能发生在真正启动网络魔法的流程里。个人中心、账号
+    // 恢复和普通侧边栏初始化都不得单独预热或刷新代理配置。
+    console.log('[侧边栏][Clash] 开启网络魔法，获取最新 YAML 并覆盖旧配置...');
+    await ensureClashMiniConfigPreheated({ force: true, key, deviceId });
   }
   const result = await window.electron.startClashMini();
   if (!result || result.ok !== true) {
@@ -1089,6 +1023,11 @@ function observeNetworkMagicTask(task) {
 // 满足以下条件才会启动：卡密已验证、用户开启了“自动启动”记忆、核心未在运行、
 // 且用户没有正在手动操作开关。key/deviceId 缺省时由预热流程自行解析。
 async function autoStartNetworkMagicIfEligible({ startBtn, vpnBtn, key = '', deviceId = '' } = {}) {
+  // 个人中心浮窗复用侧边栏页面，但它不是网络魔法入口。即使记住了自动
+  // 启动偏好，也不能因为点击头像而启动核心或刷新 Clash 配置。
+  if (new URLSearchParams(window.location.search).get('accountCenterPopup') === '1') {
+    return;
+  }
   if (!window.electronAPI || typeof window.electronAPI.invoke !== 'function') {
     return;
   }
@@ -1119,8 +1058,7 @@ async function autoStartNetworkMagicIfEligible({ startBtn, vpnBtn, key = '', dev
     }
 
     console.log('[侧边栏][Clash] 满足自动启动条件，开始启用网络魔法');
-    await ensureClashMiniConfigPreheated({ key, deviceId });
-    await startClashMiniFlow({ startBtn, vpnBtn, fetchConfig: false });
+    await startClashMiniFlow({ startBtn, vpnBtn, fetchConfig: true, key, deviceId });
   } catch (error) {
     console.warn('[侧边栏] 自动开启网络魔法失败:', error?.message || error);
   } finally {

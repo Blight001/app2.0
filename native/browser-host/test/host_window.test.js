@@ -9,7 +9,7 @@ test('native host exports the documented API', { skip: !fs.existsSync(bindingPat
   const binding = require(bindingPath);
   for (const name of [
     'createHostWindow', 'destroyHostWindow', 'attachChildWindow', 'detachChildWindow',
-    'setHostBounds', 'showHostWindow', 'hideHostWindow', 'focusChildWindow',
+    'setHostBounds', 'raiseHostWindow', 'showHostWindow', 'hideHostWindow', 'focusChildWindow',
     'watchChildWindowClicks', 'unwatchChildWindowClicks',
     'isWindowAlive', 'getWindowProcessId', 'findMainWindowByProcessId',
     'setChildWindowTitle', 'isChildWindowAttached',

@@ -14,6 +14,7 @@ function createTabHelpers(deps = {}) {
     getActiveTabId,
     setIsSidebarVisible,
     sendToSide,
+    browserRuntimeManager,
   } = deps;
 
 // 获取/读取/解析：resolveTabs的具体业务逻辑。
@@ -32,29 +33,69 @@ function createTabHelpers(deps = {}) {
 
 // 创建/初始化：buildTabsPayload的具体业务逻辑。
   function buildTabsPayload() {
-    return Array.from(resolveTabs().values()).map((t) => ({
+    return Array.from(resolveTabs().values()).map((t) => {
+      const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(t.id));
+      const runtimeState = typeof browserRuntimeManager?.getState === 'function'
+        ? browserRuntimeManager.getState(String(t.id))
+        : null;
+      const applied = instance?.appliedProfile && typeof instance.appliedProfile === 'object'
+        ? instance.appliedProfile
+        : null;
+      const environment = applied?.browserEnvironment && typeof applied.browserEnvironment === 'object'
+        ? applied.browserEnvironment
+        : (t.browserProfile || null);
+      const actualProfile = environment ? {
+        ...environment,
+        locale: String(applied?.locale || environment.locale || '').trim(),
+        timezoneId: String(applied?.timezoneId || environment.timezoneId || '').trim(),
+        acceptLanguage: String(applied?.acceptLanguage || environment.acceptLanguage || '').trim(),
+        userAgent: String(applied?.userAgent || environment.userAgent || '').trim(),
+      } : null;
+      const actualProxyServer = String(applied?.proxyServer || '').trim();
+      return ({
       id: t.id,
       title: resolveTabTitle(t),
       isActive: t.id === resolveActiveTabId(),
       accountId: String(t.accountId || '').trim(),
       browserHistoryId: String(t.browserHistoryId || '').trim(),
       browserProxyMode: String(t.browserProxyMode || 'inherit').trim(),
+      networkMagicEnabled: t.networkMagicApplied === true && !!actualProxyServer,
+      browserSettings: applied?.browserSettings && typeof applied.browserSettings === 'object'
+        ? applied.browserSettings
+        : null,
+      runtimeEnvironment: applied ? {
+        windowWidth: Math.max(0, Number(runtimeState?.bounds?.width) || 0),
+        windowHeight: Math.max(0, Number(runtimeState?.bounds?.height) || 0),
+        hardwareAcceleration: applied.hardwareAcceleration !== false,
+        extensionCount: Math.max(0, Number(applied.extensionCount) || 0),
+      } : null,
       runtimeType: String(t.runtimeType || 'chromium').trim(),
       runtimeStatus: String(t.runtimeStatus || 'starting').trim(),
-      browserProfile: t.browserProfile ? {
-        browserBrand: String(t.browserProfile.browserBrand || '').trim(),
-        browserType: String(t.browserProfile.browserType || '').trim(),
-        region: String(t.browserProfile.region || '').trim(),
-        regionLabel: String(t.browserProfile.regionLabel || '').trim(),
-        sourceIp: String(t.browserProfile.sourceIp || '').trim(),
-        sourceCountryCode: String(t.browserProfile.sourceCountryCode || '').trim(),
-        sourceCountry: String(t.browserProfile.sourceCountry || '').trim(),
-        locale: String(t.browserProfile.locale || '').trim(),
-        timezoneId: String(t.browserProfile.timezoneId || '').trim(),
-        acceptLanguage: String(t.browserProfile.acceptLanguage || '').trim(),
-        userAgent: String(t.browserProfile.userAgent || '').trim(),
+      browserProfile: actualProfile ? {
+        browserBrand: String(actualProfile.browserBrand || '').trim(),
+        browserType: String(actualProfile.browserType || '').trim(),
+        browserVersion: String(actualProfile.browserVersion || '').trim(),
+        majorVersion: String(actualProfile.majorVersion || '').trim(),
+        region: String(actualProfile.region || '').trim(),
+        regionLabel: String(actualProfile.regionLabel || '').trim(),
+        sourceIp: String(actualProfile.sourceIp || '').trim(),
+        sourceCountryCode: String(actualProfile.sourceCountryCode || '').trim(),
+        sourceCountry: String(actualProfile.sourceCountry || '').trim(),
+        sourceRegion: String(actualProfile.sourceRegion || '').trim(),
+        sourceCity: String(actualProfile.sourceCity || '').trim(),
+        locale: String(actualProfile.locale || '').trim(),
+        timezoneId: String(actualProfile.timezoneId || '').trim(),
+        acceptLanguage: String(actualProfile.acceptLanguage || '').trim(),
+        userAgent: String(actualProfile.userAgent || '').trim(),
+        uaBrands: Array.isArray(actualProfile.uaBrands)
+          ? actualProfile.uaBrands.map((item) => ({
+            brand: String(item?.brand || '').trim(),
+            version: String(item?.version || '').trim(),
+          })).filter((item) => item.brand)
+          : [],
       } : null,
-    }));
+      });
+    });
   }
 
 // 获取/读取/解析：getTabsSignature的具体业务逻辑。
@@ -67,11 +108,20 @@ function createTabHelpers(deps = {}) {
         item.accountId || '',
         item.browserHistoryId || '',
         item.browserProxyMode || '',
+        item.networkMagicEnabled ? 1 : 0,
+        JSON.stringify(item.browserSettings || {}),
+        item.runtimeEnvironment?.windowWidth || 0,
+        item.runtimeEnvironment?.windowHeight || 0,
+        item.runtimeEnvironment?.hardwareAcceleration === false ? 0 : 1,
+        item.runtimeEnvironment?.extensionCount || 0,
         item.runtimeType || '',
         item.runtimeStatus || '',
         item.browserProfile?.browserBrand || '',
         item.browserProfile?.region || '',
         item.browserProfile?.sourceIp || '',
+        item.browserProfile?.sourceCountry || '',
+        item.browserProfile?.sourceRegion || '',
+        item.browserProfile?.sourceCity || '',
         item.browserProfile?.locale || '',
         item.browserProfile?.timezoneId || '',
       ]));

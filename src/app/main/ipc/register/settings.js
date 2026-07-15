@@ -18,6 +18,13 @@ const {
   DEFAULT_AI_FREE_BROWSER_SETTINGS,
   normalizeAiFreeBrowserSettings,
 } = require('../../utils/ai-free-browser-settings');
+const {
+  DEFAULT_AI_CONTROL_MCP_CALL_LIMIT,
+  MIN_AI_CONTROL_MCP_CALL_LIMIT,
+  MAX_AI_CONTROL_MCP_CALL_LIMIT,
+  getAiControlMcpCallLimit,
+  normalizeAiControlMcpCallLimit,
+} = require('../../utils/ai-control-settings');
 
 const getBrowserRuntimeInfo = () => ({
   chromiumVersion: String(process.versions?.chrome || ''),
@@ -25,7 +32,7 @@ const getBrowserRuntimeInfo = () => ({
 });
 
 const DEFAULT_BROWSER_WINDOW_NAME = '新建窗口';
-const DEFAULT_BROWSER_WINDOW_URL = 'https://www.baidu.com/';
+const DEFAULT_BROWSER_WINDOW_URL = 'chrome://newtab/';
 
 function readBrowserHistorySafe() {
   const store = readStoreConfigSafe();
@@ -255,6 +262,36 @@ function auditBrowserProfiles(history = [], ui = null) {
   return store.auditProfiles(collectBrowserProfileReferences(history, ui));
 }
 
+function cleanupOrphanBrowserProfiles(history = [], ui = null, storageIds = []) {
+  const audit = auditBrowserProfiles(history, ui);
+  if (!audit) return null;
+  const requestedStorageIds = new Set((Array.isArray(storageIds) ? storageIds : [])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean));
+  const targets = audit.orphanProfiles.filter((profile) => (
+    requestedStorageIds.size === 0 || requestedStorageIds.has(profile.storageId)
+  ));
+  const deleted = [];
+  const failed = [];
+  for (const profile of targets) {
+    const deleteId = profile.profileId || profile.storageId;
+    try {
+      ui.browserRuntimeManager.deleteProfile(deleteId);
+      deleted.push(profile.storageId);
+    } catch (error) {
+      failed.push({ storageId: profile.storageId, error: error?.message || String(error) });
+    }
+  }
+  return {
+    ok: failed.length === 0,
+    deletedCount: deleted.length,
+    failedCount: failed.length,
+    deleted,
+    failed,
+    profileAudit: auditBrowserProfiles(history, ui),
+  };
+}
+
 function validateBrowserSettingsPayload(input = {}) {
   const rawCookies = input?.cookies;
   if (rawCookies !== undefined && !Array.isArray(rawCookies)) {
@@ -298,6 +335,60 @@ function setNetworkMagicAutoStartEnabledSafe(enabled) {
 function registerSettingsIPC(ctx) {
   const { ui, computeDeviceId, licenseCache } = ctx;
   const extensionManager = ctx.extensionManager || ui?.extensionManager || null;
+  let independentBrowserCreation = null;
+
+  try {
+    const startupCleanupResult = cleanupOrphanBrowserProfiles(readBrowserHistorySafe(), ui);
+    if (startupCleanupResult?.failedCount > 0) {
+      console.warn('[IPC] 启动时自动清理孤立 Chromium 环境失败:', startupCleanupResult.failed);
+    }
+  } catch (error) {
+    console.warn('[IPC] 启动时无法自动清理孤立 Chromium 环境:', error?.message || error);
+  }
+
+  ipcMain.handle('get-ai-control-settings', async () => {
+    try {
+      return {
+        ok: true,
+        settings: {
+          mcpCallLimit: getAiControlMcpCallLimit(readStoreConfigSafe()),
+        },
+        defaults: {
+          mcpCallLimit: DEFAULT_AI_CONTROL_MCP_CALL_LIMIT,
+        },
+        limits: {
+          mcpCallLimit: {
+            min: MIN_AI_CONTROL_MCP_CALL_LIMIT,
+            max: MAX_AI_CONTROL_MCP_CALL_LIMIT,
+          },
+        },
+      };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle('set-ai-control-settings', async (_event, payload = {}) => {
+    try {
+      const rawLimit = payload?.mcpCallLimit;
+      if (!Number.isFinite(Number(rawLimit))) throw new Error('MCP 调用上限必须是有效数字');
+      const mcpCallLimit = normalizeAiControlMcpCallLimit(rawLimit);
+      const currentStore = readStoreConfigSafe();
+      const wrote = writeStoreConfigSafe({
+        ...(currentStore && typeof currentStore === 'object' ? currentStore : {}),
+        aiControlSettings: {
+          ...(currentStore?.aiControlSettings && typeof currentStore.aiControlSettings === 'object'
+            ? currentStore.aiControlSettings
+            : {}),
+          mcpCallLimit,
+        },
+      });
+      if (!wrote) throw new Error('AI 控制设置未能写入本地配置');
+      return { ok: true, settings: { mcpCallLimit } };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
 
   ipcMain.handle('get-browser-history', async () => {
     try {
@@ -312,7 +403,11 @@ function registerSettingsIPC(ctx) {
         }
       }
       if (changed) writeBrowserHistorySafe(history);
-      const profileAudit = auditBrowserProfiles(history, ui);
+      const cleanupResult = cleanupOrphanBrowserProfiles(history, ui);
+      if (cleanupResult?.failedCount > 0) {
+        console.warn('[IPC] 自动清理孤立 Chromium 环境失败:', cleanupResult.failed);
+      }
+      const profileAudit = cleanupResult?.profileAudit || auditBrowserProfiles(history, ui);
       return {
         ok: true,
         history: serialized,
@@ -331,38 +426,21 @@ function registerSettingsIPC(ctx) {
     try {
       if (payload?.confirm !== true) throw new Error('清理孤儿 Profile 需要明确确认');
       const history = syncOpenTabsToBrowserHistory(ui);
-      const audit = auditBrowserProfiles(history, ui);
-      if (!audit) throw new Error('Chromium Profile 管理器不可用');
-      const requestedStorageIds = new Set((Array.isArray(payload?.storageIds) ? payload.storageIds : [])
-        .map((value) => String(value || '').trim())
-        .filter(Boolean));
-      const targets = audit.orphanProfiles.filter((profile) => (
-        requestedStorageIds.size === 0 || requestedStorageIds.has(profile.storageId)
-      ));
-      const deleted = [];
-      const failed = [];
-      for (const profile of targets) {
-        const deleteId = profile.profileId || profile.storageId;
-        try {
-          ui.browserRuntimeManager.deleteProfile(deleteId);
-          deleted.push(profile.storageId);
-        } catch (error) {
-          failed.push({ storageId: profile.storageId, error: error?.message || String(error) });
-        }
-      }
-      return {
-        ok: failed.length === 0,
-        deletedCount: deleted.length,
-        failedCount: failed.length,
-        deleted,
-        failed,
-      };
+      const result = cleanupOrphanBrowserProfiles(history, ui, payload?.storageIds);
+      if (!result) throw new Error('Chromium Profile 管理器不可用');
+      return result;
     } catch (error) {
       return { ok: false, error: error?.message || String(error), deletedCount: 0 };
     }
   });
 
   ipcMain.handle('create-independent-browser', async (_event, payload = {}) => {
+    if (independentBrowserCreation) {
+      return {
+        ...independentBrowserCreation.response,
+        deduplicated: true,
+      };
+    }
     let history = [];
     let record = null;
     try {
@@ -399,6 +477,15 @@ function registerSettingsIPC(ctx) {
         // 不得把键盘焦点从名称编辑框/侧栏交给 Chromium。
         focusBrowser: false,
       });
+      const response = {
+        ok: true,
+        pending: true,
+        tabId,
+        historyId: record.id,
+        name: record.name,
+      };
+      const creationToken = {};
+      independentBrowserCreation = { response, token: creationToken };
       void Promise.resolve(creation).then((createdTabId) => {
         if (!createdTabId) throw new Error('新建浏览器窗口失败');
         const latestHistory = readBrowserHistorySafe();
@@ -408,6 +495,13 @@ function registerSettingsIPC(ctx) {
           writeBrowserHistorySafe(latestHistory);
         }
         ui.sendToSide?.('browser-history-changed');
+        const mainWindow = ui.getMainWindow?.();
+        if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed?.()) {
+          mainWindow.webContents.send('independent-browser-create-complete', {
+            tabId,
+            historyId: record.id,
+          });
+        }
       }).catch((error) => {
         console.error('[BrowserWindow] 后台创建独立浏览器失败:', error?.message || error);
         const latestHistory = readBrowserHistorySafe();
@@ -425,9 +519,13 @@ function registerSettingsIPC(ctx) {
           });
         }
         ui.sendToSide?.('browser-history-changed');
+      }).finally(() => {
+        if (independentBrowserCreation?.token === creationToken) {
+          independentBrowserCreation = null;
+        }
       });
       ui.sendToSide?.('browser-history-changed');
-      return { ok: true, pending: true, tabId, historyId: record.id, name: record.name };
+      return response;
     } catch (error) {
       if (record) writeBrowserHistorySafe(history.filter((item) => item.id !== record.id));
       return { ok: false, error: error?.message || String(error) };
@@ -981,6 +1079,7 @@ function registerSettingsIPC(ctx) {
 
 module.exports = {
   buildBrowserHistoryAccountMeta,
+  cleanupOrphanBrowserProfiles,
   makeUniqueBrowserName,
   registerSettingsIPC,
 };

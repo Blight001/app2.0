@@ -155,6 +155,9 @@ const sidebarStepTemplateSelect = document.getElementById('sidebar-step-template
 const sidebarAddStepButton = document.getElementById('sidebar-add-step');
 const sidebarRefreshCardButton = document.getElementById('sidebar-refresh-card');
 const sidebarCloseButton = document.getElementById('sidebar-close');
+const sidebarCardSettingsOpenButton = document.getElementById('sidebar-card-settings-open');
+const sidebarCardSettingsModal = document.getElementById('sidebar-card-settings-modal');
+const sidebarCardSettingsCloseButton = document.getElementById('sidebar-card-settings-close');
 const sidebarFlowCanvasNode = document.getElementById('sidebar-flow-canvas');
 const sidebarFlowConnectButton = document.getElementById('sidebar-flow-connect');
 const sidebarFlowLayoutButton = document.getElementById('sidebar-flow-layout');
@@ -198,6 +201,7 @@ const {
     getCardEditorValue,
     isSidebarLayout,
     renderSidebarFlowCanvas,
+    clearSidebarFlowNodeSelection,
     toggleSidebarFlowConnectMode,
     handleSidebarFlowNodeClick,
     deleteSidebarFlowEdge,
@@ -834,6 +838,37 @@ sidebarCloseButton?.addEventListener('click', () => {
     }).catch(() => {});
 });
 
+function setSidebarCardSettingsOpen(open = false) {
+    if (!sidebarCardSettingsModal) {
+        return false;
+    }
+    const shouldOpen = open === true;
+    sidebarCardSettingsModal.hidden = !shouldOpen;
+    sidebarCardSettingsOpenButton?.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+    if (shouldOpen) {
+        const dialog = sidebarCardSettingsModal.querySelector('.sidebar-card-settings-dialog');
+        window.requestAnimationFrame(() => dialog?.focus());
+    } else {
+        sidebarCardSettingsOpenButton?.focus();
+    }
+    return shouldOpen;
+}
+
+sidebarCardSettingsOpenButton?.addEventListener('click', () => setSidebarCardSettingsOpen(true));
+sidebarCardSettingsCloseButton?.addEventListener('click', () => setSidebarCardSettingsOpen(false));
+sidebarCardSettingsModal?.addEventListener('click', (event) => {
+    if (event.target?.matches?.('[data-sidebar-card-settings-dismiss]')) {
+        setSidebarCardSettingsOpen(false);
+    }
+});
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && sidebarCardSettingsModal && !sidebarCardSettingsModal.hidden) {
+        event.preventDefault();
+        setSidebarCardSettingsOpen(false);
+    }
+});
+
 sidebarAddStepButton?.addEventListener('click', () => {
     void (async () => {
         sidebarAddStepButton.disabled = true;
@@ -908,7 +943,10 @@ sidebarFlowCanvasNode?.addEventListener('click', (event) => {
     const node = event.target && event.target.closest ? event.target.closest('[data-flow-node-id]') : null;
     if (node) {
         handleSidebarFlowNodeClick(String(node.dataset.flowNodeId || '').trim());
+        return;
     }
+
+    clearSidebarFlowNodeSelection();
 });
 
 sidebarCardNameInput?.addEventListener('input', () => syncSidebarEditorToHiddenJson());
@@ -983,10 +1021,8 @@ sidebarStepListNode?.addEventListener('click', (event) => {
         return;
     }
 
-    if (action === 'toggle') {
-        const expanded = card.classList.toggle('is-expanded');
-        button.textContent = expanded ? '收起详情' : '展开详情';
-        button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    if (action === 'close') {
+        clearSidebarFlowNodeSelection();
         return;
     }
 

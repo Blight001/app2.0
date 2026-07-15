@@ -4,12 +4,21 @@
     sessionList: [],
     currentSession: null,
     currentBrowserId: '',
-    browserSelectionInitialized: false,
+    browserSelectionExplicitlyDisabled: false,
     accountAuthenticated: false,
     loading: false,
     generatingTitle: false,
     quota: null,
     lastQuotaCost: null,
+    mcpCallLimit: 100,
+    mcpCallLimitDraft: '100',
+    mcpCallLimitMin: 1,
+    mcpCallLimitMax: 1000,
+    mcpSettingsLoaded: false,
+    mcpSettingsLoading: false,
+    mcpSettingsSaving: false,
+    mcpSettingsStatus: '',
+    mcpSettingsStatusType: '',
   };
 
   const HISTORY_LS_PREFIX = 'ai-free.ai-chat-history.v1.';
@@ -290,6 +299,135 @@
     return `${name} ×${formatQuota(multiplier)}`;
   }
 
+  function updateBrowserMcpSettingUi() {
+    const input = el('ai-browser-mcp-call-limit');
+    const button = el('ai-browser-mcp-call-limit-save');
+    const status = el('ai-browser-mcp-call-limit-status');
+    if (input) {
+      input.min = String(state.mcpCallLimitMin);
+      input.max = String(state.mcpCallLimitMax);
+      if (document.activeElement !== input) input.value = state.mcpCallLimitDraft;
+      input.disabled = state.mcpSettingsLoading || state.mcpSettingsSaving;
+    }
+    if (button) {
+      button.disabled = state.mcpSettingsLoading || state.mcpSettingsSaving;
+      button.textContent = state.mcpSettingsSaving ? '保存中' : '保存';
+    }
+    if (status) {
+      status.textContent = state.mcpSettingsLoading ? '读取中…' : state.mcpSettingsStatus;
+      status.dataset.type = state.mcpSettingsStatusType;
+    }
+  }
+
+  async function loadAiControlSettings() {
+    if (state.mcpSettingsLoading || state.mcpSettingsLoaded || !window.electronAPI?.invoke) return;
+    state.mcpSettingsLoading = true;
+    state.mcpSettingsStatus = '';
+    state.mcpSettingsStatusType = '';
+    updateBrowserMcpSettingUi();
+    try {
+      const response = await window.electronAPI.invoke('get-ai-control-settings');
+      if (!response?.ok) throw new Error(response?.error || '读取 MCP 设置失败');
+      const min = Number(response?.limits?.mcpCallLimit?.min);
+      const max = Number(response?.limits?.mcpCallLimit?.max);
+      const value = Number(response?.settings?.mcpCallLimit);
+      if (Number.isFinite(min)) state.mcpCallLimitMin = min;
+      if (Number.isFinite(max)) state.mcpCallLimitMax = max;
+      if (Number.isFinite(value)) {
+        state.mcpCallLimit = value;
+        state.mcpCallLimitDraft = String(value);
+      }
+      state.mcpSettingsLoaded = true;
+    } catch (error) {
+      state.mcpSettingsStatus = error?.message || String(error);
+      state.mcpSettingsStatusType = 'error';
+    } finally {
+      state.mcpSettingsLoading = false;
+      updateBrowserMcpSettingUi();
+    }
+  }
+
+  async function saveAiControlSettings() {
+    const input = el('ai-browser-mcp-call-limit');
+    if (!input || state.mcpSettingsSaving || !window.electronAPI?.invoke) return;
+    const value = Number(input.value);
+    if (!Number.isInteger(value) || value < state.mcpCallLimitMin || value > state.mcpCallLimitMax) {
+      state.mcpSettingsStatus = `请输入 ${state.mcpCallLimitMin}–${state.mcpCallLimitMax} 的整数`;
+      state.mcpSettingsStatusType = 'error';
+      updateBrowserMcpSettingUi();
+      input.focus();
+      return;
+    }
+    state.mcpSettingsSaving = true;
+    state.mcpSettingsStatus = '';
+    state.mcpSettingsStatusType = '';
+    updateBrowserMcpSettingUi();
+    try {
+      const response = await window.electronAPI.invoke('set-ai-control-settings', { mcpCallLimit: value });
+      if (!response?.ok) throw new Error(response?.error || '保存 MCP 设置失败');
+      state.mcpCallLimit = Number(response?.settings?.mcpCallLimit) || value;
+      state.mcpCallLimitDraft = String(state.mcpCallLimit);
+      state.mcpSettingsLoaded = true;
+      state.mcpSettingsStatus = '已保存';
+      state.mcpSettingsStatusType = 'success';
+    } catch (error) {
+      state.mcpSettingsStatus = error?.message || String(error);
+      state.mcpSettingsStatusType = 'error';
+    } finally {
+      state.mcpSettingsSaving = false;
+      updateBrowserMcpSettingUi();
+    }
+  }
+
+  function appendBrowserMcpSetting(menu) {
+    const item = document.createElement('li');
+    item.className = 'ai-browser-mcp-setting';
+
+    const label = document.createElement('label');
+    label.htmlFor = 'ai-browser-mcp-call-limit';
+    label.textContent = 'MCP 调用上限';
+
+    const editor = document.createElement('div');
+    editor.className = 'ai-browser-mcp-setting-editor';
+    const input = document.createElement('input');
+    input.id = 'ai-browser-mcp-call-limit';
+    input.type = 'number';
+    input.step = '1';
+    input.inputMode = 'numeric';
+    input.value = state.mcpCallLimitDraft;
+    input.setAttribute('aria-label', 'MCP 调用上限');
+    input.addEventListener('input', () => {
+      state.mcpCallLimitDraft = input.value;
+    });
+    input.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      event.stopPropagation();
+      void saveAiControlSettings();
+    });
+    const unit = document.createElement('span');
+    unit.textContent = '次';
+    const button = document.createElement('button');
+    button.id = 'ai-browser-mcp-call-limit-save';
+    button.type = 'button';
+    button.textContent = '保存';
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void saveAiControlSettings();
+    });
+    editor.append(input, unit, button);
+
+    const status = document.createElement('span');
+    status.id = 'ai-browser-mcp-call-limit-status';
+    status.className = 'ai-browser-mcp-setting-status';
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    item.append(label, editor, status);
+    menu.appendChild(item);
+    updateBrowserMcpSettingUi();
+  }
+
   function syncSelectUi(select) {
     const shell = getSelectShell(select);
     if (!shell || !select) return;
@@ -309,7 +447,18 @@
       trigger.title = selected?.textContent || '选择浏览器插件';
     }
 
+    const activeBrowserSetting = shell.dataset.aiSelect === 'browser'
+      && document.activeElement?.closest?.('.ai-browser-mcp-setting');
+    if (activeBrowserSetting) {
+      updateBrowserMcpSettingUi();
+      return;
+    }
+    const existingMcpInput = shell.dataset.aiSelect === 'browser'
+      ? menu.querySelector('#ai-browser-mcp-call-limit')
+      : null;
+    if (existingMcpInput) state.mcpCallLimitDraft = existingMcpInput.value;
     menu.innerHTML = '';
+    if (shell.dataset.aiSelect === 'browser') appendBrowserMcpSetting(menu);
     options.forEach((option) => {
       const item = document.createElement('button');
       item.type = 'button';
@@ -364,7 +513,10 @@
       event.preventDefault();
       if (trigger.disabled || select.disabled) return;
       if (shell.classList.contains('open')) closeSelect(shell);
-      else openSelect(shell);
+      else {
+        openSelect(shell);
+        if (shell.dataset.aiSelect === 'browser') void loadAiControlSettings();
+      }
     });
 
     trigger.addEventListener('keydown', (event) => {
@@ -721,6 +873,7 @@
       const exists = Array.from(browserSelect.options).some((opt) => opt.value === state.currentBrowserId);
       browserSelect.value = exists ? state.currentBrowserId : '';
       if (!exists) state.currentBrowserId = '';
+      if (state.currentBrowserId) state.browserSelectionExplicitlyDisabled = false;
       syncSelectUi(browserSelect);
     }
     const modelSelect = el('ai-chat-model');
@@ -1750,19 +1903,21 @@
       connections.forEach((connection) => {
         const option = document.createElement('option');
         option.value = String(connection.id || '');
-        const connectionSuffix = String(connection.id || '').slice(0, 6);
-        option.textContent = `${String(connection.name || 'AI自动化浏览器')}${connectionSuffix ? ` · ${connectionSuffix}` : ''} · ${Number(connection.toolCount || 0)} 个工具`;
+        const browserName = String(connection.browserName || connection.name || 'AI自动化浏览器');
+        option.textContent = `${browserName} · ${Number(connection.toolCount || 0)} 个工具`;
+        option.title = browserName;
         select.appendChild(option);
       });
-      const previousExists = connections.some((item) => String(item.id) === previous);
+      const previousExists = Boolean(previous)
+        && connections.some((item) => String(item.id) === previous);
       const firstConnectionId = String(connections[0]?.id || '');
       const nextBrowserId = previousExists
         ? previous
-        : (!state.browserSelectionInitialized ? firstConnectionId : '');
+        : (state.browserSelectionExplicitlyDisabled ? '' : firstConnectionId);
       const selectionChanged = state.currentBrowserId !== nextBrowserId;
       select.value = nextBrowserId;
       state.currentBrowserId = select.value;
-      if (state.currentBrowserId) state.browserSelectionInitialized = true;
+      if (state.currentBrowserId) state.browserSelectionExplicitlyDisabled = false;
       if (state.currentSession && !currentMessages().length) {
         state.currentSession.browserConnectionId = state.currentBrowserId;
       }
@@ -2058,8 +2213,8 @@
       }
     });
     el('ai-chat-browser')?.addEventListener('change', (event) => {
-      state.browserSelectionInitialized = true;
       state.currentBrowserId = String(event.target?.value || '');
+      state.browserSelectionExplicitlyDisabled = !state.currentBrowserId;
       if (state.currentSession) {
         state.currentSession.browserConnectionId = state.currentBrowserId;
         if (currentMessages().length) void persistCurrentSession();

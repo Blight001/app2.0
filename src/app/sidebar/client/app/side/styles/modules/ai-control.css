@@ -397,6 +397,49 @@
   width: min(280px, calc(100vw - 40px));
   min-width: 220px;
 }
+.ai-browser-mcp-setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px 8px;
+  margin: 0 2px 5px;
+  padding: 7px 6px 9px;
+  border-bottom: 1px solid rgba(120, 150, 200, .16);
+  color: #b9c8dc;
+  font-size: 11px;
+}
+.ai-browser-mcp-setting > label { font-weight: 650; }
+.ai-browser-mcp-setting-editor { display: flex; align-items: center; gap: 5px; }
+.ai-browser-mcp-setting-editor input {
+  width: 62px;
+  height: 27px;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  border: 1px solid rgba(120, 150, 200, .28);
+  border-radius: 6px;
+  outline: none;
+  color: #e8f1ff;
+  background: rgba(7, 12, 21, .56);
+  font: inherit;
+  font-size: 11px;
+}
+.ai-browser-mcp-setting-editor input:focus { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+.ai-browser-mcp-setting-editor button {
+  height: 27px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  background: var(--brand);
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.ai-browser-mcp-setting-editor button:disabled, .ai-browser-mcp-setting-editor input:disabled { opacity: .58; cursor: wait; }
+.ai-browser-mcp-setting-status { grid-column: 1 / -1; min-height: 0; color: #8da0b9; font-size: 9.5px; text-align: right; }
+.ai-browser-mcp-setting-status:empty { display: none; }
+.ai-browser-mcp-setting-status[data-type='success'] { color: #6fd4aa; }
+.ai-browser-mcp-setting-status[data-type='error'] { color: #ff8f99; }
 .ai-chat-model-field {
   flex: 0 1 auto;
   min-width: 0;
@@ -1022,6 +1065,8 @@ html.theme-light .ai-select-menu {
     0 12px 28px rgba(40, 70, 110, .14),
     0 0 0 1px rgba(255, 255, 255, .6) inset;
 }
+html.theme-light .ai-browser-mcp-setting { border-bottom-color: rgba(86, 121, 165, .16); color: #526b85; }
+html.theme-light .ai-browser-mcp-setting-editor input { border-color: rgba(86, 121, 165, .24); color: #203449; background: #f7faff; }
 html.theme-light .ai-select-option { color: #2b3d59; }
 html.theme-light .ai-select-option:hover,
 html.theme-light .ai-select-option:focus-visible {

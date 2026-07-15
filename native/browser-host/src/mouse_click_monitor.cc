@@ -1,4 +1,5 @@
 #include "mouse_click_monitor.h"
+#include "focus_manager.h"
 #include "native_helpers.h"
 
 #include <mutex>
@@ -30,6 +31,10 @@ LRESULT CALLBACK LowLevelMouseProc(int code, WPARAM wparam, LPARAM lparam) {
         const HWND child = entry.first;
         if (!IsWindow(child) || !IsWindowVisible(child)) continue;
         if (hit == child || IsChild(child, hit)) {
+          // WH_MOUSE_LL runs before the target receives WM_LBUTTONDOWN. Focus
+          // Chromium here so the same click can select the omnibox/page input
+          // instead of being consumed only to reactivate the embedded window.
+          FocusBrowserChildWindow(child);
           napi_call_threadsafe_function(
               entry.second, nullptr, napi_tsfn_nonblocking);
           break;

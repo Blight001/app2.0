@@ -52,6 +52,7 @@
     "cookies",
     "downloads",
     "offscreen",
+    "processes",
     "scripting",
     "storage",
     "tabs"

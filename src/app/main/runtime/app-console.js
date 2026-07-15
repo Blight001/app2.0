@@ -1,8 +1,15 @@
 const util = require('util');
 
 // 创建/初始化：createAppConsoleBridge的具体业务逻辑。
-function createAppConsoleBridge({ historyLimit = 500, getSenders = () => [], getSender = () => null } = {}) {
+function createAppConsoleBridge({
+  historyLimit = 500,
+  getSenders = () => [],
+  getDebugSenders = () => [],
+  getSender = () => null,
+} = {}) {
   const history = [];
+  // 调试窗口历史包含普通应用日志和“仅调试窗口”日志；侧栏历史只使用 history。
+  const debugHistory = [];
   const hasColor = Boolean(
     (process.stdout && process.stdout.isTTY)
     || (process.stderr && process.stderr.isTTY)
@@ -43,37 +50,61 @@ function createAppConsoleBridge({ historyLimit = 500, getSenders = () => [], get
     return detectSource(args) === 'TCP';
   }
 
+  function buildEntry(level, args) {
+    const source = detectSource(args);
+    return {
+      level,
+      source,
+      text: args.map(formatValue).join(' '),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  function appendBounded(target, entry) {
+    target.push(entry);
+    if (target.length > historyLimit) {
+      target.splice(0, target.length - historyLimit);
+    }
+  }
+
+  function deliver(entry, resolveSenders) {
+    try {
+      const senderValue = typeof resolveSenders === 'function' ? resolveSenders() : [];
+      const senderList = Array.isArray(senderValue) ? senderValue : [senderValue];
+      const uniqueSenders = [];
+      for (const sender of senderList) {
+        if (!sender || typeof sender.send !== 'function') continue;
+        if (uniqueSenders.includes(sender)) continue;
+        uniqueSenders.push(sender);
+        sender.send('app-console-line', entry);
+      }
+    } catch (_) {}
+  }
+
 // 处理：push的具体业务逻辑。
   function push(level, args) {
     try {
       if (shouldSuppressEntry(args)) {
         return;
       }
-      const source = detectSource(args);
-      const entry = {
-        level,
-        source,
-        text: args.map(formatValue).join(' '),
-        timestamp: new Date().toISOString(),
-      };
-      history.push(entry);
-      if (history.length > historyLimit) {
-        history.splice(0, history.length - historyLimit);
-      }
-      try {
-        const senderValue = typeof getSenders === 'function' ? getSenders() : getSender();
-        const senderList = Array.isArray(senderValue)
-          ? senderValue
-          : [getSender()];
-        const uniqueSenders = [];
-        for (const sender of senderList) {
-          if (!sender || typeof sender.send !== 'function') continue;
-          if (uniqueSenders.includes(sender)) continue;
-          uniqueSenders.push(sender);
-          sender.send('app-console-line', entry);
-        }
-      } catch (_) {}
+      const entry = buildEntry(level, args);
+      appendBounded(history, entry);
+      appendBounded(debugHistory, entry);
+      deliver(entry, () => (typeof getSenders === 'function' ? getSenders() : getSender()));
     } catch (_) {}
+  }
+
+  // 高频网络请求只进入独立调试窗口：不写 stdout/stderr，也不投递侧栏/控制页。
+  function pushDebugOnly(level, args) {
+    try {
+      const normalizedArgs = Array.isArray(args) ? args : [args];
+      const entry = buildEntry(level, normalizedArgs);
+      appendBounded(debugHistory, entry);
+      deliver(entry, getDebugSenders);
+      return entry;
+    } catch (_) {
+      return null;
+    }
   }
 
 // 处理：detectTag的具体业务逻辑。
@@ -159,7 +190,9 @@ function createAppConsoleBridge({ historyLimit = 500, getSenders = () => [], get
 
   return {
     install,
+    pushDebugOnly,
     getHistory: () => history.slice(),
+    getDebugHistory: () => debugHistory.slice(),
   };
 }
 

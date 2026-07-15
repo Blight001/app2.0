@@ -47,6 +47,13 @@ class ChromiumWindowBridge {
   attachChildWindow(options) { return this.load().attachChildWindow(options); }
   detachChildWindow(options) { return this.load().detachChildWindow(options); }
   setHostBounds(hostHwnd, bounds) { return this.load().setHostBounds({ hostHwnd, ...bounds }); }
+  raiseHostWindow(hostHwnd) {
+    const binding = this.load();
+    // Keep development usable while a running Electron process still has the
+    // previous native DLL loaded. The next native rebuild enables the repair.
+    if (typeof binding.raiseHostWindow !== 'function') return true;
+    return binding.raiseHostWindow({ hostHwnd });
+  }
   showHostWindow(hostHwnd) { return this.load().showHostWindow({ hostHwnd }); }
   hideHostWindow(hostHwnd) { return this.load().hideHostWindow({ hostHwnd }); }
   focusChildWindow(childHwnd) { return this.load().focusChildWindow({ childHwnd }); }

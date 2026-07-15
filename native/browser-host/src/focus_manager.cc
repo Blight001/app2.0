@@ -1,3 +1,4 @@
+#include "focus_manager.h"
 #include "native_helpers.h"
 
 namespace {
@@ -12,7 +13,10 @@ bool IsFocusedWindowOrDescendant(HWND child) {
        (info.hwndFocus && IsChild(child, info.hwndFocus)));
 }
 
-bool FocusAcrossInputQueues(HWND child) {
+}  // namespace
+
+bool FocusBrowserChildWindow(HWND child) {
+  if (!IsWindow(child)) return false;
   // Focus the Aura browser window, not Chrome_RenderWidgetHostHWND directly.
   // Aura must own the focus transition so it can synchronize its internal
   // FocusManager before forwarding keyboard events to Blink.
@@ -57,12 +61,10 @@ bool FocusAcrossInputQueues(HWND child) {
   return focused;
 }
 
-}  // namespace
-
 napi_value FocusChildWindow(napi_env env, napi_callback_info info) {
   napi_value options = SingleObjectArg(env, info);
   HWND child = ReadHwnd(env, GetNamed(env, options, "childHwnd"));
   if (!IsWindow(child)) return BoolValue(env, false);
   ShowWindow(child, SW_SHOW);
-  return BoolValue(env, FocusAcrossInputQueues(child));
+  return BoolValue(env, FocusBrowserChildWindow(child));
 }

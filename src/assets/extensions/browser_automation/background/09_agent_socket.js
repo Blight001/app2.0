@@ -551,6 +551,21 @@ function parseAiConfigId(raw) {
     return Number.isFinite(n) ? n : null;
 }
 
+async function getAgentBrowserProcessId() {
+    if (!chrome.processes || typeof chrome.processes.getProcessInfo !== 'function') {
+        return 0;
+    }
+    try {
+        const processInfo = await chrome.processes.getProcessInfo([], false);
+        const processes = Array.isArray(processInfo) ? processInfo : Object.values(processInfo || {});
+        const browserProcess = processes
+            .find((process) => String(process && process.type || '').toLowerCase() === 'browser');
+        return Number(browserProcess && browserProcess.osProcessId || 0) || 0;
+    } catch (_error) {
+        return 0;
+    }
+}
+
 // ── 设备登记 ────────────────────────────────────────────────────────────────────
 async function emitAgentEnrollOn(socket) {
     const settings = await getAgentSettings();
@@ -558,10 +573,12 @@ async function emitAgentEnrollOn(socket) {
         return;
     }
     const id = settings.deviceId || await getAgentMachineId();
+    const browserProcessId = await getAgentBrowserProcessId();
     agentCurrentId = id;
     const toolDefs = effectiveAgentToolDefs();
     socket.emit(DEVICE_ENROLL, {
         id,
+        browserProcessId,
         // AI 会在软件控制页按连接选择，因此插件登记时不绑定固定模型。
         aiConfigId: null,
         name: settings.agentName || 'AI自动化浏览器',

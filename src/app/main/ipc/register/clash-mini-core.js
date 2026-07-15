@@ -3,6 +3,7 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { writeDebugConsoleOnly } = require('../../runtime/debug-console-log');
 const YAML = require('yaml');
 const { getCoreDir } = require('../../config');
 const {
@@ -711,14 +712,25 @@ function normalizeProbeTimeout(value, fallbackMs = 2000) {
   return fallbackMs;
 }
 
-function normalizeProbeUrl(value, fallbackUrl = 'http://www.gstatic.com/generate_204') {
-  const text = String(value || '').trim();
-  if (!text) return fallbackUrl;
+const DEFAULT_LATENCY_PROBE_URL = 'https://www.gstatic.com/generate_204';
+
+function normalizeProbeUrl(value, fallbackUrl = DEFAULT_LATENCY_PROBE_URL) {
+  const text = String(value || '').trim() || String(fallbackUrl || '').trim();
+  if (!text) return '';
   try {
     const url = new URL(text);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return String(fallbackUrl || '').trim();
+    }
+    // 浏览器主要依赖 HTTPS。HTTP 204 可能被透明代理/节点入口直接应答，
+    // 即使节点的 TLS 上游已经超时仍会得到很低的“延迟”。统一用 HTTPS
+    // 才能把 TLS 建连纳入健康检查，避免自动选中实际不可用的节点。
+    if (url.protocol === 'http:') {
+      return DEFAULT_LATENCY_PROBE_URL;
+    }
     return url.toString();
   } catch (_) {
-    return fallbackUrl;
+    return String(fallbackUrl || '').trim();
   }
 }
 
@@ -767,7 +779,7 @@ function readClashProbeSettings() {
       const profileRaw = fs.readFileSync(profilePath, 'utf8');
       const profile = YAML.parse(profileRaw) || {};
       const latencyTimeoutMs = normalizeProbeTimeout(profile['cfw-latency-timeout'], 2000);
-      const latencyUrl = normalizeProbeUrl(profile['cfw-latency-url'], 'http://www.gstatic.com/generate_204');
+      const latencyUrl = normalizeProbeUrl(profile['cfw-latency-url'], DEFAULT_LATENCY_PROBE_URL);
       const connBreakStrategy = toBoolean(profile['cfw-conn-break-strategy'], false);
 
       return {
@@ -1665,7 +1677,6 @@ function importDirectClashRuntimeConfig(coreDir, payload, sourceLabel = 'server-
     const purgeResult = purgeClashMiniRuntimeConfigFiles(coreDir);
     fs.writeFileSync(runtimeConfigPath, normalized.content, 'utf8');
     const generatedPreview = String(normalized.content || '').replace(/\s+/g, ' ').trim().slice(0, 360);
-    console.log('[IPC] Clash 运行配置生成预览:', generatedPreview);
     return {
       ok: true,
       runtimeConfigPath,
@@ -1785,9 +1796,15 @@ function getClashMiniStatus() {
   };
 }
 
+function isClashMiniNetworkRequestLog(text, extra = {}) {
+  if (!extra || !extra.stream) return false;
+  return /(?:msg=)?["']?\[(?:TCP|UDP|DNS)\]/i.test(String(text || ''));
+}
+
 function emitClashMiniLog(ui, level, message, extra = {}) {
   const text = String(message || '').trim();
   const prefix = '[Clash Mini]';
+  const debugOnly = isClashMiniNetworkRequestLog(text, extra);
   const entry = {
     level,
     text,
@@ -1795,22 +1812,28 @@ function emitClashMiniLog(ui, level, message, extra = {}) {
     ...extra,
   };
 
-  try {
-    if (level === 'error') {
-      console.error(prefix, text, extra);
-    } else if (level === 'warn') {
-      console.warn(prefix, text, extra);
-    } else {
-      console.log(prefix, text, extra);
-    }
-  } catch (_) {}
+  if (debugOnly) {
+    writeDebugConsoleOnly(level, prefix, text, extra);
+  } else {
+    try {
+      if (level === 'error') {
+        console.error(prefix, text, extra);
+      } else if (level === 'warn') {
+        console.warn(prefix, text, extra);
+      } else {
+        console.log(prefix, text, extra);
+      }
+    } catch (_) {}
+  }
 
-  try {
-    ui?.sendToSide?.('clash-mini-log', entry);
-  } catch (_) {}
-  try {
-    ui?.sendToSide?.('clash-mini-status', getClashMiniStatus());
-  } catch (_) {}
+  if (!debugOnly) {
+    try {
+      ui?.sendToSide?.('clash-mini-log', entry);
+    } catch (_) {}
+    try {
+      ui?.sendToSide?.('clash-mini-status', getClashMiniStatus());
+    } catch (_) {}
+  }
   return entry;
 }
 
@@ -2114,6 +2137,7 @@ module.exports = {
   getClashMiniRuntimeRoot,
   getClashMiniStatus,
   importDirectClashRuntimeConfig,
+  isClashMiniNetworkRequestLog,
   ensureClashMiniRuleMode,
   invokeClashMiniControl,
   normalizeClashMiniStartupConfig,

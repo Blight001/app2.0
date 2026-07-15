@@ -10,6 +10,76 @@ const {
   getServerMode,
   isServerBaseAllowedForMode,
 } = require('../utils/server-mode');
+const { getAiControlMcpCallLimit } = require('../utils/ai-control-settings');
+
+const BROWSER_CONNECTION_START_MATCH_WINDOW_MS = 60 * 1000;
+
+function enrichBrowserConnectionNames(connections = [], tabs = [], runtimeStates = []) {
+  const stateByProfileId = new Map((Array.isArray(runtimeStates) ? runtimeStates : [])
+    .map((state) => [String(state?.profileId || ''), state]));
+  const browserByPid = new Map();
+  const browserCandidates = [];
+  const tabItems = tabs instanceof Map ? Array.from(tabs.values()) : (Array.isArray(tabs) ? tabs : []);
+
+  for (const tab of tabItems) {
+    if (String(tab?.runtimeType || '') !== 'chromium') continue;
+    const state = stateByProfileId.get(String(tab?.id || ''));
+    const pid = Number(state?.pid || 0) || 0;
+    const browserName = String(tab?.fixedTitle || tab?.tabTitle || '').trim();
+    if (!browserName) continue;
+    const candidate = {
+      pid,
+      profileId: String(state?.profileId || tab?.id || ''),
+      browserName,
+      startedAt: Number(state?.startedAt || 0) || 0,
+    };
+    browserCandidates.push(candidate);
+    if (pid) browserByPid.set(pid, candidate);
+  }
+
+  const connectionItems = Array.isArray(connections) ? connections : [];
+  const browserByConnectionId = new Map();
+  const usedProfileIds = new Set();
+
+  for (const connection of connectionItems) {
+    const candidate = browserByPid.get(Number(connection?.browserProcessId || 0) || 0);
+    if (!candidate) continue;
+    browserByConnectionId.set(String(connection?.id || ''), candidate);
+    usedProfileIds.add(candidate.profileId);
+  }
+
+  // 旧 Profile 可能尚未授予 processes 权限，插件无法上报浏览器 PID。
+  // 浏览器运行时启动与插件登记紧邻发生，以时间差做一次一对一兼容匹配。
+  const fallbackPairs = [];
+  for (const connection of connectionItems) {
+    const connectionId = String(connection?.id || '');
+    if (browserByConnectionId.has(connectionId)) continue;
+    const connectedAt = Number(connection?.connectedAt || 0) || 0;
+    if (!connectedAt) continue;
+    for (const candidate of browserCandidates) {
+      if (usedProfileIds.has(candidate.profileId) || !candidate.startedAt) continue;
+      const distance = Math.abs(connectedAt - candidate.startedAt);
+      if (distance <= BROWSER_CONNECTION_START_MATCH_WINDOW_MS) {
+        fallbackPairs.push({ connectionId, candidate, distance });
+      }
+    }
+  }
+  fallbackPairs.sort((left, right) => left.distance - right.distance);
+  const usedConnectionIds = new Set(browserByConnectionId.keys());
+  for (const pair of fallbackPairs) {
+    if (usedConnectionIds.has(pair.connectionId) || usedProfileIds.has(pair.candidate.profileId)) continue;
+    browserByConnectionId.set(pair.connectionId, pair.candidate);
+    usedConnectionIds.add(pair.connectionId);
+    usedProfileIds.add(pair.candidate.profileId);
+  }
+
+  return connectionItems.map((connection) => {
+    const browserName = browserByConnectionId.get(String(connection?.id || ''))?.browserName || '';
+    return browserName
+      ? { ...connection, pluginName: connection.name, browserName, name: browserName }
+      : connection;
+  });
+}
 
 // 启动/打开/显示：launchIndependentCommand的具体业务逻辑。
 function launchIndependentCommand(target, logger = console) {
@@ -86,7 +156,7 @@ function registerAppLifecycle(deps = {}) {
     shortcutManager,
     createDevConsoleWindow,
     getAppConsoleHistory,
-    isDevMode = false,
+    getDebugConsoleHistory,
     getGlobalHttpClient,
     isSwitchingToLicenseRef,
     isMainBootstrappedRef,
@@ -104,25 +174,24 @@ function registerAppLifecycle(deps = {}) {
   } = require('../ipc/register/clash-mini-core');
 
   app.whenReady().then(async () => {
-    // The development console is loaded before bootstrapMainApp registers the
-    // full IPC set. Make its history request available before loading its page.
-    if (isDevMode) {
-      try {
-        ipcMain.removeHandler('get-app-console-history');
-        ipcMain.handle('get-app-console-history', async () => {
-          try {
-            const history = typeof getAppConsoleHistory === 'function' ? getAppConsoleHistory() : [];
-            return { ok: true, history: Array.isArray(history) ? history : [] };
-          } catch (error) {
-            return { ok: false, error: error?.message || String(error), history: [] };
-          }
-        });
-      } catch (e) {
-        logger.warn?.('[启动] 注册调试控制台历史 IPC 失败:', e?.message || e);
-      }
+    // 独立调试控制台早于 bootstrapMainApp 加载，先注册历史接口；打包版本也启用。
+    try {
+      ipcMain.removeHandler('get-app-console-history');
+      ipcMain.handle('get-app-console-history', async () => {
+        try {
+          const history = typeof getDebugConsoleHistory === 'function'
+            ? getDebugConsoleHistory()
+            : (typeof getAppConsoleHistory === 'function' ? getAppConsoleHistory() : []);
+          return { ok: true, history: Array.isArray(history) ? history : [] };
+        } catch (error) {
+          return { ok: false, error: error?.message || String(error), history: [] };
+        }
+      });
+    } catch (e) {
+      logger.warn?.('[启动] 注册调试控制台历史 IPC 失败:', e?.message || e);
     }
 
-    if (isDevMode && typeof createDevConsoleWindow === 'function') {
+    if (typeof createDevConsoleWindow === 'function') {
       try {
         createDevConsoleWindow();
       } catch (e) {
@@ -207,11 +276,17 @@ function registerAppLifecycle(deps = {}) {
     ipcMain.handle('ai-control-get-browser-connections', async () => {
       try {
         const bridge = deps.browserAutomationBridge;
+        const connections = bridge && typeof bridge.listConnections === 'function'
+          ? bridge.listConnections()
+          : [];
+        const tabs = typeof deps.getTabs === 'function' ? deps.getTabs() : [];
+        const runtimeStates = deps.browserRuntimeManager
+          && typeof deps.browserRuntimeManager.listStates === 'function'
+          ? deps.browserRuntimeManager.listStates()
+          : [];
         return {
           ok: true,
-          connections: bridge && typeof bridge.listConnections === 'function'
-            ? bridge.listConnections()
-            : [],
+          connections: enrichBrowserConnectionNames(connections, tabs, runtimeStates),
         };
       } catch (error) {
         return { ok: false, message: error?.message || String(error), connections: [] };
@@ -323,7 +398,9 @@ function registerAppLifecycle(deps = {}) {
         let reasoningLog = '';
         const toolEvents = [];
         const traceEvents = [];
-        for (let round = 0; round < 12; round += 1) {
+        const mcpCallLimit = getAiControlMcpCallLimit(readStoreConfigSafe());
+        let mcpCallCount = 0;
+        for (let round = 0; ; round += 1) {
           emit({ type: 'round_start', round });
           const result = useStream && typeof httpClient.streamAIControlMessage === 'function'
             ? await httpClient.streamAIControlMessage(
@@ -383,6 +460,15 @@ function registerAppLifecycle(deps = {}) {
             return { ok: false, message: '模型请求了浏览器工具，但当前没有选择可用的浏览器插件' };
           }
 
+          if (mcpCallCount + toolCalls.length > mcpCallLimit) {
+            return {
+              ok: false,
+              message: `MCP 工具调用次数已达到上限（${mcpCallLimit} 次），已停止本轮任务`,
+              quota: latestQuota,
+              messages: modelMessages,
+            };
+          }
+
           modelMessages.push({
             role: 'assistant',
             content: String(result.message?.content || ''),
@@ -391,6 +477,7 @@ function registerAppLifecycle(deps = {}) {
           const roundContent = String(result.message?.content || '').trim();
           if (roundContent) traceEvents.push({ type: 'step', round, content: roundContent });
           for (const call of toolCalls) {
+            mcpCallCount += 1;
             const toolName = String(call?.function?.name || '').trim();
             let args = {};
             try {
@@ -427,7 +514,6 @@ function registerAppLifecycle(deps = {}) {
             });
           }
         }
-        return { ok: false, message: '浏览器工具调用次数过多，已停止本轮任务', quota: latestQuota, messages: modelMessages };
       } catch (error) {
         return { ok: false, message: error?.message || String(error) };
       }
@@ -958,5 +1044,7 @@ function registerAppLifecycle(deps = {}) {
 }
 
 module.exports = {
+  BROWSER_CONNECTION_START_MATCH_WINDOW_MS,
+  enrichBrowserConnectionNames,
   registerAppLifecycle,
 };

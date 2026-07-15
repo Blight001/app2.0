@@ -200,7 +200,7 @@ const isDevMode = !!(
     && /^(dev|development)$/i.test(String(process.env.NODE_ENV || ''))
   )
 );
-const { sendToSide, getAppConsoleHistory } = createUiBridge({
+const { sendToSide, getAppConsoleHistory, getDebugConsoleHistory } = createUiBridge({
   getSideView: appRuntime.getSideView,
   getControlPanelWindow: appRuntime.getControlPanelWindow,
   getConsoleWindow: appRuntime.getConsoleWindow,
@@ -261,6 +261,7 @@ const tabHelpers = createTabHelpers({
   getIsSidebarVisible: appRuntime.getIsSidebarVisible,
   setIsSidebarVisible: appRuntime.setIsSidebarVisible,
   sendToSide,
+  browserRuntimeManager,
 });
 
 const runtimeHelpers = createRuntimeHelpers({
@@ -495,6 +496,7 @@ const appShellDeps = {
   extIdBySession,
   clearInjectionRecord,
   getAppConsoleHistory,
+  getDebugConsoleHistory,
   statePluginGetter: () => state.pluginSettings,
   getDreamTargetUrl,
   getSideUrl,
@@ -584,6 +586,7 @@ registerAppLifecycle({
   cleanupBrowserPartitionsRootDir,
   browserRuntimeManager,
   browserAutomationBridge,
+  getTabs: () => tabs,
 
   shortcutManager,
   authenticateAccount: serverResolver.authenticateAccount,
@@ -599,6 +602,7 @@ registerAppLifecycle({
   createMainWindow,
   createDevConsoleWindow: appShell.createDevConsoleWindow,
   getAppConsoleHistory,
+  getDebugConsoleHistory,
   isDevMode,
   logger: console,
 });

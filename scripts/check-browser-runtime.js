@@ -662,6 +662,55 @@ try {
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(tutorialFocusCalls, 1);
 
+  const minimumTabs = new Map([['last-browser', {
+    id: 'last-browser',
+    runtimeType: 'chromium',
+    runtimeStatus: 'ready',
+  }]]);
+  let minimumActiveTabId = 'last-browser';
+  const minimumLaunches = [];
+  const minimumStops = [];
+  const minimumTabManager = createTabManager({
+    browserRuntimeManager: {
+      store: { readProfile: () => ({}) },
+      chromium: { on() {} },
+      async launchProfile(profile) {
+        minimumLaunches.push(profile);
+        return { status: 'ready' };
+      },
+      async show() {},
+      async hide() {},
+      async stop(profileId) { minimumStops.push(profileId); },
+    },
+    fs,
+    getStorePath: () => path.join(root, 'minimum-browser-store.json'),
+    getTabs: () => minimumTabs,
+    getMainWindow: () => ({
+      isDestroyed: () => false,
+      getContentSize: () => [1200, 800],
+      emit() {},
+    }),
+    getActiveTabId: () => minimumActiveTabId,
+    setActiveTabId: (tabId) => { minimumActiveTabId = tabId; },
+    getIsSidebarVisible: () => true,
+    updateTabs() {},
+    sendToSide() {},
+    logger: { warn() {}, error() {} },
+  });
+  await Promise.all([
+    minimumTabManager.closeTab('last-browser'),
+    minimumTabManager.closeTab('last-browser'),
+  ]);
+  assert.deepEqual(minimumStops, ['last-browser']);
+  assert.equal(minimumTabs.size, 1, '关闭最后一个浏览器后必须自动补齐');
+  assert.equal(minimumTabs.has('1'), true, '自动补齐的浏览器 ID 必须是 1');
+  assert.equal(minimumActiveTabId, '1');
+  assert.equal(minimumLaunches.at(-1).profileId, '1');
+  await minimumTabManager.closeTab('1');
+  assert.equal(minimumTabs.size, 1, 'ID 1 浏览器被关闭后仍必须自动重建');
+  assert.equal(minimumTabs.has('1'), true);
+  assert.equal(minimumLaunches.filter((profile) => profile.profileId === '1').length, 2);
+
   const browserClickHandlers = new Map();
   const browserClickTabs = new Map([['active-browser', {
     id: 'active-browser',

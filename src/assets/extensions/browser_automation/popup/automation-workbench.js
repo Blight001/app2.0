@@ -884,8 +884,8 @@ function renderSidebarFlowCanvas(cardData = null) {
 
     const steps = ensureSidebarStepIds(Array.isArray(cardData?.steps) ? cardData.steps : collectSidebarSteps());
     sidebarFlowState = normalizeSidebarFlowForSteps(cardData?.flow || sidebarFlowState, steps);
-    if (!sidebarSelectedFlowNodeId || !steps.some((step, index) => getSidebarStepId(step, index) === sidebarSelectedFlowNodeId)) {
-        sidebarSelectedFlowNodeId = sidebarFlowState.start || getSidebarStepId(steps[0] || {}, 0);
+    if (sidebarSelectedFlowNodeId && !steps.some((step, index) => getSidebarStepId(step, index) === sidebarSelectedFlowNodeId)) {
+        sidebarSelectedFlowNodeId = '';
     }
     if (sidebarFlowConnectSourceId && !steps.some((step, index) => getSidebarStepId(step, index) === sidebarFlowConnectSourceId)) {
         sidebarFlowConnectSourceId = '';
@@ -962,6 +962,25 @@ function renderSidebarFlowCanvas(cardData = null) {
           </div>
         `;
     }).join('');
+    syncSidebarNodeSettingsSelection();
+}
+
+function syncSidebarNodeSettingsSelection() {
+    if (!sidebarStepListNode) {
+        return false;
+    }
+
+    let hasSelection = false;
+    collectSidebarStepCards().forEach((card) => {
+        const selected = Boolean(sidebarSelectedFlowNodeId)
+            && String(card.dataset.stepId || '').trim() === sidebarSelectedFlowNodeId;
+        card.classList.toggle('is-selected', selected);
+        card.classList.toggle('is-expanded', selected);
+        hasSelection = hasSelection || selected;
+    });
+    sidebarStepListNode.classList.toggle('is-open', hasSelection);
+    sidebarStepListNode.setAttribute('aria-hidden', hasSelection ? 'false' : 'true');
+    return hasSelection;
 }
 
 function selectSidebarFlowNode(stepId = '', options = {}) {
@@ -972,19 +991,16 @@ function selectSidebarFlowNode(stepId = '', options = {}) {
     sidebarSelectedFlowNodeId = id;
     const currentCard = collectSidebarCardDataFromForm();
     renderSidebarFlowCanvas(currentCard);
-    const safeId = typeof CSS !== 'undefined' && CSS && typeof CSS.escape === 'function' ? CSS.escape(id) : id.replace(/"/g, '\\"');
-    const card = sidebarStepListNode?.querySelector(`[data-sidebar-step-card][data-step-id="${safeId}"]`);
-    if (card) {
-        card.classList.add('is-expanded');
-        const button = card.querySelector('[data-sidebar-step-action="toggle"]');
-        if (button) {
-            button.textContent = '收起详情';
-            button.setAttribute('aria-expanded', 'true');
-        }
-        if (options.scroll !== false) {
-            card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        }
+    syncSidebarNodeSettingsSelection();
+}
+
+function clearSidebarFlowNodeSelection() {
+    if (!sidebarSelectedFlowNodeId) {
+        return false;
     }
+    sidebarSelectedFlowNodeId = '';
+    renderSidebarFlowCanvas(collectSidebarCardDataFromForm());
+    return true;
 }
 
 function setSidebarFlowConnectMode(enabled = false) {
@@ -1539,7 +1555,7 @@ function buildSidebarStepCardHtml(step = {}, index = 0, expanded = false) {
             <div class="sidebar-step-card__summary">${buildSidebarStepSummary(step)}</div>
           </div>
           <div class="sidebar-step-card__actions">
-            <button type="button" class="button-secondary sidebar-step-card__toggle" data-sidebar-step-action="toggle" aria-expanded="${expanded ? 'true' : 'false'}">${expanded ? '收起详情' : '展开详情'}</button>
+            <button type="button" class="button-secondary sidebar-step-card__close" data-sidebar-step-action="close" aria-label="关闭节点设置">关闭</button>
             <button type="button" class="button-secondary" data-sidebar-step-action="up">上移</button>
             <button type="button" class="button-secondary" data-sidebar-step-action="down">下移</button>
             <button type="button" class="button-secondary" data-sidebar-step-action="delete">删除</button>
@@ -1911,12 +1927,16 @@ function renderSidebarCardEditor(cardData) {
     }
 
     if (normalized.steps.length === 0) {
-        sidebarStepListNode.innerHTML = '<div class="sidebar-step-empty">还没有步骤。先添加一条步骤开始编辑。</div>';
+        sidebarSelectedFlowNodeId = '';
+        sidebarStepListNode.innerHTML = '<div class="sidebar-step-empty">点击画布中的节点查看设置。</div>';
+        sidebarStepListNode.classList.remove('is-open');
+        sidebarStepListNode.setAttribute('aria-hidden', 'true');
         resetSidebarStepStatuses();
         return;
     }
 
     sidebarStepListNode.innerHTML = normalized.steps.map((step, index) => buildSidebarStepCardHtml(step, index, previousExpandedStates.get(index) === true)).join('');
+    syncSidebarNodeSettingsSelection();
     resetSidebarStepStatuses();
 }
 
@@ -2163,6 +2183,7 @@ globalThis.CookieCaptureAutomationWorkbench = {
     getSidebarStepId,
     normalizeSidebarFlowForSteps,
     renderSidebarFlowCanvas,
+    clearSidebarFlowNodeSelection,
     selectSidebarFlowNode,
     setSidebarFlowConnectMode,
     toggleSidebarFlowConnectMode,
