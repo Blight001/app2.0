@@ -6,9 +6,11 @@ const path = require('node:path');
 const YAML = require('yaml');
 
 const { buildChromiumArgs } = require('../src/app/main/browser-runtime/chromium-launcher');
+const { resolveLatencyConcurrency } = require('../src/app/main/ipc/register/clash-mini-actions');
 const {
   importDirectClashRuntimeConfig,
   normalizeClashMiniStartupConfig,
+  syncLocalGeoAssets,
 } = require('../src/app/main/ipc/register/clash-mini-core');
 
 function createTempDir(t) {
@@ -60,6 +62,28 @@ test('embedded Chromium disables autonomous background component downloads', () 
 
   assert.ok(args.includes('--disable-background-networking'));
   assert.ok(args.includes('--disable-component-update'));
+});
+
+test('Clash Mini latency probing uses bounded low concurrency', () => {
+  assert.equal(resolveLatencyConcurrency(144), 8);
+  assert.equal(resolveLatencyConcurrency(40), 6);
+  assert.equal(resolveLatencyConcurrency(144, 4), 4);
+  assert.equal(resolveLatencyConcurrency(144, 100), 12);
+});
+
+test('background best-route selection locks controls before status refresh and keeps progress visible', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/vpn.js'),
+    'utf8',
+  );
+  assert.match(source, /const disabled = !canUse \|\| vpnNodeSelectorBusy \|\| backgroundBestRouteSelectionPending/);
+  const startFlow = source.slice(source.indexOf('async function startClashMiniFlowOnce'), source.indexOf('function startClashMiniFlow('));
+  assert.ok(startFlow.indexOf('scheduleBestRouteSelection();') < startFlow.indexOf('applyClashMiniStatus(result'));
+  const backgroundFlow = source.slice(source.indexOf('function scheduleBestRouteSelection'), source.indexOf('function getNetworkMagicAutoStartEnabled'));
+  assert.match(backgroundFlow, /backgroundBestRouteSelectionPending = true;[\s\S]*setTimeout/);
+  assert.match(backgroundFlow, /keepPanelOpen: true/);
+  assert.match(backgroundFlow, /showPanel: true/);
+  assert.match(backgroundFlow, /reportProgress: true/);
 });
 
 test('Chromium update domains are forced direct before subscription proxy rules', () => {
@@ -167,4 +191,13 @@ test('direct config import syncs bundled assets before applying the offline fall
   assert.equal('geox-url' in generated, false);
   assert.equal(generated.rules.at(-1), 'MATCH,节点选择');
   assert.equal(generated['rule-providers'].cn_ip.type, 'file');
+
+  const geoPath = path.join(coreDir, 'geoip.metadb');
+  const previousMtime = fs.statSync(geoPath).mtimeMs;
+  const secondSync = syncLocalGeoAssets(coreDir);
+  assert.equal(secondSync.ok, true);
+  assert.deepEqual(secondSync.copied, []);
+  assert.ok(secondSync.skipped.includes('geoip.metadb'));
+  assert.equal(fs.statSync(geoPath).mtimeMs, previousMtime);
+  assert.ok(fs.existsSync(path.join(coreDir, '.bundled-assets.json')));
 });

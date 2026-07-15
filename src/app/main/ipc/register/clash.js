@@ -10,7 +10,7 @@ const {
   getClashMiniRuntimeRoot,
   getClashMiniStatus,
   importDirectClashRuntimeConfig,
-  prepareClashMiniRuntimeDir,
+  prepareClashMiniRuntimeDirAsync,
   resolveClashMiniCoreDir,
   setRuntimeLicenseCache,
   startClashMiniProcess,
@@ -293,7 +293,7 @@ function registerClashIPC(ctx) {
     try {
       console.log('[IPC] 开始导入 Clash Mini 默认配置...');
 
-      const runtimePrep = prepareClashMiniRuntimeDir();
+      const runtimePrep = await prepareClashMiniRuntimeDirAsync();
       if (!runtimePrep.ok) {
         console.error('[IPC] Clash Mini 运行目录准备失败:', runtimePrep.error || 'unknown');
         return { ok: false, error: runtimePrep.error || '未找到 Clash Mini core 目录' };

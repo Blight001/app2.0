@@ -18,6 +18,9 @@ const LOCAL_PROVIDER_FILES = [
   'private_domain.mrs',
   'geolocation-!cn.mrs',
 ];
+const LOCAL_ASSET_MARKER_FILE = '.bundled-assets.json';
+let clashMiniRuntimePrepPromise = null;
+let clashMiniRuntimePrepResult = null;
 
 // 复制/克隆：copyDirectoryRecursive的具体业务逻辑。
 function copyDirectoryRecursive(src, dest, { overwrite = false } = {}) {
@@ -46,6 +49,34 @@ function copyDirectoryRecursive(src, dest, { overwrite = false } = {}) {
       console.warn('[IPC] 复制 Clash Mini 文件失败:', srcPath, '->', destPath, error?.message || error);
     }
   }
+  return true;
+}
+
+async function copyDirectoryRecursiveAsync(src, dest, { overwrite = false } = {}) {
+  if (!src || !dest) return false;
+  try {
+    await fs.promises.access(src);
+  } catch (_) {
+    return false;
+  }
+
+  await fs.promises.mkdir(dest, { recursive: true });
+  const entries = await fs.promises.readdir(src, { withFileTypes: true });
+  await Promise.all(entries.map(async (entry) => {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      await copyDirectoryRecursiveAsync(srcPath, destPath, { overwrite });
+      return;
+    }
+    if (!overwrite) {
+      try {
+        await fs.promises.access(destPath);
+        return;
+      } catch (_) {}
+    }
+    await fs.promises.copyFile(srcPath, destPath);
+  }));
   return true;
 }
 
@@ -123,15 +154,72 @@ function resolveClashMiniExecutable(coreDir) {
   return fs.existsSync(candidate) ? candidate : null;
 }
 
-// 内置 Geo 库/规则集必须以内置版本为准，强制覆盖到运行目录，
-// 避免旧缓存或半截下载文件导致分流不稳定。
+function getLocalAssetRelativePaths() {
+  return [
+    ...LOCAL_GEO_FILES,
+    ...LOCAL_PROVIDER_FILES.map((name) => path.join('providers', name)),
+  ];
+}
+
+function buildLocalAssetManifest(bundledCore) {
+  const files = [];
+  for (const relativePath of getLocalAssetRelativePaths()) {
+    const src = path.join(bundledCore, relativePath);
+    try {
+      const stat = fs.statSync(src);
+      files.push({
+        path: relativePath.replace(/\\/g, '/'),
+        size: stat.size,
+        mtimeMs: Math.trunc(stat.mtimeMs),
+      });
+    } catch (_) {}
+  }
+  return {
+    signature: files.map((item) => `${item.path}:${item.size}:${item.mtimeMs}`).join('|'),
+    files,
+  };
+}
+
+function readLocalAssetMarker(runtimeDir) {
+  try {
+    const value = JSON.parse(fs.readFileSync(path.join(runtimeDir, LOCAL_ASSET_MARKER_FILE), 'utf8'));
+    return value && typeof value === 'object' ? value : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeLocalAssetMarker(runtimeDir, manifest) {
+  const markerPath = path.join(runtimeDir, LOCAL_ASSET_MARKER_FILE);
+  fs.writeFileSync(markerPath, `${JSON.stringify(manifest)}\n`, 'utf8');
+}
+
+async function writeLocalAssetMarkerAsync(runtimeDir, manifest) {
+  const markerPath = path.join(runtimeDir, LOCAL_ASSET_MARKER_FILE);
+  await fs.promises.writeFile(markerPath, `${JSON.stringify(manifest)}\n`, 'utf8');
+}
+
+function isLocalAssetSizeCurrent(runtimeDir, item) {
+  try {
+    return fs.statSync(path.join(runtimeDir, item.path)).size === item.size;
+  } catch (_) {
+    return false;
+  }
+}
+
+// 内置 Geo 库/规则集以内置版本为准。版本未变化且文件大小正确时跳过复制，
+// 版本升级或检测到残缺文件时再覆盖，兼顾启动速度与离线分流稳定性。
 function syncLocalGeoAssets(runtimeDir) {
   const bundledCore = resolveBundledClashMiniCoreDir();
   if (!bundledCore) {
     return { ok: false, copied: [], missing: [], error: '未找到内置 core 目录' };
   }
 
+  const manifest = buildLocalAssetManifest(bundledCore);
+  const marker = readLocalAssetMarker(runtimeDir);
+  const markerMatches = !!manifest.signature && marker?.signature === manifest.signature;
   const copied = [];
+  const skipped = [];
   const missing = [];
   try {
     fs.mkdirSync(runtimeDir, { recursive: true });
@@ -153,6 +241,11 @@ function syncLocalGeoAssets(runtimeDir) {
     }
     try {
       fs.mkdirSync(path.dirname(dest), { recursive: true });
+      const manifestItem = manifest.files.find((item) => item.path === relativePath.replace(/\\/g, '/'));
+      if ((markerMatches || !marker) && manifestItem && isLocalAssetSizeCurrent(runtimeDir, manifestItem)) {
+        skipped.push(relativePath.replace(/\\/g, '/'));
+        return;
+      }
       if (path.resolve(src) !== path.resolve(dest)) {
         fs.copyFileSync(src, dest);
       }
@@ -162,10 +255,69 @@ function syncLocalGeoAssets(runtimeDir) {
     }
   };
 
-  for (const name of LOCAL_GEO_FILES) copyAsset(name);
-  for (const name of LOCAL_PROVIDER_FILES) copyAsset(path.join('providers', name));
+  for (const relativePath of getLocalAssetRelativePaths()) copyAsset(relativePath);
 
-  return { ok: missing.length === 0, copied, missing };
+  if (missing.length === 0 && manifest.signature) {
+    try {
+      writeLocalAssetMarker(runtimeDir, manifest);
+    } catch (error) {
+      return { ok: false, copied, skipped, missing, error: error?.message || String(error) };
+    }
+  }
+
+  return { ok: missing.length === 0, copied, skipped, missing };
+}
+
+async function syncLocalGeoAssetsAsync(runtimeDir) {
+  const bundledCore = resolveBundledClashMiniCoreDir();
+  if (!bundledCore) {
+    return { ok: false, copied: [], skipped: [], missing: [], error: '未找到内置 core 目录' };
+  }
+
+  const manifest = buildLocalAssetManifest(bundledCore);
+  const marker = readLocalAssetMarker(runtimeDir);
+  const markerMatches = !!manifest.signature && marker?.signature === manifest.signature;
+  const copied = [];
+  const skipped = [];
+  const missing = [];
+  await fs.promises.mkdir(runtimeDir, { recursive: true });
+
+  await Promise.all(getLocalAssetRelativePaths().map(async (relativePath) => {
+    const normalizedPath = relativePath.replace(/\\/g, '/');
+    const src = path.join(bundledCore, relativePath);
+    const dest = path.join(runtimeDir, relativePath);
+    let sourceStat;
+    try {
+      sourceStat = await fs.promises.stat(src);
+    } catch (_) {
+      missing.push(normalizedPath);
+      return;
+    }
+    const manifestItem = { path: normalizedPath, size: sourceStat.size };
+    if ((markerMatches || !marker) && isLocalAssetSizeCurrent(runtimeDir, manifestItem)) {
+      skipped.push(normalizedPath);
+      return;
+    }
+    try {
+      await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+      if (path.resolve(src) !== path.resolve(dest)) {
+        await fs.promises.copyFile(src, dest);
+      }
+      copied.push(normalizedPath);
+    } catch (_) {
+      missing.push(normalizedPath);
+    }
+  }));
+
+  if (missing.length === 0 && manifest.signature) {
+    try {
+      await writeLocalAssetMarkerAsync(runtimeDir, manifest);
+    } catch (error) {
+      return { ok: false, copied, skipped, missing, error: error?.message || String(error) };
+    }
+  }
+
+  return { ok: missing.length === 0, copied, skipped, missing };
 }
 
 // 创建/初始化：prepareClashMiniRuntimeDir的具体业务逻辑。
@@ -192,6 +344,57 @@ function prepareClashMiniRuntimeDir() {
 
   const assetSync = syncLocalGeoAssets(runtimeDir);
   return { ok: true, sourceDir, runtimeDir, exePath, assetSync };
+}
+
+async function prepareClashMiniRuntimeDirAsync() {
+  if (
+    clashMiniRuntimePrepResult?.ok
+    && clashMiniRuntimePrepResult.exePath
+    && fs.existsSync(clashMiniRuntimePrepResult.exePath)
+  ) {
+    return { ...clashMiniRuntimePrepResult, cached: true };
+  }
+  if (clashMiniRuntimePrepPromise) return clashMiniRuntimePrepPromise;
+
+  const task = (async () => {
+    const startedAt = Date.now();
+    const sourceDir = resolveBundledClashMiniCoreDir();
+    if (!sourceDir || !fs.existsSync(sourceDir)) {
+      return { ok: false, error: `未找到 Clash Mini 源目录: ${sourceDir || 'unknown'}` };
+    }
+    const runtimeDir = getClashMiniRuntimeRoot();
+    try {
+      await fs.promises.mkdir(runtimeDir, { recursive: true });
+      if (path.resolve(runtimeDir) !== path.resolve(sourceDir)) {
+        await copyDirectoryRecursiveAsync(sourceDir, runtimeDir, { overwrite: false });
+      }
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+
+    const exePath = resolveClashMiniExecutable(runtimeDir);
+    if (!exePath) {
+      return { ok: false, error: 'Clash Mini 运行目录中未找到 verge-mihomo.exe' };
+    }
+    const assetSync = await syncLocalGeoAssetsAsync(runtimeDir);
+    const result = {
+      ok: true,
+      sourceDir,
+      runtimeDir,
+      exePath,
+      assetSync,
+      elapsedMs: Date.now() - startedAt,
+    };
+    if (assetSync.ok) clashMiniRuntimePrepResult = result;
+    return result;
+  })();
+
+  clashMiniRuntimePrepPromise = task;
+  try {
+    return await task;
+  } finally {
+    if (clashMiniRuntimePrepPromise === task) clashMiniRuntimePrepPromise = null;
+  }
 }
 
 // 移除/删除：purgeClashMiniRuntimeConfigFiles的具体业务逻辑。
@@ -474,6 +677,22 @@ async function probeClashMiniProxyDelay(coreDir, proxyName, testUrl, timeout) {
   };
 }
 
+// 批量测速：一次 GET /group/{组名}/delay 让内核并发测完整组节点，
+// 总耗时约等于单节点超时上限，远快于外部逐节点循环。
+// 返回 { 节点名: 延迟ms } 映射（失败节点会被内核省略）。
+// 老内核不支持该端点时抛错（404），由调用方回退逐节点方案。
+async function probeClashMiniGroupDelay(coreDir, groupName, testUrl, timeout) {
+  const probeTimeout = Math.max(Number(timeout) || 5000, 1000);
+  const response = await invokeClashMiniControl(
+    coreDir,
+    'get',
+    `/group/${encodeURIComponent(groupName)}/delay?timeout=${encodeURIComponent(probeTimeout)}&url=${encodeURIComponent(testUrl)}`,
+    // 内核要等最慢节点超时后才返回，HTTP 侧留足余量。
+    { timeoutMs: probeTimeout + 10000 },
+  );
+  return response && typeof response === 'object' && !Array.isArray(response) ? response : {};
+}
+
 // 格式化/规范化：formatClashMiniDelayText的具体业务逻辑。
 function formatClashMiniDelayText(delay) {
   const value = Number(delay);
@@ -727,20 +946,19 @@ async function waitForClashMiniControlApi(coreDir, timeoutMs = 15000) {
   const headers = buildClashMiniControlHeaders(coreDir);
 
   while (Date.now() < deadline) {
-    for (const probePath of probePaths) {
-      try {
-        const response = await axios.get(buildClashMiniControlUrl(coreDir, probePath), {
-          timeout: 2000,
-          headers,
-          validateStatus: () => true,
-        });
-        if (response && typeof response.status === 'number' && response.status < 500) {
-          return true;
-        }
-      } catch (_) {}
+    const probeTimeout = Math.max(100, Math.min(750, deadline - Date.now()));
+    const responses = await Promise.all(probePaths.map((probePath) => (
+      axios.get(buildClashMiniControlUrl(coreDir, probePath), {
+        timeout: probeTimeout,
+        headers,
+        validateStatus: () => true,
+      }).catch(() => null)
+    )));
+    if (responses.some((response) => response && typeof response.status === 'number' && response.status < 500)) {
+      return true;
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await new Promise((resolve) => setTimeout(resolve, 200));
   }
 
   return false;
@@ -1717,7 +1935,7 @@ async function startClashMiniProcessOnce(ui, options = {}) {
     return { ok: true, alreadyRunning: true, ...getClashMiniStatus() };
   }
 
-  const runtimePrep = prepareClashMiniRuntimeDir();
+  const runtimePrep = await prepareClashMiniRuntimeDirAsync();
   if (!runtimePrep.ok) {
     emitClashMiniLog(ui, 'error', runtimePrep.error || '准备 Clash Mini 运行目录失败');
     return { ok: false, error: runtimePrep.error || '准备 Clash Mini 运行目录失败' };
@@ -1970,8 +2188,10 @@ module.exports = {
   normalizeDirectClashRuntimeConfig,
   normalizeProbeTimeout,
   normalizeProbeUrl,
+  probeClashMiniGroupDelay,
   probeClashMiniProxyDelay,
   prepareClashMiniRuntimeDir,
+  prepareClashMiniRuntimeDirAsync,
   readClashProbeSettings,
   resolveClashMiniCoreDir,
   setRuntimeLicenseCache,

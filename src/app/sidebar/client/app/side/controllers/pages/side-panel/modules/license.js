@@ -437,8 +437,8 @@ function bindLicenseValidationControls() {
           try {
             const vpnBtn = safeGetEl('VPN-switch');
             const startBtn = safeGetEl('start-clash-mini-btn');
-            if (typeof autoStartClashMiniAfterValidation === 'function') {
-              void autoStartClashMiniAfterValidation({
+            if (typeof autoStartNetworkMagicIfEligible === 'function') {
+              void autoStartNetworkMagicIfEligible({
                 startBtn,
                 vpnBtn,
                 key,
@@ -490,8 +490,8 @@ function bindLicenseValidationControls() {
           try {
             const vpnBtn = safeGetEl('VPN-switch');
             const startBtn = safeGetEl('start-clash-mini-btn');
-            if (typeof autoStartClashMiniAfterValidation === 'function') {
-              void autoStartClashMiniAfterValidation({
+            if (typeof autoStartNetworkMagicIfEligible === 'function') {
+              void autoStartNetworkMagicIfEligible({
                 startBtn,
                 vpnBtn,
                 key: loadedKey,
