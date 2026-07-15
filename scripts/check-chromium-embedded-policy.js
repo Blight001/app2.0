@@ -97,9 +97,15 @@ assert(!patchedFiles.some((file) =>
 'the embedded policy must not patch the chrome.tabs extension API');
 
 assert(popupPatch.includes('chrome/browser/ui/views/extensions/extension_popup.cc'));
-assert(popupPatch.includes('set_close_on_deactivate('));
-assert(popupPatch.includes('switches::kHsEmbedMode) == "child-window"'));
+assert(popupPatch.includes('set_close_on_deactivate(false)'));
+assert(popupPatch.includes('A system file'));
+assert(popupPatch.includes('chooser takes focus away from the popup'));
 assert(!popupPatch.includes('set_close_on_deactivate(true)'));
+const extensionPopupPatch = popupPatch.slice(
+  0,
+  popupPatch.indexOf('diff --git a/chrome/browser/ui/views/toolbar/'),
+);
+assert(!extensionPopupPatch.includes('switches::kHsEmbedMode) == "child-window"'));
 assert(popupPatch.includes('toolbar_action_hover_card_controller.cc'));
 assert(popupPatch.includes('embedded_hover_exit_watchdog_.Start('));
 assert(popupPatch.includes('Screen::Get()->GetCursorScreenPoint()'));

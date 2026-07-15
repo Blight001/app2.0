@@ -163,13 +163,16 @@ function displayMessageItem(item) {
     }
   } else if (item.kind === 'confirm') {
     actions.innerHTML = `
-      <button id="confirm-dialog-btn" class="btn-blue">确定</button>
-      <button id="cancel-dialog-btn" class="btn-gray" style="margin-left: 10px;">取消</button>
+      <button id="confirm-dialog-btn" class="btn-blue">${messageModalEscapeHtml(item.confirmText || '确定')}</button>
+      <button id="cancel-dialog-btn" class="btn-gray" style="margin-left: 10px;">${messageModalEscapeHtml(item.cancelText || '取消')}</button>
     `;
     const confirmBtn = messageModalGetEl('confirm-dialog-btn');
     const cancelBtn = messageModalGetEl('cancel-dialog-btn');
     if (confirmBtn) {
       confirmBtn.addEventListener('click', async () => {
+        if (confirmBtn.disabled) return;
+        confirmBtn.disabled = true;
+        if (cancelBtn) cancelBtn.disabled = true;
         try {
           if (item.onConfirm) await item.onConfirm();
         } catch (e) {
@@ -455,17 +458,62 @@ function hideLoadingMessage() {
  * @param {Function} onConfirm - 用户点击确认时的回调函数
  * @param {Function} onCancel - 用户点击取消时的回调函数
  * @param {string} type - 消息类型：'info'(默认), 'success', 'warning', 'error'
+ * @param {Object} options - 可选标题、图标和按钮文字
  */
-function showConfirmDialog(message, onConfirm, onCancel, type = 'info') {
+function showConfirmDialog(message, onConfirm, onCancel, type = 'info', options = {}) {
   // 将确认对话加入队列，按确认优先级处理
   const priority = MESSAGE_PRIORITY.confirm || (MESSAGE_PRIORITY.info + 10);
   enqueueMessage({
     kind: 'confirm',
     type: type === 'info' ? 'confirm' : type,
+    title: String(options?.title || '').trim() || undefined,
+    icon: String(options?.icon || '').trim() || undefined,
+    confirmText: String(options?.confirmText || '').trim() || undefined,
+    cancelText: String(options?.cancelText || '').trim() || undefined,
     message,
     priority,
     onConfirm,
     onCancel
+  });
+}
+
+// 侧边栏统一承载浏览器数据清理确认，避免使用系统原生弹窗。
+function bindBrowserDataClearConfirmListener() {
+  if (!window.electronAPI || typeof window.electronAPI.on !== 'function') return;
+  if (window.__browserDataClearConfirmListenerBound) return;
+  window.__browserDataClearConfirmListenerBound = true;
+
+  window.electronAPI.on('browser-data-clear-confirm-request', (payload = {}) => {
+    const requestId = String(payload?.requestId || '').trim();
+    const browserTitle = String(payload?.title || '当前浏览器').trim() || '当前浏览器';
+    if (!requestId) return;
+    const respond = async (confirmed) => {
+      try {
+        const result = await window.electronAPI.invoke('resolve-browser-data-clear-confirm', {
+          requestId,
+          confirmed: confirmed === true,
+        });
+        if (confirmed !== true) return;
+        if (!result?.ok) {
+          showErrorMessage(result?.message || result?.error || '清空浏览器数据失败');
+          return;
+        }
+        showSuccessMessage('浏览器数据已清空');
+      } catch (error) {
+        if (confirmed === true) showErrorMessage(error?.message || '清空浏览器数据失败');
+      }
+    };
+    showConfirmDialog(
+      `确认清空"${browserTitle}"的浏览器数据?\n\nCookie、缓存、浏览历史、本地存储和页面会话将被删除，浏览器会自动重新打开。窗口配置和已下载文件会保留。`,
+      () => respond(true),
+      () => respond(false),
+      'warning',
+      {
+        title: '清空浏览器数据',
+        confirmText: '确认清空',
+        cancelText: '取消',
+      },
+    );
   });
 }
 
@@ -548,6 +596,7 @@ function ensureModalInitialized() {
  * 这个函数需要在 electronAPI 可用时调用
  */
 function initServerMessageListener() {
+  bindBrowserDataClearConfirmListener();
   if (window.__messageModalServerListenerBound) {
     return;
   }
@@ -649,6 +698,7 @@ window.MessageModal = {
   showLoadingMessage,
   hideLoadingMessage,
   showConfirmDialog,
+  bindBrowserDataClearConfirmListener,
   showPromptDialog,
   initMessageModal,
   initServerMessageListener,

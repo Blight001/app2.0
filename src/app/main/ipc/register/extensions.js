@@ -36,41 +36,6 @@ function registerExtensionsIPC(ctx = {}) {
     }
   });
 
-  ipcMain.handle('open-extension-popup-by-id', async (_event, payload = {}) => {
-    const missing = ensureManager();
-    if (missing) return missing;
-    try {
-      if (payload?.collapseSidebar === true && typeof ctx.ui?.ensureSidebarCollapsed === 'function') {
-        ctx.ui.ensureSidebarCollapsed();
-      }
-      return await extensionManager.openExtensionPopup(payload?.id);
-    } catch (error) {
-      return { ok: false, message: error?.message || String(error) };
-    }
-  });
-
-  ipcMain.handle('open-extension-options-by-id', async (_event, payload = {}) => {
-    const missing = ensureManager();
-    if (missing) return missing;
-    try {
-      if (payload?.collapseSidebar === true && typeof ctx.ui?.ensureSidebarCollapsed === 'function') {
-        ctx.ui.ensureSidebarCollapsed();
-      }
-      return await extensionManager.openExtensionOptions(payload?.id);
-    } catch (error) {
-      return { ok: false, message: error?.message || String(error) };
-    }
-  });
-
-  ipcMain.handle('close-extension-web-panel', async () => {
-    const missing = ensureManager();
-    if (missing) return missing;
-    try {
-      return extensionManager.closeWebPanel();
-    } catch (error) {
-      return { ok: false, message: error?.message || String(error), state: extensionManager.getPublicState() };
-    }
-  });
 }
 
 module.exports = { registerExtensionsIPC };

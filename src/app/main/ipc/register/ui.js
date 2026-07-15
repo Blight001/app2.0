@@ -1,26 +1,11 @@
 const path = require('path');
 const { ipcMain, BrowserWindow, screen, nativeTheme } = require('electron');
-const {
-  getClashMiniStatus,
-  getClashMiniProxyEndpoint,
-  getClashMiniRuntimeRoot,
-} = require('./clash-mini-core');
-const { normalizeTabBrowserProxyMode } = require('../../utils/normalizers');
 const { resolveTabTitle } = require('../../services/tab-common');
 
 // 监听/绑定：registerUiIPC的具体业务逻辑。
 function registerUiIPC(ctx) {
-  const { ui, getAppConsoleHistory, app, isDevMode: ctxIsDevMode } = ctx;
-  const isDevMode = !!(
-    ctxIsDevMode === true
-    || (app && app.isPackaged === false)
-    || (process.env.NODE_ENV && /^(dev|development)$/i.test(String(process.env.NODE_ENV || '')))
-  );
-  const PROXY_MODE_LABELS = {
-    proxy: '单独走端口',
-    direct: '直连',
-  };
-  let tabProxyMenuWindow = null;
+  const { ui, getAppConsoleHistory, app } = ctx;
+  let tabContextMenuWindow = null;
   let accountCenterPopupWindow = null;
   let accountCenterPopupLayout = null;
   let accountCenterPopupDismissTimer = null;
@@ -28,6 +13,7 @@ function registerUiIPC(ctx) {
   let accountCenterPopupBlurArmTimer = null;
   let accountCenterPopupBlurArmed = false;
   let accountCenterPopupWindowFocusHandler = null;
+  const pendingBrowserDataClearRequests = new Map();
 
   const closeAccountCenterPopupWindow = () => {
     if (accountCenterPopupDismissTimer) {
@@ -222,7 +208,6 @@ function registerUiIPC(ctx) {
     await toggleAccountCenterPopupWindow(payload);
   };
 
-  const getProxyModeLabel = (mode) => PROXY_MODE_LABELS[String(mode || '').trim()] || String(mode || '').trim() || '未知模式';
   let currentAppTheme = 'dark';
 
   const normalizeAppTheme = (theme) => (String(theme || '').trim() === 'light' ? 'light' : 'dark');
@@ -244,6 +229,58 @@ function registerUiIPC(ctx) {
     if (!profileId || !ui?.browserRuntimeManager) return { ok: false, message: '缺少 Chromium Profile ID' };
     try {
       const state = await ui.browserRuntimeManager.restart(profileId);
+      return { ok: true, state };
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle('clear-browser-runtime-data', async (_event, payload = {}) => {
+    const profileId = String(payload?.profileId || '').trim();
+    const manager = ui?.browserRuntimeManager;
+    if (!profileId || !manager || typeof manager.clearData !== 'function') {
+      return { ok: false, message: '当前浏览器不支持清空数据' };
+    }
+    try {
+      const tab = ui?.getTabs?.().get?.(profileId);
+      if (!tab) return { ok: false, message: '浏览器窗口不存在' };
+      closeTabContextMenuWindow();
+      ui?.ensureSidebarVisible?.();
+      const sideWebContents = ui?.getSideView?.()?.webContents;
+      if (!sideWebContents || sideWebContents.isDestroyed?.()) {
+        return { ok: false, message: '侧边栏尚未就绪，无法显示确认弹窗' };
+      }
+      const requestId = `browser-data-clear-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const timeout = setTimeout(() => {
+        pendingBrowserDataClearRequests.delete(requestId);
+      }, 120000);
+      pendingBrowserDataClearRequests.set(requestId, { profileId, timeout });
+      sideWebContents.send('browser-data-clear-confirm-request', {
+        requestId,
+        profileId,
+        title: resolveTabTitle(tab),
+      });
+      return { ok: true, pending: true };
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle('resolve-browser-data-clear-confirm', async (event, payload = {}) => {
+    const requestId = String(payload?.requestId || '').trim();
+    const pending = pendingBrowserDataClearRequests.get(requestId);
+    if (!pending) return { ok: false, message: '清空请求已失效，请重新操作' };
+    const sideWebContents = ui?.getSideView?.()?.webContents;
+    if (!sideWebContents || sideWebContents.id !== event.sender?.id) {
+      return { ok: false, message: '只能从侧边栏确认清空操作' };
+    }
+    clearTimeout(pending.timeout);
+    pendingBrowserDataClearRequests.delete(requestId);
+    if (payload?.confirmed !== true) return { ok: true, cancelled: true };
+    try {
+      const tab = ui?.getTabs?.().get?.(pending.profileId);
+      if (!tab) return { ok: false, message: '浏览器窗口不存在' };
+      const state = await ui.browserRuntimeManager.clearData(pending.profileId);
       return { ok: true, state };
     } catch (error) {
       return { ok: false, message: error?.message || String(error) };
@@ -283,48 +320,14 @@ function registerUiIPC(ctx) {
     } catch (_) {}
   };
 
-  const resolveEffectiveBrowserProxyMode = (rawMode) => {
-    const currentMode = normalizeTabBrowserProxyMode(rawMode);
-    if (currentMode !== 'inherit') {
-      return currentMode;
+  const closeTabContextMenuWindow = () => {
+    if (tabContextMenuWindow && !tabContextMenuWindow.isDestroyed()) {
+      try { tabContextMenuWindow.close(); } catch (_) {}
     }
-    const clashMiniStatus = typeof getClashMiniStatus === 'function' ? getClashMiniStatus() : null;
-    const coreDir = clashMiniStatus?.coreDir || (typeof getClashMiniRuntimeRoot === 'function' ? getClashMiniRuntimeRoot() : '');
-    const endpoint = coreDir && typeof getClashMiniProxyEndpoint === 'function'
-      ? getClashMiniProxyEndpoint(coreDir)
-      : null;
-    if (endpoint && Number.isFinite(Number(endpoint.port))) {
-      return 'proxy';
-    }
-    return 'direct';
+    tabContextMenuWindow = null;
   };
 
-  const resolveCurrentTabProxyMode = (tabId, fallbackMode = 'inherit') => {
-    try {
-      const tabs = ui && typeof ui.getTabs === 'function' ? ui.getTabs() : null;
-      if (tabs && tabId) {
-        const directTab = tabs.get(tabId);
-        if (directTab) {
-          return resolveEffectiveBrowserProxyMode(directTab.browserProxyMode);
-        }
-        for (const tab of tabs.values()) {
-          if (String(tab?.id || '').trim() === String(tabId || '').trim()) {
-            return resolveEffectiveBrowserProxyMode(tab?.browserProxyMode);
-          }
-        }
-      }
-    } catch (_) {}
-    return normalizeTabBrowserProxyMode(fallbackMode);
-  };
-
-  const closeTabProxyMenuWindow = () => {
-    if (tabProxyMenuWindow && !tabProxyMenuWindow.isDestroyed()) {
-      try { tabProxyMenuWindow.close(); } catch (_) {}
-    }
-    tabProxyMenuWindow = null;
-  };
-
-  const buildTabProxyMenuHtml = (tabId, currentMode = 'inherit') => `<!DOCTYPE html>
+  const buildTabContextMenuHtml = (tabId) => `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8" />
@@ -367,14 +370,8 @@ function registerUiIPC(ctx) {
     }
     button:hover { background: rgba(77, 163, 255, 0.18); }
     button:active { background: rgba(77, 163, 255, 0.28); }
-    button.selected {
-      background: rgba(77, 163, 255, 0.18);
-      color: #ffffff;
-      box-shadow: inset 0 0 0 1px rgba(77, 163, 255, 0.34);
-    }
-    button:not(.selected) {
-      color: rgba(230, 232, 238, 0.82);
-    }
+    button.danger { color: #ffb4b4; }
+    button.danger:hover { background: rgba(255, 82, 82, 0.16); }
     button:disabled {
       cursor: default;
       opacity: 0.72;
@@ -395,63 +392,47 @@ function registerUiIPC(ctx) {
 </head>
 <body>
   <div class="menu">
-    <button id="proxy-btn" type="button">走代理</button>
-    <button id="direct-btn" type="button">直连</button>
+    <button id="restart-btn" type="button">重启浏览器</button>
+    <button id="clear-btn" class="danger" type="button">清空浏览器数据</button>
     <div id="error" class="error"></div>
   </div>
   <script>
     const tabId = ${JSON.stringify(String(tabId || ''))};
-    const currentMode = ${JSON.stringify(normalizeTabBrowserProxyMode(currentMode))};
     const api = window.electronAPI;
-    const proxyBtn = document.getElementById('proxy-btn');
-    const directBtn = document.getElementById('direct-btn');
+    const restartBtn = document.getElementById('restart-btn');
+    const clearBtn = document.getElementById('clear-btn');
     const errorEl = document.getElementById('error');
-    const proxyText = proxyBtn.textContent;
-    const directText = directBtn.textContent;
-
-    const applyCurrentMode = (mode) => {
-      const nextMode = mode === 'direct' ? 'direct' : mode === 'proxy' ? 'proxy' : 'inherit';
-      proxyBtn.classList.toggle('selected', nextMode === 'proxy');
-      directBtn.classList.toggle('selected', nextMode === 'direct');
-      proxyBtn.setAttribute('aria-pressed', nextMode === 'proxy' ? 'true' : 'false');
-      directBtn.setAttribute('aria-pressed', nextMode === 'direct' ? 'true' : 'false');
-    };
+    const restartText = restartBtn.textContent;
+    const clearText = clearBtn.textContent;
 
     const setLoading = (loading) => {
-      proxyBtn.disabled = loading;
-      directBtn.disabled = loading;
+      restartBtn.disabled = loading;
+      clearBtn.disabled = loading;
       if (!loading) {
-        proxyBtn.textContent = proxyText;
-        directBtn.textContent = directText;
+        restartBtn.textContent = restartText;
+        clearBtn.textContent = clearText;
       }
     };
 
     const showError = (message) => {
-      errorEl.textContent = message || '切换代理失败';
+      errorEl.textContent = message || '操作失败';
       errorEl.classList.add('visible');
     };
 
-    const showClickFeedback = (mode) => {
-      const targetBtn = mode === 'proxy' ? proxyBtn : directBtn;
-      targetBtn.textContent = '切换中...';
+    const invoke = async (action) => {
+      const targetBtn = action === 'restart' ? restartBtn : clearBtn;
+      const channel = action === 'restart' ? 'restart-browser-runtime' : 'clear-browser-runtime-data';
+      targetBtn.textContent = action === 'restart' ? '重启中...' : '清理中...';
       setLoading(true);
-    };
-
-    const invoke = async (mode) => {
       try {
         errorEl.classList.remove('visible');
         errorEl.textContent = '';
-        showClickFeedback(mode);
         if (!api || typeof api.invoke !== 'function') {
           throw new Error('当前窗口不可用');
         }
-        const resp = await api.invoke('set-tab-browser-proxy-mode', { tabId, mode });
+        const resp = await api.invoke(channel, { profileId: tabId });
         if (!resp || resp.ok !== true) {
-          throw new Error((resp && (resp.message || resp.error)) || '切换代理失败');
-        }
-        const refreshResp = await api.invoke('refresh-tab', tabId);
-        if (!refreshResp || refreshResp.ok !== true) {
-          throw new Error((refreshResp && (refreshResp.message || refreshResp.error)) || '刷新失败');
+          throw new Error((resp && (resp.message || resp.error)) || '操作失败');
         }
         window.close();
       } catch (error) {
@@ -460,24 +441,18 @@ function registerUiIPC(ctx) {
       }
     };
 
-    document.getElementById('proxy-btn').addEventListener('click', () => invoke('proxy'));
-    document.getElementById('direct-btn').addEventListener('click', () => invoke('direct'));
+    restartBtn.addEventListener('click', () => invoke('restart'));
+    clearBtn.addEventListener('click', () => invoke('clear'));
     window.addEventListener('blur', () => window.close());
-    applyCurrentMode(currentMode);
   </script>
 </body>
 </html>`;
 
-  const openTabProxyMenuWindow = ({ tabId, x = 0, y = 0, parentWindow = null, browserProxyMode = 'inherit' } = {}) => {
-    if (!isDevMode) {
-      return false;
-    }
+  const openTabContextMenuWindow = ({ tabId, x = 0, y = 0, parentWindow = null } = {}) => {
     try {
-      closeTabProxyMenuWindow();
+      closeTabContextMenuWindow();
       const parent = parentWindow && !parentWindow.isDestroyed() ? parentWindow : null;
       if (!parent) return false;
-
-      const currentMode = resolveCurrentTabProxyMode(tabId, browserProxyMode);
 
       const popupWidth = 168;
       const popupHeight = 92;
@@ -491,7 +466,7 @@ function registerUiIPC(ctx) {
       const left = Math.min(Math.max(anchorX - 12, workArea.x + 8), workArea.x + workArea.width - popupWidth - 8);
       const top = Math.min(Math.max(anchorY + 8, workArea.y + 8), workArea.y + workArea.height - popupHeight - 8);
 
-      tabProxyMenuWindow = new BrowserWindow({
+      tabContextMenuWindow = new BrowserWindow({
         x: Math.round(left),
         y: Math.round(top),
         width: popupWidth,
@@ -516,45 +491,22 @@ function registerUiIPC(ctx) {
         },
       });
 
-      tabProxyMenuWindow.on('closed', () => {
-        tabProxyMenuWindow = null;
+      tabContextMenuWindow.on('closed', () => {
+        tabContextMenuWindow = null;
       });
-      tabProxyMenuWindow.on('blur', () => closeTabProxyMenuWindow());
+      tabContextMenuWindow.on('blur', () => closeTabContextMenuWindow());
 
-      tabProxyMenuWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildTabProxyMenuHtml(tabId, currentMode))}`);
-      tabProxyMenuWindow.once('ready-to-show', () => {
-        try { tabProxyMenuWindow.show(); } catch (_) {}
+      tabContextMenuWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildTabContextMenuHtml(tabId))}`);
+      tabContextMenuWindow.once('ready-to-show', () => {
+        try { tabContextMenuWindow.show(); } catch (_) {}
       });
       return true;
     } catch (error) {
-      console.warn('[UI] 打开代理菜单窗口失败:', error?.message || error);
-      closeTabProxyMenuWindow();
+      console.warn('[UI] 打开浏览器菜单窗口失败:', error?.message || error);
+      closeTabContextMenuWindow();
       return false;
     }
   };
-
-  async function setTabProxyModeAndPromptRefresh(tabId, mode) {
-    const normalizedMode = String(mode || '').trim().toLowerCase();
-    if (!['proxy', 'direct'].includes(normalizedMode)) {
-      return { ok: false, message: '当前菜单不支持该代理模式' };
-    }
-
-    if (!ui || typeof ui.setTabBrowserProxyMode !== 'function') {
-      return { ok: false, message: '标签代理模式功能不可用' };
-    }
-
-    console.log('[UI] 开始切换标签代理模式', { tabId, mode: normalizedMode });
-    const result = await ui.setTabBrowserProxyMode(tabId, normalizedMode);
-    if (!result || result.ok !== true) {
-      console.warn('[UI] 切换标签代理模式失败', { tabId, mode: normalizedMode, result });
-      return result || { ok: false, message: '切换代理模式失败' };
-    }
-    return {
-      ...result,
-      refreshed: false,
-      refreshPromptShown: false,
-    };
-  }
 
   ipcMain.on('app-theme-changed', (_e, theme) => {
     broadcastAppTheme(theme);
@@ -569,41 +521,21 @@ function registerUiIPC(ctx) {
   ipcMain.on('switch-tab', (_e, tabId) => ui.switchTab(tabId));
   ipcMain.on('close-tab', (_e, tabId) => { void ui.closeTab(tabId); });
 
-  ipcMain.handle('set-tab-browser-proxy-mode', async (_e, payload = {}) => {
-    try {
-      if (!isDevMode) {
-        return { ok: false, disabled: true, message: '正式版未启用标签代理切换菜单' };
-      }
-      const tabId = String(payload?.tabId || '').trim();
-      const mode = String(payload?.mode || 'inherit').trim();
-      if (!tabId) {
-        return { ok: false, message: '缺少标签 ID' };
-      }
-      return await setTabProxyModeAndPromptRefresh(tabId, mode, _e.sender);
-    } catch (error) {
-      return { ok: false, message: error?.message || String(error) };
-    }
-  });
-
   ipcMain.handle('show-tab-context-menu', async (_e, payload = {}) => {
     try {
-      if (!isDevMode) {
-        return { ok: true, disabled: true };
-      }
       const tabId = String(payload?.tabId || '').trim();
       if (!tabId) {
         return { ok: false, message: '缺少标签 ID' };
       }
       const x = Number(payload?.x ?? 0);
       const y = Number(payload?.y ?? 0);
-      const opened = openTabProxyMenuWindow({
+      const opened = openTabContextMenuWindow({
         tabId,
         x,
         y,
-        browserProxyMode: payload?.browserProxyMode,
         parentWindow: BrowserWindow.fromWebContents(_e.sender),
       });
-      return opened ? { ok: true } : { ok: false, message: '打开代理菜单失败' };
+      return opened ? { ok: true } : { ok: false, message: '打开浏览器菜单失败' };
     } catch (error) {
       return { ok: false, message: error?.message || String(error) };
     }
@@ -620,7 +552,6 @@ function registerUiIPC(ctx) {
         title: resolveTabTitle(tab),
         isActive: tab.id === activeTabId,
         accountId: String(tab.accountId || '').trim(),
-        browserProxyMode: String(tab.browserProxyMode || 'inherit').trim(),
       }));
       return { ok: true, tabs: tabData };
     } catch (error) {
@@ -659,7 +590,6 @@ function registerUiIPC(ctx) {
       url: String(tab.runtimeUrl || ''),
       active: String(tab.id || '') === String(activeTabId || ''),
       accountId: String(tab.accountId || '').trim(),
-      browserProxyMode: String(tab.browserProxyMode || 'inherit').trim(),
       runtimeType: 'chromium',
     };
   };
@@ -878,13 +808,6 @@ function registerUiIPC(ctx) {
     } catch (_) {}
   });
 
-  ipcMain.on('open-extension-popup', (_event, payload = {}) => {
-    try { ui.openExtensionPopup && void ui.openExtensionPopup(payload?.id || payload); } catch (_) {}
-  });
-  ipcMain.on('open-extension-options', (_event, payload = {}) => {
-    try { ui.openExtensionOptions && void ui.openExtensionOptions(payload?.id || payload); } catch (_) {}
-  });
-
   ipcMain.handle('focus-sidebar-input', async (event) => {
     try {
       const mainWindow = ui?.getMainWindow?.();
@@ -911,6 +834,13 @@ function registerUiIPC(ctx) {
       const focusSide = () => {
         try {
           if (sideWc && !sideWc.isDestroyed?.()) {
+            // When the embedded Chromium HWND owns the Win32 input queue,
+            // BrowserWindow.focus() alone does nothing because the window is
+            // already foregrounded. Move focus through Electron's shell
+            // renderer before targeting the sidebar WebContentsView.
+            if (!sideWc.isFocused?.() && mainWindow?.webContents && !mainWindow.webContents.isDestroyed?.()) {
+              mainWindow.webContents.focus();
+            }
             sideWc.focus();
             return true;
           }

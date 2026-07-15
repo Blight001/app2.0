@@ -1,38 +1,18 @@
 diff --git a/chrome/browser/ui/views/extensions/extension_popup.cc b/chrome/browser/ui/views/extensions/extension_popup.cc
-index 03f23d53..8c61cc21 100644
+index 03f23d53..3132fd9a 100644
 --- a/chrome/browser/ui/views/extensions/extension_popup.cc
 +++ b/chrome/browser/ui/views/extensions/extension_popup.cc
-@@ -5,6 +5,7 @@
- #include "chrome/browser/ui/views/extensions/extension_popup.h"
- 
- #include "base/check.h"
-+#include "base/command_line.h"
- #include "base/functional/bind.h"
- #include "base/memory/raw_ptr.h"
- #include "chrome/browser/devtools/devtools_window.h"
-@@ -12,6 +13,7 @@
- #include "chrome/browser/ui/browser.h"
- #include "chrome/browser/ui/views/extensions/security_dialog_tracker.h"
- #include "chrome/browser/ui/views/frame/browser_view.h"
-+#include "chrome/common/chrome_switches.h"
- #include "components/javascript_dialogs/app_modal_dialog_queue.h"
- #include "components/web_modal/web_modal_utils.h"
- #include "content/public/browser/browser_context.h"
-@@ -285,8 +287,15 @@ ExtensionPopup::ExtensionPopup(
+@@ -285,8 +285,11 @@ ExtensionPopup::ExtensionPopup(
    extension_view_->SetContainer(this);
    extension_view_->Init();
  
 -  // See comments in OnWidgetActivationChanged().
 -  set_close_on_deactivate(false);
-+  // Ordinary Chromium keeps extension popups open while switching to another
-+  // application and closes them when another widget in the browser tree is
-+  // activated. In AI-FREE child-window mode the Browser HWND belongs to the
-+  // Electron host's native window tree, so that widget-tree activation signal
-+  // is not reliable. Close on native deactivation in that mode so extension
-+  // popups cannot remain orphaned after the user clicks elsewhere.
-+  set_close_on_deactivate(
-+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-+          switches::kHsEmbedMode) == "child-window");
++  // Keep extension popups alive across native deactivation. A system file
++  // chooser takes focus away from the popup; closing on deactivation destroys
++  // the extension WebContents before the selected file can be delivered.
++  // OnWidgetTreeActivated() still handles activation inside Chromium.
++  set_close_on_deactivate(false);
  
    scoped_devtools_observation_ =
        std::make_unique<ScopedDevToolsAgentHostObservation>(this);

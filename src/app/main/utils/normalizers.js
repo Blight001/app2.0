@@ -106,17 +106,11 @@ function normalizeLicenseUsage(source = {}) {
   return normalized;
 }
 
-function normalizeTabBrowserProxyMode(value) {
-  const mode = String(value || '').trim().toLowerCase();
-  return ['inherit', 'proxy', 'direct'].includes(mode) ? mode : 'inherit';
-}
-
 module.exports = {
   getCurrentAccountTypeLabel,
   inferCurrentAccountTypeFromLabel,
   normalizeLicenseUsage,
   normalizePositiveNumber,
-  normalizeTabBrowserProxyMode,
   normalizeTimeValueToMs,
   resolveCurrentAccountType,
   toFiniteNumber,

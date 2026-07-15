@@ -38,6 +38,7 @@ class BrowserRuntimeManager {
   async importSession(profileId, sessionData) { return this.chromium.importSession(profileId, sessionData); }
   async setCookies(profileId, cookies) { return this.chromium.setCookies(profileId, cookies); }
   async restart(profileId, options) { return this.chromium.restart(profileId, options); }
+  async clearData(profileId) { return this.chromium.clearData(profileId); }
   async stop(profileId, type, options) { return this.runtimeFor(type).stop(profileId, options); }
   async stopAll(options) { return this.chromium.stopAll(options); }
   getState(profileId) { return this.store.getState(profileId); }

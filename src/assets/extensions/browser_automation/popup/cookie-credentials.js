@@ -581,16 +581,6 @@ async function rerenderCookieCredentialCacheUi() {
     return state;
 }
 
-async function copyCookieInputValue(inputNode, label = '内容') {
-    const value = String(inputNode?.value || '').trim();
-    if (!value) {
-        throw new Error(`没有可复制的${label}`);
-    }
-
-    await copyTextToClipboard(value);
-    return value;
-}
-
 async function copyCookieCredentialItem(cardId = '') {
     const state = await loadCookieCredentialCacheState().catch(() => ({ items: [] }));
     const item = state.items.find((entry) => String(entry.id || '').trim() === String(cardId || '').trim()) || null;
@@ -1182,13 +1172,11 @@ function renderCookieManagerList(state = { pageUrl: '', cookies: [] }) {
         const domain = String(cookie.domain || '').trim();
         const path = String(cookie.path || '/').trim() || '/';
         const value = String(cookie.value || '');
-        const expiry = formatCookieManagerExpiry(cookie);
-
         return `
           <div class="cookie-manager-item" data-cookie-manager-item data-cookie-name="${escapeHtml(name)}" data-cookie-domain="${escapeHtml(domain)}" data-cookie-path="${escapeHtml(path)}" data-cookie-store-id="${escapeHtml(String(cookie.storeId || ''))}" data-cookie-secure="${cookie.secure === true ? '1' : '0'}">
             <div class="cookie-manager-item__main">
               <div class="cookie-manager-item__title">${escapeHtml(name)}</div>
-              <div class="cookie-manager-item__meta">域：${escapeHtml(domain || '-')} · 路径：${escapeHtml(path)} · 过期：${escapeHtml(expiry)}</div>
+              <div class="cookie-manager-item__meta">域：${escapeHtml(domain || '-')} · 路径：${escapeHtml(path)}</div>
               <div class="cookie-manager-item__value">${escapeHtml(value)}</div>
             </div>
             <button type="button" class="button-secondary cookie-credential-delete-btn" data-cookie-manager-action="delete">删除</button>
@@ -1337,7 +1325,6 @@ globalThis.CookieCaptureCookieCredentials = {
     renderCookieCredentialCacheList,
     refreshCookieCredentialCacheUi,
     rerenderCookieCredentialCacheUi,
-    copyCookieInputValue,
     copyCookieCredentialItem,
     copyCookieCredentialAccountPasswordItem,
     copyCookieCredentialAccountPasswordGroup,

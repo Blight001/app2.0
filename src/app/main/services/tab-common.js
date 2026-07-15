@@ -51,6 +51,34 @@ function sendSidebarVisibility(target, visible) {
   }
 }
 
+function focusSidebarInput(getMainWindow, getSideView) {
+  const win = typeof getMainWindow === 'function' ? getMainWindow() : null;
+  // Expanding the sidebar must not activate the application when it is in the
+  // background. The input repair is only for a user-triggered toggle inside an
+  // already focused main window.
+  if (!isUsableWindow(win) || (typeof win.isFocused === 'function' && !win.isFocused())) return false;
+
+  const sideView = typeof getSideView === 'function' ? getSideView() : null;
+  const sideWebContents = sideView?.webContents;
+  if (!isUsableWebContents(sideWebContents)) return false;
+
+  try {
+    // BrowserWindow.focus() is a no-op when the app is already foregrounded,
+    // which leaves Win32 focus in the embedded Chromium input queue. Focus the
+    // shell renderer as an intermediate target before handing focus to the
+    // sidebar WebContentsView. This mirrors the focus reset that naturally
+    // occurs after the application goes to the background and comes back.
+    if (typeof win.focus === 'function') win.focus();
+    if (isUsableWebContents(win.webContents) && typeof win.webContents.focus === 'function') {
+      win.webContents.focus();
+    }
+    sideWebContents.focus();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 function toggleSidebarVisibility(options = {}) {
   const {
     getIsSidebarVisible,
@@ -82,14 +110,12 @@ function toggleSidebarVisibility(options = {}) {
       if (isUsableWindow(win)) {
         win.emit('resize');
       }
-      // Opening the sidebar should make it the current input target. This also
-      // makes the subsequent focus handoff to the embedded browser observable.
-      if (nextVisible && (!win || typeof win.isFocused !== 'function' || win.isFocused())) {
-        const currentSideView = typeof getSideView === 'function' ? getSideView() : null;
-        const sideWebContents = currentSideView?.webContents;
-        if (isUsableWebContents(sideWebContents)) {
-          try { sideWebContents.focus(); } catch (_) {}
-        }
+      if (nextVisible) {
+        focusSidebarInput(getMainWindow, getSideView);
+        // Electron may finish the WebContentsView compositor/input-region
+        // update on the next task after setBounds/setVisible. Re-focus once at
+        // that boundary so the repair is not timing-dependent.
+        setImmediate(() => focusSidebarInput(getMainWindow, getSideView));
       }
     }, delay);
 

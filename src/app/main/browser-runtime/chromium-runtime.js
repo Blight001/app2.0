@@ -513,6 +513,29 @@ class ChromiumRuntime extends BrowserRuntime {
     return this.enqueueProfileOperation(profileId, () => this.restartNow(profileId, options));
   }
 
+  async clearData(profileId) {
+    return this.enqueueProfileOperation(profileId, () => this.clearDataNow(profileId));
+  }
+
+  async clearDataNow(profileId) {
+    const id = String(profileId);
+    const instance = this.instances.get(id);
+    const state = this.store.getState(id);
+    if (!instance || !state) throw new Error(`Chromium Profile ${id} 不存在`);
+    if (typeof this.store.clearBrowserData !== 'function') {
+      throw new Error('Chromium Profile 存储不支持清空浏览器数据');
+    }
+    const profile = {
+      ...instance.profile,
+      initialUrl: String(instance.profile.initialUrl || instance.profile.restoreFallbackUrl || ''),
+      restoreLastSession: false,
+    };
+    const bounds = { ...state.bounds };
+    await this.stop(id, { timeoutMs: 5000, preserveSession: false });
+    this.store.clearBrowserData(id);
+    return this.launchProfile(profile, bounds);
+  }
+
   async restartNow(profileId, options = {}) {
     const id = String(profileId);
     const instance = this.instances.get(id);

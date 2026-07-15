@@ -11,7 +11,7 @@
 
 **本次改造：把 Geo 库和规则集全部本地化随包内置，规范化阶段把配置里的远程 `geox-url` / `rule-providers` 改写成本地文件，并关闭 geo 自动更新。** 这样 mihomo 启动与分流不再需要联网拉任何东西。
 
-**不改动**：路由策略仍为"国内直连 + 国外走节点"的分流（已与产品方确认保留）；不动每窗口右键代理开关（它在打包版本就被 `isDevMode` 禁用，属死链路，另行清理，非本次范围）。
+**不改动**：路由策略仍为"国内直连 + 国外走节点"的分流（已与产品方确认保留）。后续版本已删除每窗口右键“直连/代理”死链路，右键菜单现提供“重启浏览器”和“清空浏览器数据”，开发版与打包版行为一致。
 
 ---
 
@@ -272,7 +272,6 @@ grep -c "pull error" "$APPDATA/ai-free/logs/"$(ls -t "$APPDATA/ai-free/logs" | h
 
 - Phase 2：开魔法时自动测速选最快节点 + 死节点自动切换（`collectClashMiniProxyDelays` / `probeClashMiniProxyDelay` 已有基建）。
 - Phase 3：订阅自动刷新/到期重拉、节点分组切换 UI。
-- 清理每窗口右键"直连/代理"死链路（`browserProxyMode` 横跨 ui.js / tab-manager.js / tab-helpers.js / 渲染层 tabs.js；打包版已被 `isDevMode` 禁用）。
 
 ---
 

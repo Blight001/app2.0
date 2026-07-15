@@ -237,6 +237,26 @@ class ProfileRuntimeStore {
     return this.states.delete(safeProfileId(profileId));
   }
 
+  clearBrowserData(profileId) {
+    const id = safeProfileId(profileId);
+    if (this.locks.has(id)) throw new Error(`Profile ${id} 仍在运行，不能清空数据`);
+    const paths = this.getProfilePaths(profileId);
+    const targets = [
+      paths.chromiumData,
+      path.join(paths.root, 'session-recovery-stable'),
+      path.join(paths.root, 'session-recovery-discarded'),
+    ];
+    for (const target of targets) {
+      const relative = path.relative(paths.root, target);
+      if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+        throw new Error('Profile 数据清理路径越界');
+      }
+      fs.rmSync(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+    fs.mkdirSync(paths.chromiumData, { recursive: true });
+    return true;
+  }
+
   deleteProfile(profileId) {
     const id = safeProfileId(profileId);
     if (this.locks.has(id)) throw new Error(`Profile ${id} 仍在运行，不能删除`);

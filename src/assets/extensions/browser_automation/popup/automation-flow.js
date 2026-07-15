@@ -47,7 +47,6 @@ const {
     renderCookieCredentialCacheList,
     refreshCookieCredentialCacheUi,
     rerenderCookieCredentialCacheUi,
-    copyCookieInputValue,
     copyCookieCredentialItem,
     copyCookieCredentialAccountPasswordItem,
     copyCookieCredentialAccountPasswordGroup,
@@ -83,8 +82,6 @@ const accountInput = document.getElementById('account');
 const passwordInput = document.getElementById('password');
 const cookieNoteInput = document.getElementById('cookie-note');
 const cookieCardKeyInput = document.getElementById('cookie-card-key');
-const copyCookieAccountButton = document.getElementById('copy-cookie-account');
-const copyCookiePasswordButton = document.getElementById('copy-cookie-password');
 const generateCookiePasswordButton = document.getElementById('generate-cookie-password');
 const copyAccountPasswordButton = document.getElementById('copy-account-password');
 const saveCookieCredentialsButton = document.getElementById('save-cookie-credentials');
@@ -103,8 +100,6 @@ const clearCurrentPageCacheButton = document.getElementById('clear-current-page-
 const statusNode = document.getElementById('status');
 const cookieCredentialCountNode = document.getElementById('cookie-credential-count');
 const cookieCredentialListNode = document.getElementById('cookie-credential-list');
-const cardFileInput = document.getElementById('card-file');
-const pickCardFileButton = document.getElementById('pick-card-file');
 const importCardButton = document.getElementById('import-card');
 const loopCardButton = document.getElementById('loop-card');
 const cardFileNameNode = document.getElementById('card-file-name');
@@ -223,9 +218,8 @@ const {
 } = workbenchModule;
 
 async function loadCardIntoEditor() {
-    const imported = await importSelectedCardFilesToCache().catch(() => null);
     const cachedCard = await loadCardCache().catch(() => null);
-    const cardData = imported?.selectedItem?.cardData || cachedCard?.cardData || null;
+    const cardData = cachedCard?.cardData || null;
     if (!cardData) {
         throw new Error('没有可载入的自动化卡片');
     }
@@ -267,9 +261,6 @@ async function clearCardCache() {
         AUTOMATION_CARD_CACHE_NAME_KEY,
         AUTOMATION_CARD_CACHE_TIME_KEY
     ]);
-    if (cardFileInput) {
-        cardFileInput.value = '';
-    }
     void renderCardCacheList({ items: [], selectedId: '' });
     setCardFileName('未选择卡片');
 }
@@ -318,57 +309,44 @@ async function deleteSelectedCardCache() {
     return deletedItem;
 }
 
-async function readSelectedCardFiles() {
-    const files = Array.from(cardFileInput?.files || []).filter(Boolean);
-    if (files.length === 0) {
-        return [];
+function parseImportedCardText(rawText = '', sourceName = '粘贴导入') {
+    const text = String(rawText || '').trim();
+    if (!text) {
+        throw new Error('请输入卡片流程数据');
+    }
+    let parsed;
+    try {
+        parsed = JSON.parse(text);
+    } catch (_error) {
+        throw new Error('卡片流程数据不是有效的 JSON');
     }
 
+    let candidates = [];
+    if (Array.isArray(parsed)) {
+        candidates = parsed;
+    } else if (Array.isArray(parsed?.cards)) {
+        candidates = parsed.cards;
+    } else if (Array.isArray(parsed?.items)) {
+        candidates = parsed.items.map((item) => item?.cardData || item);
+    } else {
+        candidates = [parsed?.cardData || parsed];
+    }
+    const validCandidates = candidates.filter((item) => item && typeof item === 'object' && !Array.isArray(item));
+    if (validCandidates.length === 0) {
+        throw new Error('未识别到自动化卡片数据');
+    }
     const cards = [];
-    for (const file of files) {
-        const rawText = await file.text();
-        let parsed;
-        try {
-            parsed = JSON.parse(rawText);
-        } catch (_error) {
-            throw new Error(`自动化卡片文件不是有效的 JSON: ${file.name}`);
-        }
-
-        // 兼容单卡片、卡片数组、{ cards: [] }、缓存备份 { items: [] }
-        // 以及后台 manage_card get 返回的 { cardData } 包装格式。
-        let candidates = [];
-        if (Array.isArray(parsed)) {
-            candidates = parsed;
-        } else if (Array.isArray(parsed?.cards)) {
-            candidates = parsed.cards;
-        } else if (Array.isArray(parsed?.items)) {
-            candidates = parsed.items.map((item) => item?.cardData || item);
-        } else {
-            candidates = [parsed?.cardData || parsed];
-        }
-
-        const validCandidates = candidates.filter((item) => item && typeof item === 'object' && !Array.isArray(item));
-        if (validCandidates.length === 0) {
-            throw new Error(`未识别到自动化卡片: ${file.name}`);
-        }
-        validCandidates.forEach((cardData, index) => {
-            const fallbackName = validCandidates.length === 1 ? file.name : `${file.name}#${index + 1}`;
-            const normalized = normalizeCardData(cardData, fallbackName, { allowEmptySteps: true });
-            Object.defineProperty(normalized, '__importSourceName', {
-                value: file.name,
-                enumerable: false,
-                configurable: true
-            });
-            cards.push(normalized);
+    validCandidates.forEach((cardData, index) => {
+        const fallbackName = validCandidates.length === 1 ? sourceName : `${sourceName}#${index + 1}`;
+        const normalized = normalizeCardData(cardData, fallbackName, { allowEmptySteps: true });
+        Object.defineProperty(normalized, '__importSourceName', {
+            value: sourceName,
+            enumerable: false,
+            configurable: true
         });
-    }
-
+        cards.push(normalized);
+    });
     return cards;
-}
-
-async function readSelectedCardFile() {
-    const cards = await readSelectedCardFiles();
-    return cards[0] || null;
 }
 
 function sendStandaloneMessage(payload) {
@@ -404,14 +382,6 @@ async function resolveCardForRun() {
         return cardData;
     }
 
-    const imported = await importSelectedCardFilesToCache().catch(() => null);
-    if (imported?.selectedItem?.cardData) {
-        const cardData = normalizeCardData(imported.selectedItem.cardData, imported.selectedItem.cardName || 'automation');
-        setCardEditorValue(cardData);
-        await saveCardCache(cardData);
-        return cardData;
-    }
-
     const cachedCard = await loadCardCache().catch(() => null);
     if (cachedCard?.cardData) {
         const cardData = normalizeCardData(cachedCard.cardData, cachedCard?.cardName || cachedCard.cardData?.name || 'automation');
@@ -422,8 +392,8 @@ async function resolveCardForRun() {
     throw new Error('请先导入或编辑自动化卡片');
 }
 
-async function importSelectedCardFilesToCache() {
-    const selectedCards = await readSelectedCardFiles();
+async function importCardTextToCache(rawText = '') {
+    const selectedCards = parseImportedCardText(rawText);
     if (!selectedCards.length) {
         return null;
     }
@@ -461,10 +431,6 @@ async function importSelectedCardFilesToCache() {
         setCardFileName(selectedItem.cardName);
     }
 
-    if (cardFileInput) {
-        cardFileInput.value = '';
-    }
-
     return {
         items,
         selectedItem
@@ -489,8 +455,7 @@ async function importAndStartCard() {
         // 但在重渲染前采集仍是最稳妥的做法。
         const runInputs = typeof collectCardRunInputs === 'function' ? collectCardRunInputs() : {};
         await savePreset();
-        const imported = await importSelectedCardFilesToCache().catch(() => null);
-        const cardData = imported?.selectedItem?.cardData || await resolveCardForRun();
+        const cardData = await resolveCardForRun();
         const savedCardData = await saveCardCache(cardData);
 
         if (isSidebarLayout() && typeof resetSidebarStepStatuses === 'function' && typeof applyExecutionStatusToSidebarStep === 'function') {
@@ -555,8 +520,7 @@ async function loopCard() {
         // 同 importAndStartCard：在重渲染前采集用户输入的变量值。
         // 变量输入已支持持久化缓存，跨打开不会重置。
         const loopInputs = typeof collectCardRunInputs === 'function' ? collectCardRunInputs() : {};
-        const imported = await importSelectedCardFilesToCache().catch(() => null);
-        const cardData = imported?.selectedItem?.cardData || await resolveCardForRun();
+        const cardData = await resolveCardForRun();
         await saveCardCache(cardData);
 
         if (isSidebarLayout() && typeof resetSidebarStepStatuses === 'function' && typeof applyExecutionStatusToSidebarStep === 'function') {
@@ -597,12 +561,11 @@ globalThis.CookieCaptureAutomationFlow = {
     loadCardCache,
     clearCardCache,
     deleteSelectedCardCache,
-    readSelectedCardFiles,
-    readSelectedCardFile,
+    parseImportedCardText,
     sendStandaloneMessage,
     openCardEditorSidebar,
     resolveCardForRun,
-    importSelectedCardFilesToCache,
+    importCardTextToCache,
     importAndStartCard,
     loopCard
 };

@@ -16,8 +16,6 @@ const accountInput = document.getElementById('account');
 const passwordInput = document.getElementById('password');
 const copyAccountPasswordButton = document.getElementById('copy-account-password');
 const generateCookiePasswordButton = document.getElementById('generate-cookie-password');
-const cardFileInput = document.getElementById('card-file');
-const pickCardFileButton = document.getElementById('pick-card-file');
 const importCardButton = document.getElementById('import-card');
 const loopCardButton = document.getElementById('loop-card');
 const cardFileNameNode = document.getElementById('card-file-name');
@@ -51,18 +49,14 @@ const sidebarCardPopupsInput = document.getElementById('sidebar-card-popups');
 const sidebarCardUploadServerUrlInput = document.getElementById('sidebar-card-upload-server-url');
 const sidebarCardUploadCardKeyInput = document.getElementById('sidebar-card-upload-card-key');
 const sidebarCardRawJsonInput = document.getElementById('sidebar-card-raw-json');
-const sidebarStepTemplateSelect = document.getElementById('sidebar-step-template');
-const sidebarAddStepButton = document.getElementById('sidebar-add-step');
-const sidebarRefreshCardButton = document.getElementById('sidebar-refresh-card');
 const sidebarCloseButton = document.getElementById('sidebar-close');
 const sidebarStepListNode = document.getElementById('sidebar-step-list');
 const sidebarEditorMetaNode = document.getElementById('sidebar-editor-meta');
 const sidebarFlowCanvasNode = document.getElementById('sidebar-flow-canvas');
+const sidebarFlowViewportNode = document.getElementById('sidebar-flow-viewport');
 const sidebarFlowSvgNode = document.getElementById('sidebar-flow-svg');
 const sidebarFlowNodesNode = document.getElementById('sidebar-flow-nodes');
 const sidebarFlowEmptyNode = document.getElementById('sidebar-flow-empty');
-const sidebarFlowConnectButton = document.getElementById('sidebar-flow-connect');
-const sidebarFlowLayoutButton = document.getElementById('sidebar-flow-layout');
 
 const debugProgressPanel = document.getElementById('debug-progress-panel');
 const debugProgressTextNode = document.getElementById('debug-progress-text');
@@ -80,9 +74,16 @@ const runtimeStateStorage = chrome.storage.session || chrome.storage.local;
 
 let sidebarFlowState = { version: 1, start: '', nodes: [], edges: [] };
 let sidebarSelectedFlowNodeId = '';
+let sidebarSelectedFlowNodeIds = new Set();
 let sidebarFlowConnectMode = false;
 let sidebarFlowConnectSourceId = '';
+let sidebarFlowConnectSourcePort = 'right';
+let sidebarFlowConnectLabel = 'next';
+let sidebarFlowPortDragState = null;
 let sidebarFlowDragState = null;
+let sidebarFlowPanState = null;
+let sidebarFlowViewState = { scale: 1, x: 0, y: 0 };
+let sidebarFlowSuppressNodeClick = false;
 
 const {
     sanitizeFilePart,
@@ -756,11 +757,9 @@ function buildSidebarFlowEdgeId(from = '', to = '', label = '', index = 0) {
 }
 
 function getSidebarFlowLayoutForIndex(index = 0) {
-    const col = index % 2;
-    const row = Math.floor(index / 2);
     return {
-        x: 34 + col * 220,
-        y: 34 + row * 126
+        x: 34 + index * 220,
+        y: 60
     };
 }
 
@@ -805,11 +804,15 @@ function normalizeSidebarFlowForSteps(flow = null, steps = []) {
                 return null;
             }
             const label = String(edge?.label || edge?.branch || edge?.condition || 'next').trim() || 'next';
+            const fromPort = String(edge?.fromPort || edge?.sourcePort || '').trim().toLowerCase() === 'left' ? 'left' : 'right';
+            const toPort = String(edge?.toPort || edge?.targetPort || '').trim().toLowerCase() === 'right' ? 'right' : 'left';
             return {
                 id: String(edge?.id || '').trim() || buildSidebarFlowEdgeId(from, to, label, index),
                 from,
                 to,
-                label
+                label,
+                fromPort,
+                toPort
             };
         })
         .filter(Boolean);
@@ -831,7 +834,9 @@ function normalizeSidebarFlowForSteps(flow = null, steps = []) {
                 id: buildSidebarFlowEdgeId(from, to, 'next', index),
                 from,
                 to,
-                label: 'next'
+                label: 'next',
+                fromPort: 'right',
+                toPort: 'left'
             };
         });
     }
@@ -884,11 +889,15 @@ function renderSidebarFlowCanvas(cardData = null) {
 
     const steps = ensureSidebarStepIds(Array.isArray(cardData?.steps) ? cardData.steps : collectSidebarSteps());
     sidebarFlowState = normalizeSidebarFlowForSteps(cardData?.flow || sidebarFlowState, steps);
+    const validStepIds = new Set(steps.map((step, index) => getSidebarStepId(step, index)));
+    sidebarSelectedFlowNodeIds = new Set(Array.from(sidebarSelectedFlowNodeIds).filter((id) => validStepIds.has(id)));
     if (sidebarSelectedFlowNodeId && !steps.some((step, index) => getSidebarStepId(step, index) === sidebarSelectedFlowNodeId)) {
         sidebarSelectedFlowNodeId = '';
     }
     if (sidebarFlowConnectSourceId && !steps.some((step, index) => getSidebarStepId(step, index) === sidebarFlowConnectSourceId)) {
         sidebarFlowConnectSourceId = '';
+        sidebarFlowConnectSourcePort = 'right';
+        sidebarFlowConnectMode = false;
     }
 
     const size = getSidebarFlowCanvasSize(sidebarFlowState.nodes);
@@ -898,16 +907,15 @@ function renderSidebarFlowCanvas(cardData = null) {
     sidebarFlowSvgNode.style.height = `${size.height}px`;
     sidebarFlowNodesNode.style.width = `${size.width}px`;
     sidebarFlowNodesNode.style.height = `${size.height}px`;
+    if (sidebarFlowViewportNode) {
+        sidebarFlowViewportNode.style.width = `${size.width}px`;
+        sidebarFlowViewportNode.style.height = `${size.height}px`;
+    }
+    applySidebarFlowViewTransform();
     sidebarFlowCanvasNode.classList.toggle('is-connect-mode', sidebarFlowConnectMode);
     if (sidebarFlowEmptyNode) {
         sidebarFlowEmptyNode.classList.toggle('is-hidden', steps.length > 0);
     }
-    if (sidebarFlowConnectButton) {
-        sidebarFlowConnectButton.classList.toggle('is-active', sidebarFlowConnectMode);
-        sidebarFlowConnectButton.setAttribute('aria-pressed', sidebarFlowConnectMode ? 'true' : 'false');
-        sidebarFlowConnectButton.textContent = sidebarFlowConnectSourceId ? '选择目标' : '连线';
-    }
-
     const nodeMap = new Map(sidebarFlowState.nodes.map((node) => [String(node.id || ''), node]));
     const edgeMarkup = sidebarFlowState.edges.map((edge) => {
         const from = nodeMap.get(edge.from);
@@ -915,19 +923,28 @@ function renderSidebarFlowCanvas(cardData = null) {
         if (!from || !to) {
             return '';
         }
-        const sx = Number(from.x || 0) + 168;
-        const sy = Number(from.y || 0) + 36;
-        const tx = Number(to.x || 0);
-        const ty = Number(to.y || 0) + 36;
-        const c1x = sx + Math.max(48, Math.abs(tx - sx) / 2);
-        const c2x = tx - Math.max(48, Math.abs(tx - sx) / 2);
+        const sourceStep = getSidebarFlowStepById(steps, edge.from) || {};
+        const sourceIsCondition = String(sourceStep.type || '').trim().toLowerCase() === 'condition';
+        const edgeLabel = String(edge.label || 'next').trim().toLowerCase();
+        const fromPort = edge.fromPort === 'left' ? 'left' : 'right';
+        const toPort = edge.toPort === 'right' ? 'right' : 'left';
+        const sx = Number(from.x || 0) + (fromPort === 'right' ? 168 : 0);
+        const sy = Number(from.y || 0) + (sourceIsCondition && edgeLabel === 'true' ? 25 : sourceIsCondition && edgeLabel === 'false' ? 50 : 35);
+        const tx = Number(to.x || 0) + (toPort === 'right' ? 168 : 0);
+        const ty = Number(to.y || 0) + 35;
+        const controlOffset = Math.max(48, Math.abs(tx - sx) / 2);
+        const c1x = sx + (fromPort === 'right' ? controlOffset : -controlOffset);
+        const c2x = tx + (toPort === 'right' ? controlOffset : -controlOffset);
         const path = `M ${sx} ${sy} C ${c1x} ${sy}, ${c2x} ${ty}, ${tx} ${ty}`;
         const midX = (sx + tx) / 2;
-        const midY = (sy + ty) / 2 - 6;
+        const midY = (sy + ty) / 2 - 7;
         const label = String(edge.label || 'next').trim() || 'next';
+        const labelMarkup = sourceIsCondition && (edgeLabel === 'true' || edgeLabel === 'false')
+            ? `<text class="sidebar-flow-edge-label" x="${midX}" y="${midY}">${escapeHtml(label)}</text>`
+            : '';
         return `
           <path class="sidebar-flow-edge" data-flow-edge-id="${escapeHtml(edge.id)}" d="${escapeHtml(path)}" marker-end="url(#sidebar-flow-arrow)"></path>
-          <text class="sidebar-flow-edge-label" x="${midX}" y="${midY}">${escapeHtml(label)}</text>
+          ${labelMarkup}
         `;
     }).join('');
     sidebarFlowSvgNode.innerHTML = `
@@ -945,20 +962,28 @@ function renderSidebarFlowCanvas(cardData = null) {
         const type = String(step?.type || 'navigate').trim() || 'navigate';
         const name = String(step?.name || `步骤${index + 1}`).trim() || `步骤${index + 1}`;
         const meta = buildSidebarFlowNodeMeta(step);
+        const isCondition = type === 'condition';
         const classes = [
             'sidebar-flow-node',
             `is-type-${type.replace(/[^a-z0-9_-]+/gi, '-')}`,
-            id === sidebarSelectedFlowNodeId ? 'is-selected' : '',
+            sidebarSelectedFlowNodeIds.has(id) ? 'is-selected' : '',
             id === sidebarFlowConnectSourceId ? 'is-connect-source' : ''
         ].filter(Boolean).join(' ');
         return `
           <div class="${classes}" data-flow-node-id="${escapeHtml(id)}" data-step-index="${index}" style="left:${Math.max(0, Number(node.x || 0))}px;top:${Math.max(0, Number(node.y || 0))}px;">
+            <button type="button" class="sidebar-flow-port sidebar-flow-port--left" data-flow-port="left" data-flow-role="${isCondition ? 'target' : 'any'}" data-flow-node-id="${escapeHtml(id)}" aria-label="${escapeHtml(name)} 左侧端点"></button>
             <div class="sidebar-flow-node__top">
               <span class="sidebar-flow-node__badge">#${index + 1}</span>
               <span class="sidebar-flow-node__type">${escapeHtml(formatStepTypeLabel(type))}</span>
             </div>
             <div class="sidebar-flow-node__title">${escapeHtml(name)}</div>
             ${meta ? `<div class="sidebar-flow-node__meta">${escapeHtml(meta)}</div>` : ''}
+            ${isCondition ? `
+              <button type="button" class="sidebar-flow-port sidebar-flow-port--right sidebar-flow-port--condition-true" data-flow-port="right" data-flow-role="source" data-flow-label="true" data-flow-node-id="${escapeHtml(id)}" aria-label="${escapeHtml(name)} 条件成立输出端点"></button>
+              <button type="button" class="sidebar-flow-port sidebar-flow-port--right sidebar-flow-port--condition-false" data-flow-port="right" data-flow-role="source" data-flow-label="false" data-flow-node-id="${escapeHtml(id)}" aria-label="${escapeHtml(name)} 条件不成立输出端点"></button>
+            ` : `
+              <button type="button" class="sidebar-flow-port sidebar-flow-port--right" data-flow-port="right" data-flow-role="any" data-flow-node-id="${escapeHtml(id)}" aria-label="${escapeHtml(name)} 右侧端点"></button>
+            `}
           </div>
         `;
     }).join('');
@@ -980,32 +1005,229 @@ function syncSidebarNodeSettingsSelection() {
     });
     sidebarStepListNode.classList.toggle('is-open', hasSelection);
     sidebarStepListNode.setAttribute('aria-hidden', hasSelection ? 'false' : 'true');
+    if (hasSelection) {
+        window.requestAnimationFrame(() => positionSidebarNodeSettings());
+    }
     return hasSelection;
+}
+
+function positionSidebarNodeSettings() {
+    if (!sidebarStepListNode?.classList.contains('is-open') || !sidebarFlowCanvasNode || !sidebarSelectedFlowNodeId) {
+        return false;
+    }
+    const stage = sidebarFlowCanvasNode.closest('.sidebar-flow-stage');
+    const safeId = typeof CSS !== 'undefined' && CSS && typeof CSS.escape === 'function'
+        ? CSS.escape(sidebarSelectedFlowNodeId)
+        : sidebarSelectedFlowNodeId.replace(/"/g, '\\"');
+    const selectedNode = sidebarFlowNodesNode?.querySelector(`[data-flow-node-id="${safeId}"]`);
+    if (!stage || !selectedNode) {
+        return false;
+    }
+
+    const gap = 12;
+    const margin = 12;
+    const stageRect = stage.getBoundingClientRect();
+    const nodeRect = selectedNode.getBoundingClientRect();
+    const stageWidth = stage.clientWidth;
+    const stageHeight = stage.clientHeight;
+    const desiredPanelWidth = Math.min(390, Math.max(240, stageWidth - margin * 2));
+    const nodeLeft = nodeRect.left - stageRect.left;
+    const nodeTop = nodeRect.top - stageRect.top;
+    const nodeRight = nodeRect.right - stageRect.left;
+    const nodeBottom = nodeRect.bottom - stageRect.top;
+    const rightSpace = stageWidth - nodeRight - margin - gap;
+    const leftSpace = nodeLeft - margin - gap;
+    const belowSpace = stageHeight - nodeBottom - margin - gap;
+    const aboveSpace = nodeTop - margin - gap;
+    const clamp = (value, min, max) => Math.min(Math.max(value, min), Math.max(min, max));
+
+    let panelWidth = desiredPanelWidth;
+    let left = margin;
+    let top = margin;
+    let maxHeight = Math.max(140, stageHeight - margin * 2);
+    if (rightSpace >= 240) {
+        panelWidth = Math.min(desiredPanelWidth, rightSpace);
+        left = nodeRight + gap;
+        top = clamp(nodeTop, margin, stageHeight - margin - 180);
+    } else if (leftSpace >= 240) {
+        panelWidth = Math.min(desiredPanelWidth, leftSpace);
+        left = nodeLeft - panelWidth - gap;
+        top = clamp(nodeTop, margin, stageHeight - margin - 180);
+    } else if (belowSpace >= 80 || aboveSpace < 80 || belowSpace >= aboveSpace) {
+        left = clamp(nodeLeft, margin, stageWidth - panelWidth - margin);
+        top = nodeBottom + gap;
+        maxHeight = Math.max(80, stageHeight - top - margin);
+    } else {
+        left = clamp(nodeLeft, margin, stageWidth - panelWidth - margin);
+        maxHeight = aboveSpace;
+        top = Math.max(margin, nodeTop - gap - maxHeight);
+    }
+
+    sidebarStepListNode.style.width = `${panelWidth}px`;
+    sidebarStepListNode.style.left = `${Math.round(left)}px`;
+    sidebarStepListNode.style.top = `${Math.round(top)}px`;
+    sidebarStepListNode.style.maxHeight = `${Math.round(maxHeight)}px`;
+    return true;
+}
+
+function applySidebarFlowViewTransform() {
+    if (!sidebarFlowViewportNode) {
+        return;
+    }
+    const { scale, x, y } = sidebarFlowViewState;
+    sidebarFlowViewportNode.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+    const resetButton = document.getElementById('sidebar-flow-zoom-reset');
+    if (resetButton) {
+        resetButton.textContent = `${Math.round(scale * 100)}%`;
+    }
+    if (sidebarSelectedFlowNodeId) {
+        window.requestAnimationFrame(() => positionSidebarNodeSettings());
+    }
+}
+
+function setSidebarFlowZoom(nextScale = 1, clientX = null, clientY = null) {
+    if (!sidebarFlowCanvasNode) {
+        return 1;
+    }
+    const oldScale = sidebarFlowViewState.scale;
+    const scale = Math.min(2, Math.max(0.4, Number(nextScale) || 1));
+    const rect = sidebarFlowCanvasNode.getBoundingClientRect();
+    const hasClientX = clientX !== null && clientX !== undefined && Number.isFinite(Number(clientX));
+    const hasClientY = clientY !== null && clientY !== undefined && Number.isFinite(Number(clientY));
+    const anchorX = hasClientX ? Number(clientX) - rect.left : rect.width / 2;
+    const anchorY = hasClientY ? Number(clientY) - rect.top : rect.height / 2;
+    const logicalX = (anchorX - sidebarFlowViewState.x) / oldScale;
+    const logicalY = (anchorY - sidebarFlowViewState.y) / oldScale;
+    sidebarFlowViewState = {
+        scale,
+        x: anchorX - logicalX * scale,
+        y: anchorY - logicalY * scale
+    };
+    applySidebarFlowViewTransform();
+    return scale;
+}
+
+function zoomSidebarFlowBy(delta = 0, clientX = null, clientY = null) {
+    return setSidebarFlowZoom(sidebarFlowViewState.scale + Number(delta || 0), clientX, clientY);
+}
+
+function resetSidebarFlowView() {
+    sidebarFlowViewState = { scale: 1, x: 0, y: 0 };
+    applySidebarFlowViewTransform();
+}
+
+function beginSidebarFlowCanvasPan(event) {
+    if (!event || event.button !== 0 || !sidebarFlowCanvasNode) {
+        return false;
+    }
+    event.preventDefault();
+    sidebarFlowPanState = {
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startX: sidebarFlowViewState.x,
+        startY: sidebarFlowViewState.y
+    };
+    sidebarFlowCanvasNode.classList.add('is-panning');
+    const onMove = (moveEvent) => {
+        if (!sidebarFlowPanState) return;
+        sidebarFlowViewState = {
+            ...sidebarFlowViewState,
+            x: sidebarFlowPanState.startX + moveEvent.clientX - sidebarFlowPanState.startClientX,
+            y: sidebarFlowPanState.startY + moveEvent.clientY - sidebarFlowPanState.startClientY
+        };
+        applySidebarFlowViewTransform();
+    };
+    const onUp = () => {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        sidebarFlowPanState = null;
+        sidebarFlowCanvasNode.classList.remove('is-panning');
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    return true;
+}
+
+function addSidebarStepToCanvas(stepType = 'navigate', clientX = null, clientY = null) {
+    const currentCard = collectSidebarCardDataFromForm();
+    if (!currentCard || !sidebarFlowCanvasNode) {
+        return null;
+    }
+    const step = buildSidebarStepTemplate(stepType);
+    const steps = ensureSidebarStepIds([...(Array.isArray(currentCard.steps) ? currentCard.steps : []), step]);
+    const stepId = getSidebarStepId(steps[steps.length - 1], steps.length - 1);
+    let flow = normalizeSidebarFlowForSteps(currentCard.flow || sidebarFlowState, steps);
+    const rect = sidebarFlowCanvasNode.getBoundingClientRect();
+    const hasClientX = clientX !== null && clientX !== undefined && Number.isFinite(Number(clientX));
+    const hasClientY = clientY !== null && clientY !== undefined && Number.isFinite(Number(clientY));
+    const screenX = hasClientX ? Number(clientX) - rect.left : rect.width / 2;
+    const screenY = hasClientY ? Number(clientY) - rect.top : rect.height / 2;
+    const x = Math.max(0, (screenX - sidebarFlowViewState.x) / sidebarFlowViewState.scale - 84);
+    const y = Math.max(0, (screenY - sidebarFlowViewState.y) / sidebarFlowViewState.scale - 36);
+    flow = {
+        ...flow,
+        nodes: flow.nodes.map((node) => node.id === stepId ? { ...node, x, y } : node)
+    };
+    currentCard.steps = steps;
+    currentCard.flow = flow;
+    renderSidebarCardEditor(currentCard);
+    selectSidebarFlowNode(stepId, { scroll: false });
+    syncSidebarEditorToHiddenJson();
+    return steps[steps.length - 1];
 }
 
 function selectSidebarFlowNode(stepId = '', options = {}) {
     const id = String(stepId || '').trim();
     if (!id) {
-        return;
+        return false;
     }
-    sidebarSelectedFlowNodeId = id;
+    const toggle = options.toggle === true;
+    const additive = options.additive === true || toggle;
+    if (!additive) {
+        sidebarSelectedFlowNodeIds = new Set([id]);
+    } else if (toggle && sidebarSelectedFlowNodeIds.has(id)) {
+        sidebarSelectedFlowNodeIds.delete(id);
+    } else {
+        sidebarSelectedFlowNodeIds.add(id);
+    }
+    const remainingSelection = Array.from(sidebarSelectedFlowNodeIds);
+    sidebarSelectedFlowNodeId = sidebarSelectedFlowNodeIds.has(id)
+        ? id
+        : (remainingSelection[remainingSelection.length - 1] || '');
     const currentCard = collectSidebarCardDataFromForm();
     renderSidebarFlowCanvas(currentCard);
     syncSidebarNodeSettingsSelection();
+    return sidebarSelectedFlowNodeIds.has(id);
 }
 
 function clearSidebarFlowNodeSelection() {
-    if (!sidebarSelectedFlowNodeId) {
+    if (!sidebarSelectedFlowNodeId && sidebarSelectedFlowNodeIds.size === 0) {
         return false;
     }
     sidebarSelectedFlowNodeId = '';
+    sidebarSelectedFlowNodeIds = new Set();
     renderSidebarFlowCanvas(collectSidebarCardDataFromForm());
     return true;
+}
+
+function prepareSidebarFlowNodeContextSelection(stepId = '') {
+    const id = String(stepId || '').trim();
+    if (!id) {
+        return 0;
+    }
+    if (!sidebarSelectedFlowNodeIds.has(id)) {
+        sidebarSelectedFlowNodeIds = new Set([id]);
+    }
+    sidebarSelectedFlowNodeId = '';
+    renderSidebarFlowCanvas(collectSidebarCardDataFromForm());
+    return sidebarSelectedFlowNodeIds.size;
 }
 
 function setSidebarFlowConnectMode(enabled = false) {
     sidebarFlowConnectMode = enabled === true;
     sidebarFlowConnectSourceId = sidebarFlowConnectMode ? sidebarFlowConnectSourceId : '';
+    sidebarFlowConnectSourcePort = sidebarFlowConnectMode ? sidebarFlowConnectSourcePort : 'right';
+    sidebarFlowConnectLabel = sidebarFlowConnectMode ? sidebarFlowConnectLabel : 'next';
     renderSidebarFlowCanvas(collectSidebarCardDataFromForm());
     return sidebarFlowConnectMode;
 }
@@ -1014,7 +1236,7 @@ function toggleSidebarFlowConnectMode() {
     return setSidebarFlowConnectMode(!sidebarFlowConnectMode);
 }
 
-function addSidebarFlowEdge(from = '', to = '', preferredLabel = '') {
+function addSidebarFlowEdge(from = '', to = '', preferredLabel = '', fromPort = 'right', toPort = 'left') {
     const sourceId = String(from || '').trim();
     const targetId = String(to || '').trim();
     if (!sourceId || !targetId || sourceId === targetId) {
@@ -1043,7 +1265,9 @@ function addSidebarFlowEdge(from = '', to = '', preferredLabel = '') {
         id: buildSidebarFlowEdgeId(sourceId, targetId, label, sidebarFlowState.edges.length),
         from: sourceId,
         to: targetId,
-        label
+        label,
+        fromPort: String(fromPort || '').trim().toLowerCase() === 'left' ? 'left' : 'right',
+        toPort: String(toPort || '').trim().toLowerCase() === 'right' ? 'right' : 'left'
     };
     sidebarFlowState = {
         ...sidebarFlowState,
@@ -1052,28 +1276,158 @@ function addSidebarFlowEdge(from = '', to = '', preferredLabel = '') {
     return edge;
 }
 
-function handleSidebarFlowNodeClick(stepId = '') {
+function handleSidebarFlowNodeClick(stepId = '', options = {}) {
     const id = String(stepId || '').trim();
     if (!id) {
         return false;
     }
-    if (sidebarFlowConnectMode) {
-        if (!sidebarFlowConnectSourceId) {
-            sidebarFlowConnectSourceId = id;
-            selectSidebarFlowNode(id, { scroll: false });
-            renderSidebarFlowCanvas(collectSidebarCardDataFromForm());
-            return true;
-        }
-        const edge = addSidebarFlowEdge(sidebarFlowConnectSourceId, id);
-        sidebarFlowConnectSourceId = '';
-        setSidebarFlowConnectMode(false);
-        syncSidebarEditorToHiddenJson();
-        if (edge) {
-            showActionToast(`已连接 ${edge.label}`, 'success');
-        }
-        return true;
+    if (sidebarFlowSuppressNodeClick) {
+        sidebarFlowSuppressNodeClick = false;
+        return false;
     }
-    selectSidebarFlowNode(id);
+    const toggle = options.toggle === true || options.additive === true;
+    selectSidebarFlowNode(id, { additive: toggle, toggle });
+    return true;
+}
+
+function getSidebarFlowPortPoint(stepId = '', port = 'right', label = '') {
+    const id = String(stepId || '').trim();
+    const portSide = String(port || '').trim().toLowerCase() === 'left' ? 'left' : 'right';
+    const node = getSidebarFlowNode(id);
+    if (!id || !node) {
+        return null;
+    }
+    const step = getSidebarFlowStepById(collectSidebarSteps(), id) || {};
+    const isConditionOutput = String(step.type || '').trim().toLowerCase() === 'condition' && portSide === 'right';
+    const normalizedLabel = String(label || '').trim().toLowerCase();
+    return {
+        x: Number(node.x || 0) + (portSide === 'right' ? 168 : 0),
+        y: Number(node.y || 0) + (isConditionOutput && normalizedLabel === 'true' ? 25 : isConditionOutput && normalizedLabel === 'false' ? 50 : 35),
+        side: portSide
+    };
+}
+
+function buildSidebarFlowPortDragPath(sourcePoint, targetPoint, targetSide = 'left') {
+    if (!sourcePoint || !targetPoint) return '';
+    const sx = Number(sourcePoint.x || 0);
+    const sy = Number(sourcePoint.y || 0);
+    const tx = Number(targetPoint.x || 0);
+    const ty = Number(targetPoint.y || 0);
+    const controlOffset = Math.max(48, Math.abs(tx - sx) / 2);
+    const c1x = sx + (sourcePoint.side === 'right' ? controlOffset : -controlOffset);
+    const c2x = tx + (targetSide === 'right' ? controlOffset : -controlOffset);
+    return `M ${sx} ${sy} C ${c1x} ${sy}, ${c2x} ${ty}, ${tx} ${ty}`;
+}
+
+function beginSidebarFlowPortDrag(event, stepId = '', port = '', label = '', role = 'any') {
+    if (!event || event.button !== 0 || !sidebarFlowCanvasNode || !sidebarFlowSvgNode) {
+        return false;
+    }
+    const id = String(stepId || '').trim();
+    const portSide = String(port || '').trim().toLowerCase() === 'left' ? 'left' : 'right';
+    const portRole = String(role || 'any').trim().toLowerCase();
+    const sourceLabel = String(label || '').trim().toLowerCase();
+    const sourcePoint = getSidebarFlowPortPoint(id, portSide, sourceLabel);
+    if (!id || !sourcePoint || portRole === 'target') {
+        return false;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    sidebarSelectedFlowNodeId = '';
+    sidebarSelectedFlowNodeIds = new Set();
+    sidebarFlowConnectMode = true;
+    sidebarFlowConnectSourceId = id;
+    sidebarFlowConnectSourcePort = portSide;
+    sidebarFlowConnectLabel = 'next';
+    renderSidebarFlowCanvas(collectSidebarCardDataFromForm());
+
+    const previewPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    previewPath.setAttribute('class', 'sidebar-flow-edge-preview');
+    previewPath.setAttribute('marker-end', 'url(#sidebar-flow-arrow)');
+    previewPath.setAttribute('d', buildSidebarFlowPortDragPath(sourcePoint, sourcePoint, portSide));
+    sidebarFlowSvgNode.appendChild(previewPath);
+    sidebarFlowPortDragState = {
+        sourceId: id,
+        sourcePort: portSide,
+        sourceLabel,
+        sourcePoint,
+        previewPath,
+        dropTarget: null
+    };
+
+    const getDropPort = (clientX, clientY) => {
+        const element = document.elementFromPoint(clientX, clientY);
+        const target = element?.closest?.('[data-flow-port]') || null;
+        if (!target || String(target.dataset.flowNodeId || '').trim() === id || String(target.dataset.flowRole || 'any').trim().toLowerCase() === 'source') {
+            return null;
+        }
+        return target;
+    };
+    const clearDropTarget = () => {
+        sidebarFlowPortDragState?.dropTarget?.classList.remove('is-drop-target');
+        if (sidebarFlowPortDragState) sidebarFlowPortDragState.dropTarget = null;
+    };
+    const onMove = (moveEvent) => {
+        if (!sidebarFlowPortDragState) return;
+        const targetPort = getDropPort(moveEvent.clientX, moveEvent.clientY);
+        if (targetPort !== sidebarFlowPortDragState.dropTarget) {
+            clearDropTarget();
+            if (targetPort) {
+                targetPort.classList.add('is-drop-target');
+                sidebarFlowPortDragState.dropTarget = targetPort;
+            }
+        }
+        const canvasRect = sidebarFlowCanvasNode.getBoundingClientRect();
+        let targetPoint = {
+            x: (moveEvent.clientX - canvasRect.left - sidebarFlowViewState.x) / sidebarFlowViewState.scale,
+            y: (moveEvent.clientY - canvasRect.top - sidebarFlowViewState.y) / sidebarFlowViewState.scale
+        };
+        let targetSide = targetPoint.x >= sourcePoint.x ? 'left' : 'right';
+        if (targetPort) {
+            targetSide = String(targetPort.dataset.flowPort || '').trim().toLowerCase() === 'left' ? 'left' : 'right';
+            targetPoint = getSidebarFlowPortPoint(String(targetPort.dataset.flowNodeId || '').trim(), targetSide, String(targetPort.dataset.flowLabel || '')) || targetPoint;
+        }
+        previewPath.setAttribute('d', buildSidebarFlowPortDragPath(sourcePoint, targetPoint, targetSide));
+    };
+    const finish = (upEvent = null, cancelled = false) => {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        document.removeEventListener('pointercancel', onCancel);
+        document.removeEventListener('keydown', onKeyDown);
+        const targetPort = !cancelled && upEvent ? getDropPort(upEvent.clientX, upEvent.clientY) : null;
+        clearDropTarget();
+        let edge = null;
+        if (targetPort) {
+            const targetId = String(targetPort.dataset.flowNodeId || '').trim();
+            const targetSide = String(targetPort.dataset.flowPort || '').trim().toLowerCase() === 'left' ? 'left' : 'right';
+            edge = addSidebarFlowEdge(id, targetId, sourceLabel, portSide, targetSide);
+        }
+        sidebarFlowPortDragState = null;
+        sidebarFlowConnectSourceId = '';
+        sidebarFlowConnectSourcePort = 'right';
+        sidebarFlowConnectMode = false;
+        sidebarFlowConnectLabel = 'next';
+        if (edge) {
+            syncSidebarEditorToHiddenJson();
+        }
+        renderSidebarFlowCanvas(collectSidebarCardDataFromForm());
+        if (edge) {
+            showActionToast('已创建 A → B 连线', 'success');
+        } else if (targetPort && !cancelled) {
+            showActionToast('该连线已存在', 'info');
+        }
+    };
+    const onUp = (upEvent) => finish(upEvent, false);
+    const onCancel = () => finish(null, true);
+    const onKeyDown = (keyEvent) => {
+        if (keyEvent.key !== 'Escape') return;
+        keyEvent.preventDefault();
+        finish(null, true);
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onCancel);
+    document.addEventListener('keydown', onKeyDown);
     return true;
 }
 
@@ -1090,6 +1444,46 @@ function deleteSidebarFlowEdge(edgeId = '') {
     syncSidebarEditorToHiddenJson();
     renderSidebarFlowCanvas(collectSidebarCardDataFromForm());
     return edge;
+}
+
+function deleteSelectedSidebarFlowNodes(fallbackStepId = '') {
+    const fallbackId = String(fallbackStepId || '').trim();
+    const selectedIds = new Set(sidebarSelectedFlowNodeIds);
+    if (selectedIds.size === 0 && fallbackId) {
+        selectedIds.add(fallbackId);
+    }
+    if (selectedIds.size === 0) {
+        return 0;
+    }
+
+    const currentCard = collectSidebarCardDataFromForm();
+    const steps = ensureSidebarStepIds(Array.isArray(currentCard?.steps) ? currentCard.steps : []);
+    const retainedSteps = steps.filter((step, index) => !selectedIds.has(getSidebarStepId(step, index)));
+    const deletedCount = steps.length - retainedSteps.length;
+    if (deletedCount <= 0) {
+        return 0;
+    }
+
+    const retainedIds = new Set(retainedSteps.map((step, index) => getSidebarStepId(step, index)));
+    const nextStartId = retainedSteps.length > 0 ? getSidebarStepId(retainedSteps[0], 0) : '';
+    currentCard.steps = retainedSteps;
+    currentCard.flow = {
+        ...sidebarFlowState,
+        start: retainedIds.has(sidebarFlowState.start) ? sidebarFlowState.start : nextStartId,
+        nodes: sidebarFlowState.nodes.filter((node) => retainedIds.has(String(node.id || ''))),
+        edges: sidebarFlowState.edges.filter((edge) => retainedIds.has(edge.from) && retainedIds.has(edge.to))
+    };
+    if (selectedIds.has(sidebarFlowConnectSourceId)) {
+        sidebarFlowConnectMode = false;
+        sidebarFlowConnectSourceId = '';
+        sidebarFlowConnectSourcePort = 'right';
+        sidebarFlowConnectLabel = 'next';
+    }
+    sidebarSelectedFlowNodeId = '';
+    sidebarSelectedFlowNodeIds = new Set();
+    renderSidebarCardEditor(currentCard);
+    syncSidebarEditorToHiddenJson();
+    return deletedCount;
 }
 
 function applySidebarFlowAutoLayout() {
@@ -1137,8 +1531,8 @@ function applySidebarFlowAutoLayout() {
         const ids = byDepth.get(level) || [];
         ids.forEach((id, position) => {
             nodePositions.set(id, {
-                x: 34 + position * 220,
-                y: 34 + level * 126
+                x: 34 + level * 220,
+                y: 60 + position * 126
             });
         });
     });
@@ -1168,41 +1562,76 @@ function beginSidebarFlowNodeDrag(event, stepId = '') {
         return false;
     }
     event.preventDefault();
-    selectSidebarFlowNode(id, { scroll: false });
+    const additive = event.ctrlKey === true || event.metaKey === true || event.shiftKey === true;
+    const dragIds = sidebarSelectedFlowNodeIds.has(id)
+        ? Array.from(sidebarSelectedFlowNodeIds)
+        : (additive ? [...Array.from(sidebarSelectedFlowNodeIds), id] : [id]);
+    const startPositions = new Map(sidebarFlowState.nodes
+        .filter((item) => dragIds.includes(String(item.id || '')))
+        .map((item) => [String(item.id || ''), {
+            x: Number(item.x || 0),
+            y: Number(item.y || 0)
+        }]));
     const rect = sidebarFlowCanvasNode.getBoundingClientRect();
     sidebarFlowDragState = {
         id,
+        dragIds,
+        startPositions,
         startClientX: event.clientX,
         startClientY: event.clientY,
-        startX: Number(node.x || 0),
-        startY: Number(node.y || 0),
         scrollLeft: sidebarFlowCanvasNode.scrollLeft,
         scrollTop: sidebarFlowCanvasNode.scrollTop,
         rectLeft: rect.left,
-        rectTop: rect.top
+        rectTop: rect.top,
+        moved: false
     };
     const onMove = (moveEvent) => {
         if (!sidebarFlowDragState) {
             return;
         }
-        const dx = moveEvent.clientX - sidebarFlowDragState.startClientX;
-        const dy = moveEvent.clientY - sidebarFlowDragState.startClientY;
-        const nextX = Math.max(0, sidebarFlowDragState.startX + dx);
-        const nextY = Math.max(0, sidebarFlowDragState.startY + dy);
+        const clientDx = moveEvent.clientX - sidebarFlowDragState.startClientX;
+        const clientDy = moveEvent.clientY - sidebarFlowDragState.startClientY;
+        const dx = clientDx / sidebarFlowViewState.scale;
+        const dy = clientDy / sidebarFlowViewState.scale;
+        if (Math.hypot(clientDx, clientDy) >= 6) {
+            sidebarFlowDragState.moved = true;
+            sidebarFlowSuppressNodeClick = true;
+        }
+        if (!sidebarFlowDragState.moved) {
+            return;
+        }
+        sidebarSelectedFlowNodeIds = new Set(sidebarFlowDragState.dragIds);
+        sidebarSelectedFlowNodeId = '';
         sidebarFlowState = {
             ...sidebarFlowState,
-            nodes: sidebarFlowState.nodes.map((item) => item.id === id ? { ...item, x: nextX, y: nextY } : item)
+            nodes: sidebarFlowState.nodes.map((item) => {
+                const start = sidebarFlowDragState.startPositions.get(String(item.id || ''));
+                return start
+                    ? { ...item, x: Math.max(0, start.x + dx), y: Math.max(0, start.y + dy) }
+                    : item;
+            })
         };
         renderSidebarFlowCanvas(collectSidebarCardDataFromForm());
     };
-    const onUp = () => {
+    const finish = (cancelled = false) => {
         document.removeEventListener('pointermove', onMove);
         document.removeEventListener('pointerup', onUp);
+        document.removeEventListener('pointercancel', onCancel);
+        const moved = sidebarFlowDragState?.moved === true;
         sidebarFlowDragState = null;
-        syncSidebarEditorToHiddenJson();
+        if (moved) {
+            syncSidebarEditorToHiddenJson();
+        } else if (!cancelled) {
+            sidebarFlowSuppressNodeClick = true;
+            selectSidebarFlowNode(id, { additive, toggle: additive });
+        }
+        window.setTimeout(() => { sidebarFlowSuppressNodeClick = false; }, 0);
     };
+    const onUp = () => finish(false);
+    const onCancel = () => finish(true);
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onCancel);
     return true;
 }
 
@@ -1544,10 +1973,16 @@ function buildSidebarStepCardHtml(step = {}, index = 0, expanded = false) {
     const script = String(step?.script || '').trim();
     const waitForText = String(step?.wait_for_text || '').trim();
     const waitForElementHidden = String(step?.wait_for_element_hidden || '').trim();
+    const waitForTextHidden = String(step?.wait_for_text_hidden || '').trim();
+    const nth = String(step?.nth ?? '').trim();
+    const pollInterval = String(step?.poll_interval_ms ?? '').trim();
+    const defaultValue = String(step?.default ?? '').trim();
+    const clearFirst = step?.clear_first === true || step?.clearFirst === true;
+    const clickBeforeType = step?.click_before_type === true || step?.clickBeforeType === true;
     const optional = step?.optional === true || String(step?.optional || '').trim() === 'true';
 
     return `
-      <div class="sidebar-step-card${expanded ? ' is-expanded' : ''}" data-sidebar-step-card data-step-index="${index}" data-step-id="${escapeHtml(stepId)}">
+      <div class="sidebar-step-card${expanded ? ' is-expanded' : ''}" data-sidebar-step-card data-step-index="${index}" data-step-id="${escapeHtml(stepId)}" data-step-type="${escapeHtml(type)}">
         <textarea data-sidebar-step-field="raw_json" hidden aria-hidden="true">${escapeHtml(JSON.stringify(step))}</textarea>
         <div class="sidebar-step-card__header">
           <div class="sidebar-step-card__title-wrap">
@@ -1569,7 +2004,7 @@ function buildSidebarStepCardHtml(step = {}, index = 0, expanded = false) {
             <input data-sidebar-step-field="name" type="text" value="${escapeHtml(name)}">
             <input data-sidebar-step-field="id" type="hidden" value="${escapeHtml(stepId)}">
           </div>
-            <div>
+            <div class="sidebar-step-setting is-visible">
               <label>步骤类型</label>
               <select data-sidebar-step-field="type">
                 ${[
@@ -1586,13 +2021,14 @@ function buildSidebarStepCardHtml(step = {}, index = 0, expanded = false) {
                 ].map(([value, label]) => `<option value="${value}"${value === type ? ' selected' : ''}>${label}</option>`).join('')}
               </select>
             </div>
-            <div>
+            <div class="full sidebar-step-type-description" data-step-type-description></div>
+            <div class="sidebar-step-setting" data-step-types="click,type,get_credits">
               <label>选择器类型</label>
               <select data-sidebar-step-field="by">
                 ${['css_selector','text','auto'].map((item) => `<option value="${item}"${item === by ? ' selected' : ''}>${item}</option>`).join('')}
               </select>
             </div>
-            <div>
+            <div class="sidebar-step-setting" data-step-types="condition">
               <label>判断方式</label>
               <select data-sidebar-step-field="condition_mode">
                 ${[
@@ -1605,46 +2041,69 @@ function buildSidebarStepCardHtml(step = {}, index = 0, expanded = false) {
                 ].map(([value, label]) => `<option value="${value}"${value === conditionMode ? ' selected' : ''}>${label}</option>`).join('')}
               </select>
             </div>
-          <div class="full">
+          <div class="full sidebar-step-setting" data-step-types="click,type,wait,condition,get_credits" data-condition-modes="selector_exists,selector_missing">
             <div class="sidebar-step-selector-head">
               <label>选择器</label>
               <button type="button" class="button-secondary sidebar-step-selector-btn" data-sidebar-step-action="selector">设置选择器</button>
             </div>
             <input data-sidebar-step-field="selector" type="text" value="${escapeHtml(selector)}" placeholder="可直接粘贴 HTML 元素片段">
           </div>
-          <div class="full">
-            <label>输入文本（变量默认值）</label>
+          <div class="full sidebar-step-setting" data-step-types="type,condition" data-condition-modes="text_exists,text_missing,url_matches">
+            <label data-step-text-label>输入文本（变量默认值）</label>
             <input data-sidebar-step-field="text" type="text" value="${escapeHtml(text)}" placeholder="type 步骤要输入的默认文本；运行前可按变量名覆盖">
           </div>
-          <div class="full">
+          <div class="full sidebar-step-setting" data-step-types="type">
             <label>变量名（仅输入步骤，留空自动按顺序 var1/var2…）</label>
             <input data-sidebar-step-field="variable" type="text" value="${escapeHtml(variable)}" placeholder="如 email / password / username">
           </div>
-          <div class="full">
+          <div class="full sidebar-step-setting" data-step-types="navigate">
             <label>跳转 URL</label>
             <input data-sidebar-step-field="url" type="text" value="${escapeHtml(url)}">
           </div>
-          <div>
+          <div class="sidebar-step-setting" data-step-types="click,type,get_credits">
+            <label>匹配序号</label>
+            <input data-sidebar-step-field="nth" type="number" min="0" step="1" value="${escapeHtml(nth)}" placeholder="0">
+          </div>
+          <div class="sidebar-step-setting" data-step-types="click,type,condition,get_credits">
+            <label>轮询间隔(ms)</label>
+            <input data-sidebar-step-field="poll_interval_ms" type="number" min="50" step="50" value="${escapeHtml(pollInterval)}">
+          </div>
+          <div class="sidebar-step-setting" data-step-types="navigate,click,type,wait,condition,get_credits">
             <label>超时(ms)</label>
             <input data-sidebar-step-field="timeout" type="number" min="0" step="100" value="${escapeHtml(timeout)}">
           </div>
-            <div>
+            <div class="sidebar-step-setting" data-step-types="navigate,click,type,wait,condition,get_credits,external_script,clear_current_page_cache">
               <label>可选</label>
               <label style="display:flex;align-items:center;gap:8px;margin:0;">
                 <input data-sidebar-step-field="optional" type="checkbox"${optional ? ' checked' : ''}>
                 <span>跳过失败继续</span>
               </label>
             </div>
-          <div class="full">
+          <div class="full sidebar-step-setting" data-step-types="type">
+            <label>输入行为</label>
+            <div class="sidebar-step-checkboxes">
+              <label><input data-sidebar-step-field="clear_first" type="checkbox"${clearFirst ? ' checked' : ''}> 输入前清空</label>
+              <label><input data-sidebar-step-field="click_before_type" type="checkbox"${clickBeforeType ? ' checked' : ''}> 输入前点击</label>
+            </div>
+          </div>
+          <div class="full sidebar-step-setting" data-step-types="wait">
             <label>等待文本</label>
             <input data-sidebar-step-field="wait_for_text" type="text" value="${escapeHtml(waitForText)}">
           </div>
-          <div class="full">
+          <div class="full sidebar-step-setting" data-step-types="wait">
             <label>等待元素消失</label>
             <input data-sidebar-step-field="wait_for_element_hidden" type="text" value="${escapeHtml(waitForElementHidden)}">
           </div>
-          <div class="full">
-            <label>脚本</label>
+          <div class="full sidebar-step-setting" data-step-types="wait">
+            <label>等待文本消失</label>
+            <input data-sidebar-step-field="wait_for_text_hidden" type="text" value="${escapeHtml(waitForTextHidden)}">
+          </div>
+          <div class="full sidebar-step-setting" data-step-types="get_credits">
+            <label>未读取到内容时的默认值</label>
+            <input data-sidebar-step-field="default" type="text" value="${escapeHtml(defaultValue)}">
+          </div>
+          <div class="full sidebar-step-setting" data-step-types="external_script,condition" data-condition-modes="js">
+            <label data-step-script-label>脚本</label>
             <textarea data-sidebar-step-field="script" rows="5">${escapeHtml(script)}</textarea>
           </div>
           </div>
@@ -1652,6 +2111,53 @@ function buildSidebarStepCardHtml(step = {}, index = 0, expanded = false) {
       </div>
     `;
   }
+
+function updateSidebarStepSettingsVisibility(stepCard) {
+    if (!stepCard) {
+        return;
+    }
+    const type = String(stepCard.querySelector('[data-sidebar-step-field="type"]')?.value || 'navigate').trim().toLowerCase() || 'navigate';
+    const conditionMode = String(stepCard.querySelector('[data-sidebar-step-field="condition_mode"]')?.value || 'selector_exists').trim().toLowerCase();
+    stepCard.dataset.stepType = type;
+
+    stepCard.querySelectorAll('[data-step-types]').forEach((field) => {
+        const allowedTypes = String(field.dataset.stepTypes || '').split(',').map((item) => item.trim()).filter(Boolean);
+        const allowedModes = String(field.dataset.conditionModes || '').split(',').map((item) => item.trim()).filter(Boolean);
+        const typeMatches = allowedTypes.length === 0 || allowedTypes.includes(type);
+        const modeMatches = type !== 'condition' || allowedModes.length === 0 || allowedModes.includes(conditionMode);
+        field.classList.toggle('is-visible', typeMatches && modeMatches);
+    });
+
+    const descriptions = {
+        navigate: '访问指定 URL；未填写时使用卡片设置中的目标网址。',
+        click: '定位页面元素并执行点击。',
+        type: '定位可输入元素并写入固定文本或运行变量。',
+        wait: '可等待元素或文本出现，也可等待元素或文本消失。',
+        condition: '计算 true / false，并沿画布中对应标签的连线继续执行。',
+        get_credits: '读取目标元素的文本并写入执行结果。',
+        save_cookies: '保存当前页面的 Cookie 及本地存储，无需额外参数。',
+        clear_current_page_cache: '清理当前页面缓存与站点存储，无需额外参数。',
+        external_script: '在当前页面上下文执行 JavaScript。',
+        screenshot: '截取当前标签页可见区域并保存，无需额外参数。'
+    };
+    const description = stepCard.querySelector('[data-step-type-description]');
+    if (description) {
+        description.textContent = descriptions[type] || '';
+    }
+
+    const textLabel = stepCard.querySelector('[data-step-text-label]');
+    if (textLabel) {
+        textLabel.textContent = type === 'condition' ? '判断文本 / URL 片段' : '输入文本（变量默认值）';
+    }
+    const textInput = stepCard.querySelector('[data-sidebar-step-field="text"]');
+    if (textInput) {
+        textInput.placeholder = type === 'condition' ? '输入需要匹配的文本或 URL 片段' : '运行前可按变量名覆盖';
+    }
+    const scriptLabel = stepCard.querySelector('[data-step-script-label]');
+    if (scriptLabel) {
+        scriptLabel.textContent = type === 'condition' ? '判断表达式 / 脚本' : '执行脚本';
+    }
+}
 
 function resetSidebarStepStatuses() {
   if (!sidebarStepListNode) return;
@@ -1768,9 +2274,12 @@ function readSidebarStepCard(stepCard, index = 0) {
         name: String(readField('name') || `步骤${index + 1}`).trim() || `步骤${index + 1}`,
         type: String(readField('type') || 'navigate').trim() || 'navigate'
     };
+    const stepType = String(step.type || '').trim().toLowerCase();
     [
         'selector', 'text', 'variable', 'url', 'by', 'condition_mode', 'condition',
-        'timeout', 'wait_for_text', 'wait_for_element_hidden', 'script', 'optional'
+        'timeout', 'nth', 'poll_interval_ms', 'wait_for_text', 'wait_for_element_hidden',
+        'wait_for_text_hidden', 'script', 'expression', 'default', 'optional',
+        'clear_first', 'clearFirst', 'click_before_type', 'clickBeforeType'
     ].forEach((key) => delete step[key]);
 
     const selector = String(selectorNormalization.selector || readField('selector') || '').trim();
@@ -1779,42 +2288,70 @@ function readSidebarStepCard(stepCard, index = 0) {
     const url = String(readField('url') || '').trim();
     const by = String(readField('by') || '').trim();
     const conditionMode = String(readField('condition_mode') || '').trim();
-    const timeoutValue = Number(readField('timeout'));
+    const timeoutRaw = String(readField('timeout') || '').trim();
+    const timeoutValue = timeoutRaw ? Number(timeoutRaw) : Number.NaN;
     const waitForText = String(readField('wait_for_text') || '').trim();
     const waitForElementHidden = String(readField('wait_for_element_hidden') || '').trim();
+    const waitForTextHidden = String(readField('wait_for_text_hidden') || '').trim();
     const script = String(readField('script') || '').trim();
+    const defaultValue = String(readField('default') || '').trim();
+    const nthRaw = String(readField('nth') || '').trim();
+    const pollIntervalRaw = String(readField('poll_interval_ms') || '').trim();
+    const nthValue = nthRaw ? Number(nthRaw) : Number.NaN;
+    const pollIntervalValue = pollIntervalRaw ? Number(pollIntervalRaw) : Number.NaN;
 
-    if (selector) {
+    const selectorTypes = ['click', 'type', 'wait', 'get_credits'];
+    const conditionUsesSelector = stepType === 'condition' && ['selector_exists', 'selector_missing'].includes(conditionMode);
+    if (selector && (selectorTypes.includes(stepType) || conditionUsesSelector)) {
         step.selector = selector;
     }
-    if (text) {
+    const conditionUsesText = stepType === 'condition' && ['text_exists', 'text_missing', 'url_matches'].includes(conditionMode);
+    if (text && (stepType === 'type' || conditionUsesText)) {
         step.text = text;
     }
-    if (variable && String(step.type || '').trim().toLowerCase() === 'type') {
+    if (variable && stepType === 'type') {
         step.variable = variable;
     }
-    if (url) {
+    if (url && stepType === 'navigate') {
         step.url = url;
     }
-    if (selectorNormalization.converted) {
+    if (selectorNormalization.converted && ['click', 'type', 'get_credits'].includes(stepType)) {
         step.by = 'css_selector';
-    } else if (by) {
+    } else if (by && ['click', 'type', 'get_credits'].includes(stepType)) {
         step.by = by;
     }
-    if (conditionMode && String(step.type || '').trim().toLowerCase() === 'condition') {
+    if (conditionMode && stepType === 'condition') {
         step.condition_mode = conditionMode;
     }
-    if (Number.isFinite(timeoutValue)) {
+    if (Number.isFinite(timeoutValue) && ['navigate', 'click', 'type', 'wait', 'condition', 'get_credits'].includes(stepType)) {
         step.timeout = timeoutValue;
     }
-    if (waitForText) {
+    if (Number.isFinite(nthValue) && ['click', 'type', 'get_credits'].includes(stepType)) {
+        step.nth = nthValue;
+    }
+    if (Number.isFinite(pollIntervalValue) && ['click', 'type', 'condition', 'get_credits'].includes(stepType)) {
+        step.poll_interval_ms = pollIntervalValue;
+    }
+    if (waitForText && stepType === 'wait') {
         step.wait_for_text = waitForText;
     }
-    if (waitForElementHidden) {
+    if (waitForElementHidden && stepType === 'wait') {
         step.wait_for_element_hidden = waitForElementHidden;
     }
-    if (script) {
+    if (waitForTextHidden && stepType === 'wait') {
+        step.wait_for_text_hidden = waitForTextHidden;
+    }
+    if (script && (stepType === 'external_script' || (stepType === 'condition' && conditionMode === 'js'))) {
         step.script = script;
+    }
+    if (defaultValue && stepType === 'get_credits') {
+        step.default = defaultValue;
+    }
+    if (stepType === 'type' && readField('clear_first') === true) {
+        step.clear_first = true;
+    }
+    if (stepType === 'type' && readField('click_before_type') === true) {
+        step.click_before_type = true;
     }
     if (readField('optional') === true) {
         step.optional = true;
@@ -1936,6 +2473,7 @@ function renderSidebarCardEditor(cardData) {
     }
 
     sidebarStepListNode.innerHTML = normalized.steps.map((step, index) => buildSidebarStepCardHtml(step, index, previousExpandedStates.get(index) === true)).join('');
+    collectSidebarStepCards().forEach((card) => updateSidebarStepSettingsVisibility(card));
     syncSidebarNodeSettingsSelection();
     resetSidebarStepStatuses();
 }
@@ -1958,7 +2496,8 @@ async function getCardDataForExport() {
         return normalizeCardData(cardData, cardData?.name || 'automation', { allowEmptySteps: true });
     }
 
-    const cachedCard = await loadCardCache().catch(() => null);
+    const cacheState = await loadCardCacheState().catch(() => ({ items: [], selectedId: '' }));
+    const cachedCard = cacheState.items.find((item) => item.id === cacheState.selectedId) || cacheState.items[0] || null;
     if (cachedCard?.cardData) {
         return normalizeCardData(cachedCard.cardData, cachedCard.cardName || cachedCard.cardData?.name || 'automation', { allowEmptySteps: true });
     }
@@ -1968,10 +2507,11 @@ async function getCardDataForExport() {
 
 async function exportCard() {
     const cardData = await getCardDataForExport();
-    const fileName = buildCardExportFileName(cardData.name);
-    await downloadJsonFile(`automation_card/${fileName}`, cardData);
     setCardFileName(cardData.name);
-    return { cardName: cardData.name, fileName };
+    return {
+        cardName: cardData.name,
+        text: stringifyCardData(cardData)
+    };
 }
 
 async function loadCardCacheState() {
@@ -2184,12 +2724,21 @@ globalThis.CookieCaptureAutomationWorkbench = {
     normalizeSidebarFlowForSteps,
     renderSidebarFlowCanvas,
     clearSidebarFlowNodeSelection,
+    prepareSidebarFlowNodeContextSelection,
+    positionSidebarNodeSettings,
+    setSidebarFlowZoom,
+    zoomSidebarFlowBy,
+    resetSidebarFlowView,
+    beginSidebarFlowCanvasPan,
+    addSidebarStepToCanvas,
     selectSidebarFlowNode,
     setSidebarFlowConnectMode,
     toggleSidebarFlowConnectMode,
     addSidebarFlowEdge,
     handleSidebarFlowNodeClick,
+    beginSidebarFlowPortDrag,
     deleteSidebarFlowEdge,
+    deleteSelectedSidebarFlowNodes,
     applySidebarFlowAutoLayout,
     beginSidebarFlowNodeDrag,
     escapeHtml,
@@ -2209,6 +2758,7 @@ globalThis.CookieCaptureAutomationWorkbench = {
     collectSidebarStepExpansionState,
     buildSidebarStepSummary,
     buildSidebarStepCardHtml,
+    updateSidebarStepSettingsVisibility,
     collectSidebarStepCards,
     readSidebarStepCard,
     collectSidebarSteps,

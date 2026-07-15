@@ -25,7 +25,7 @@ async function initPluginSwitches() {
 
     const plugins = extensionState.plugins;
     if (!plugins.length) {
-      extensionList.innerHTML = '<div class="extension-plugin-empty">暂无插件</div>';
+      extensionList.innerHTML = '<div class="extension-plugin-empty">暂无可注入的浏览器插件</div>';
       return;
     }
 

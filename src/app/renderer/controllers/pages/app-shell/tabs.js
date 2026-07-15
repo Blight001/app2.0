@@ -105,6 +105,18 @@ let addTabBtn = document.getElementById('add-tab-btn');
 let newBrowserWindowBtn = document.getElementById('new-browser-window-btn');
 let accountCenterBtn = document.getElementById('account-center-btn');
 
+function setBrowserEmptyStateVisible(tabs = []) {
+  const emptyState = document.getElementById('browser-empty-state');
+  if (!emptyState) return;
+  const activeTab = Array.isArray(tabs) ? tabs.find((tab) => tab?.isActive) : null;
+  const runtimeStatus = String(activeTab?.runtimeStatus || '').trim().toLowerCase();
+  emptyState.hidden = runtimeStatus === 'ready' || runtimeStatus === 'hidden';
+}
+
+function setBrowserEmptyStateSidebarVisible(visible) {
+  document.documentElement.classList.toggle('sidebar-collapsed', visible !== true);
+}
+
 function setAppShellUpdateVisible(visible) {
   const widget = document.getElementById('update-widget');
   if (widget) widget.hidden = !visible;
@@ -180,11 +192,25 @@ let sidebarReopenHintTimer = null;
 let draggedTabId = null;
 let dragHoverTabId = null;
 let dragHoverPosition = null;
-let currentContextMenuTabId = null;
 const tabElementById = new Map();
 let pendingRenameTabId = null;
 let pendingBrowserCreationTabId = null;
 let independentBrowserCreationPending = false;
+const BROWSER_HISTORY_GESTURE_THRESHOLD = 32;
+const browserHistoryGestureState = {
+  pointerId: null,
+  startX: 0,
+  startY: 0,
+  lastX: 0,
+  lastY: 0,
+  active: false,
+  selectedId: '',
+  history: null,
+  loading: false,
+  loadToken: 0,
+  popupLayout: null,
+};
+let suppressNewBrowserWindowClick = false;
 
 function setIndependentBrowserCreationPending(pending) {
   independentBrowserCreationPending = pending === true;
@@ -194,7 +220,7 @@ function setIndependentBrowserCreationPending(pending) {
   newBrowserWindowBtn.setAttribute('aria-busy', String(independentBrowserCreationPending));
   newBrowserWindowBtn.title = independentBrowserCreationPending
     ? '浏览器窗口正在后台创建…'
-    : '新建浏览器窗口';
+    : '单击新建浏览器；按住向下拖动可选择浏览器历史';
 }
 
 function finishIndependentBrowserCreation(payload = {}) {
@@ -204,6 +230,116 @@ function finishIndependentBrowserCreation(payload = {}) {
     && completedTabId !== pendingBrowserCreationTabId) return;
   pendingBrowserCreationTabId = null;
   setIndependentBrowserCreationPending(false);
+}
+
+function updateBrowserHistoryGestureSelection(clientX, clientY) {
+  const layout = browserHistoryGestureState.popupLayout;
+  if (!layout || !browserHistoryGestureState.active) return;
+  const insidePopup = clientX >= layout.x
+    && clientX <= layout.x + layout.width
+    && clientY >= layout.y
+    && clientY <= layout.y + layout.height;
+  const relativeY = clientY - layout.y;
+  const selectedRow = insidePopup
+    ? (Array.isArray(layout.rows) ? layout.rows : []).find((row) => relativeY >= row.top && relativeY <= row.bottom)
+    : null;
+  const selectedId = String(selectedRow?.id || '');
+  if (selectedId === browserHistoryGestureState.selectedId) return;
+  browserHistoryGestureState.selectedId = selectedId;
+  IPC.send('update-browser-history-gesture-popup-selection', {
+    historyId: selectedId,
+  });
+}
+
+async function renderBrowserHistoryGesturePopup(loadToken) {
+  const button = document.getElementById('new-browser-window-btn');
+  if (!button || !browserHistoryGestureState.active) return;
+  const buttonRect = button.getBoundingClientRect();
+  const theme = document.documentElement.classList.contains('theme-light') ? 'light' : 'dark';
+  try {
+    const response = await IPC.invoke('show-browser-history-gesture-popup', {
+      anchor: {
+        left: buttonRect.left,
+        top: buttonRect.top,
+        right: buttonRect.right,
+        bottom: buttonRect.bottom,
+      },
+      history: Array.isArray(browserHistoryGestureState.history) ? browserHistoryGestureState.history : [],
+      theme,
+    });
+    if (loadToken !== browserHistoryGestureState.loadToken || !browserHistoryGestureState.active) {
+      IPC.send('close-browser-history-gesture-popup');
+      return;
+    }
+    if (!response?.ok || !response.layout) throw new Error(response?.error || '显示浏览器历史失败');
+    browserHistoryGestureState.popupLayout = response.layout;
+    updateBrowserHistoryGestureSelection(browserHistoryGestureState.lastX, browserHistoryGestureState.lastY);
+  } catch (error) {
+    if (loadToken !== browserHistoryGestureState.loadToken || !browserHistoryGestureState.active) return;
+    showControllerError('显示浏览器历史失败', error);
+    finishBrowserHistoryPointer({ suppressClick: true });
+  }
+}
+
+function showBrowserHistoryGesturePopup() {
+  browserHistoryGestureState.active = true;
+  browserHistoryGestureState.selectedId = '';
+  browserHistoryGestureState.popupLayout = null;
+  newBrowserWindowBtn?.classList.add('gesture-active');
+}
+
+function hideBrowserHistoryGesturePopup() {
+  browserHistoryGestureState.active = false;
+  browserHistoryGestureState.selectedId = '';
+  browserHistoryGestureState.popupLayout = null;
+  newBrowserWindowBtn?.classList.remove('gesture-active', 'gesture-armed');
+  IPC.send('close-browser-history-gesture-popup');
+}
+
+function finishBrowserHistoryPointer(options = {}) {
+  const pointerId = browserHistoryGestureState.pointerId;
+  browserHistoryGestureState.pointerId = null;
+  browserHistoryGestureState.loadToken += 1;
+  browserHistoryGestureState.loading = false;
+  hideBrowserHistoryGesturePopup();
+  if (newBrowserWindowBtn && pointerId !== null) {
+    try {
+      if (newBrowserWindowBtn.hasPointerCapture?.(pointerId)) {
+        newBrowserWindowBtn.releasePointerCapture(pointerId);
+      }
+    } catch (_) {}
+  }
+  if (options.suppressClick === true) {
+    suppressNewBrowserWindowClick = true;
+    setTimeout(() => { suppressNewBrowserWindowClick = false; }, 0);
+  }
+}
+
+async function loadBrowserHistoryForGesture(loadToken) {
+  try {
+    const response = await IPC.invoke('get-browser-history');
+    if (loadToken !== browserHistoryGestureState.loadToken || browserHistoryGestureState.pointerId === null) return;
+    if (!response?.ok) throw new Error(response?.error || '读取浏览器历史失败');
+    browserHistoryGestureState.history = Array.isArray(response.history) ? response.history : [];
+  } catch (error) {
+    if (loadToken !== browserHistoryGestureState.loadToken || browserHistoryGestureState.pointerId === null) return;
+    browserHistoryGestureState.history = [];
+    showControllerError('读取浏览器历史失败', error);
+  } finally {
+    if (loadToken !== browserHistoryGestureState.loadToken || browserHistoryGestureState.pointerId === null) return;
+    browserHistoryGestureState.loading = false;
+    if (browserHistoryGestureState.active) void renderBrowserHistoryGesturePopup(loadToken);
+  }
+}
+
+async function openBrowserHistoryFromGesture(historyId) {
+  if (!historyId) return;
+  try {
+    const response = await IPC.invoke('open-browser-history', { historyId });
+    if (!response?.ok) throw new Error(response?.error || '打开浏览器失败');
+  } catch (error) {
+    showControllerError('打开浏览器历史失败', error);
+  }
 }
 
 function clearSidebarReopenHint() {
@@ -338,20 +474,9 @@ function updateDragHoverState(tabElement, position) {
   dragHoverPosition = position;
 }
 
-// 停止/关闭/清理：hideTabContextMenu的具体业务逻辑。
-function hideTabContextMenu() {
-  currentContextMenuTabId = null;
-}
-
-// 校验/保护：ensureTabContextMenu的具体业务逻辑。
-function ensureTabContextMenu() {
-  return null;
-}
-
 // 启动/打开/显示：showTabContextMenu的具体业务逻辑。
 async function showTabContextMenu(tab, event) {
   const tabId = String(tab?.id || '').trim();
-  currentContextMenuTabId = tabId;
   try {
     if (typeof IPC.invoke !== 'function') {
       throw new Error('当前环境不支持标签菜单');
@@ -360,7 +485,6 @@ async function showTabContextMenu(tab, event) {
       tabId,
       x: Number(event?.clientX ?? 0),
       y: Number(event?.clientY ?? 0),
-      browserProxyMode: String(tab?.browserProxyMode || 'inherit').trim() || 'inherit',
     });
     if (!resp || resp.ok !== true) {
       throw new Error((resp && (resp.message || resp.error)) || '打开菜单失败');
@@ -368,11 +492,6 @@ async function showTabContextMenu(tab, event) {
   } catch (err) {
     showControllerError('打开标签菜单失败', err);
   }
-}
-
-// 创建/初始化：bindTabContextMenuDismissal的具体业务逻辑。
-function bindTabContextMenuDismissal() {
-  return;
 }
 
 function formatRuntimeStatus(status) {
@@ -835,9 +954,62 @@ function syncTabElement(tabElement, tab) {
 function bindNewBrowserWindowBtnOnce() {
   newBrowserWindowBtn = document.getElementById('new-browser-window-btn');
   if (!newBrowserWindowBtn || newBrowserWindowBtn.dataset.bound === '1') return;
+  newBrowserWindowBtn.title = '单击新建浏览器；按住向下拖动可选择浏览器历史';
+  newBrowserWindowBtn.setAttribute('aria-label', '新建浏览器窗口；按住向下拖动可选择浏览器历史');
+  newBrowserWindowBtn.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || newBrowserWindowBtn.disabled || independentBrowserCreationPending) return;
+    browserHistoryGestureState.pointerId = event.pointerId;
+    browserHistoryGestureState.startX = event.clientX;
+    browserHistoryGestureState.startY = event.clientY;
+    browserHistoryGestureState.lastX = event.clientX;
+    browserHistoryGestureState.lastY = event.clientY;
+    browserHistoryGestureState.active = false;
+    browserHistoryGestureState.selectedId = '';
+    browserHistoryGestureState.history = null;
+    browserHistoryGestureState.loading = true;
+    browserHistoryGestureState.loadToken += 1;
+    newBrowserWindowBtn.classList.add('gesture-armed');
+    try { newBrowserWindowBtn.setPointerCapture(event.pointerId); } catch (_) {}
+  });
+  newBrowserWindowBtn.addEventListener('pointermove', (event) => {
+    if (event.pointerId !== browserHistoryGestureState.pointerId) return;
+    browserHistoryGestureState.lastX = event.clientX;
+    browserHistoryGestureState.lastY = event.clientY;
+    if (!browserHistoryGestureState.active) {
+      const deltaX = event.clientX - browserHistoryGestureState.startX;
+      const deltaY = event.clientY - browserHistoryGestureState.startY;
+      if (deltaY >= BROWSER_HISTORY_GESTURE_THRESHOLD && deltaY > Math.abs(deltaX)) {
+        event.preventDefault();
+        showBrowserHistoryGesturePopup();
+        void loadBrowserHistoryForGesture(browserHistoryGestureState.loadToken);
+      }
+    }
+    if (browserHistoryGestureState.active) {
+      event.preventDefault();
+      updateBrowserHistoryGestureSelection(event.clientX, event.clientY);
+    }
+  });
+  newBrowserWindowBtn.addEventListener('pointerup', (event) => {
+    if (event.pointerId !== browserHistoryGestureState.pointerId) return;
+    const wasActive = browserHistoryGestureState.active;
+    if (wasActive) updateBrowserHistoryGestureSelection(event.clientX, event.clientY);
+    const selectedId = wasActive ? browserHistoryGestureState.selectedId : '';
+    if (wasActive) event.preventDefault();
+    finishBrowserHistoryPointer({ suppressClick: wasActive });
+    if (selectedId) void openBrowserHistoryFromGesture(selectedId);
+  });
+  newBrowserWindowBtn.addEventListener('pointercancel', (event) => {
+    if (event.pointerId !== browserHistoryGestureState.pointerId) return;
+    finishBrowserHistoryPointer({ suppressClick: browserHistoryGestureState.active });
+  });
+  newBrowserWindowBtn.addEventListener('lostpointercapture', (event) => {
+    if (event.pointerId !== browserHistoryGestureState.pointerId) return;
+    finishBrowserHistoryPointer({ suppressClick: browserHistoryGestureState.active });
+  });
   newBrowserWindowBtn.addEventListener('click', async (event) => {
     event.preventDefault();
     event.stopPropagation();
+    if (suppressNewBrowserWindowClick) return;
     if (newBrowserWindowBtn.disabled || independentBrowserCreationPending) return;
     let acceptedForBackgroundCreation = false;
     setIndependentBrowserCreationPending(true);
@@ -917,6 +1089,7 @@ function initSettingsBtnAnimation() {
 
   IPC.on('sidebar-collapse', () => {
     console.log('[标签栏] 收到收起动画事件');
+    setBrowserEmptyStateSidebarVisible(false);
     addTabBtn.classList.add('collapsing');
     addTabBtn.classList.remove('expanding');
     setTimeout(() => {
@@ -937,6 +1110,7 @@ function initSettingsBtnAnimation() {
 
   IPC.on('sidebar-expand', () => {
     console.log('[标签栏] 收到展开动画事件');
+    setBrowserEmptyStateSidebarVisible(true);
     addTabBtn.classList.add('expanding');
     addTabBtn.classList.remove('collapsing');
     clearSidebarReopenHint();
@@ -947,6 +1121,7 @@ function initSettingsBtnAnimation() {
 }
 // 从主进程接收标签数据
 IPC.on('update-tabs', (tabs) => {
+  setBrowserEmptyStateVisible(tabs);
   if (!tabsContainer) {
     tabsContainer = document.getElementById('tabs-container');
     if (!tabsContainer) return;
@@ -974,9 +1149,15 @@ IPC.on('update-tabs', (tabs) => {
     fragment.appendChild(tabElement);
   });
 
-  if (newBrowserWindowBtn) fragment.appendChild(newBrowserWindowBtn);
-
-  tabsContainer.replaceChildren(fragment);
+  // 手势期间加号持有 pointer capture。标签刷新时若用 replaceChildren 把
+  // 加号移出再插回 DOM，Chromium 会发送 lostpointercapture 并中止手势。
+  // 始终让加号留在容器中，只在它前面重排标签节点。
+  if (newBrowserWindowBtn?.parentNode === tabsContainer) {
+    tabsContainer.insertBefore(fragment, newBrowserWindowBtn);
+  } else {
+    if (newBrowserWindowBtn) fragment.appendChild(newBrowserWindowBtn);
+    tabsContainer.replaceChildren(fragment);
+  }
 
   if (pendingRenameTabId) {
     const pendingTabElement = tabElementById.get(String(pendingRenameTabId));
@@ -990,15 +1171,22 @@ IPC.on('update-tabs', (tabs) => {
   console.log(`标签页已更新: 总数=${tabs.length}, 自适应宽度已应用`);
 });
 
-window.addEventListener('click', hideTabContextMenu);
-window.addEventListener('blur', hideTabContextMenu);
 window.addEventListener('resize', () => {
-  hideTabContextMenu();
+  if (browserHistoryGestureState.pointerId !== null) {
+    finishBrowserHistoryPointer({ suppressClick: browserHistoryGestureState.active });
+  }
   applyAdaptiveTabSizing();
 });
-window.addEventListener('scroll', hideTabContextMenu, true);
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') hideTabContextMenu();
+window.addEventListener('blur', () => {
+  if (browserHistoryGestureState.pointerId !== null) {
+    finishBrowserHistoryPointer({ suppressClick: browserHistoryGestureState.active });
+  }
+});
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && browserHistoryGestureState.pointerId !== null) {
+    event.preventDefault();
+    finishBrowserHistoryPointer({ suppressClick: browserHistoryGestureState.active });
+  }
 });
 
 // 事件绑定统一通过 bindAddTabBtnOnce，并带幂等保护，避免重复绑定导致抖动

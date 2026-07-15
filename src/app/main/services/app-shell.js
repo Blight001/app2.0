@@ -53,14 +53,11 @@ function createAppShell(deps = {}) {
     getReorderTab,
     getRenameTab,
     getSetTabAccountId,
-    getSetTabBrowserProxyMode,
     getSetTabBrowserSettings,
     getSetZoom,
     getRefreshActiveTabToUrl,
     getRefreshActiveTab,
     getRefreshTab,
-    getOpenExtensionPopup,
-    getOpenExtensionOptions,
     extensionManager,
     updateTabs,
     getActiveWC,
@@ -241,8 +238,6 @@ function createAppShell(deps = {}) {
 // 获取/读取/解析：resolveSetTabAccountId的具体业务逻辑。
   const resolveSetTabAccountId = () => (typeof getSetTabAccountId === 'function' ? getSetTabAccountId() : null);
   const resolveRenameTab = () => (typeof getRenameTab === 'function' ? getRenameTab() : null);
-// 获取/读取/解析：resolveSetTabBrowserProxyMode的具体业务逻辑。
-  const resolveSetTabBrowserProxyMode = () => (typeof getSetTabBrowserProxyMode === 'function' ? getSetTabBrowserProxyMode() : null);
   const resolveSetTabBrowserSettings = () => (typeof getSetTabBrowserSettings === 'function' ? getSetTabBrowserSettings() : null);
 // 获取/读取/解析：resolveSetZoom的具体业务逻辑。
   const resolveSetZoom = () => (typeof getSetZoom === 'function' ? getSetZoom() : null);
@@ -252,10 +247,6 @@ function createAppShell(deps = {}) {
   const resolveRefreshActiveTab = () => (typeof getRefreshActiveTab === 'function' ? getRefreshActiveTab() : null);
 // 获取/读取/解析：resolveRefreshTab的具体业务逻辑。
   const resolveRefreshTab = () => (typeof getRefreshTab === 'function' ? getRefreshTab() : null);
-// 获取/读取/解析：resolveOpenExtensionPopup的具体业务逻辑。
-  const resolveOpenExtensionPopup = () => (typeof getOpenExtensionPopup === 'function' ? getOpenExtensionPopup() : null);
-// 获取/读取/解析：resolveOpenExtensionOptions的具体业务逻辑。
-  const resolveOpenExtensionOptions = () => (typeof getOpenExtensionOptions === 'function' ? getOpenExtensionOptions() : null);
 // 获取/读取/解析：resolveAuth的具体业务逻辑。
   const resolveAuth = () => (typeof getAuth === 'function' ? getAuth() : auth);
   const resolveGlobalHttpClient = () => (typeof getGlobalHttpClient === 'function' ? getGlobalHttpClient() : null);
@@ -486,7 +477,6 @@ function createAppShell(deps = {}) {
           closeTab: resolveCloseTab(),
           renameTab: resolveRenameTab(),
           setTabAccountId: resolveSetTabAccountId(),
-          setTabBrowserProxyMode: resolveSetTabBrowserProxyMode(),
           setTabBrowserSettings: resolveSetTabBrowserSettings(),
           updateTabs,
           getTabs: () => resolveTabs(),
@@ -503,8 +493,6 @@ function createAppShell(deps = {}) {
           getAppVersion,
           getMainWindow: () => resolveMainWindow(),
           getSideView: () => resolveSideView(),
-          openExtensionPopup: resolveOpenExtensionPopup(),
-          openExtensionOptions: resolveOpenExtensionOptions(),
           applyPluginSettings,
           extensionManager,
           statePluginGetter,
@@ -588,15 +576,11 @@ function createAppShell(deps = {}) {
         // 先让 BrowserWindow 完成首轮绘制，再启动首屏数据同步。
         await new Promise((resolve) => setImmediate(resolve));
 
-        // 必须在创建首个网页标签（尤其是 Chromium Fork 进程）前完成插件扫描。
-        // Chromium 只能在进程启动时通过 --load-extension 注册插件；Electron
-        // 也只有在首次导航前加载扩展，document_start 内容脚本才会立即注入。
+        // 必须在创建首个 Chromium Fork 进程前完成插件扫描；插件只通过
+        // 浏览器启动参数注入，确保首次导航即可注册 document_start 内容脚本。
         try {
           if (extensionManager && typeof extensionManager.initialize === 'function') {
             await extensionManager.initialize({ emit: true });
-            if (typeof extensionManager.ensureEnabledPluginsLoadedInCurrentSessions === 'function') {
-              await extensionManager.ensureEnabledPluginsLoadedInCurrentSessions('启动预加载');
-            }
           } else {
             applyPluginSettings({ translateExtEnabled: false });
           }
@@ -852,8 +836,22 @@ function createAppShell(deps = {}) {
           chromiumBounds = bounds;
         }
       }
-      if (getSideView?.()) {
-        getSideView().setBounds({ x: mainViewWidth, y: tabBarHeight, width: sideViewWidth, height: tabContentHeight });
+      const currentSideView = getSideView?.();
+      if (currentSideView) {
+        // Do not collapse a WebContentsView to zero width. On Windows that can
+        // leave Chromium's native child HWND as the wheel-input target after
+        // the view is expanded again. Keep a valid layout while hidden and use
+        // View visibility for the actual show/hide lifecycle.
+        const visibleSideViewWidth = Math.max(1, Math.floor(width * 0.3));
+        currentSideView.setBounds({
+          x: width - visibleSideViewWidth,
+          y: tabBarHeight,
+          width: visibleSideViewWidth,
+          height: tabContentHeight,
+        });
+        if (typeof currentSideView.setVisible === 'function') {
+          currentSideView.setVisible(isSidebarVisible);
+        }
       }
       // 内部侧栏视图调整后，再同步原生 Chromium 宿主窗口的尺寸与层级。
       if (activeTab && chromiumBounds) {
@@ -862,9 +860,6 @@ function createAppShell(deps = {}) {
           .catch((error) => {
             logger.warn?.('[ChromiumRuntime] 同步窗口尺寸失败:', error?.message || error);
           });
-      }
-      if (extensionManager && typeof extensionManager.syncWebPanelBounds === 'function') {
-        extensionManager.syncWebPanelBounds();
       }
     }
 
@@ -878,9 +873,6 @@ function createAppShell(deps = {}) {
           panel.close();
         }
       } catch (_) {}
-      if (extensionManager && typeof extensionManager.closeWebPanel === 'function') {
-        extensionManager.closeWebPanel({ notify: false });
-      }
       if (typeof setMainWindow === 'function') {
         setMainWindow(null);
       }

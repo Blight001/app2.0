@@ -74,7 +74,17 @@ try {
   assert.throws(() => store.transition('profile_001', RUNTIME_STATUS.READY), /非法运行时状态迁移/);
   store.acquireLock('profile_001');
   assert.throws(() => new ProfileRuntimeStore({ rootDir: root }).acquireLock('profile_001'), /已被进程/);
+  assert.throws(() => store.clearBrowserData('profile_001'), /仍在运行/);
   store.releaseLock('profile_001');
+  fs.writeFileSync(path.join(paths.chromiumData, 'Cookies'), 'cookie-data');
+  fs.writeFileSync(path.join(paths.downloads, 'keep.txt'), 'download-data');
+  fs.mkdirSync(path.join(paths.root, 'session-recovery-stable'), { recursive: true });
+  fs.writeFileSync(path.join(paths.root, 'session-recovery-stable', 'Session_1'), 'session-data');
+  assert.equal(store.clearBrowserData('profile_001'), true);
+  assert.equal(fs.existsSync(path.join(paths.chromiumData, 'Cookies')), false);
+  assert.equal(fs.existsSync(path.join(paths.downloads, 'keep.txt')), true, '清空浏览器数据必须保留下载文件');
+  assert.equal(fs.existsSync(paths.config), true, '清空浏览器数据必须保留 Profile 配置');
+  assert.equal(fs.existsSync(path.join(paths.root, 'session-recovery-stable')), false);
   assert.equal(store.deleteProfile('profile_001'), true);
   assert.equal(fs.existsSync(paths.root), false);
 
@@ -514,6 +524,31 @@ try {
   assert.equal(restartRuntime.instances.get('restart-profile').profile.initialUrl, 'https://example.com/work');
   assert.equal(restartRuntime.instances.get('restart-profile').profile.restoreLastSession, false);
 
+  const clearRuntime = new ChromiumRuntime({ logger: { info() {}, warn() {} } });
+  const clearProfile = { profileId: 'clear-profile', initialUrl: 'https://example.com/start', restoreLastSession: true };
+  let clearCalled = false;
+  let clearStopOptions = null;
+  let clearedRelaunch = null;
+  clearRuntime.store = {
+    getState: () => ({ bounds: { x: 2, y: 3, width: 900, height: 700 } }),
+    clearBrowserData(profileId) {
+      assert.equal(profileId, 'clear-profile');
+      clearCalled = true;
+    },
+  };
+  clearRuntime.instances.set('clear-profile', { profile: clearProfile });
+  clearRuntime.stop = async (_id, options) => { clearStopOptions = options; };
+  clearRuntime.launchProfile = async (profile, bounds) => {
+    clearedRelaunch = { profile: { ...profile }, bounds: { ...bounds } };
+    return { status: 'ready' };
+  };
+  await clearRuntime.clearData('clear-profile');
+  assert.equal(clearStopOptions.preserveSession, false);
+  assert.equal(clearCalled, true);
+  assert.equal(clearedRelaunch.profile.initialUrl, 'https://example.com/start');
+  assert.equal(clearedRelaunch.profile.restoreLastSession, false);
+  assert.deepEqual(clearedRelaunch.bounds, { x: 2, y: 3, width: 900, height: 700 });
+
   // 代理启停触发的 Profile 重启必须等正在执行的导航结束；导航完成后才提交
   // 的会话导入又必须排在重启之后，不能在 stopping/starting 状态中失败。
   const serializedRuntime = new ChromiumRuntime({ logger: { info() {}, warn() {} } });
@@ -747,12 +782,10 @@ try {
   const magicTabs = new Map([
     ['magic-direct', {
       id: 'magic-direct',
-      browserProxyMode: 'direct',
       browserSettings: { proxy: { mode: 'none' } },
     }],
     ['magic-custom', {
       id: 'magic-custom',
-      browserProxyMode: 'proxy',
       browserSettings: { proxy: { mode: 'custom', protocol: 'http', host: '10.0.0.2', port: 8888 } },
     }],
   ]);

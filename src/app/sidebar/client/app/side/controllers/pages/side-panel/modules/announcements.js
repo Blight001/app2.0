@@ -516,8 +516,36 @@ function initSidebarAnimationListener() {
   window.electronAPI.on('sidebar-expand', () => {
     document.body.classList.add('expanding');
     document.body.classList.remove('collapsing');
+    setTimeout(() => requestSidebarInputFocus(), 150);
     setTimeout(() => {
       document.body.classList.remove('expanding');
     }, 200);
   });
+}
+
+let sidebarInputFocusPending = false;
+let sidebarInputFocusLastRequestedAt = 0;
+
+// Windows sends WM_MOUSEWHEEL to the native window that owns the input queue.
+// The independently embedded Chromium HWND can keep that ownership even while
+// the pointer is already over the Electron sidebar. Repair it as soon as the
+// sidebar receives pointer movement instead of waiting for a wheel event that
+// will never reach this renderer.
+function requestSidebarInputFocus() {
+  if (sidebarInputFocusPending || !window.electronAPI?.invoke) return;
+  const now = Date.now();
+  if (now - sidebarInputFocusLastRequestedAt < 120) return;
+  sidebarInputFocusLastRequestedAt = now;
+  sidebarInputFocusPending = true;
+  void window.electronAPI.invoke('focus-sidebar-input')
+    .catch(() => {})
+    .finally(() => {
+      sidebarInputFocusPending = false;
+    });
+}
+
+function initSidebarInputRouting() {
+  document.addEventListener('pointermove', () => {
+    if (!document.hasFocus()) requestSidebarInputFocus();
+  }, { passive: true });
 }

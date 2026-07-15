@@ -47,7 +47,6 @@ const {
     renderCookieCredentialCacheList,
     refreshCookieCredentialCacheUi,
     rerenderCookieCredentialCacheUi,
-    copyCookieInputValue,
     copyCookieCredentialItem,
     copyCookieCredentialAccountPasswordItem,
     copyCookieCredentialAccountPasswordGroup,
@@ -90,10 +89,7 @@ const passwordInput = document.getElementById('password');
 const cookieNoteInput = document.getElementById('cookie-note');
 const cookieCardKeyInput = document.getElementById('cookie-card-key');
 const cookieImportFileInput = document.getElementById('cookie-import-file');
-const copyCookieAccountButton = document.getElementById('copy-cookie-account');
-const copyCookiePasswordButton = document.getElementById('copy-cookie-password');
 const generateCookiePasswordButton = document.getElementById('generate-cookie-password');
-const copyAccountPasswordButton = document.getElementById('copy-account-password');
 const importCookieButton = document.getElementById('import-cookie');
 const saveCookieCredentialsButton = document.getElementById('save-cookie-credentials');
 const cookieCredentialEditPanelNode = document.getElementById('cookie-credential-edit-panel');
@@ -108,6 +104,9 @@ const cookieCredentialDateFilterNode = document.getElementById('cookie-credentia
 const cookieCredentialSearchNode = document.getElementById('cookie-credential-search');
 const captureButton = document.getElementById('capture');
 const clearCurrentPageCacheButton = document.getElementById('clear-current-page-cache');
+const clearCacheConfirmModal = document.getElementById('clear-cache-confirm-modal');
+const clearCacheConfirmCancelButton = document.getElementById('clear-cache-confirm-cancel');
+const clearCacheConfirmSubmitButton = document.getElementById('clear-cache-confirm-submit');
 const cookieManagerPanelNode = document.getElementById('cookie-manager-panel');
 const closeCookieManagerButton = document.getElementById('close-cookie-manager');
 const refreshCookieManagerButton = document.getElementById('refresh-cookie-manager');
@@ -117,8 +116,16 @@ const cookieManagerListNode = document.getElementById('cookie-manager-list');
 const statusNode = document.getElementById('status');
 const cookieCredentialCountNode = document.getElementById('cookie-credential-count');
 const cookieCredentialListNode = document.getElementById('cookie-credential-list');
-const cardFileInput = document.getElementById('card-file');
-const pickCardFileButton = document.getElementById('pick-card-file');
+const openCardDataImportButton = document.getElementById('open-card-data-import');
+const cardDataImportModal = document.getElementById('card-data-import-modal');
+const cardDataImportInput = document.getElementById('card-data-import-input');
+const cardDataImportError = document.getElementById('card-data-import-error');
+const cardDataImportCancelButton = document.getElementById('card-data-import-cancel');
+const cardDataImportSaveButton = document.getElementById('card-data-import-save');
+const cardDataExportModal = document.getElementById('card-data-export-modal');
+const cardDataExportOutput = document.getElementById('card-data-export-output');
+const cardDataExportCopyButton = document.getElementById('card-data-export-copy');
+const cardDataExportDoneButton = document.getElementById('card-data-export-done');
 const importCardButton = document.getElementById('import-card');
 const loopCardButton = document.getElementById('loop-card');
 const cardFileNameNode = document.getElementById('card-file-name');
@@ -151,16 +158,18 @@ const sidebarCardPopupsInput = document.getElementById('sidebar-card-popups');
 const sidebarCardUploadServerUrlInput = document.getElementById('sidebar-card-upload-server-url');
 const sidebarCardUploadCardKeyInput = document.getElementById('sidebar-card-upload-card-key');
 const sidebarCardRawJsonInput = document.getElementById('sidebar-card-raw-json');
-const sidebarStepTemplateSelect = document.getElementById('sidebar-step-template');
-const sidebarAddStepButton = document.getElementById('sidebar-add-step');
-const sidebarRefreshCardButton = document.getElementById('sidebar-refresh-card');
 const sidebarCloseButton = document.getElementById('sidebar-close');
+const sidebarSaveCardButton = document.getElementById('sidebar-save-card');
 const sidebarCardSettingsOpenButton = document.getElementById('sidebar-card-settings-open');
 const sidebarCardSettingsModal = document.getElementById('sidebar-card-settings-modal');
 const sidebarCardSettingsCloseButton = document.getElementById('sidebar-card-settings-close');
 const sidebarFlowCanvasNode = document.getElementById('sidebar-flow-canvas');
-const sidebarFlowConnectButton = document.getElementById('sidebar-flow-connect');
-const sidebarFlowLayoutButton = document.getElementById('sidebar-flow-layout');
+const sidebarFlowContextMenuNode = document.getElementById('sidebar-flow-context-menu');
+const sidebarFlowDeleteSelectionButton = document.getElementById('sidebar-flow-delete-selection');
+const sidebarStepPaletteNode = document.getElementById('sidebar-step-palette');
+const sidebarFlowZoomOutButton = document.getElementById('sidebar-flow-zoom-out');
+const sidebarFlowZoomResetButton = document.getElementById('sidebar-flow-zoom-reset');
+const sidebarFlowZoomInButton = document.getElementById('sidebar-flow-zoom-in');
 const runControlStopButton = document.getElementById('run-control-stop');
 const sidebarStepListNode = document.getElementById('sidebar-step-list');
 const sidebarEditorMetaNode = document.getElementById('sidebar-editor-meta');
@@ -202,10 +211,16 @@ const {
     isSidebarLayout,
     renderSidebarFlowCanvas,
     clearSidebarFlowNodeSelection,
-    toggleSidebarFlowConnectMode,
+    prepareSidebarFlowNodeContextSelection,
+    positionSidebarNodeSettings,
+    zoomSidebarFlowBy,
+    resetSidebarFlowView,
+    beginSidebarFlowCanvasPan,
+    addSidebarStepToCanvas,
     handleSidebarFlowNodeClick,
+    beginSidebarFlowPortDrag,
     deleteSidebarFlowEdge,
-    applySidebarFlowAutoLayout,
+    deleteSelectedSidebarFlowNodes,
     beginSidebarFlowNodeDrag,
     escapeHtml,
     normalizeSidebarPopupsInput,
@@ -224,6 +239,7 @@ const {
     collectSidebarStepExpansionState,
     buildSidebarStepSummary,
     buildSidebarStepCardHtml,
+    updateSidebarStepSettingsVisibility,
     collectSidebarStepCards,
     readSidebarStepCard,
     collectSidebarSteps,
@@ -257,12 +273,10 @@ const {
     loadCardCache,
     clearCardCache,
     deleteSelectedCardCache,
-    readSelectedCardFiles,
-    readSelectedCardFile,
     sendStandaloneMessage,
     openCardEditorSidebar,
     resolveCardForRun,
-    importSelectedCardFilesToCache,
+    importCardTextToCache,
     importAndStartCard,
     loopCard
 } = flowModule;
@@ -301,50 +315,6 @@ generateCookiePasswordButton?.addEventListener('click', () => {
     }
     void savePreset();
     showActionToast('已生成 12 位随机密码', 'success');
-});
-
-copyAccountPasswordButton?.addEventListener('click', () => {
-    void (async () => {
-        copyAccountPasswordButton.disabled = true;
-        try {
-            const account = String(accountInput?.value || '').trim();
-            const password = String(passwordInput?.value || '').trim();
-            await copyTextToClipboard(`${account}   ${password}`);
-            showActionToast('已复制账号密码', 'success');
-        } catch (error) {
-            showActionToast(error && error.message ? error.message : '复制账号密码失败', 'error');
-        } finally {
-            copyAccountPasswordButton.disabled = false;
-        }
-    })();
-});
-
-copyCookieAccountButton?.addEventListener('click', () => {
-    void (async () => {
-        copyCookieAccountButton.disabled = true;
-        try {
-            await copyCookieInputValue(accountInput, '账号');
-            showActionToast('已复制账号', 'success');
-        } catch (error) {
-            showActionToast(error && error.message ? error.message : '复制账号失败', 'error');
-        } finally {
-            copyCookieAccountButton.disabled = false;
-        }
-    })();
-});
-
-copyCookiePasswordButton?.addEventListener('click', () => {
-    void (async () => {
-        copyCookiePasswordButton.disabled = true;
-        try {
-            await copyCookieInputValue(passwordInput, '密码');
-            showActionToast('已复制密码', 'success');
-        } catch (error) {
-            showActionToast(error && error.message ? error.message : '复制密码失败', 'error');
-        } finally {
-            copyCookiePasswordButton.disabled = false;
-        }
-    })();
 });
 
 saveCookieCredentialsButton?.addEventListener('click', () => {
@@ -474,50 +444,61 @@ document.addEventListener('keydown', (event) => {
     void closeCookieCredentialEditPanel('已关闭编辑弹窗');
 });
 
-cardFileInput?.addEventListener('change', () => {
-    const files = Array.from(cardFileInput.files || []).filter(Boolean);
-    if (files.length === 0) {
-        void refreshCardCacheUi().catch(() => {});
-        return;
+function setCardDataImportError(message = '') {
+    const text = String(message || '').trim();
+    if (cardDataImportError) {
+        cardDataImportError.textContent = text;
+        cardDataImportError.hidden = !text;
     }
+    cardDataImportInput?.classList.toggle('is-invalid', Boolean(text));
+}
 
-    setCardFileName(files.length === 1 ? files[0].name : `正在导入 ${files.length} 个文件`);
-    if (pickCardFileButton) {
-        pickCardFileButton.disabled = true;
+function setCardDataImportOpen(open = false, options = {}) {
+    if (!cardDataImportModal) return false;
+    const shouldOpen = open === true;
+    cardDataImportModal.hidden = !shouldOpen;
+    openCardDataImportButton?.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+    if (shouldOpen) {
+        setCardDataImportError('');
+        window.requestAnimationFrame(() => cardDataImportInput?.focus());
+    } else {
+        setCardDataImportError('');
+        if (options.clear !== false && cardDataImportInput) cardDataImportInput.value = '';
+        openCardDataImportButton?.focus();
     }
-    if (importCardButton) {
-        importCardButton.disabled = true;
+    return shouldOpen;
+}
+
+openCardDataImportButton?.addEventListener('click', () => setCardDataImportOpen(true));
+cardDataImportCancelButton?.addEventListener('click', () => setCardDataImportOpen(false));
+cardDataImportInput?.addEventListener('input', () => setCardDataImportError(''));
+cardDataImportModal?.addEventListener('click', (event) => {
+    if (event.target?.matches?.('[data-card-data-import-dismiss]')) {
+        setCardDataImportOpen(false);
     }
-    if (loopCardButton) {
-        loopCardButton.disabled = true;
-    }
-    void importSelectedCardFilesToCache().then((result) => {
-        const count = Number(result?.items?.length || 0);
-        if (!count) {
-            throw new Error('未识别到可导入的自动化卡片');
-        }
-        showActionToast(`已导入 ${count} 张自动化卡片并载入缓存`, 'success');
-    }).catch((error) => {
-        if (cardFileInput) {
-            cardFileInput.value = '';
-        }
-        void refreshCardCacheUi().catch(() => {});
-        showActionToast(error && error.message ? error.message : '导入自动化卡片失败', 'error', 4200);
-    }).finally(() => {
-        if (pickCardFileButton) {
-            pickCardFileButton.disabled = false;
-        }
-        if (importCardButton) {
-            importCardButton.disabled = false;
-        }
-        if (loopCardButton) {
-            loopCardButton.disabled = false;
-        }
-    });
 });
-
-pickCardFileButton?.addEventListener('click', () => {
-    cardFileInput?.click();
+cardDataImportSaveButton?.addEventListener('click', () => {
+    void (async () => {
+        cardDataImportSaveButton.disabled = true;
+        try {
+            const result = await importCardTextToCache(String(cardDataImportInput?.value || ''));
+            const count = Number(result?.items?.length || 0);
+            if (!count) throw new Error('未识别到可导入的自动化卡片');
+            setCardDataImportOpen(false);
+            showActionToast(`已保存导入 ${count} 张自动化卡片`, 'success');
+        } catch (error) {
+            setCardDataImportError(error && error.message ? error.message : '导入自动化卡片失败');
+            cardDataImportInput?.focus();
+        } finally {
+            cardDataImportSaveButton.disabled = false;
+        }
+    })();
+});
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && cardDataImportModal && !cardDataImportModal.hidden) {
+        event.preventDefault();
+        setCardDataImportOpen(false);
+    }
 });
 
 deleteCardButton?.addEventListener('click', () => {
@@ -715,8 +696,35 @@ cookieImportFileInput?.addEventListener('change', () => {
     })();
 });
 
-clearCurrentPageCacheButton?.addEventListener('click', () => {
+function setClearCacheConfirmOpen(open = false) {
+    if (!clearCacheConfirmModal) return false;
+    const shouldOpen = open === true;
+    clearCacheConfirmModal.hidden = !shouldOpen;
+    if (shouldOpen) {
+        const dialog = clearCacheConfirmModal.querySelector('.cookie-confirm-modal__dialog');
+        window.requestAnimationFrame(() => dialog?.focus());
+    } else {
+        clearCurrentPageCacheButton?.focus();
+    }
+    return shouldOpen;
+}
+
+clearCurrentPageCacheButton?.addEventListener('click', () => setClearCacheConfirmOpen(true));
+clearCacheConfirmCancelButton?.addEventListener('click', () => setClearCacheConfirmOpen(false));
+clearCacheConfirmModal?.addEventListener('click', (event) => {
+    if (event.target?.matches?.('[data-clear-cache-confirm-dismiss]')) {
+        setClearCacheConfirmOpen(false);
+    }
+});
+clearCacheConfirmSubmitButton?.addEventListener('click', () => {
+    setClearCacheConfirmOpen(false);
     void clearCurrentPageCache();
+});
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && clearCacheConfirmModal && !clearCacheConfirmModal.hidden) {
+        event.preventDefault();
+        setClearCacheConfirmOpen(false);
+    }
 });
 
 importCardButton?.addEventListener('click', () => {
@@ -776,7 +784,8 @@ exportCardButton?.addEventListener('click', () => {
         exportCardButton.disabled = true;
         try {
             const result = await exportCard();
-            showActionToast(`已导出自动化卡片: ${result.fileName}`, 'success');
+            if (cardDataExportOutput) cardDataExportOutput.value = String(result.text || '');
+            setCardDataExportOpen(true);
         } catch (error) {
             showActionToast(error && error.message ? error.message : '导出自动化卡片失败', 'error');
         } finally {
@@ -869,71 +878,198 @@ document.addEventListener('keydown', (event) => {
     }
 });
 
-sidebarAddStepButton?.addEventListener('click', () => {
-    void (async () => {
-        sidebarAddStepButton.disabled = true;
-        try {
-            const currentCard = getSidebarCardDataFromEditor();
-            const templateType = String(sidebarStepTemplateSelect?.value || 'navigate').trim();
-            const nextSteps = Array.isArray(currentCard.steps) ? [...currentCard.steps] : [];
-            nextSteps.push(buildSidebarStepTemplate(templateType));
-            currentCard.steps = nextSteps;
-            renderSidebarCardEditor(currentCard);
-            syncSidebarEditorToHiddenJson();
-            showActionToast(`已添加步骤，当前共 ${nextSteps.length} 步`, 'success');
-        } catch (error) {
-            showActionToast(error && error.message ? error.message : '添加步骤失败', 'error');
-        } finally {
-            sidebarAddStepButton.disabled = false;
-        }
-    })();
-});
-
-sidebarRefreshCardButton?.addEventListener('click', () => {
-    void (async () => {
-        sidebarRefreshCardButton.disabled = true;
-        try {
-            renderSidebarEditorFromCurrentState();
-            // sync to running debug removed
-            showActionToast('已刷新编辑内容', 'success');
-        } catch (error) {
-            showActionToast(error && error.message ? error.message : '刷新失败', 'error');
-        } finally {
-            sidebarRefreshCardButton.disabled = false;
-        }
-    })();
-});
-
-sidebarFlowConnectButton?.addEventListener('click', () => {
-    try {
-        const enabled = toggleSidebarFlowConnectMode();
-        showActionToast(enabled ? '连线模式：先点起点，再点目标节点' : '已退出连线模式', 'info');
-    } catch (error) {
-        showActionToast(error && error.message ? error.message : '切换连线模式失败', 'error');
-    }
-});
-
-sidebarFlowLayoutButton?.addEventListener('click', () => {
-    try {
-        applySidebarFlowAutoLayout();
-        showActionToast('已自动整理流程图', 'success');
-    } catch (error) {
-        showActionToast(error && error.message ? error.message : '自动布局失败', 'error');
-    }
-});
-
-sidebarFlowCanvasNode?.addEventListener('pointerdown', (event) => {
-    const node = event.target && event.target.closest ? event.target.closest('[data-flow-node-id]') : null;
-    if (!node) {
+function setSidebarRequiredFieldInvalid(control, invalid = false) {
+    if (!control) {
         return;
     }
-    beginSidebarFlowNodeDrag(event, String(node.dataset.flowNodeId || '').trim());
+    const field = control.closest('[data-sidebar-required-field]');
+    field?.classList.toggle('is-invalid', invalid === true);
+    control.setAttribute('aria-invalid', invalid === true ? 'true' : 'false');
+    const error = field?.querySelector('[data-sidebar-field-error]');
+    if (error) {
+        error.hidden = invalid !== true;
+    }
+}
+
+function validateSidebarRequiredFields() {
+    const nameValid = Boolean(String(sidebarCardNameInput?.value || '').trim());
+    const website = String(sidebarCardWebsiteInput?.value || '').trim();
+    let websiteValid = false;
+    try {
+        const parsed = new URL(website);
+        websiteValid = ['http:', 'https:'].includes(parsed.protocol);
+    } catch (_error) {
+        websiteValid = false;
+    }
+
+    setSidebarRequiredFieldInvalid(sidebarCardNameInput, !nameValid);
+    setSidebarRequiredFieldInvalid(sidebarCardWebsiteInput, !websiteValid);
+    const firstInvalid = !nameValid ? sidebarCardNameInput : (!websiteValid ? sidebarCardWebsiteInput : null);
+    if (firstInvalid) {
+        setSidebarCardSettingsOpen(true);
+        window.requestAnimationFrame(() => firstInvalid.focus());
+        return false;
+    }
+    return true;
+}
+
+sidebarSaveCardButton?.addEventListener('click', () => {
+    void (async () => {
+        if (!validateSidebarRequiredFields()) {
+            showActionToast('请先填写标红的必填项目', 'error');
+            return;
+        }
+        sidebarSaveCardButton.disabled = true;
+        try {
+            const saved = await saveEditorCardToCache();
+            showActionToast(`已保存自动化卡片: ${saved.name}`, 'success');
+        } catch (error) {
+            showActionToast(error && error.message ? error.message : '保存卡片失败', 'error');
+        } finally {
+            sidebarSaveCardButton.disabled = false;
+        }
+    })();
+});
+
+function setCardDataExportOpen(open = false) {
+    if (!cardDataExportModal) return false;
+    const shouldOpen = open === true;
+    cardDataExportModal.hidden = !shouldOpen;
+    if (shouldOpen) {
+        window.requestAnimationFrame(() => {
+            cardDataExportOutput?.focus();
+            cardDataExportOutput?.select();
+        });
+    } else {
+        if (cardDataExportOutput) cardDataExportOutput.value = '';
+        exportCardButton?.focus();
+    }
+    return shouldOpen;
+}
+
+cardDataExportCopyButton?.addEventListener('click', () => {
+    void (async () => {
+        cardDataExportCopyButton.disabled = true;
+        try {
+            await copyTextToClipboard(String(cardDataExportOutput?.value || ''));
+            showActionToast('已复制卡片流程数据', 'success');
+        } catch (error) {
+            showActionToast(error && error.message ? error.message : '复制卡片流程数据失败', 'error');
+        } finally {
+            cardDataExportCopyButton.disabled = false;
+        }
+    })();
+});
+cardDataExportDoneButton?.addEventListener('click', () => setCardDataExportOpen(false));
+cardDataExportModal?.addEventListener('click', (event) => {
+    if (event.target?.matches?.('[data-card-data-export-dismiss]')) {
+        setCardDataExportOpen(false);
+    }
+});
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && cardDataExportModal && !cardDataExportModal.hidden) {
+        event.preventDefault();
+        setCardDataExportOpen(false);
+    }
+});
+
+sidebarFlowZoomOutButton?.addEventListener('click', () => zoomSidebarFlowBy(-0.1));
+sidebarFlowZoomInButton?.addEventListener('click', () => zoomSidebarFlowBy(0.1));
+sidebarFlowZoomResetButton?.addEventListener('click', () => resetSidebarFlowView());
+
+let sidebarPaletteDragActive = false;
+sidebarStepPaletteNode?.addEventListener('click', (event) => {
+    const item = event.target?.closest?.('[data-step-template-type]');
+    if (!item || sidebarPaletteDragActive) return;
+    const step = addSidebarStepToCanvas(String(item.dataset.stepTemplateType || 'navigate'));
+    if (step) showActionToast(`已添加${item.textContent.trim()}步骤`, 'success');
+});
+sidebarStepPaletteNode?.addEventListener('dragstart', (event) => {
+    const item = event.target?.closest?.('[data-step-template-type]');
+    if (!item || !event.dataTransfer) return;
+    sidebarPaletteDragActive = true;
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData('application/x-automation-step', String(item.dataset.stepTemplateType || 'navigate'));
+});
+sidebarStepPaletteNode?.addEventListener('dragend', () => {
+    window.setTimeout(() => { sidebarPaletteDragActive = false; }, 0);
+});
+
+function closeSidebarFlowContextMenu() {
+    if (!sidebarFlowContextMenuNode || sidebarFlowContextMenuNode.hidden) return false;
+    sidebarFlowContextMenuNode.hidden = true;
+    return true;
+}
+
+function openSidebarFlowContextMenu(clientX, clientY, selectedCount = 1) {
+    if (!sidebarFlowContextMenuNode) return false;
+    const stage = sidebarFlowContextMenuNode.closest('.sidebar-flow-stage');
+    if (!stage) return false;
+    const stageRect = stage.getBoundingClientRect();
+    sidebarFlowContextMenuNode.hidden = false;
+    const menuWidth = sidebarFlowContextMenuNode.offsetWidth || 156;
+    const menuHeight = sidebarFlowContextMenuNode.offsetHeight || 44;
+    const left = Math.min(Math.max(6, clientX - stageRect.left), Math.max(6, stage.clientWidth - menuWidth - 6));
+    const top = Math.min(Math.max(6, clientY - stageRect.top), Math.max(6, stage.clientHeight - menuHeight - 6));
+    sidebarFlowContextMenuNode.style.left = `${Math.round(left)}px`;
+    sidebarFlowContextMenuNode.style.top = `${Math.round(top)}px`;
+    if (sidebarFlowDeleteSelectionButton) {
+        sidebarFlowDeleteSelectionButton.textContent = selectedCount > 1
+            ? `删除选中的 ${selectedCount} 个节点`
+            : '删除选中节点';
+        sidebarFlowDeleteSelectionButton.focus();
+    }
+    return true;
+}
+
+sidebarFlowCanvasNode?.addEventListener('dragover', (event) => {
+    if (!event.dataTransfer?.types?.includes('application/x-automation-step')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+});
+sidebarFlowCanvasNode?.addEventListener('drop', (event) => {
+    const stepType = event.dataTransfer?.getData('application/x-automation-step');
+    if (!stepType) return;
+    event.preventDefault();
+    const step = addSidebarStepToCanvas(stepType, event.clientX, event.clientY);
+    if (step) showActionToast('已将步骤添加到画布', 'success');
+});
+
+sidebarFlowCanvasNode?.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    zoomSidebarFlowBy(event.deltaY < 0 ? 0.1 : -0.1, event.clientX, event.clientY);
+}, { passive: false });
+
+sidebarFlowCanvasNode?.addEventListener('pointerdown', (event) => {
+    closeSidebarFlowContextMenu();
+    const port = event.target?.closest?.('[data-flow-port]');
+    if (port) {
+        beginSidebarFlowPortDrag(
+            event,
+            String(port.dataset.flowNodeId || '').trim(),
+            String(port.dataset.flowPort || '').trim(),
+            String(port.dataset.flowLabel || '').trim(),
+            String(port.dataset.flowRole || 'any').trim()
+        );
+        return;
+    }
+    const node = event.target && event.target.closest ? event.target.closest('[data-flow-node-id]') : null;
+    if (node) {
+        beginSidebarFlowNodeDrag(event, String(node.dataset.flowNodeId || '').trim());
+        return;
+    }
+    const edge = event.target?.closest?.('[data-flow-edge-id]');
+    if (!edge) beginSidebarFlowCanvasPan(event);
 });
 
 sidebarFlowCanvasNode?.addEventListener('click', (event) => {
+    const port = event.target?.closest?.('[data-flow-port]');
+    if (port) return;
     const edge = event.target && event.target.closest ? event.target.closest('[data-flow-edge-id]') : null;
     if (edge) {
-        const removed = deleteSidebarFlowEdge(String(edge.dataset.flowEdgeId || '').trim());
+        const edgeId = String(edge.dataset.flowEdgeId || '').trim();
+        clearSidebarFlowNodeSelection();
+        const removed = deleteSidebarFlowEdge(edgeId);
         if (removed) {
             showActionToast('已删除连线', 'success');
         }
@@ -942,15 +1078,66 @@ sidebarFlowCanvasNode?.addEventListener('click', (event) => {
 
     const node = event.target && event.target.closest ? event.target.closest('[data-flow-node-id]') : null;
     if (node) {
-        handleSidebarFlowNodeClick(String(node.dataset.flowNodeId || '').trim());
+        handleSidebarFlowNodeClick(String(node.dataset.flowNodeId || '').trim(), {
+            toggle: event.ctrlKey === true || event.metaKey === true || event.shiftKey === true
+        });
         return;
     }
 
     clearSidebarFlowNodeSelection();
 });
 
-sidebarCardNameInput?.addEventListener('input', () => syncSidebarEditorToHiddenJson());
-sidebarCardWebsiteInput?.addEventListener('input', () => syncSidebarEditorToHiddenJson());
+sidebarFlowCanvasNode?.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    const node = event.target?.closest?.('[data-flow-node-id]');
+    if (!node || event.target?.closest?.('[data-flow-port]')) {
+        closeSidebarFlowContextMenu();
+        return;
+    }
+    const selectedCount = prepareSidebarFlowNodeContextSelection(String(node.dataset.flowNodeId || '').trim());
+    if (selectedCount > 0) {
+        openSidebarFlowContextMenu(event.clientX, event.clientY, selectedCount);
+    }
+});
+
+sidebarFlowDeleteSelectionButton?.addEventListener('click', () => {
+    const deletedCount = deleteSelectedSidebarFlowNodes();
+    closeSidebarFlowContextMenu();
+    if (deletedCount > 0) {
+        showActionToast(`已删除 ${deletedCount} 个节点`, 'success');
+    }
+});
+
+document.addEventListener('pointerdown', (event) => {
+    if (!event.target?.closest?.('#sidebar-flow-context-menu')) {
+        closeSidebarFlowContextMenu();
+    }
+});
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && closeSidebarFlowContextMenu()) {
+        event.preventDefault();
+    }
+});
+
+sidebarFlowCanvasNode?.addEventListener('scroll', () => {
+    positionSidebarNodeSettings();
+}, { passive: true });
+
+window.addEventListener('resize', () => {
+    positionSidebarNodeSettings();
+});
+
+sidebarCardNameInput?.addEventListener('input', () => {
+    if (String(sidebarCardNameInput.value || '').trim()) {
+        setSidebarRequiredFieldInvalid(sidebarCardNameInput, false);
+    }
+    syncSidebarEditorToHiddenJson();
+});
+sidebarCardWebsiteInput?.addEventListener('input', () => {
+    setSidebarRequiredFieldInvalid(sidebarCardWebsiteInput, false);
+    syncSidebarEditorToHiddenJson();
+});
 sidebarCardDescriptionInput?.addEventListener('input', () => syncSidebarEditorToHiddenJson());
 sidebarCardPointsInput?.addEventListener('input', () => syncSidebarEditorToHiddenJson());
 sidebarCardPopupsInput?.addEventListener('input', () => syncSidebarEditorToHiddenJson());
@@ -966,8 +1153,11 @@ sidebarCardRawJsonInput?.addEventListener('input', () => {
 
 sidebarStepListNode?.addEventListener('input', (event) => {
     const target = event.target || null;
+    const card = target?.closest?.('[data-sidebar-step-card]') || null;
+    if (card && target.matches?.('[data-sidebar-step-field="type"], [data-sidebar-step-field="condition_mode"]')) {
+        updateSidebarStepSettingsVisibility(card);
+    }
     if (target && target.matches && target.matches('[data-sidebar-step-field="selector"]')) {
-        const card = target.closest('[data-sidebar-step-card]');
         if (card) {
             normalizeSidebarStepSelectorControl(card, target);
         }
@@ -977,8 +1167,11 @@ sidebarStepListNode?.addEventListener('input', (event) => {
 
 sidebarStepListNode?.addEventListener('change', (event) => {
     const target = event.target || null;
+    const card = target?.closest?.('[data-sidebar-step-card]') || null;
+    if (card && target.matches?.('[data-sidebar-step-field="type"], [data-sidebar-step-field="condition_mode"]')) {
+        updateSidebarStepSettingsVisibility(card);
+    }
     if (target && target.matches && target.matches('[data-sidebar-step-field="selector"]')) {
-        const card = target.closest('[data-sidebar-step-card]');
         if (card) {
             normalizeSidebarStepSelectorControl(card, target);
         }

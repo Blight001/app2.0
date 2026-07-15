@@ -8,9 +8,6 @@ const {
 const STORE_FIELD = 'extensionManager';
 const BUILTIN_TRANSLATE_ID = 'builtin-transform';
 const BUILTIN_REMOVE_WATERMARK_ID = 'builtin-remove-watermark';
-const WEB_PANEL_MARGIN = 16;
-const POPUP_DEFAULT_SIZE = { width: 360, height: 300 };
-const OPTIONS_DEFAULT_SIZE = { width: 560, height: 620 };
 const COMPAT_CACHE_DIR_NAME = 'extension-runtime-compat';
 // Chromium reserves extension files/directories beginning with "_". Keep the
 // software-generated shim name ordinary so the original plugin remains untouched.
@@ -57,14 +54,11 @@ function createExtensionManager(deps = {}) {
     app,
     fs,
     path,
-    WebContentsView,
     logger = console,
     getStorePath,
     getTranslateExtDir,
     getTabs = () => new Map(),
     getActiveTabId = () => null,
-    getActiveWC = () => null,
-    getMainWindow = () => null,
     applyPluginSettings = null,
     sendToSide = null,
     onPluginStateChanged = null,
@@ -77,7 +71,6 @@ function createExtensionManager(deps = {}) {
 
   const sessionExtensionIds = new WeakMap();
   const knownSessions = new Set();
-  let webPanel = null;
   let realtimeStarted = false;
   let refreshTimer = null;
   let refreshDebounceTimer = null;
@@ -375,8 +368,8 @@ function createExtensionManager(deps = {}) {
   }
 
   // Normalize Chrome query/update options to Electron's documented subset.
-  // This also makes active/currentWindow calls deterministic for a session
-  // backed by one internal WebContentsView.
+  // This also makes active/currentWindow calls deterministic for the current
+  // Electron session.
   if (tabsApi && nativeTabsQuery) {
     tabsApi.query = (queryInfo, callback) => {
       const source = queryInfo && typeof queryInfo === 'object' ? queryInfo : {};
@@ -1204,10 +1197,6 @@ function createExtensionManager(deps = {}) {
       if (typeof sendToSide === 'function') {
         sendToSide('extension-manager-state', publicState);
       }
-      const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
-      if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed?.()) {
-        mainWindow.webContents.send('extension-manager-state', publicState);
-      }
     } catch (_) {}
   }
 
@@ -1386,8 +1375,6 @@ function createExtensionManager(deps = {}) {
       enabled: plugin.enabled === true,
       builtin: plugin.builtin === true,
       missing: plugin.missing === true,
-      hasPopup: !!plugin.popupPath,
-      hasOptions: !!plugin.optionsPath,
       hint: plugin.hint || '',
       path: plugin.path || '',
       iconDataUrl: getIconDataUrl(plugin),
@@ -1681,186 +1668,6 @@ function createExtensionManager(deps = {}) {
     } catch (_) {}
   }
 
-  function clampNumber(value, min, max) {
-    const num = Number(value);
-    const safeMin = Number.isFinite(Number(min)) ? Number(min) : 0;
-    const safeMax = Number.isFinite(Number(max)) ? Number(max) : safeMin;
-    if (!Number.isFinite(num)) return safeMin;
-    return Math.min(Math.max(Math.round(num), safeMin), safeMax);
-  }
-
-  function getActiveWebPanelSizeLimits() {
-    const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
-    if (!mainWindow || mainWindow.isDestroyed?.()) return null;
-    const contentBounds = typeof mainWindow.getContentBounds === 'function'
-      ? mainWindow.getContentBounds()
-      : null;
-    const webBounds = contentBounds ? {
-      x: 0,
-      y: 70,
-      width: Math.max(0, Number(contentBounds.width) || 0),
-      height: Math.max(0, (Number(contentBounds.height) || 0) - 70),
-    } : null;
-    if (!webBounds || !webBounds.width || !webBounds.height) return null;
-
-    const maxContentWidth = Math.max(0, Math.floor(webBounds.width - WEB_PANEL_MARGIN * 2));
-    const maxContentHeight = Math.max(0, Math.floor(webBounds.height - WEB_PANEL_MARGIN * 2));
-    if (maxContentWidth < 80 || maxContentHeight < 80) return null;
-
-    return {
-      webBounds,
-      maxContentWidth,
-      maxContentHeight,
-    };
-  }
-
-  function getDefaultPanelContentSize(pageType) {
-    return pageType === 'options' ? OPTIONS_DEFAULT_SIZE : POPUP_DEFAULT_SIZE;
-  }
-
-  function normalizePanelContentSize(rawSize = {}, pageType = 'popup') {
-    const limits = getActiveWebPanelSizeLimits();
-    const defaults = getDefaultPanelContentSize(pageType);
-    const maxContentWidth = limits?.maxContentWidth || defaults.width;
-    const maxContentHeight = limits?.maxContentHeight || defaults.height;
-    const minWidth = Math.min(pageType === 'options' ? 320 : 240, maxContentWidth);
-    const minHeight = Math.min(pageType === 'options' ? 300 : 80, maxContentHeight);
-
-    return {
-      width: clampNumber(rawSize.width || defaults.width, minWidth, maxContentWidth),
-      height: clampNumber(rawSize.height || defaults.height, minHeight, maxContentHeight),
-    };
-  }
-
-  function getWebPanelBounds() {
-    const limits = getActiveWebPanelSizeLimits();
-    if (!limits) return null;
-
-    const contentSize = normalizePanelContentSize({
-      width: webPanel?.contentWidth,
-      height: webPanel?.contentHeight,
-    }, webPanel?.pageType || 'popup');
-
-    return {
-      x: Math.floor(limits.webBounds.x + limits.webBounds.width - WEB_PANEL_MARGIN - contentSize.width),
-      y: Math.floor(limits.webBounds.y + WEB_PANEL_MARGIN),
-      width: contentSize.width,
-      height: contentSize.height,
-    };
-  }
-
-  function syncWebPanelBounds() {
-    if (!webPanel?.view) return false;
-    const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
-    if (!mainWindow || mainWindow.isDestroyed?.()) return false;
-
-    const bounds = getWebPanelBounds();
-    if (!bounds) return false;
-
-    try {
-      webPanel.view.setBounds(bounds);
-      try { mainWindow.contentView.removeChildView(webPanel.view); } catch (_) {}
-      mainWindow.contentView.addChildView(webPanel.view);
-      return true;
-    } catch (error) {
-      logger.warn?.('[Extensions] 同步网页插件浮窗位置失败:', error?.message || error);
-      return false;
-    }
-  }
-
-  function closeWebPanel(options = {}) {
-    const notify = options.notify !== false;
-    const panel = webPanel;
-    webPanel = null;
-    if (panel?.view) {
-      try {
-        const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
-        if (mainWindow && !mainWindow.isDestroyed?.()) {
-          mainWindow.contentView.removeChildView(panel.view);
-        }
-      } catch (_) {}
-      try {
-        if (panel.view.webContents && !panel.view.webContents.isDestroyed()) {
-          panel.view.webContents.destroy();
-        }
-      } catch (_) {}
-    }
-    if (notify && typeof sendToSide === 'function') {
-      try { sendToSide('extension-web-panel-closed', {}); } catch (_) {}
-    }
-    return { ok: true, state: getPublicState() };
-  }
-
-  function createWebPanelView() {
-    if (!WebContentsView) {
-      throw new Error('当前环境无法创建插件浮窗');
-    }
-    return new WebContentsView({
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        sandbox: false,
-        backgroundThrottling: false,
-      },
-    });
-  }
-
-  async function measureWebPanelContent(view, pageType = 'popup') {
-    try {
-      if (!view?.webContents || view.webContents.isDestroyed?.()) {
-        return normalizePanelContentSize({}, pageType);
-      }
-
-      const measured = await view.webContents.executeJavaScript(`
-        (() => {
-          const doc = document.documentElement;
-          const body = document.body;
-          const bodyStyle = body ? getComputedStyle(body) : null;
-          const marginRight = parseFloat(bodyStyle?.marginRight || '0') || 0;
-          const marginBottom = parseFloat(bodyStyle?.marginBottom || '0') || 0;
-          const roots = body
-            ? Array.from(body.children).filter((element) => {
-                if (!element || ['SCRIPT', 'STYLE', 'LINK'].includes(element.tagName)) return false;
-                const style = getComputedStyle(element);
-                return style.display !== 'none' && style.visibility !== 'hidden';
-              })
-            : [];
-
-          let contentRight = 0;
-          let contentBottom = 0;
-          for (const root of roots) {
-            const rect = root.getBoundingClientRect();
-            contentRight = Math.max(contentRight, rect.right, rect.left + root.scrollWidth);
-            contentBottom = Math.max(contentBottom, rect.bottom, rect.top + root.scrollHeight);
-          }
-
-          // documentElement.scrollHeight is always at least the current view
-          // height, so using it prevents a short popup from ever shrinking. Measure
-          // the actual body roots instead and retain the old values only as fallback.
-          const width = Math.ceil(contentRight > 0
-            ? contentRight + marginRight
-            : Math.max(body?.scrollWidth || 0, doc?.scrollWidth || 0));
-          const height = Math.ceil(contentBottom > 0
-            ? contentBottom + marginBottom
-            : Math.max(body?.scrollHeight || 0, doc?.scrollHeight || 0));
-          return { width, height };
-        })()
-      `, true);
-      return normalizePanelContentSize(measured || {}, pageType);
-    } catch (error) {
-      logger.warn?.('[Extensions] 测量插件浮窗尺寸失败:', error?.message || error);
-      return normalizePanelContentSize({}, pageType);
-    }
-  }
-
-  async function resizeWebPanelToContent(view, pageType = 'popup') {
-    const measuredSize = await measureWebPanelContent(view, pageType);
-    if (webPanel?.view !== view) return false;
-    webPanel.contentWidth = measuredSize.width;
-    webPanel.contentHeight = measuredSize.height;
-    return syncWebPanelBounds();
-  }
-
   async function setPluginEnabled(pluginId, enabled) {
     const plugin = getPluginById(pluginId);
     if (!plugin) {
@@ -1873,10 +1680,6 @@ function createExtensionManager(deps = {}) {
     plugin.enabled = enabled === true;
     plugin.updatedAt = new Date().toISOString();
     persistState();
-
-    if (!plugin.enabled && webPanel?.pluginId === plugin.id) {
-      closeWebPanel({ notify: true });
-    }
 
     if (plugin.enabled) {
       await loadPluginIntoAllCurrentSessions(plugin);
@@ -1908,9 +1711,6 @@ function createExtensionManager(deps = {}) {
     if (plugin.builtin === true) {
       return { ok: false, message: '内置插件不能删除，可以关闭开关禁用', state: getPublicState() };
     }
-    if (webPanel?.pluginId === plugin.id) {
-      closeWebPanel({ notify: true });
-    }
     await unloadPluginFromAllSessions(plugin);
     state.plugins = state.plugins.filter((item) => item.id !== plugin.id);
     persistState();
@@ -1923,98 +1723,6 @@ function createExtensionManager(deps = {}) {
     }
     emitStateChanged();
     return { ok: true, state: getPublicState() };
-  }
-
-  function getPluginExtensionId(session, pluginId) {
-    const plugin = getPluginById(pluginId);
-    if (!session || !plugin) return '';
-    const map = rememberSession(session);
-    const knownId = map.get(plugin.id);
-    if (knownId) return knownId;
-    const loaded = findLoadedExtension(session, plugin);
-    if (loaded?.id) {
-      map.set(plugin.id, loaded.id);
-      return loaded.id;
-    }
-    return '';
-  }
-
-  async function openExtensionPage(pluginId, pageType = 'popup') {
-    const plugin = getPluginById(pluginId || BUILTIN_TRANSLATE_ID);
-    if (!plugin) return { ok: false, message: '插件不存在' };
-    if (plugin.enabled !== true) return { ok: false, message: '插件已禁用，请先打开开关' };
-
-    const pagePath = pageType === 'options' ? plugin.optionsPath : plugin.popupPath;
-    if (!pagePath) {
-      return { ok: false, message: pageType === 'options' ? '该插件没有设置页' : '该插件没有弹窗页' };
-    }
-
-    const wc = typeof getActiveWC === 'function' ? getActiveWC() : null;
-    if (!wc || wc.isDestroyed?.()) {
-      return { ok: false, message: '当前没有可用的网页标签' };
-    }
-
-    await loadPluginIntoSession(plugin, wc.session, '打开弹窗');
-    const extensionId = getPluginExtensionId(wc.session, plugin.id);
-    if (!extensionId) {
-      return { ok: false, message: '插件尚未加载到当前网页' };
-    }
-
-    const url = `chrome-extension://${extensionId}/${pagePath}`;
-    const title = pageType === 'options' ? `${plugin.name} 设置` : plugin.name;
-    const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
-    if (!mainWindow || mainWindow.isDestroyed?.()) {
-      return { ok: false, message: '主窗口不可用' };
-    }
-
-    if (webPanel?.pluginId === plugin.id && webPanel?.pageType === pageType) {
-      closeWebPanel({ notify: true });
-      return { ok: true, closed: true };
-    }
-
-    closeWebPanel({ notify: false });
-
-    const view = createWebPanelView();
-    const defaultSize = normalizePanelContentSize({}, pageType);
-    webPanel = {
-      view,
-      pluginId: plugin.id,
-      name: plugin.name,
-      pageType,
-      title,
-      contentWidth: defaultSize.width,
-      contentHeight: defaultSize.height,
-    };
-    mainWindow.contentView.addChildView(view);
-    syncWebPanelBounds();
-
-    try {
-      await loadPluginIntoSession(plugin, view.webContents.session, '网页浮窗');
-      await view.webContents.loadURL(url);
-      await resizeWebPanelToContent(view, pageType);
-      // A number of extension popups render data asynchronously after did-finish-load.
-      // Recheck shortly afterwards so loading placeholders do not determine the final size.
-      if (pageType === 'popup') {
-        for (const delay of [120, 400]) {
-          setTimeout(() => {
-            if (webPanel?.view === view && !view.webContents.isDestroyed?.()) {
-              void resizeWebPanelToContent(view, pageType);
-            }
-          }, delay);
-        }
-      }
-      if (pageType === 'popup') {
-        // 不再监听 blur 自动关闭浮窗：blur 会在打开系统文件选择对话框、
-        // 切换到其它应用等场景下触发，导致浮窗在文件导入等操作中途被误关。
-        // 浮窗改为仅通过再次点击插件、关闭按钮或 close-extension-web-panel 关闭。
-        try { view.webContents.focus(); } catch (_) {}
-      }
-      return { ok: true };
-    } catch (error) {
-      closeWebPanel({ notify: true });
-      logger.warn?.('[Extensions] 加载网页插件浮窗失败:', plugin.name, error?.message || error);
-      return { ok: false, message: error?.message || String(error) };
-    }
   }
 
   function isPluginEnabled(pluginId) {
@@ -2031,10 +1739,6 @@ function createExtensionManager(deps = {}) {
     ensureEnabledPluginsLoadedInCurrentSessions,
     setPluginEnabled,
     removePlugin,
-    openExtensionPopup: (pluginId) => openExtensionPage(pluginId, 'popup'),
-    openExtensionOptions: (pluginId) => openExtensionPage(pluginId, 'options'),
-    closeWebPanel,
-    syncWebPanelBounds,
     isPluginEnabled,
   };
 }

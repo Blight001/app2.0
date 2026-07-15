@@ -140,14 +140,11 @@ let closeTab;
 let reorderTab;
 let renameTab;
 let setTabAccountId;
-let setTabBrowserProxyMode;
 let setTabBrowserSettings;
 let setZoom;
 let refreshActiveTabToUrl;
 let refreshActiveTab;
 let refreshTab;
-let openExtensionPopup;
-let openExtensionOptions;
 let tabManager;
 
 // 每个会话(session) -> 扩展ID 映射，用于后续打开 popup/options
@@ -298,14 +295,11 @@ const extensionManager = createExtensionManager({
   app,
   fs,
   path,
-  WebContentsView,
   logger: console,
   getStorePath,
   getTranslateExtDir,
   getTabs: () => tabs,
   getActiveTabId: appRuntime.getActiveTabId,
-  getActiveWC,
-  getMainWindow: appRuntime.getMainWindow,
   applyPluginSettings,
   sendToSide,
   onPluginStateChanged: async (change) => {
@@ -445,14 +439,11 @@ const appShellDeps = {
   getCloseTab: () => closeTab,
   getReorderTab: () => reorderTab,
   getRenameTab: () => renameTab,
-  getSetTabBrowserProxyMode: () => setTabBrowserProxyMode,
   getSetTabBrowserSettings: () => setTabBrowserSettings,
   getSetZoom: () => setZoom,
   getRefreshActiveTabToUrl: () => refreshActiveTabToUrl,
   getRefreshActiveTab: () => refreshActiveTab,
   getRefreshTab: () => refreshTab,
-  getOpenExtensionPopup: () => openExtensionPopup,
-  getOpenExtensionOptions: () => openExtensionOptions,
   updateTabs,
   getActiveWC,
   toggleSidebar,
@@ -534,15 +525,14 @@ const {
   setActiveTabId: appRuntime.setActiveTabId,
   getIsSidebarVisible: appRuntime.getIsSidebarVisible,
   setIsSidebarVisible: appRuntime.setIsSidebarVisible,
-    getSetTabAccountId: () => setTabAccountId,
-    getSetTabBrowserProxyMode: () => setTabBrowserProxyMode,
-    getAuth: () => auth,
-    licenseCache,
-    sendToSide,
-    updateTabs,
-    httpGetUniversal,
-    resolveTabBrowserProfile,
-    extIdBySession,
+  getSetTabAccountId: () => setTabAccountId,
+  getAuth: () => auth,
+  licenseCache,
+  sendToSide,
+  updateTabs,
+  httpGetUniversal,
+  resolveTabBrowserProfile,
+  extIdBySession,
   });
 
 ({
@@ -554,14 +544,11 @@ const {
   reorderTab,
   renameTab,
   setTabAccountId,
-  setTabBrowserProxyMode,
   setTabBrowserSettings,
   setZoom,
   refreshActiveTabToUrl,
   refreshActiveTab,
   refreshTab,
-  openExtensionPopup,
-  openExtensionOptions,
 } = tabManager);
 
 appShellDeps.applyClashMiniBrowserProxy = applyClashMiniBrowserProxy;

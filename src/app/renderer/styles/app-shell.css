@@ -324,6 +324,17 @@ html.theme-light #new-browser-window-btn {
   opacity: 0.58;
 }
 
+#new-browser-window-btn.gesture-armed {
+  touch-action: none;
+}
+
+#new-browser-window-btn.gesture-active {
+  border-color: rgba(255, 255, 255, 0.58);
+  background: var(--shell-accent-hover);
+  box-shadow: 0 0 0 3px rgba(77, 163, 255, 0.2), 0 8px 20px rgba(3, 11, 24, 0.32);
+  transform: translateY(2px);
+}
+
 #add-tab-btn:hover,
 #new-browser-window-btn:hover:not(:disabled) {
   background-color: var(--shell-accent-hover);
@@ -364,8 +375,34 @@ html.theme-light #new-browser-window-btn:hover:not(:disabled) {
 }
 
 #content-area {
+  position: relative;
   flex-grow: 1;
   background: var(--shell-bg);
+}
+
+#browser-empty-state {
+  position: absolute;
+  inset: 0 30% 0 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  transition: right 0.18s ease;
+}
+
+#browser-empty-state[hidden] {
+  display: none;
+}
+
+#browser-empty-state img {
+  display: block;
+  width: clamp(96px, 12vw, 148px);
+  height: clamp(96px, 12vw, 148px);
+  object-fit: contain;
+  filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.3));
+}
+
+html.sidebar-collapsed #browser-empty-state {
+  right: 0;
 }
 
 .tabs {

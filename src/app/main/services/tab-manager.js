@@ -3,7 +3,6 @@ const {
   getClashMiniProxyEndpoint,
   getClashMiniRuntimeRoot,
 } = require('../ipc/register/clash-mini-core');
-const { normalizeTabBrowserProxyMode } = require('../utils/normalizers');
 const {
   normalizeAiFreeBrowserSettings,
   parseCookieJson,
@@ -467,7 +466,6 @@ function createTabManager(deps = {}) {
         fixedTitle: TUTORIAL_TAB_TITLE,
         isTutorialTab: true,
         browserHistoryId: historyId,
-        browserProxyMode: 'direct',
         // 教程窗口每次启动都必须进入教程地址，不能恢复到上次关闭前的
         // 空白页、跳转页或其它浏览记录。
         restoreLastSession: false,
@@ -536,23 +534,6 @@ function createTabManager(deps = {}) {
       server: `http://${host}:${Number(endpoint.port)}`,
       bypassRules: '<local>;127.0.0.1;localhost;::1',
     };
-  }
-
-// 获取/读取/解析：resolveTabBrowserProxyMode的具体业务逻辑。
-  function resolveTabBrowserProxyMode(tab = {}) {
-    return normalizeTabBrowserProxyMode(tab?.browserProxyMode || 'inherit');
-  }
-
-// 获取/读取/解析：resolveTabBrowserProxy的具体业务逻辑。
-  function resolveTabBrowserProxy(tab = {}, browserProxy = null, globalEnabled = false) {
-    const mode = resolveTabBrowserProxyMode(tab);
-    if (mode === 'direct') {
-      return { enabled: false };
-    }
-    if (mode === 'proxy') {
-      return browserProxy || { enabled: false };
-    }
-    return globalEnabled ? (browserProxy || { enabled: false }) : { enabled: false };
   }
 
 // 设置/更新/持久化：applyClashMiniBrowserProxy的具体业务逻辑。
@@ -667,7 +648,6 @@ function createTabManager(deps = {}) {
     const accountId = String(options.accountId || '').trim();
     const fixedTitle = String(options.fixedTitle || options.tabTitle || '').trim();
     const browserHistoryId = String(options.browserHistoryId || '').trim();
-    const browserProxyMode = normalizeTabBrowserProxyMode(options.browserProxyMode || 'inherit');
     const existingTab = accountId
       ? Array.from(resolveTabs().values()).find((tab) => String(tab?.accountId || '').trim() === accountId)
       : null;
@@ -703,7 +683,7 @@ function createTabManager(deps = {}) {
     const configuredBrowserProxy = resolveConfiguredBrowserProxy(browserSettings);
     const effectiveProxy = shouldApplyClashMiniProxy
       ? (browserProxy || { enabled: false })
-      : (configuredBrowserProxy || resolveTabBrowserProxy({ browserProxyMode }, null, false));
+      : (configuredBrowserProxy || { enabled: false });
     // 主网页标签只允许走编译好的 AI-FREE Chromium Fork，不接受其他网页运行时。
     const requestedRuntimeType = 'chromium';
     if (requestedRuntimeType === 'chromium') {
@@ -739,7 +719,6 @@ function createTabManager(deps = {}) {
         runtimeUrl: targetInitialUrl && targetInitialUrl !== 'about:blank' ? targetInitialUrl : '',
         runtimeType: 'chromium',
         runtimeStatus: 'starting',
-        browserProxyMode,
         networkMagicApplied: shouldApplyClashMiniProxy && effectiveProxy?.enabled === true,
         browserProfile: null,
         browserSettings,
@@ -853,37 +832,6 @@ function createTabManager(deps = {}) {
       return true;
     } catch (_) {
       return false;
-    }
-  }
-
-// 设置/更新/持久化：setTabBrowserProxyMode的具体业务逻辑。
-  async function setTabBrowserProxyMode(tabId, mode) {
-    try {
-      const tabs = resolveTabs();
-      if (!tabs.has(tabId)) return { ok: false, message: '标签页不存在' };
-      const tab = tabs.get(tabId);
-      const nextMode = normalizeTabBrowserProxyMode(mode);
-      tab.browserProxyMode = nextMode;
-      tabs.set(tabId, tab);
-
-      const instance = browserRuntimeManager?.chromium?.instances?.get?.(String(tab.id));
-      if (instance?.profile) {
-        const clashStatus = typeof getClashMiniStatus === 'function' ? getClashMiniStatus() : null;
-        const globalMagicEnabled = clashStatus?.running === true && clashStatus?.enabled === true;
-        const tabProxy = globalMagicEnabled
-          ? (getBrowserProxyEndpoint() || { enabled: false })
-          : resolveTabBrowserProxy(tab, null, false);
-        instance.profile.proxyServer = tabProxy?.enabled ? String(tabProxy.server || '') : '';
-        instance.profile.proxyBypassList = tabProxy?.enabled ? String(tabProxy.bypassRules || '') : '';
-        const runtimeState = await browserRuntimeManager.restart(tab.id);
-        tab.runtimeStatus = runtimeState?.status || tab.runtimeStatus;
-      }
-
-      updateTabs(true);
-      return { ok: true, tabId, browserProxyMode: nextMode };
-    } catch (error) {
-      logger.warn?.('[BrowserProxy] 设置标签代理模式失败:', error?.message || error);
-      return { ok: false, message: error?.message || String(error) };
     }
   }
 
@@ -1042,18 +990,6 @@ function createTabManager(deps = {}) {
     }
   }
 
-// 启动/打开/显示：openExtensionPopup的具体业务逻辑。
-  async function openExtensionPopup(pluginId) {
-    try {
-      if (extensionManager && typeof extensionManager.openExtensionPopup === 'function') {
-        return await extensionManager.openExtensionPopup(pluginId);
-      }
-      return { ok: false, message: '插件管理器不可用' };
-    } catch (error) {
-      return { ok: false, message: error?.message || String(error) };
-    }
-  }
-
 // 设置/更新/持久化：更新独立浏览器窗口名称。
   function renameTab(tabId, title) {
     try {
@@ -1087,7 +1023,7 @@ function createTabManager(deps = {}) {
       const globalMagicEnabled = clashStatus?.running === true && clashStatus?.enabled === true;
       const effectiveProxy = globalMagicEnabled
         ? (getBrowserProxyEndpoint() || { enabled: false })
-        : (configuredProxy || resolveTabBrowserProxy(tab, null, false));
+        : (configuredProxy || { enabled: false });
       const browserProfile = await resolveTabBrowserProfile({
         browserSettings: normalized,
         httpGetUniversal: deps.httpGetUniversal,
@@ -1162,23 +1098,10 @@ function createTabManager(deps = {}) {
     return result;
   }
 
-// 启动/打开/显示：openExtensionOptions的具体业务逻辑。
-  async function openExtensionOptions(pluginId) {
-    try {
-      if (extensionManager && typeof extensionManager.openExtensionOptions === 'function') {
-        return await extensionManager.openExtensionOptions(pluginId);
-      }
-      return { ok: false, message: '插件管理器不可用' };
-    } catch (error) {
-      return { ok: false, message: error?.message || String(error) };
-    }
-  }
-
   return {
     addTab,
     openTutorialTab,
     applyClashMiniBrowserProxy,
-    setTabBrowserProxyMode,
     setTabBrowserSettings,
     refreshBrowsersAfterExtensionChange,
     switchTab,
@@ -1190,8 +1113,6 @@ function createTabManager(deps = {}) {
     refreshActiveTabToUrl,
     refreshActiveTab,
     refreshTab,
-    openExtensionPopup,
-    openExtensionOptions,
     toggleSidebar,
   };
 }

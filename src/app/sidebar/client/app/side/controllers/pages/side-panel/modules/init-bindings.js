@@ -10,6 +10,7 @@ function initSidePanelBindings() {
   initAnnouncementListener();
   initSidebarUiListeners();
   initSidebarAnimationListener();
+  initSidebarInputRouting();
   initPluginSwitches();
   bindClashMiniControls();
   bindLicenseValidationControls();

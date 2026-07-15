@@ -14,13 +14,10 @@
         <img class="app-logo" src="icon.ico" alt="">
         <h1 class="title">AI自动化插件</h1>
         <button id="hero-tutorial" class="button-secondary hero-tutorial" type="button">教程</button>
-        <div class="agent-status-pill" id="agent-status-pill" title="服务器连接状态">
-          <span class="agent-status-dot is-red" id="agent-status-dot"></span>
-          <span id="agent-status-label">未连接</span>
-        </div>
         <button class="agent-chip" id="agent-account-chip" type="button" title="查看 AI-FREE 连接状态">
-          <span class="agent-chip-ava" id="agent-account-ava">·</span>
-          <span id="agent-account-name">AI-FREE</span>
+          <span class="agent-status-dot is-red" id="agent-status-dot"></span>
+          <span class="agent-chip__name" id="agent-account-name">AI自动化浏览器</span>
+          <span class="agent-chip__status" id="agent-status-label">未连接</span>
         </button>
       </div>
     </div>
@@ -42,6 +39,7 @@
           </div>
         </div>
         <div class="sidebar-editor-actions">
+          <button id="sidebar-save-card" class="button-primary sidebar-save-card" type="button">保存</button>
           <button id="sidebar-card-settings-open" class="button-secondary sidebar-card-settings-open" type="button" aria-haspopup="dialog" aria-expanded="false">卡片设置</button>
           <button id="sidebar-close" class="sidebar-close-btn" type="button" title="关闭侧边栏">×</button>
         </div>
@@ -58,13 +56,15 @@
             <section class="sidebar-section">
               <h3 class="sidebar-section__title">基础信息</h3>
               <div class="sidebar-field-grid">
-                <div class="full">
-                  <label for="sidebar-card-name">卡片名称</label>
-                  <input id="sidebar-card-name" type="text">
+                <div class="full sidebar-required-field" data-sidebar-required-field>
+                  <label for="sidebar-card-name">卡片名称 <span class="required-mark" aria-hidden="true">*</span></label>
+                  <input id="sidebar-card-name" type="text" required aria-required="true">
+                  <div class="sidebar-field-error" data-sidebar-field-error hidden>请填写卡片名称</div>
                 </div>
-                <div class="full">
-                  <label for="sidebar-card-website">目标网址</label>
-                  <input id="sidebar-card-website" type="text">
+                <div class="full sidebar-required-field" data-sidebar-required-field>
+                  <label for="sidebar-card-website">目标网址 <span class="required-mark" aria-hidden="true">*</span></label>
+                  <input id="sidebar-card-website" type="url" required aria-required="true" placeholder="https://example.com">
+                  <div class="sidebar-field-error" data-sidebar-field-error hidden>请填写有效的目标网址</div>
                 </div>
                 <div class="full">
                   <label for="sidebar-card-description">卡片说明</label>
@@ -101,36 +101,42 @@
       <div class="sidebar-editor-grid">
         <div class="sidebar-column sidebar-column--main">
           <section class="sidebar-section sidebar-section--canvas">
-            <h3 class="sidebar-section__title">自动化步骤</h3>
-            <div class="sidebar-step-toolbar">
-              <select id="sidebar-step-template">
-                <option value="navigate">访问网页</option>
-                <option value="click">点击元素</option>
-                <option value="type">输入内容</option>
-                <option value="wait">等待条件</option>
-                <option value="condition">判断分支</option>
-                <option value="get_credits">获取积分</option>
-                <option value="save_cookies">获取Cookie</option>
-                <option value="clear_current_page_cache">清理当前页缓存</option>
-                <option value="external_script">执行脚本</option>
-                <option value="screenshot">截图</option>
-              </select>
-              <button id="sidebar-add-step" class="button-secondary" type="button">添加步骤</button>
-              <button id="sidebar-refresh-card" class="button-secondary" type="button">刷新显示</button>
-              <button id="sidebar-flow-connect" class="button-secondary" type="button" aria-pressed="false">连线</button>
-              <button id="sidebar-flow-layout" class="button-secondary" type="button">自动布局</button>
+            <div class="sidebar-section__head sidebar-section__head--canvas">
+              <h3 class="sidebar-section__title">自动化步骤</h3>
+              <div class="sidebar-flow-zoom-controls" aria-label="画布缩放">
+                <button id="sidebar-flow-zoom-out" class="button-secondary" type="button" aria-label="缩小画布">−</button>
+                <button id="sidebar-flow-zoom-reset" class="button-secondary" type="button">100%</button>
+                <button id="sidebar-flow-zoom-in" class="button-secondary" type="button" aria-label="放大画布">+</button>
+              </div>
             </div>
             <div class="sidebar-flow-stage">
               <div id="sidebar-flow-canvas" class="sidebar-flow-canvas" aria-label="自动化流程图">
-                <svg id="sidebar-flow-svg" class="sidebar-flow-svg" aria-hidden="true"></svg>
-                <div id="sidebar-flow-nodes" class="sidebar-flow-nodes"></div>
-                <div id="sidebar-flow-empty" class="sidebar-flow-empty">暂无节点，先添加一个步骤。</div>
+                <div id="sidebar-flow-viewport" class="sidebar-flow-viewport">
+                  <svg id="sidebar-flow-svg" class="sidebar-flow-svg" aria-hidden="true"></svg>
+                  <div id="sidebar-flow-nodes" class="sidebar-flow-nodes"></div>
+                </div>
+                <div id="sidebar-flow-empty" class="sidebar-flow-empty">暂无节点，请从下方选择或拖入一个步骤。</div>
               </div>
               <aside id="sidebar-step-list" class="sidebar-step-list sidebar-node-settings" aria-label="节点设置" aria-hidden="true">
                 <div class="sidebar-step-empty">点击画布中的节点查看设置。</div>
               </aside>
+              <div id="sidebar-flow-context-menu" class="sidebar-flow-context-menu" role="menu" hidden>
+                <button id="sidebar-flow-delete-selection" type="button" role="menuitem">删除选中节点</button>
+              </div>
             </div>
-            <div class="sidebar-flow-hint">拖拽节点调整位置；点击节点可在画布右上角编辑设置；点击“连线”后依次点击两个节点创建边；点击连线可删除。</div>
+            <div class="sidebar-flow-hint">单击选择节点，Ctrl/Shift 点击多选；拖动选中节点可整体移动，右键可删除。按住 A 节点端点拖到 B 节点端点后松开即可连线；判断分支右侧有两个固定输出端点。</div>
+            <div id="sidebar-step-palette" class="sidebar-step-palette" aria-label="步骤组件">
+              <button type="button" draggable="true" data-step-template-type="navigate">访问网页</button>
+              <button type="button" draggable="true" data-step-template-type="click">点击元素</button>
+              <button type="button" draggable="true" data-step-template-type="type">输入内容</button>
+              <button type="button" draggable="true" data-step-template-type="wait">等待条件</button>
+              <button type="button" draggable="true" data-step-template-type="condition">判断分支</button>
+              <button type="button" draggable="true" data-step-template-type="get_credits">获取积分</button>
+              <button type="button" draggable="true" data-step-template-type="save_cookies">获取Cookie</button>
+              <button type="button" draggable="true" data-step-template-type="clear_current_page_cache">清理缓存</button>
+              <button type="button" draggable="true" data-step-template-type="external_script">执行脚本</button>
+              <button type="button" draggable="true" data-step-template-type="screenshot">截图</button>
+            </div>
           </section>
         </div>
       </div>
@@ -146,9 +152,8 @@
           </div>
         </div>
         <div class="field">
-          <input id="card-file" type="file" accept=".json,application/json" multiple hidden>
           <div class="field-actions field-actions--left card-toolbar">
-            <button id="pick-card-file" class="button-secondary button-import" type="button">导入卡片</button>
+            <button id="open-card-data-import" class="button-secondary button-import" type="button" aria-haspopup="dialog" aria-expanded="false">导入卡片</button>
             <button id="export-card" class="button-secondary button-export" type="button">导出卡片</button>
             <button id="delete-card" class="button-secondary button-delete" type="button">删除选中卡片</button>
             <button id="open-card-sidebar" class="button-secondary button-sidebar" type="button">打开侧边栏</button>
@@ -162,45 +167,36 @@
         </div>
       </section>
 
+      <div id="card-data-import-modal" class="card-data-import-modal" role="dialog" aria-modal="true" aria-labelledby="card-data-import-title" hidden>
+        <div class="card-data-import-modal__backdrop" data-card-data-import-dismiss></div>
+        <div class="card-data-import-modal__dialog" tabindex="-1">
+          <h3 id="card-data-import-title">输入卡片流程数据</h3>
+          <p>粘贴完整的自动化卡片 JSON 数据，校验通过后保存到卡片列表。</p>
+          <textarea id="card-data-import-input" rows="12" spellcheck="false" placeholder='例如：{"name":"示例卡片","steps":[]}'></textarea>
+          <div id="card-data-import-error" class="card-data-import-error" role="alert" hidden></div>
+          <div class="card-data-import-modal__actions">
+            <button id="card-data-import-cancel" class="button-secondary" type="button">取消</button>
+            <button id="card-data-import-save" class="button-primary" type="button">保存导入</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="card-data-export-modal" class="card-data-import-modal" role="dialog" aria-modal="true" aria-labelledby="card-data-export-title" hidden>
+        <div class="card-data-import-modal__backdrop" data-card-data-export-dismiss></div>
+        <div class="card-data-import-modal__dialog" tabindex="-1">
+          <h3 id="card-data-export-title">卡片流程数据</h3>
+          <p>复制下面的完整卡片 JSON 数据，完成后关闭弹窗。</p>
+          <textarea id="card-data-export-output" rows="12" spellcheck="false" readonly></textarea>
+          <div class="card-data-import-modal__actions">
+            <button id="card-data-export-copy" class="button-secondary" type="button">复制</button>
+            <button id="card-data-export-done" class="button-primary" type="button">完成</button>
+          </div>
+        </div>
+      </div>
+
       <section id="cookie-capture-card" class="card" data-main-panel="cookie">
         <div class="card-title-row">
           <h2 class="card-title">Cookie 抓取</h2>
-          <div class="card-title-actions">
-            <div id="cookie-credential-count" class="chip">0 条</div>
-            <button id="copy-account-password" class="button-secondary" type="button">复制账号密码</button>
-          </div>
-        </div>
-        <div id="cookie-credential-edit-panel" class="cookie-credential-edit-panel" aria-label="编辑 Cookie 记录" role="dialog" aria-modal="true" tabindex="-1">
-          <div class="cookie-credential-edit-panel__dialog">
-            <div class="cookie-credential-edit-panel__head">
-              <div>
-                <h3 class="cookie-credential-edit-panel__title">编辑记录</h3>
-                <div id="cookie-credential-edit-panel-subtitle" class="cookie-credential-edit-panel__subtitle">请选择一条记录开始编辑</div>
-              </div>
-              <button id="cancel-cookie-edit" class="button-secondary" type="button">取消编辑</button>
-            </div>
-            <div class="cookie-credential-edit-grid">
-              <div class="field">
-                <label for="edit-account">账号</label>
-                <input id="edit-account" type="text" autocomplete="off" placeholder="账号">
-              </div>
-              <div class="field">
-                <label for="edit-password">密码</label>
-                <input id="edit-password" type="text" autocomplete="off" placeholder="密码">
-              </div>
-              <div class="field">
-                <label for="edit-note">备注</label>
-                <input id="edit-note" type="text" autocomplete="off" placeholder="备注">
-              </div>
-              <div class="field">
-                <label for="edit-card-key">卡密</label>
-                <input id="edit-card-key" type="text" autocomplete="off" placeholder="卡密">
-              </div>
-            </div>
-            <div class="actions">
-              <button id="save-cookie-credential-edit" class="button-secondary" type="button">保存修改</button>
-            </div>
-          </div>
         </div>
         <div id="cookie-manager-panel" class="cookie-credential-edit-panel" aria-label="Cookie 管理" role="dialog" aria-modal="true" tabindex="-1">
           <div class="cookie-credential-edit-panel__dialog cookie-manager-dialog">
@@ -222,61 +218,44 @@
             <div id="cookie-manager-list" class="cookie-manager-list" aria-label="当前页面 Cookie 列表"></div>
           </div>
         </div>
+        <div id="clear-cache-confirm-modal" class="cookie-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="clear-cache-confirm-title" hidden>
+          <div class="cookie-confirm-modal__backdrop" data-clear-cache-confirm-dismiss></div>
+          <div class="cookie-confirm-modal__dialog" tabindex="-1">
+            <div class="cookie-confirm-modal__icon" aria-hidden="true">!</div>
+            <h3 id="clear-cache-confirm-title">确认清理当前页面缓存？</h3>
+            <p>将清理当前页面的 Cookie、LocalStorage、SessionStorage、CacheStorage 和 IndexedDB。此操作无法撤销。</p>
+            <div class="cookie-confirm-modal__actions">
+              <button id="clear-cache-confirm-cancel" class="button-secondary" type="button">取消</button>
+              <button id="clear-cache-confirm-submit" class="cookie-action-btn cookie-action-btn--red" type="button">确认清理</button>
+            </div>
+          </div>
+        </div>
         <div class="cookie-credential-grid">
           <div class="field">
             <label for="account">账号</label>
             <div class="field-input-row">
               <input id="account" type="text" autocomplete="off" placeholder="账号">
-              <button id="copy-cookie-account" class="button-secondary cookie-copy-btn" type="button">复制</button>
             </div>
           </div>
           <div class="field">
             <label for="password">密码</label>
             <div class="field-input-row">
               <input id="password" type="text" autocomplete="off" placeholder="密码">
-              <button id="copy-cookie-password" class="button-secondary cookie-copy-btn" type="button">复制</button>
               <button id="generate-cookie-password" class="button-secondary" type="button">随机</button>
             </div>
-          </div>
-          <div class="field">
-            <label for="cookie-note">备注</label>
-            <input id="cookie-note" type="text" autocomplete="off" placeholder="备注">
-          </div>
-          <div class="field">
-            <label for="cookie-card-key">卡密</label>
-            <input id="cookie-card-key" type="text" autocomplete="off" placeholder="卡密">
           </div>
         </div>
         <div class="actions cookie-capture-actions">
           <div class="cookie-capture-actions__row">
-            <button id="capture" class="button-primary">Cookie 管理</button>
+            <button id="capture" class="cookie-action-btn cookie-action-btn--blue" type="button">Cookie 管理</button>
             <input id="cookie-import-file" type="file" accept=".json,.txt,.cookie,text/plain,application/json" hidden>
-            <button id="import-cookie" class="button-secondary" type="button">导入Cookie</button>
-            <button id="clear-current-page-cache" class="button-secondary" type="button">清理当前页缓存</button>
-          </div>
-          <div class="cookie-capture-actions__row">
-            <button id="save-cookie-credentials" class="button-secondary" type="button">保存信息</button>
+            <button id="import-cookie" class="cookie-action-btn cookie-action-btn--green" type="button">导入Cookie</button>
+            <button id="clear-current-page-cache" class="cookie-action-btn cookie-action-btn--red" type="button">清理当前页缓存</button>
           </div>
           <div class="cookie-capture-actions__row cookie-capture-actions__row--status">
           <div id="status" class="status"></div>
           </div>
         </div>
-        <div class="cookie-credential-toolbar" aria-label="Cookie 记录筛选">
-          <div class="cookie-credential-toolbar__row">
-            <div class="field cookie-credential-filter">
-              <label for="cookie-credential-date-filter">日期</label>
-              <select id="cookie-credential-date-filter">
-                <option value="today">今天</option>
-                <option value="all">全部日期</option>
-              </select>
-            </div>
-            <div class="field cookie-credential-filter cookie-credential-filter--search">
-              <label for="cookie-credential-search">搜索</label>
-              <input id="cookie-credential-search" type="text" autocomplete="off" placeholder="按 QQ、卡密、备注或密码搜索">
-            </div>
-          </div>
-        </div>
-        <div id="cookie-credential-list" class="cookie-credential-list" aria-label="Cookie 保存记录"></div>
       </section>
 
     </div>
@@ -312,17 +291,6 @@
         <div class="agent-card">
           <div class="agent-kv"><span class="k">连接状态</span><span class="v" id="agent-conn-status">未连接</span></div>
           <div class="agent-kv"><span class="k">控制方式</span><span class="v" id="agent-ai-status">软件内选择</span></div>
-          <div class="agent-hint">插件会自动连接本机 AI-FREE，无需单独登录。连接后可在软件「AI 控制」的浏览器下拉框中选择当前浏览器；多个浏览器连接彼此独立。</div>
-        </div>
-
-        <div class="agent-card">
-          <div class="agent-card-title">🔗 本机桥接</div>
-          <div class="agent-field"><label for="agent-server-url">桥接地址</label><input id="agent-server-url" type="url" placeholder="http://127.0.0.1:18765" autocomplete="off"></div>
-          <div class="agent-btn-row">
-            <button id="agent-connect-btn" class="button-secondary" type="button">重新连接</button>
-            <button id="agent-disconnect-btn" class="button-secondary" type="button">断开</button>
-          </div>
-          <div id="agent-login-feedback" class="agent-feedback"></div>
         </div>
 
         <div class="agent-card">

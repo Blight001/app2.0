@@ -58,7 +58,6 @@ function createTabHelpers(deps = {}) {
       isActive: t.id === resolveActiveTabId(),
       accountId: String(t.accountId || '').trim(),
       browserHistoryId: String(t.browserHistoryId || '').trim(),
-      browserProxyMode: String(t.browserProxyMode || 'inherit').trim(),
       networkMagicEnabled: t.networkMagicApplied === true && !!actualProxyServer,
       browserSettings: applied?.browserSettings && typeof applied.browserSettings === 'object'
         ? applied.browserSettings
@@ -107,7 +106,6 @@ function createTabHelpers(deps = {}) {
         item.isActive ? 1 : 0,
         item.accountId || '',
         item.browserHistoryId || '',
-        item.browserProxyMode || '',
         item.networkMagicEnabled ? 1 : 0,
         JSON.stringify(item.browserSettings || {}),
         item.runtimeEnvironment?.windowWidth || 0,
