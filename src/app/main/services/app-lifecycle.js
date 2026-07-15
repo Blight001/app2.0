@@ -821,6 +821,18 @@ function registerAppLifecycle(deps = {}) {
 
       try {
         try {
+          logger.log?.('[退出] 正在关闭 Clash Mini...');
+          const clashStopResult = await stopClashMiniProcess({ sendToSide });
+          if (clashStopResult?.ok === false) {
+            logger.warn?.('[退出] Clash Mini 未完全退出:', clashStopResult.error || clashStopResult);
+          } else {
+            logger.log?.('[退出] Clash Mini 已关闭');
+          }
+        } catch (e) {
+          logger.warn?.('[退出] 关闭 Clash Mini 失败:', e?.message || e);
+        }
+
+        try {
           if (deps.browserRuntimeManager && typeof deps.browserRuntimeManager.stopAll === 'function') {
             logger.log?.('[退出] 正在优雅关闭 Chromium Profile...');
             await deps.browserRuntimeManager.stopAll({ timeoutMs: isUpdateExit ? 2000 : 5000 });

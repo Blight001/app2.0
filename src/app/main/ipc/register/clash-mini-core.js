@@ -1547,7 +1547,63 @@ let clashMiniConfigPath = null;
 let clashMiniProxyAppliedByApp = false;
 let runtimeLicenseCache = null;
 let clashMiniStartPromise = null;
+let clashMiniStopPromise = null;
 const intentionallyStoppedClashProcesses = new WeakSet();
+
+function hasClashMiniProcessExited(processRef) {
+  return !processRef || processRef.exitCode != null || processRef.signalCode != null;
+}
+
+function waitForClashMiniProcessExit(processRef, timeoutMs) {
+  if (hasClashMiniProcessExited(processRef)) return Promise.resolve(true);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (exited) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      processRef.removeListener('exit', onExit);
+      processRef.removeListener('close', onExit);
+      resolve(exited);
+    };
+    const onExit = () => finish(true);
+    const timer = setTimeout(() => finish(hasClashMiniProcessExited(processRef)), timeoutMs);
+    processRef.once('exit', onExit);
+    processRef.once('close', onExit);
+  });
+}
+
+function forceKillClashMiniProcessTree(pid, processRef) {
+  if (process.platform !== 'win32' || !pid) return Promise.resolve(false);
+
+  return new Promise((resolve) => {
+    let killer;
+    try {
+      killer = spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+    } catch (_) {
+      resolve(false);
+      return;
+    }
+
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    const timer = setTimeout(() => {
+      try { killer.kill(); } catch (_) {}
+      finish(false);
+    }, 5000);
+    killer.once('error', () => finish(false));
+    killer.once('close', (code) => finish(code === 0 || hasClashMiniProcessExited(processRef)));
+  });
+}
 
 // 设置/更新/持久化：setRuntimeLicenseCache的具体业务逻辑。
 function setRuntimeLicenseCache(next) {
@@ -1556,7 +1612,8 @@ function setRuntimeLicenseCache(next) {
 
 // 处理：isClashMiniProcessRunning的具体业务逻辑。
 function isClashMiniProcessRunning() {
-  return !!(clashMiniProcess && clashMiniProcess.exitCode == null && !clashMiniProcess.killed);
+  // killed 仅表示已经调用过 ChildProcess.kill()，不能用它判断 OS 进程已退出。
+  return !!(clashMiniProcess && !hasClashMiniProcessExited(clashMiniProcess));
 }
 
 // 获取/读取/解析：getClashMiniStatus的具体业务逻辑。
@@ -1816,7 +1873,7 @@ function startClashMiniProcess(ui, options = {}) {
 }
 
 // 停止/关闭/清理：stopClashMiniProcess的具体业务逻辑。
-async function stopClashMiniProcess(ui) {
+async function stopClashMiniProcessOnce(ui) {
   if (!isClashMiniProcessRunning()) {
     if (ui && typeof ui.applyClashMiniBrowserProxy === 'function') {
       await Promise.resolve(ui.applyClashMiniBrowserProxy(false)).catch(() => {});
@@ -1838,25 +1895,23 @@ async function stopClashMiniProcess(ui) {
     emitClashMiniLog(ui, 'warn', `直接结束进程失败: ${error?.message || error}`);
   }
 
-  if (process.platform === 'win32' && pid) {
-    setTimeout(() => {
-      try {
-        if (processRef && processRef.exitCode == null && !processRef.killed) {
-          spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {
-            stdio: 'ignore',
-            windowsHide: true,
-          });
-        }
-      } catch (_) {}
-    }, 800);
+  // ChildProcess.killed 只表示 kill() 请求已经发出，并不代表 Windows 已经释放
+  // 可执行文件。必须等待 exit/close；超时后再结束整个进程树。
+  let exited = await waitForClashMiniProcessExit(processRef, 1500);
+  if (!exited && process.platform === 'win32' && pid) {
+    emitClashMiniLog(ui, 'warn', `Clash Mini 未及时退出，正在强制结束进程树，PID: ${pid}`);
+    await forceKillClashMiniProcessTree(pid, processRef);
+    exited = await waitForClashMiniProcessExit(processRef, 3000);
   }
 
-  clashMiniProcess = null;
-  clashMiniPid = null;
-  clashMiniCoreDir = null;
-  clashMiniExePath = null;
-  clashMiniConfigPath = null;
-  clashStartedByApp = false;
+  if (exited && clashMiniProcess === processRef) {
+    clashMiniProcess = null;
+    clashMiniPid = null;
+    clashMiniCoreDir = null;
+    clashMiniExePath = null;
+    clashMiniConfigPath = null;
+    clashStartedByApp = false;
+  }
   if (ui && typeof ui.applyClashMiniBrowserProxy === 'function') {
     await Promise.resolve(ui.applyClashMiniBrowserProxy(false)).catch(() => {});
   }
@@ -1864,8 +1919,25 @@ async function stopClashMiniProcess(ui) {
   if (runtimeLicenseCache && typeof runtimeLicenseCache.setRuntimeConfig === 'function') {
     runtimeLicenseCache.setRuntimeConfig({ systemProxyEnabled: false });
   }
-  emitClashMiniLog(ui, 'info', 'Clash Mini 已停止');
+  if (!exited) {
+    const error = `Clash Mini 进程未能在超时内退出，PID: ${pid || 'unknown'}`;
+    emitClashMiniLog(ui, 'error', error);
+    return { ...getClashMiniStatus(), ok: false, stopped: false, error };
+  }
+  emitClashMiniLog(ui, 'info', 'Clash Mini 已停止，进程资源已释放');
   return { ok: true, stopped: true, ...getClashMiniStatus() };
+}
+
+function stopClashMiniProcess(ui) {
+  if (clashMiniStopPromise) return clashMiniStopPromise;
+
+  const sharedPromise = stopClashMiniProcessOnce(ui).finally(() => {
+    if (clashMiniStopPromise === sharedPromise) {
+      clashMiniStopPromise = null;
+    }
+  });
+  clashMiniStopPromise = sharedPromise;
+  return sharedPromise;
 }
 
 // 停止/关闭/清理：cleanupClashMiniRuntimeConfig的具体业务逻辑。

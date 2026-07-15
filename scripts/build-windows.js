@@ -23,15 +23,26 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function buildWithRetry(options, label) {
-  try {
-    await build(options);
-  } catch (error) {
-    if (!isTransientFileLock(error)) throw error;
+async function buildWithRetry(options, label, { beforeRetry } = {}) {
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await build(options);
+      return;
+    } catch (error) {
+      if (!isTransientFileLock(error) || attempt === maxAttempts) {
+        if (isTransientFileLock(error)) {
+          error.message = `${error.message}\n${label}连续 ${maxAttempts} 次遇到文件占用。请完全退出正在运行的 AI-FREE 后重试；不要直接结束其他 Clash 软件的进程。`;
+        }
+        throw error;
+      }
 
-    console.warn(`[build:win] ${label}遇到临时文件占用，等待 5 秒后自动重试一次...`);
-    await delay(5000);
-    await build(options);
+      console.warn(`[build:win] ${label}遇到临时文件占用，等待 5 秒后进行第 ${attempt}/${maxAttempts - 1} 次重试...`);
+      await delay(5000);
+      if (typeof beforeRetry === 'function') {
+        await beforeRetry();
+      }
+    }
   }
 }
 
@@ -65,6 +76,20 @@ function cleanAppOutput(appOutDir) {
     throw new Error(`拒绝清理非预期构建目录: ${resolvedOutput}`);
   }
   fs.rmSync(resolvedOutput, { recursive: true, force: true });
+}
+
+async function cleanAppOutputForRetry(appOutDir) {
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      cleanAppOutput(appOutDir);
+      return;
+    } catch (error) {
+      if (!isTransientFileLock(error) || attempt === maxAttempts) throw error;
+      console.warn(`[build:win] 半成品目录仍被占用，等待 2 秒后再次清理 (${attempt}/${maxAttempts - 1})...`);
+      await delay(2000);
+    }
+  }
 }
 
 function resolvePackagedExtensions() {
@@ -146,7 +171,11 @@ async function main() {
   };
 
   cleanAppOutput(appOutDir);
-  await buildWithRetry(stageOptions, '应用预打包阶段');
+  await buildWithRetry(stageOptions, '应用预打包阶段', {
+    // 首次失败会留下半成品。重试前清掉它，避免刚生成的 exe 被扫描器
+    // 短暂占用后，下一轮继续复制到同一个目标文件而再次触发 EBUSY。
+    beforeRetry: () => cleanAppOutputForRetry(appOutDir),
+  });
   syncChromiumRuntime(appOutDir);
   verifyPackagedRuntime({ projectDir, appOutDir });
 

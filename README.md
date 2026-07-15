@@ -2,7 +2,7 @@
 
 AI-FREE is an Electron desktop shell for AI workflow tools. It focuses on platform configuration, startup orchestration, browser extension integration, and bundled tools.
 
-Current package version: `2.5.7`
+Current package version: `2.6.3`
 
 ## What It Does
 

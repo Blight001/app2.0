@@ -457,6 +457,7 @@ const appShellDeps = {
   toggleSidebar,
   sendToSide,
   startAppUpdate: appUpdater.startAppUpdate,
+  handleServerUpdateCommand: appUpdater.handleServerUpdateCommand,
   cleanupUpdateStorageRoot: appUpdater.cleanupUpdateStorageRoot,
   getAppVersion: () => app.getVersion(),
   getTabs: () => tabs,

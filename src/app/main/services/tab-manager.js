@@ -554,6 +554,9 @@ function createTabManager(deps = {}) {
           displayName: fixedTitle,
           initialUrl,
           restoreLastSession,
+          // Session 文件若被旧版内核写成“全部标签已关闭”，至少回退到该
+          // 浏览器记录的网址，而不是向用户显示不可恢复的空白页。
+          restoreFallbackUrl: String(url || '').trim(),
           locale: browserProfile?.locale,
           acceptLanguage: browserProfile?.acceptLanguage,
           timezoneId: browserProfile?.timezoneId,

@@ -68,6 +68,7 @@ function createAppShell(deps = {}) {
     toggleSidebar,
     sendToSide,
     startAppUpdate,
+    handleServerUpdateCommand,
     getAppVersion,
     getTabs,
     getMainWindow,
@@ -159,6 +160,14 @@ function createAppShell(deps = {}) {
         },
         shouldPoll: canPollAnnouncements,
         sendToSide: sendAnnouncementToSide,
+        // 更新公告必须先经过主进程的统一版本比较，不能直接绕过到弹窗。
+        sendUpdateNotice: async (payload) => {
+          if (typeof handleServerUpdateCommand !== 'function') {
+            return sendAnnouncementToSide('app-update-notice', payload);
+          }
+          await handleServerUpdateCommand(payload);
+          return true;
+        },
         logger,
       });
     }

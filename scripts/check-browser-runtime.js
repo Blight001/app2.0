@@ -9,10 +9,13 @@ const {
   buildChromiumEnvironment,
   captureChromiumSessionFiles,
   getSystemChromiumCandidates,
+  persistStableChromiumSession,
+  prepareChromiumSessionRecovery,
   repairBlankLatestSession,
   resolveChromiumExecutable,
   restoreChromiumSessionFiles,
   shouldIgnoreChromiumDiagnostic,
+  snapshotHasRestorableSession,
 } = require('../src/app/main/browser-runtime/chromium-launcher');
 const { encodeFrame, MAX_MESSAGE_BYTES, PROTOCOL_VERSION } = require('../src/app/main/browser-runtime/chromium-command-client');
 const {
@@ -27,6 +30,34 @@ const { createTabManager, resolveChromiumExtensionPaths } = require('../src/app/
 const { createBrowserPartitionCleaner } = require('../src/app/main/services/browser-partitions');
 const { cleanupAccountProfile } = require('../src/app/main/services/account-profile-cleanup');
 const { initializeAccountCleanup } = require('../src/app/main/utils/accountCleanup');
+
+function buildSnssSession({ url = 'https://example.com/work', closed = false } = {}) {
+  const command = (id, payload) => {
+    const data = Buffer.isBuffer(payload) ? payload : Buffer.alloc(0);
+    const result = Buffer.alloc(3 + data.length);
+    result.writeUInt16LE(1 + data.length, 0);
+    result[2] = id;
+    data.copy(result, 3);
+    return result;
+  };
+  const pair = Buffer.alloc(8);
+  pair.writeInt32LE(101, 0);
+  pair.writeInt32LE(102, 4);
+  const windowType = Buffer.alloc(8);
+  windowType.writeInt32LE(101, 0);
+  const closedPayload = Buffer.alloc(12);
+  closedPayload.writeInt32LE(102, 0);
+  const header = Buffer.alloc(8);
+  header.write('SNSS', 0, 'ascii');
+  header.writeInt32LE(3, 4);
+  return Buffer.concat([
+    header,
+    command(9, windowType),
+    command(0, pair),
+    command(6, Buffer.from(url, 'utf8')),
+    ...(closed ? [command(16, closedPayload)] : []),
+  ]);
+}
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-runtime-test-'));
 (async () => {
@@ -216,10 +247,12 @@ try {
   };
   const sessionsDir = path.join(sessionRecoveryPaths.chromiumData, 'Default', 'Sessions');
   fs.mkdirSync(sessionsDir, { recursive: true });
-  fs.writeFileSync(path.join(sessionsDir, 'Session_100'), Buffer.from('https://example.com/work'));
-  fs.writeFileSync(path.join(sessionsDir, 'Tabs_101'), Buffer.from('https://example.com/work'));
-  fs.writeFileSync(path.join(sessionsDir, 'Session_200'), Buffer.from('chrome://newtab/'));
-  fs.writeFileSync(path.join(sessionsDir, 'Tabs_201'), Buffer.from('chrome://newtab/'));
+  const validSession = buildSnssSession();
+  const closedSession = buildSnssSession({ closed: true });
+  fs.writeFileSync(path.join(sessionsDir, 'Session_100'), validSession);
+  fs.writeFileSync(path.join(sessionsDir, 'Tabs_101'), validSession);
+  fs.writeFileSync(path.join(sessionsDir, 'Session_200'), closedSession);
+  fs.writeFileSync(path.join(sessionsDir, 'Tabs_201'), closedSession);
   const repairResult = repairBlankLatestSession(sessionRecoveryPaths, { warn() {} });
   assert.equal(repairResult.repaired, true, '最新空白会话应回退至上一组有效网页会话');
   assert.deepEqual(repairResult.removed.sort(), ['Session_200', 'Tabs_201']);
@@ -228,14 +261,23 @@ try {
 
   const preCloseSnapshot = captureChromiumSessionFiles(sessionRecoveryPaths, { warn() {} });
   assert.equal(preCloseSnapshot.files.length, 2);
+  assert.equal(snapshotHasRestorableSession(preCloseSnapshot), true);
+  assert.equal(persistStableChromiumSession(sessionRecoveryPaths, preCloseSnapshot, { warn() {} }), true);
   fs.rmSync(sessionsDir, { recursive: true, force: true });
   fs.mkdirSync(sessionsDir, { recursive: true });
-  fs.writeFileSync(path.join(sessionsDir, 'Session_300'), Buffer.from('chrome://newtab/'));
-  fs.writeFileSync(path.join(sessionsDir, 'Tabs_301'), Buffer.from('chrome://newtab/'));
-  assert.equal(restoreChromiumSessionFiles(preCloseSnapshot, { warn() {} }), true);
-  assert.equal(fs.readFileSync(path.join(sessionsDir, 'Session_100'), 'utf8'), 'https://example.com/work');
-  assert.equal(fs.readFileSync(path.join(sessionsDir, 'Tabs_101'), 'utf8'), 'https://example.com/work');
+  fs.writeFileSync(path.join(sessionsDir, 'Session_300'), closedSession);
+  fs.writeFileSync(path.join(sessionsDir, 'Tabs_301'), closedSession);
+  const stableRecovery = prepareChromiumSessionRecovery(sessionRecoveryPaths, { warn() {} });
+  assert.deepEqual(stableRecovery, { restorable: true, source: 'stable-backup' });
+  assert.equal(Buffer.compare(fs.readFileSync(path.join(sessionsDir, 'Session_100')), validSession), 0);
+  assert.equal(Buffer.compare(fs.readFileSync(path.join(sessionsDir, 'Tabs_101')), validSession), 0);
   assert.equal(fs.existsSync(path.join(sessionsDir, 'Session_300')), false);
+
+  fs.rmSync(sessionsDir, { recursive: true, force: true });
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  fs.writeFileSync(path.join(sessionsDir, 'Session_400'), closedSession);
+  assert.equal(restoreChromiumSessionFiles(preCloseSnapshot, { warn() {} }), true);
+  assert.equal(fs.existsSync(path.join(sessionsDir, 'Session_400')), false);
 
   const nativeRuntimeBridge = fs.readFileSync(path.join(
     __dirname,

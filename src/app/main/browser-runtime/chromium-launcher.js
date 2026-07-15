@@ -164,6 +164,105 @@ function containsRestorableWebUrl(buffer) {
     || buffer.includes(Buffer.from('http://', 'utf16le'));
 }
 
+// Chromium 150 的 Session 文件由 SNSS 头和一串 SessionCommand 组成：
+// uint16 commandSize + uint8 commandId + payload。只搜索 URL 会把已经追加
+// TabClosed(16) 的旧导航误判成可恢复页面，因此这里按 Chromium 的命令顺序
+// 还原“当前仍属于窗口的标签”集合。
+function analyzeChromiumSession(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 8 || buffer.subarray(0, 4).toString('ascii') !== 'SNSS') {
+    return { valid: false, liveTabCount: 0, hasWebUrl: false };
+  }
+  const windows = new Set();
+  const tabs = new Map();
+  let offset = 8;
+  let valid = true;
+  while (offset + 3 <= buffer.length) {
+    const commandSize = buffer.readUInt16LE(offset);
+    const commandEnd = offset + 2 + commandSize;
+    if (commandSize < 1 || commandEnd > buffer.length) {
+      valid = false;
+      break;
+    }
+    const commandId = buffer[offset + 2];
+    const payloadOffset = offset + 3;
+    const payloadSize = commandSize - 1;
+    if (commandId === 9 && payloadSize >= 4) {
+      windows.add(buffer.readInt32LE(payloadOffset)); // SetWindowType
+    } else if (commandId === 0 && payloadSize >= 8) {
+      const windowId = buffer.readInt32LE(payloadOffset);
+      const tabId = buffer.readInt32LE(payloadOffset + 4);
+      tabs.set(tabId, windowId); // SetTabWindow
+    } else if (commandId === 16 && payloadSize >= 4) {
+      tabs.delete(buffer.readInt32LE(payloadOffset)); // TabClosed
+    } else if (commandId === 17 && payloadSize >= 4) {
+      const windowId = buffer.readInt32LE(payloadOffset); // WindowClosed
+      windows.delete(windowId);
+      for (const [tabId, tabWindowId] of tabs) {
+        if (tabWindowId === windowId) tabs.delete(tabId);
+      }
+    }
+    offset = commandEnd;
+  }
+  const liveTabCount = Array.from(tabs.values()).filter((windowId) => windows.has(windowId)).length;
+  return {
+    valid,
+    liveTabCount,
+    hasWebUrl: containsRestorableWebUrl(buffer),
+  };
+}
+
+function hasRestorableSessionBuffer(buffer) {
+  const analysis = analyzeChromiumSession(buffer);
+  return analysis.valid && analysis.liveTabCount > 0 && analysis.hasWebUrl;
+}
+
+function snapshotHasRestorableSession(snapshot) {
+  return Boolean(snapshot?.files?.some((file) => (
+    String(file?.name || '').startsWith('Session_')
+    && hasRestorableSessionBuffer(file.data)
+  )));
+}
+
+function getStableSessionDir(paths = {}) {
+  return path.join(String(paths.root || path.dirname(paths.chromiumData || '')), 'session-recovery-stable');
+}
+
+function persistStableChromiumSession(paths = {}, snapshot, logger = console) {
+  if (!snapshotHasRestorableSession(snapshot)) return false;
+  const stableDir = getStableSessionDir(paths);
+  const temporaryDir = `${stableDir}.tmp`;
+  try {
+    fs.rmSync(temporaryDir, { recursive: true, force: true });
+    fs.mkdirSync(temporaryDir, { recursive: true });
+    for (const file of snapshot.files) {
+      if (SESSION_FILE_PATTERN.test(String(file?.name || '')) && Buffer.isBuffer(file.data)) {
+        fs.writeFileSync(path.join(temporaryDir, file.name), file.data);
+      }
+    }
+    fs.rmSync(stableDir, { recursive: true, force: true });
+    fs.renameSync(temporaryDir, stableDir);
+    return true;
+  } catch (error) {
+    logger?.warn?.('[ChromiumRuntime] 保存稳定 Session 备份失败:', error?.message || error);
+    try { fs.rmSync(temporaryDir, { recursive: true, force: true }); } catch (_) {}
+    return false;
+  }
+}
+
+function loadStableChromiumSession(paths = {}, logger = console) {
+  const stableDir = getStableSessionDir(paths);
+  try {
+    const files = fs.readdirSync(stableDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && SESSION_FILE_PATTERN.test(entry.name))
+      .map((entry) => ({ name: entry.name, data: fs.readFileSync(path.join(stableDir, entry.name)) }));
+    const snapshot = { sessionsDir: getChromiumSessionsDir(paths), files };
+    return snapshotHasRestorableSession(snapshot) ? snapshot : null;
+  } catch (error) {
+    if (error?.code !== 'ENOENT') logger?.warn?.('[ChromiumRuntime] 读取稳定 Session 备份失败:', error?.message || error);
+    return null;
+  }
+}
+
 // 旧版 close-browser 会先关闭最后一个窗口，再正常退出 Chromium，导致最新
 // Session 被写成 0 窗口。若上一组 Session 仍包含网页，则隔离空白的最新组，
 // 让 Chromium 自动回退读取上一组有效会话。
@@ -188,10 +287,10 @@ function repairBlankLatestSession(paths = {}, logger = console) {
   if (sessionEntries.length < 2) return { repaired: false, removed: [] };
   let latestBuffer = null;
   try { latestBuffer = fs.readFileSync(sessionEntries[0].path); } catch (_) { return { repaired: false, removed: [] }; }
-  if (containsRestorableWebUrl(latestBuffer)) return { repaired: false, removed: [] };
+  if (hasRestorableSessionBuffer(latestBuffer)) return { repaired: false, removed: [] };
 
   const previousValid = sessionEntries.slice(1).find((entry) => {
-    try { return containsRestorableWebUrl(fs.readFileSync(entry.path)); } catch (_) { return false; }
+    try { return hasRestorableSessionBuffer(fs.readFileSync(entry.path)); } catch (_) { return false; }
   });
   if (!previousValid) return { repaired: false, removed: [] };
 
@@ -234,9 +333,24 @@ function captureChromiumSessionFiles(paths = {}, logger = console) {
       }));
     return files.length ? { sessionsDir, files } : null;
   } catch (error) {
-    logger?.warn?.('[ChromiumRuntime] 捕获退出前 Session 快照失败:', error?.message || error);
+    if (error?.code !== 'ENOENT') logger?.warn?.('[ChromiumRuntime] 捕获 Session 快照失败:', error?.message || error);
     return null;
   }
+}
+
+function prepareChromiumSessionRecovery(paths = {}, logger = console) {
+  repairBlankLatestSession(paths, logger);
+  let snapshot = captureChromiumSessionFiles(paths, logger);
+  if (snapshotHasRestorableSession(snapshot)) {
+    persistStableChromiumSession(paths, snapshot, logger);
+    return { restorable: true, source: 'profile' };
+  }
+  snapshot = loadStableChromiumSession(paths, logger);
+  if (snapshot && restoreChromiumSessionFiles(snapshot, logger)) {
+    logger?.warn?.('[ChromiumRuntime] 当前 Session 无活动标签，已恢复启动前的稳定备份');
+    return { restorable: true, source: 'stable-backup' };
+  }
+  return { restorable: false, source: 'none' };
 }
 
 function restoreChromiumSessionFiles(snapshot, logger = console) {
@@ -307,11 +421,24 @@ function buildChromiumArgs(options = {}) {
 
 function launchChromium(options = {}) {
   const executablePath = resolveChromiumExecutable(options);
+  let launchOptions = options;
   if (options.profile?.restoreLastSession === true) {
-    repairBlankLatestSession(options.paths, options.logger);
+    const recovery = prepareChromiumSessionRecovery(options.paths, options.logger);
+    const fallbackUrl = String(options.profile?.restoreFallbackUrl || '').trim();
+    if (!recovery.restorable && /^https?:\/\//i.test(fallbackUrl)) {
+      launchOptions = {
+        ...options,
+        profile: {
+          ...options.profile,
+          initialUrl: fallbackUrl,
+          restoreLastSession: false,
+        },
+      };
+      options.logger?.warn?.('[ChromiumRuntime] 未找到可恢复的活动标签，回退打开浏览器记录网址:', fallbackUrl);
+    }
   }
-  applyChromiumSessionStartupPolicy(options.paths, options.logger, options.profile);
-  const args = buildChromiumArgs(options);
+  applyChromiumSessionStartupPolicy(launchOptions.paths, launchOptions.logger, launchOptions.profile);
+  const args = buildChromiumArgs(launchOptions);
   const child = spawn(executablePath, args, {
     cwd: path.dirname(executablePath),
     // 让 WinMain 收到隐藏启动状态，避免 Browser HWND 在嵌入前闪现。
@@ -373,8 +500,12 @@ module.exports = {
   forwardChromiumOutput,
   getSystemChromiumCandidates,
   launchChromium,
+  loadStableChromiumSession,
+  persistStableChromiumSession,
+  prepareChromiumSessionRecovery,
   resolveChromiumExecutable,
   repairBlankLatestSession,
   restoreChromiumSessionFiles,
+  snapshotHasRestorableSession,
   shouldIgnoreChromiumDiagnostic,
 };

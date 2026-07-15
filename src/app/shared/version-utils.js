@@ -14,7 +14,7 @@
   }
 
   function normalizeVersion(value) {
-    const text = stripVersionPrefix(value);
+    const text = stripVersionPrefix(value).split('+', 1)[0];
     if (!text) return { parts: [0], preRelease: '' };
 
     const [mainPart, preRelease = ''] = text.split('-', 2);
@@ -28,6 +28,32 @@
     }
 
     return { parts, preRelease };
+  }
+
+  function comparePreRelease(left, right) {
+    const a = String(left || '').split('.');
+    const b = String(right || '').split('.');
+    const maxLen = Math.max(a.length, b.length);
+
+    for (let i = 0; i < maxLen; i += 1) {
+      if (a[i] === undefined) return -1;
+      if (b[i] === undefined) return 1;
+      if (a[i] === b[i]) continue;
+
+      const aNumeric = /^\d+$/.test(a[i]);
+      const bNumeric = /^\d+$/.test(b[i]);
+      if (aNumeric && bNumeric) {
+        const av = Number(a[i]);
+        const bv = Number(b[i]);
+        if (av > bv) return 1;
+        if (av < bv) return -1;
+        continue;
+      }
+      if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
+      return a[i] > b[i] ? 1 : -1;
+    }
+
+    return 0;
   }
 
   function compareVersions(left, right) {
@@ -45,7 +71,7 @@
     if (a.preRelease && !b.preRelease) return -1;
     if (!a.preRelease && b.preRelease) return 1;
     if (a.preRelease && b.preRelease && a.preRelease !== b.preRelease) {
-      return a.preRelease > b.preRelease ? 1 : -1;
+      return comparePreRelease(a.preRelease, b.preRelease);
     }
 
     return 0;
@@ -54,6 +80,7 @@
   return {
     stripVersionPrefix,
     normalizeVersion,
+    comparePreRelease,
     compareVersions,
   };
 });

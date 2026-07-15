@@ -3,6 +3,7 @@
 // 以 'server-message' 事件转发到侧边栏（复用既有 updateAnnouncement 展示逻辑）。
 
 const DEFAULT_INTERVAL_MS = 60000; // 服务器公告调度器每分钟检查一次，对齐 60s
+const { summarizeUpdatePayload } = require('../utils/update-payload');
 
 // 创建/初始化：createAnnouncementPoller 的具体业务逻辑。
 function createAnnouncementPoller({
@@ -12,6 +13,7 @@ function createAnnouncementPoller({
   getClientIdentity,
   shouldPoll,
   sendToSide,
+  sendUpdateNotice,
   logger = console,
   intervalMs = DEFAULT_INTERVAL_MS,
   timeoutMs = 8000,
@@ -37,12 +39,13 @@ function createAnnouncementPoller({
   function resolveAnnouncementFingerprint(ann) {
     const id = resolveAnnouncementId(ann);
     if (!id) return '';
+    const update = summarizeUpdatePayload(ann);
     return JSON.stringify([
       id,
       ann.message ?? ann.content ?? '',
       ann.message_type ?? ann.announcement_type ?? '',
-      ann.latest_version ?? ann.latestVersion ?? ann.version ?? '',
-      ann.update_link ?? ann.downloadUrl ?? ann.download_url ?? '',
+      update.version,
+      update.downloadUrl || update.openUrl,
     ]);
   }
 
@@ -50,10 +53,8 @@ function createAnnouncementPoller({
     const messageType = String(
       ann?.message_type ?? ann?.messageType ?? ann?.announcement_type ?? ann?.type ?? ''
     ).trim().toLowerCase();
-    const hasUpdateMetadata = Boolean(
-      (ann?.latest_version ?? ann?.latestVersion ?? ann?.version)
-      && (ann?.update_link ?? ann?.downloadUrl ?? ann?.download_url ?? ann?.url)
-    );
+    const update = summarizeUpdatePayload(ann);
+    const hasUpdateMetadata = Boolean(update.version && (update.downloadUrl || update.openUrl));
     return ['update', 'upgrade', 'app_update', 'software_update'].includes(messageType) || hasUpdateMetadata
       ? 'app-update-notice'
       : 'server-message';
@@ -122,7 +123,10 @@ function createAnnouncementPoller({
         current.set(id, fingerprint);
         if (previous.get(id) === fingerprint) continue;
         try {
-          const delivered = sendToSide(resolveDeliveryChannel(ann), ann);
+          const channel = resolveDeliveryChannel(ann);
+          const delivered = channel === 'app-update-notice' && typeof sendUpdateNotice === 'function'
+            ? await sendUpdateNotice(ann)
+            : sendToSide(channel, ann);
           if (delivered === false) {
             current.delete(id);
             logger.warn?.('[公告轮询] 侧边栏尚未就绪，公告将在下次轮询重试:', id);

@@ -6,12 +6,47 @@ const { ChromiumHealthMonitor } = require('./chromium-health');
 const {
   captureChromiumSessionFiles,
   launchChromium,
+  loadStableChromiumSession,
+  persistStableChromiumSession,
   restoreChromiumSessionFiles,
+  snapshotHasRestorableSession,
 } = require('./chromium-launcher');
 const { prepareSessionImport } = require('./session-import');
 const { normalizeBounds, RUNTIME_STATUS, RUNTIME_TYPES } = require('./runtime-types');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function sessionSnapshotDigest(snapshot) {
+  if (!snapshot?.files?.length) return '';
+  const hash = crypto.createHash('sha256');
+  for (const file of [...snapshot.files].sort((left, right) => left.name.localeCompare(right.name))) {
+    hash.update(String(file.name || ''));
+    hash.update(file.data);
+  }
+  return hash.digest('hex');
+}
+
+async function waitForSettledChromiumSession(paths, timeoutMs = 3000) {
+  const deadline = Date.now() + Math.max(500, Number(timeoutMs) || 3000);
+  let previousDigest = '';
+  let stableReads = 0;
+  let latestSnapshot = null;
+  while (Date.now() < deadline) {
+    const snapshot = captureChromiumSessionFiles(paths, null);
+    const digest = sessionSnapshotDigest(snapshot);
+    if (digest && digest === previousDigest) {
+      stableReads += 1;
+      latestSnapshot = snapshot;
+      if (stableReads >= 3) return latestSnapshot;
+    } else {
+      previousDigest = digest;
+      stableReads = digest ? 1 : 0;
+      latestSnapshot = snapshot;
+    }
+    await delay(100);
+  }
+  return latestSnapshot;
+}
 
 function waitForChildExit(child, timeoutMs) {
   if (!child || child.exitCode !== null) return Promise.resolve(true);
@@ -499,9 +534,12 @@ class ChromiumRuntime extends BrowserRuntime {
       // 当前已发布 Chromium Bridge 的 close-browser 等价于关闭最后一个
       // 窗口，会把 Session 重写为空。退出前捕获，进程完整落盘 Cookie/
       // Storage 后再恢复窗口会话文件，兼顾数据完整性与下次标签恢复。
-      const sessionSnapshot = options.preserveSession === false
+      const preCloseSnapshot = options.preserveSession === false
         ? null
-        : captureChromiumSessionFiles(instance.paths, this.logger);
+        : captureChromiumSessionFiles(instance.paths, null);
+      const stableSnapshot = options.preserveSession === false
+        ? null
+        : loadStableChromiumSession(instance.paths, this.logger);
       instance.expectedExit = true;
       instance.monitor?.stop();
       this.unbindParentWindowFocus(instance);
@@ -521,7 +559,22 @@ class ChromiumRuntime extends BrowserRuntime {
         error.code = 'CHROMIUM_PROCESS_EXIT_TIMEOUT';
         throw error;
       }
-      if (sessionSnapshot) restoreChromiumSessionFiles(sessionSnapshot, this.logger);
+      if (options.preserveSession !== false) {
+        // 浏览器主进程退出并不代表 Session 文件已完成落盘；等待文件连续稳定，
+        // 避免残留子进程在快照恢复之后再次写入 TabClosed。
+        const postCloseSnapshot = await waitForSettledChromiumSession(instance.paths, 3000);
+        if (snapshotHasRestorableSession(postCloseSnapshot)) {
+          persistStableChromiumSession(instance.paths, postCloseSnapshot, this.logger);
+        } else {
+          const recoverySnapshot = snapshotHasRestorableSession(preCloseSnapshot)
+            ? preCloseSnapshot
+            : stableSnapshot;
+          if (recoverySnapshot && restoreChromiumSessionFiles(recoverySnapshot, this.logger)) {
+            persistStableChromiumSession(instance.paths, recoverySnapshot, this.logger);
+            this.logger?.warn?.(`[ChromiumRuntime] ${id} 退出结果无活动标签，已恢复稳定 Session`);
+          }
+        }
+      }
       try { await instance.commandClient.close(); } catch (_) {}
     }
     if (state.browserHwnd) try { this.windowBridge.detachChildWindow({ hostHwnd: state.hostHwnd, childHwnd: state.browserHwnd }); } catch (_) {}

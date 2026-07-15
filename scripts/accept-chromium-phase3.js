@@ -216,6 +216,31 @@ app.whenReady().then(async () => {
   await stopAndAssertReleased('phase3_a', a.state.pid);
   await stopAndAssertReleased('phase3_b', b.state.pid);
 
+  const restoredB = await manager.launchProfile({
+    profileId: 'phase3_b',
+    runtimeType: 'chromium',
+    initialUrl: '',
+    restoreLastSession: true,
+    restoreFallbackUrl: `${origin}/page?profile=b`,
+    launchTimeoutMs: 30000,
+  }, { x: 0, y: 41, width: 1180, height: 719 });
+  const restoredReload = await manager.reload('phase3_b', 'chromium');
+  assert.equal(restoredReload.result.url, `${origin}/navigate?profile=b`);
+  assert.equal(restoredReload.result.title, 'NAVIGATED_B');
+  const restoredA = await manager.launchProfile({
+    profileId: 'phase3_a',
+    runtimeType: 'chromium',
+    initialUrl: '',
+    restoreLastSession: true,
+    restoreFallbackUrl: `${origin}/page?profile=a`,
+    launchTimeoutMs: 30000,
+  }, { x: 0, y: 41, width: 1180, height: 719 });
+  await manager.stopAll({ timeoutMs: 5000 });
+  assert.equal(manager.getState('phase3_a').status, 'stopped');
+  assert.equal(manager.getState('phase3_b').status, 'stopped');
+  assert.equal(isPidAlive(restoredA.pid), false);
+  assert.equal(isPidAlive(restoredB.pid), false);
+
   const oversized = await manager.launchProfile({
     profileId: 'phase3_oversized', runtimeType: 'chromium', initialUrl: 'about:blank', launchTimeoutMs: 30000,
   }, { x: 0, y: 41, width: 1180, height: 719 });
@@ -234,6 +259,7 @@ app.whenReady().then(async () => {
   console.log('[phase3-acceptance] LocalStorage/SessionStorage verification and two-Profile isolation passed');
   console.log('[phase3-acceptance] invalid session/profile/origin/oversized message rejection passed');
   console.log('[phase3-acceptance] process, Named Pipe and Profile Lock release passed');
+  console.log('[phase3-acceptance] stopAll graceful quit and last-session restore passed');
   await shutdown(0);
 }).catch(async (error) => {
   console.error('[phase3-acceptance] FAILED', error.stack || error);
