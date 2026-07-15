@@ -84,7 +84,11 @@
       messages: Array.isArray(session.messages) ? session.messages : [],
       updatedAt: Date.now(),
     };
-    if (!next.messages.length) return;
+    // 对话内容被全部撤回/删除后，也要清掉之前落盘的旧记录。
+    if (!next.messages.length) {
+      deleteLocalSession(next.id);
+      return;
+    }
     const index = store.sessions.findIndex((item) => String(item.id) === String(next.id));
     if (index >= 0) store.sessions[index] = next;
     else store.sessions.unshift(next);
@@ -103,6 +107,17 @@
     if (store.currentId === id) store.currentId = store.sessions[0]?.id || '';
     writeLocalHistoryStore(store);
     return store;
+  }
+
+  function renameLocalSession(sessionId, title) {
+    const store = readLocalHistoryStore();
+    const id = String(sessionId || '');
+    const session = store.sessions.find((item) => String(item.id) === id);
+    if (!session) return null;
+    session.title = String(title || '').trim().slice(0, 40);
+    session.titleGenerated = true;
+    writeLocalHistoryStore(store);
+    return session;
   }
 
   function getLocalSession(sessionId) {
@@ -135,6 +150,25 @@
       modal.showErrorMessage(text);
     } else {
       console.error('[AI 对话]', text);
+    }
+  }
+
+  function confirmDestructiveAction(message, onConfirm) {
+    const run = async () => {
+      try {
+        await onConfirm();
+      } catch (error) {
+        setStatus(error?.message || String(error), 'warning');
+      }
+    };
+    const modal = window.MessageModal;
+    if (modal?.showConfirmDialog) {
+      modal.showConfirmDialog(message, run, null, 'warning');
+      return;
+    }
+    // 弹窗模块尚未就绪时保留浏览器原生确认，避免无确认直接执行破坏性操作。
+    if (typeof window.confirm === 'function' && window.confirm(message)) {
+      void run();
     }
   }
 
@@ -548,9 +582,24 @@
         if (String(session.id) !== currentId) void loadSessionById(session.id);
       });
 
+      const actions = document.createElement('div');
+      actions.className = 'ai-select-option-actions';
+
+      const rename = document.createElement('button');
+      rename.type = 'button';
+      rename.className = 'ai-select-option-action ai-select-option-rename';
+      rename.title = '重命名';
+      rename.setAttribute('aria-label', '重命名对话');
+      rename.textContent = '✎';
+      rename.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        renameSessionById(session.id);
+      });
+
       const del = document.createElement('button');
       del.type = 'button';
-      del.className = 'ai-select-option-del';
+      del.className = 'ai-select-option-action ai-select-option-del';
       del.title = '删除';
       del.setAttribute('aria-label', '删除对话');
       del.textContent = '×';
@@ -560,8 +609,9 @@
         void deleteSessionById(session.id);
       });
 
+      actions.append(rename, del);
       item.appendChild(main);
-      item.appendChild(del);
+      item.appendChild(actions);
       menu.appendChild(item);
     });
   }
@@ -623,8 +673,6 @@
       updatedAt: Date.now(),
       ...extra,
     };
-
-    if (!payload.messages.length) return null;
 
     // 1) 本地备份（始终写）
     upsertLocalSession(payload);
@@ -689,11 +737,12 @@
     syncSendState();
   }
 
-  async function loadSessionById(sessionId) {
-    if (!sessionId || state.loading) return;
+  async function loadSessionById(sessionId, options = {}) {
+    if (!sessionId || state.loading) return false;
     try {
       // 切换前先保存当前
-      if (currentMessages().length && state.currentSession?.id && state.currentSession.id !== sessionId) {
+      if (!options.skipSaveCurrent && currentMessages().length
+        && state.currentSession?.id && state.currentSession.id !== sessionId) {
         await persistCurrentSession();
       }
 
@@ -707,13 +756,14 @@
       applySession(session);
       closeAllSelects();
       el('ai-chat-input')?.focus();
+      return true;
     } catch (error) {
       setStatus(error?.message || String(error), 'warning');
+      return false;
     }
   }
 
-  async function deleteSessionById(sessionId) {
-    if (!sessionId) return;
+  async function performDeleteSessionById(sessionId) {
     try {
       let nextCurrentId = '';
       let remoteSessions = null;
@@ -722,6 +772,8 @@
         if (result?.ok) {
           nextCurrentId = String(result.currentId || '');
           remoteSessions = Array.isArray(result.sessions) ? result.sessions : [];
+        } else if (result?.message && result.message !== '对话不存在') {
+          throw new Error(result.message);
         }
       }
       const localStore = deleteLocalSession(sessionId);
@@ -734,17 +786,89 @@
       }
 
       if (state.currentSession?.id === sessionId) {
+        // 删除当前对话时必须先清空内存引用，否则切换历史会把已删除对话再次保存回来。
+        state.currentSession = null;
+        state.messages = [];
         if (nextCurrentId && nextCurrentId !== sessionId) {
-          await loadSessionById(nextCurrentId);
+          const loaded = await loadSessionById(nextCurrentId, { skipSaveCurrent: true });
+          if (!loaded) await startNewConversation({ skipSave: true });
         } else {
           await startNewConversation({ skipSave: true });
         }
       } else {
         renderHistoryList();
       }
+      setStatus('对话已删除', 'success');
     } catch (error) {
       setStatus(error?.message || String(error), 'warning');
     }
+  }
+
+  async function performRenameSessionById(sessionId, requestedTitle) {
+    const title = String(requestedTitle || '').trim().slice(0, 40);
+    if (!title) {
+      setStatus('对话名称不能为空', 'warning');
+      return;
+    }
+
+    let remoteSession = null;
+    if (window.electronAPI?.invoke) {
+      const result = await window.electronAPI.invoke('ai-control-history-rename', {
+        id: sessionId,
+        title,
+      });
+      if (result?.ok) {
+        remoteSession = result.session || null;
+      } else if (result?.message && result.message !== '对话不存在') {
+        throw new Error(result.message);
+      }
+    }
+
+    const localSession = renameLocalSession(sessionId, title);
+    if (!remoteSession && !localSession) throw new Error('对话不存在');
+
+    if (String(state.currentSession?.id || '') === String(sessionId)) {
+      state.currentSession.title = title;
+      state.currentSession.titleGenerated = true;
+      updateSessionTitleUi();
+    }
+    await refreshHistoryList();
+    setStatus('对话已重命名', 'success');
+  }
+
+  function renameSessionById(sessionId) {
+    if (!sessionId) return;
+    const session = state.sessionList.find((item) => String(item.id) === String(sessionId));
+    const currentTitle = String(session?.title || state.currentSession?.title || '新对话');
+    closeSelect(el('ai-chat-history-select'));
+    const modal = window.MessageModal;
+    if (!modal?.showPromptDialog) {
+      setStatus('重命名弹窗尚未就绪，请稍后重试', 'warning');
+      return;
+    }
+    modal.showPromptDialog(
+      '请输入新的对话名称',
+      currentTitle,
+      (title) => performRenameSessionById(sessionId, title),
+      null,
+      {
+        title: '重命名对话',
+        confirmText: '保存',
+        maxLength: 40,
+        placeholder: '对话名称',
+      },
+    );
+  }
+
+  function deleteSessionById(sessionId) {
+    if (!sessionId) return;
+    closeSelect(el('ai-chat-history-select'));
+    const session = state.sessionList.find((item) => String(item.id) === String(sessionId));
+    const title = String(session?.title || state.currentSession?.title || '该对话');
+    confirmDestructiveAction(
+      `确认删除对话“${title}”吗？删除后无法恢复。`,
+      () => performDeleteSessionById(sessionId),
+    );
   }
 
   async function startNewConversation(options = {}) {
@@ -1313,7 +1437,7 @@
     }
   }
 
-  async function recallUserBubble(row) {
+  async function performRecallUserBubble(row) {
     if (state.loading) {
       setStatus('请等待当前回复完成后再撤回', 'warning');
       return;
@@ -1347,7 +1471,24 @@
     await persistCurrentSession();
   }
 
-  async function deleteUserTurn(row) {
+  function recallUserBubble(row) {
+    if (state.loading) {
+      setStatus('请等待当前回复完成后再撤回', 'warning');
+      return;
+    }
+    const userIndex = resolveUserMessageIndex(row);
+    const messages = currentMessages();
+    if (userIndex < 0 || userIndex >= messages.length || messages[userIndex]?.role !== 'user') {
+      setStatus('无法定位该消息', 'warning');
+      return;
+    }
+    confirmDestructiveAction(
+      '确认撤回这条消息吗？该消息及其之后的对话内容将被移除，消息内容会放回输入框。',
+      () => performRecallUserBubble(row),
+    );
+  }
+
+  async function performDeleteUserTurn(row) {
     if (state.loading) {
       setStatus('请等待当前回复完成后再删除', 'warning');
       return;
@@ -1372,6 +1513,23 @@
     }
     updateSessionTitleUi();
     await persistCurrentSession();
+  }
+
+  function deleteUserTurn(row) {
+    if (state.loading) {
+      setStatus('请等待当前回复完成后再删除', 'warning');
+      return;
+    }
+    const userIndex = resolveUserMessageIndex(row);
+    const messages = currentMessages();
+    if (userIndex < 0 || userIndex >= messages.length || messages[userIndex]?.role !== 'user') {
+      setStatus('无法定位该消息', 'warning');
+      return;
+    }
+    confirmDestructiveAction(
+      '确认删除这轮对话吗？该条消息及其对应的 AI 回复将被删除，删除后无法恢复。',
+      () => performDeleteUserTurn(row),
+    );
   }
 
   function attachUserBubbleActions(row, content, messageIndex) {
@@ -1692,9 +1850,7 @@
   }
 
   function openPersonalLogin() {
-    window.openAccountCenterDialog?.();
-    document.querySelector('[data-auth-mode="login"]')?.click();
-    window.MessageModal?.showWarningMessage?.('请先登录');
+    window.electronAPI?.send?.('open-account-center-popup');
   }
 
   async function ensureAuthenticatedForChat() {
@@ -1717,7 +1873,7 @@
     const content = String(input?.value || '').trim();
     if (!content) return;
 
-    // 登录校验必须发生在写入对话和调用 AI 接口之前，未登录时仅切换栏目并显示本地弹窗。
+    // 登录校验必须发生在写入对话和调用 AI 接口之前；未登录时统一打开头像使用的独立个人中心窗口。
     if (!await ensureAuthenticatedForChat()) return;
     if (!select?.value) return;
 

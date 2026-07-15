@@ -72,6 +72,10 @@
 | 页面交互   | `browser_action`     | 点击 / 双击 / 右键 / 滚动 / 输入文本 / 键盘按键的聚合工具。click/type 成功回执附 `cardStep`（与卡片规范同构的步骤对象），browser_tab navigate/replace、browser_wait 同理——AI 探索验证通过后直接把各步 cardStep 拼进 `manage_card write` 即可固化成卡片 |
 | 页面交互   | `browser_wait`       | 等待某个 CSS selector 出现，或固定等待一段时间 |
 
+`browser_observe` 超过 `limit` / `max_items` 时默认返回截断后的真实 `items` 并设置
+`truncated=true`，避免复杂页面因条目过多而表现为观察内容为空。只有显式传
+`allow_truncate:false` 时才只返回分类统计与筛选提示。
+
 工具 schema 在设备登记时上报给服务器，由服务器在 `mcp.list_tools` / `describe_tool` 中呈现，无需服务端硬编码。
 
 > `browser_tab`/`browser_observe`/`browser_action`/`browser_wait`

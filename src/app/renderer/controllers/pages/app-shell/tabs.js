@@ -33,6 +33,10 @@ const showControllerError = AppShellUtils.showUserError
     };
 
 const APP_THEME_STORAGE_KEY = 'ai-free.control-panel.theme';
+const appShellUpdateState = {
+  activated: false,
+  version: '',
+};
 
 function normalizeAppTheme(theme) {
   return String(theme || '').trim() === 'light' ? 'light' : 'dark';
@@ -51,6 +55,12 @@ function applyAppShellTheme(theme, options = {}) {
   const isLight = nextTheme === 'light';
   document.documentElement.classList.toggle('theme-light', isLight);
   document.documentElement.dataset.theme = nextTheme;
+  const themeToggleBtn = document.getElementById('theme-toggle-btn');
+  if (themeToggleBtn) {
+    themeToggleBtn.title = isLight ? '切换到深色模式' : '切换到白色模式';
+    themeToggleBtn.setAttribute('aria-label', themeToggleBtn.title);
+    themeToggleBtn.setAttribute('aria-pressed', String(isLight));
+  }
   if (options.persist === true) {
     try {
       localStorage.setItem(APP_THEME_STORAGE_KEY, nextTheme);
@@ -71,12 +81,89 @@ if (IPC && typeof IPC.on === 'function') {
   IPC.on('app-shell-account-updated', (session = {}) => {
     renderAppShellAccount(session);
   });
+  IPC.on('app-update-activated', (payload = {}) => {
+    appShellUpdateState.activated = true;
+    renderAppShellUpdateProgress({ ...payload, phase: 'confirmed' });
+  });
+  IPC.on('app-update-progress', (payload = {}) => {
+    renderAppShellUpdateProgress(payload);
+  });
+  IPC.on('app-update-complete', (payload = {}) => {
+    appShellUpdateState.activated = true;
+    renderAppShellUpdateProgress({ ...payload, phase: 'completed', percent: 100 });
+  });
+  IPC.on('app-update-error', () => resetAppShellUpdateProgress());
+  IPC.on('app-update-skip', () => resetAppShellUpdateProgress());
 }
 
 let tabsContainer = document.getElementById('tabs-container');
 let addTabBtn = document.getElementById('add-tab-btn');
 let newBrowserWindowBtn = document.getElementById('new-browser-window-btn');
 let accountCenterBtn = document.getElementById('account-center-btn');
+
+function setAppShellUpdateVisible(visible) {
+  const widget = document.getElementById('update-widget');
+  if (widget) widget.hidden = !visible;
+}
+
+function resetAppShellUpdateProgress() {
+  appShellUpdateState.activated = false;
+  appShellUpdateState.version = '';
+  const ring = document.getElementById('update-widget-ring');
+  const percent = document.getElementById('update-widget-percent');
+  const widget = document.getElementById('update-widget');
+  if (ring) ring.style.setProperty('--update-progress', '0%');
+  if (percent) percent.textContent = '0%';
+  if (widget) widget.title = '准备更新';
+  setAppShellUpdateVisible(false);
+}
+
+function renderAppShellUpdateProgress(payload = {}) {
+  const phase = String(payload.phase || '').trim().toLowerCase();
+  if (phase === 'error' || phase === 'failed' || phase === 'skip') {
+    resetAppShellUpdateProgress();
+    return;
+  }
+  if (!appShellUpdateState.activated && !['confirmed', 'downloading', 'opening', 'completed'].includes(phase)) {
+    return;
+  }
+
+  const rawPercent = Number(payload.percent);
+  const percentValue = Number.isFinite(rawPercent)
+    ? Math.max(0, Math.min(100, Math.round(rawPercent)))
+    : (phase === 'completed' ? 100 : 0);
+  const version = String(payload.version || payload.targetVersion || payload.latestVersion || payload.latest_version || '').trim();
+  const message = String(payload.message || payload.content || '').trim();
+  if (version) appShellUpdateState.version = version;
+
+  const ring = document.getElementById('update-widget-ring');
+  const percent = document.getElementById('update-widget-percent');
+  const widget = document.getElementById('update-widget');
+  if (ring) ring.style.setProperty('--update-progress', `${percentValue}%`);
+  if (percent) percent.textContent = `${percentValue}%`;
+  if (widget) {
+    const versionLabel = appShellUpdateState.version ? ` v${appShellUpdateState.version}` : '';
+    widget.title = phase === 'completed'
+      ? `更新${versionLabel}已下载完成`
+      : (message || `正在更新${versionLabel}：${percentValue}%`);
+  }
+  setAppShellUpdateVisible(true);
+}
+
+function bindThemeToggleBtnOnce() {
+  const themeToggleBtn = document.getElementById('theme-toggle-btn');
+  if (!themeToggleBtn || themeToggleBtn.dataset.bound === '1') return;
+  themeToggleBtn.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const currentTheme = document.documentElement.classList.contains('theme-light') ? 'light' : 'dark';
+    const nextTheme = currentTheme === 'light' ? 'dark' : 'light';
+    applyAppShellTheme(nextTheme, { persist: true });
+    IPC.send('app-theme-changed', nextTheme);
+  });
+  themeToggleBtn.dataset.bound = '1';
+  applyAppShellTheme(document.documentElement.classList.contains('theme-light') ? 'light' : 'dark');
+}
 
 // 监听/绑定：onReady的具体业务逻辑。
 function onReady(fn) {
@@ -110,7 +197,15 @@ function bindAccountCenterBtnOnce() {
   accountCenterBtn.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
-    IPC.send('open-account-center');
+    const rect = accountCenterBtn.getBoundingClientRect();
+    IPC.send('toggle-account-center-popup', {
+      anchor: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+      },
+    });
   });
   accountCenterBtn.dataset.bound = '1';
   if (typeof IPC.invoke === 'function') {
@@ -509,6 +604,7 @@ function bindAddTabBtnOnce() {
 onReady(() => {
   tabsContainer = document.getElementById('tabs-container');
   bindAddTabBtnOnce();
+  bindThemeToggleBtnOnce();
   bindAccountCenterBtnOnce();
   bindNewBrowserWindowBtnOnce();
 

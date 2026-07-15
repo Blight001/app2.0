@@ -205,13 +205,24 @@ const { sendToSide, getAppConsoleHistory } = createUiBridge({
   getControlPanelWindow: appRuntime.getControlPanelWindow,
   getConsoleWindow: appRuntime.getConsoleWindow,
 });
+const sendUpdateUiEvent = (channel, ...args) => {
+  let delivered = sendToSide(channel, ...args);
+  try {
+    const mainWindow = appRuntime.getMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send(channel, ...args);
+      delivered = true;
+    }
+  } catch (_) {}
+  return delivered;
+};
 const appUpdater = createAppUpdater({
   app,
   fs,
   path,
   logger: console,
   getMainWindow: appRuntime.getMainWindow,
-  sendToSide,
+  sendToSide: sendUpdateUiEvent,
   appName: APP_DISPLAY_NAME,
   isDevMode,
 });

@@ -101,10 +101,10 @@ body.browser-settings-dialog-open { overflow: hidden; }
 .browser-history-list { display: grid; gap: 7px; max-height: 238px; overflow: auto; }
 .browser-history-empty { padding: 18px 10px; color: #8290a5; font-size: 11px; text-align: center; }
 .browser-history-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: clamp(5px, 1.5vw, 10px); padding: 8px 9px; border: 1px solid rgba(78, 99, 132, .42); border-radius: 9px; background: rgba(13, 18, 27, .55); transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
-.browser-history-item.is-selected { box-shadow: inset 0 0 0 1px rgba(148, 112, 255, .38); }
 .browser-history-item.is-open { border-color: rgba(64, 158, 255, .34); background: rgba(64, 158, 255, .12); }
 .browser-history-item.is-active { border-color: rgba(65, 184, 98, .4); background: rgba(65, 184, 98, .14); }
 .browser-history-item.has-error { border-color: rgba(217, 76, 76, .42); background: rgba(217, 76, 76, .12); }
+.browser-history-item.is-selected { border-color: #f04444; background: rgba(214, 45, 45, .18); box-shadow: inset 0 0 0 1px rgba(255, 76, 76, .7), 0 0 10px rgba(214, 45, 45, .16); }
 .browser-history-main { display: block; width: 100%; min-width: 0; overflow: hidden; border: 0; padding: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .browser-history-name { position: relative; display: block; min-width: 0; overflow: hidden; padding-left: 14px; color: #e7edf7; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .browser-history-account-meta { display: block; min-width: 0; overflow: hidden; padding: 3px 0 0 14px; color: #91a0b5; font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
@@ -122,6 +122,15 @@ body.browser-settings-dialog-open { overflow: hidden; }
 .browser-history-delete { border-color: rgba(210, 83, 83, .42); color: #e6a0a0; }
 .browser-history-delete:hover { border-color: #d75c5c; color: #fff; background: rgba(151, 45, 45, .72); }
 .browser-history-name-input { width: 100%; min-height: 28px !important; padding: 4px 7px !important; }
+.browser-history-item.is-selected .browser-history-name { color: #ff8f8f; }
+.browser-history-item.is-selected .browser-history-name::before { background: #f04444; box-shadow: 0 0 0 2px rgba(240, 68, 68, .24); }
+.browser-history-context-menu { position: fixed; z-index: 10020; display: none; min-width: 190px; padding: 7px; border: 1px solid rgba(240, 68, 68, .52); border-radius: 9px; background: #151b26; box-shadow: 0 12px 30px rgba(0, 0, 0, .38); }
+.browser-history-context-menu.is-visible { display: grid; gap: 4px; }
+.browser-history-context-summary { padding: 5px 8px 7px; border-bottom: 1px solid rgba(123, 140, 166, .22); color: #ff9999; font-size: 11px; font-weight: 700; }
+.browser-history-context-menu button { width: 100%; padding: 8px 10px; border: 0; border-radius: 6px; color: #dbe5f3; background: transparent; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.browser-history-context-menu button:hover { color: #fff; background: rgba(73, 94, 126, .42); }
+.browser-history-context-menu button.is-danger { color: #ff9292; }
+.browser-history-context-menu button.is-danger:hover { background: rgba(174, 43, 43, .45); }
 
 .settings-section { margin: 10px 4px; overflow: hidden; border: 1px solid rgba(76, 96, 128, .44); border-radius: 14px; background: rgba(20, 26, 37, .82); }
 .settings-section summary { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 14px; cursor: pointer; color: #e8eef8; font-size: 13px; font-weight: 700; }
@@ -229,9 +238,16 @@ html.theme-light .browser-history-item { border-color: rgba(88, 126, 173, .2); b
 html.theme-light .browser-history-item.is-open { border-color: rgba(64, 132, 215, .28); background: rgba(64, 132, 215, .1); }
 html.theme-light .browser-history-item.is-active { border-color: rgba(47, 151, 78, .3); background: rgba(47, 151, 78, .11); }
 html.theme-light .browser-history-item.has-error { border-color: rgba(190, 62, 62, .3); background: rgba(190, 62, 62, .1); }
+html.theme-light .browser-history-item.is-selected { border-color: #dc3f3f; background: rgba(220, 63, 63, .14); box-shadow: inset 0 0 0 1px rgba(220, 63, 63, .48), 0 0 8px rgba(220, 63, 63, .12); }
 html.theme-light .browser-history-item.is-open .browser-history-name { color: #3478c7; }
 html.theme-light .browser-history-item.is-active .browser-history-name { color: #257a40; }
 html.theme-light .browser-history-item.has-error .browser-history-name { color: #b34545; }
+html.theme-light .browser-history-item.is-selected .browser-history-name { color: #bd3030; }
+html.theme-light .browser-history-context-menu { border-color: rgba(190, 62, 62, .42); background: #fff; box-shadow: 0 12px 28px rgba(37, 57, 82, .2); }
+html.theme-light .browser-history-context-summary { color: #bd3030; }
+html.theme-light .browser-history-context-menu button { color: #304b68; }
+html.theme-light .browser-history-context-menu button:hover { color: #19344f; background: #edf3fa; }
+html.theme-light .browser-history-context-menu button.is-danger { color: #bd3030; }
 html.theme-light .settings-section summary { color: #253b54; }
 html.theme-light .settings-section[open] summary { border-bottom-color: rgba(86, 121, 165, .14); }
 html.theme-light .settings-field { color: #61758c; }

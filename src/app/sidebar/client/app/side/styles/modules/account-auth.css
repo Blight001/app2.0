@@ -1,7 +1,6 @@
 .sidebar-account-auth[hidden],
 .account-center-dialog[hidden],
 .sidebar-auth-field[hidden],
-.account-profile-actions button[hidden],
 .account-profile-menu[hidden] {
   display: none !important;
 }
@@ -80,6 +79,53 @@
 
 body.account-center-open {
   overflow: hidden;
+}
+
+html.account-center-popup,
+html.account-center-popup body,
+html.account-center-popup .control-shell,
+html.account-center-popup .main-wrapper {
+  background: transparent !important;
+}
+
+html.account-center-popup .preview-card,
+html.account-center-popup .tab-nav,
+html.account-center-popup .main-wrapper > .panel,
+html.account-center-popup #key-paste-menu {
+  display: none !important;
+}
+
+html.account-center-popup .control-shell {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+}
+
+html.account-center-popup .main-wrapper {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+}
+
+html.account-center-popup .account-center-dialog {
+  padding: 10px;
+  overflow: hidden;
+}
+
+html.account-center-popup .account-center-dialog-panel {
+  width: 100%;
+  max-height: none;
+  overflow: visible;
+}
+
+html.account-center-popup .account-center-dialog-body {
+  flex: none;
+  min-height: auto;
+  overflow: visible;
 }
 
 .account-center-dialog .account-profile-cover span {
@@ -244,13 +290,6 @@ body.account-center-open {
   font-weight: 700;
   line-height: 1.25;
   overflow-wrap: anywhere;
-}
-
-.account-profile-actions {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 14px;
 }
 
 .account-usage-details {
@@ -648,71 +687,25 @@ body.account-center-open {
 .account-usage-io-up strong { color: #9fd9ff; }
 .account-usage-io-down strong { color: #a8ecc4; }
 
-.account-profile-actions button {
-  min-width: 86px;
-  height: 34px;
-  padding: 0 14px;
-  border-radius: 999px;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.account-profile-primary {
-  border: 0;
-  color: #fff;
-  background: var(--brand-grad);
-  box-shadow: var(--brand-shadow);
-}
-
-.account-profile-secondary {
-  border: 1px solid rgba(128, 159, 202, .25);
-  color: #a9b9cf;
-  background: rgba(255, 255, 255, .035);
-}
-
 .account-profile-card .sidebar-quota-redeem {
   margin: 0;
   padding: 15px 16px 17px;
 }
 
 .sidebar-account-auth {
-  position: fixed;
-  inset: 0;
-  z-index: 1200;
-  display: grid;
-  place-items: center;
-  padding: 14px;
+  padding: 0 16px 17px;
   box-sizing: border-box;
 }
 
-.sidebar-auth-backdrop {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  padding: 0;
-  border: 0;
-  background: rgba(3, 8, 16, .72);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  cursor: default;
-}
-
 .sidebar-auth-dialog {
-  position: relative;
-  z-index: 1;
   display: grid;
   gap: 15px;
-  width: min(360px, calc(100vw - 28px));
-  max-height: calc(100vh - 28px);
-  overflow-y: auto;
-  padding: 20px;
+  width: 100%;
+  padding: 16px;
   border: 1px solid rgba(123, 166, 224, .22);
-  border-radius: 18px;
-  background: linear-gradient(155deg, #1a2534, #101721 72%);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, .48);
+  border-radius: 13px;
+  background: rgba(7, 13, 22, .34);
+  box-shadow: none;
   box-sizing: border-box;
   animation: accountAuthDialogIn .18s ease-out;
 }
@@ -757,19 +750,6 @@ body.account-center-open {
   font-size: 9px;
   font-weight: 800;
   letter-spacing: .13em;
-}
-
-.sidebar-auth-close {
-  width: 31px;
-  height: 31px;
-  padding: 0;
-  border: 1px solid rgba(130, 159, 199, .16);
-  border-radius: 50%;
-  color: #8999ae;
-  background: rgba(255, 255, 255, .035);
-  font-size: 21px;
-  line-height: 26px;
-  cursor: pointer;
 }
 
 .sidebar-auth-tabs {
@@ -977,14 +957,10 @@ html.theme-light .account-profile-menu {
   box-shadow: 0 12px 28px rgba(32, 54, 83, .18);
 }
 
-html.theme-light .sidebar-auth-backdrop {
-  background: rgba(31, 48, 70, .46);
-}
-
 html.theme-light .sidebar-auth-dialog {
   border-color: rgba(78, 116, 166, .18);
-  background: linear-gradient(155deg, #fff, #f4f8fd 75%);
-  box-shadow: 0 24px 65px rgba(32, 54, 83, .25);
+  background: rgba(232, 240, 248, .66);
+  box-shadow: none;
 }
 
 html.theme-light .sidebar-auth-heading h2 { color: #203448; }

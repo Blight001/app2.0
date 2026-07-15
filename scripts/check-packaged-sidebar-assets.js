@@ -70,10 +70,30 @@ async function main() {
   if (Object.values(accountDialog).some((value) => value !== true)) {
     throw new Error(`打包后的账号信息弹窗结构异常: ${JSON.stringify(accountDialog)}`);
   }
+  await window.loadFile(sidebarPath, { query: { accountCenterPopup: '1' } });
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const standalonePopup = await window.webContents.executeJavaScript(`(() => {
+    const panelStyle = getComputedStyle(document.querySelector('.account-center-dialog-panel'));
+    const bodyStyle = getComputedStyle(document.querySelector('.account-center-dialog-body'));
+    return {
+      popupMode: document.documentElement.classList.contains('account-center-popup'),
+      dialogOpened: !document.getElementById('account-center-dialog').hidden,
+      sidebarNavRemoved: getComputedStyle(document.querySelector('.tab-nav')).display === 'none',
+      pageTransparent: getComputedStyle(document.body).backgroundColor === 'rgba(0, 0, 0, 0)',
+      heightUnbounded: panelStyle.maxHeight === 'none',
+      verticalScrollRemoved: bodyStyle.overflowY === 'visible',
+    };
+  })()`);
+  if (Object.values(standalonePopup).some((value) => value !== true)) {
+    throw new Error(`打包后的个人中心独立浮窗模式异常: ${JSON.stringify(standalonePopup)}`);
+  }
   await window.loadFile(appShellPath);
   const shellAvatar = await window.webContents.executeJavaScript(`(() => {
     const button = document.getElementById('account-center-btn');
     const gear = document.getElementById('add-tab-btn');
+    const theme = document.getElementById('theme-toggle-btn');
+    const updateWidget = document.getElementById('update-widget');
+    const createButton = document.getElementById('new-browser-window-btn');
     const image = button?.querySelector('img[data-app-logo]');
     return image ? {
       src: image.src,
@@ -81,15 +101,21 @@ async function main() {
       naturalWidth: image.naturalWidth,
       naturalHeight: image.naturalHeight,
       beforeGear: button.nextElementSibling === gear,
+      controlsOrdered: updateWidget?.nextElementSibling === theme && theme?.nextElementSibling === button,
+      modernGearIcon: !!gear?.querySelector('svg.settings-icon') && !gear.textContent.includes('⚙'),
+      modernCreateIcon: !!createButton?.querySelector('svg.new-window-icon') && createButton.textContent.trim() === '',
     } : null;
   })()`);
-  console.log(JSON.stringify({ sidebarPath, logos, accountDialog, appShellPath, shellAvatar }));
+  console.log(JSON.stringify({ sidebarPath, logos, accountDialog, standalonePopup, appShellPath, shellAvatar }));
   if (!shellAvatar
     || !shellAvatar.complete
     || shellAvatar.naturalWidth <= 0
     || shellAvatar.naturalHeight <= 0
-    || shellAvatar.beforeGear !== true) {
-    throw new Error('主窗口个人中心头像未能在侧栏齿轮左侧正常加载');
+    || shellAvatar.beforeGear !== true
+    || shellAvatar.controlsOrdered !== true
+    || shellAvatar.modernGearIcon !== true
+    || shellAvatar.modernCreateIcon !== true) {
+    throw new Error('主窗口顶部控件顺序、图标或个人中心头像加载异常');
   }
   window.destroy();
 }

@@ -1,8 +1,9 @@
-// 个人中心账号资料卡、登录弹窗与会话切换。
+// 个人中心账号资料卡、内嵌登录注册表单与会话切换。
 
 let sidebarAccountAuthMode = 'login';
 let sidebarAuthPreviousFocus = null;
 let accountCenterPreviousFocus = null;
+const isStandaloneAccountCenterPopup = new URLSearchParams(window.location.search).get('accountCenterPopup') === '1';
 
 function invokeSidebarAccountAuth(payload, timeoutMs = 20000) {
   let timer = null;
@@ -49,22 +50,22 @@ function setSidebarAuthMode(mode) {
 }
 
 function openSidebarAccountAuth(mode = 'login') {
-  const modal = safeGetEl('sidebar-account-auth');
-  if (!modal) return;
-  sidebarAuthPreviousFocus = document.activeElement;
+  const panel = safeGetEl('sidebar-account-auth');
+  if (!panel) return;
+  if (panel.hidden) sidebarAuthPreviousFocus = document.activeElement;
   setSidebarAuthMode(mode);
-  modal.hidden = false;
-  modal.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('account-auth-open');
-  setTimeout(() => safeGetEl('sidebar-auth-username')?.focus(), 0);
+  panel.hidden = false;
+  panel.setAttribute('aria-hidden', 'false');
+  if (safeGetEl('account-center-dialog')?.hidden === false) {
+    setTimeout(() => safeGetEl('sidebar-auth-username')?.focus(), 0);
+  }
 }
 
 function closeSidebarAccountAuth() {
-  const modal = safeGetEl('sidebar-account-auth');
-  if (!modal || modal.hidden) return;
-  modal.hidden = true;
-  modal.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('account-auth-open');
+  const panel = safeGetEl('sidebar-account-auth');
+  if (!panel || panel.hidden) return;
+  panel.hidden = true;
+  panel.setAttribute('aria-hidden', 'true');
   const password = safeGetEl('sidebar-auth-password');
   const confirmation = safeGetEl('sidebar-auth-password-confirm');
   if (password) password.value = '';
@@ -81,13 +82,21 @@ function openAccountCenterDialog() {
   dialog.hidden = false;
   dialog.setAttribute('aria-hidden', 'false');
   document.body.classList.add('account-center-open');
-  setTimeout(() => safeGetEl('account-center-dialog-close')?.focus(), 0);
+  setTimeout(() => {
+    const profile = safeGetEl('sidebar-account-session');
+    if (profile?.dataset.authenticated === 'true') safeGetEl('account-center-dialog-close')?.focus();
+    else safeGetEl('sidebar-auth-username')?.focus();
+  }, 0);
 }
 
 function closeAccountCenterDialog() {
   const dialog = safeGetEl('account-center-dialog');
   if (!dialog || dialog.hidden) return;
   closeAccountProfileMenu();
+  if (isStandaloneAccountCenterPopup) {
+    window.electronAPI?.send?.('close-account-center-popup');
+    return;
+  }
   dialog.hidden = true;
   dialog.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('account-center-open');
@@ -242,8 +251,6 @@ function renderSidebarAccountSession(session = {}) {
   const usernameDisplay = safeGetEl('account-username-display');
   const usernameInput = safeGetEl('sidebar-auth-username');
   const profileName = safeGetEl('account-profile-name');
-  const loginButton = safeGetEl('account-login-open-btn');
-  const registerButton = safeGetEl('account-register-open-btn');
   const giftInput = safeGetEl('unified-gift-code');
   const giftButton = safeGetEl('unified-redeem-gift');
   const usageDetails = safeGetEl('account-usage-details');
@@ -254,8 +261,6 @@ function renderSidebarAccountSession(session = {}) {
   if (usernameDisplay) usernameDisplay.value = username;
   if (usernameInput && username) usernameInput.value = username;
   if (profileName) profileName.textContent = username || '未登录';
-  if (loginButton) loginButton.hidden = authenticated;
-  if (registerButton) registerButton.hidden = authenticated;
   closeAccountProfileMenu();
   if (giftInput) {
     giftInput.disabled = !authenticated;
@@ -272,6 +277,7 @@ function renderSidebarAccountSession(session = {}) {
   if (!authenticated) {
     renderAccountProxyTrafficUsage(null);
     renderAccountAiUsage(null);
+    openSidebarAccountAuth(sidebarAccountAuthMode);
   }
 
   if (authenticated) {
@@ -443,17 +449,12 @@ function bindSidebarAccountAuth() {
   document.querySelectorAll('.sidebar-auth-tab').forEach((tab) => {
     tab.addEventListener('click', () => setSidebarAuthMode(tab.dataset.authMode));
   });
-  document.querySelectorAll('[data-auth-close]').forEach((element) => {
-    element.addEventListener('click', closeSidebarAccountAuth);
-  });
   document.querySelectorAll('[data-account-center-close]').forEach((element) => {
     element.addEventListener('click', closeAccountCenterDialog);
   });
   safeGetEl('account-profile-avatar')?.addEventListener('click', toggleAccountProfileMenu);
   safeGetEl('account-profile-menu')?.addEventListener('click', (event) => event.stopPropagation());
   document.addEventListener('click', closeAccountProfileMenu);
-  safeGetEl('account-login-open-btn')?.addEventListener('click', () => openSidebarAccountAuth('login'));
-  safeGetEl('account-register-open-btn')?.addEventListener('click', () => openSidebarAccountAuth('register'));
   safeGetEl('sidebar-auth-submit')?.addEventListener('click', submitSidebarAccountAuth);
   safeGetEl('account-logout-btn')?.addEventListener('click', logoutSidebarAccount);
   safeGetEl('unified-redeem-gift')?.addEventListener('click', redeemUnifiedGiftCode);
@@ -467,17 +468,26 @@ function bindSidebarAccountAuth() {
   });
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
-    if (!modal.hidden) {
-      closeSidebarAccountAuth();
-      return;
-    }
     closeAccountCenterDialog();
   });
 
   window.electronAPI?.on?.('account-session-updated', (session = {}) => {
     renderSidebarAccountSession(session);
   });
-  window.electronAPI?.on?.('open-account-center', openAccountCenterDialog);
+  window.electronAPI?.on?.('account-popup-snapshot', (snapshot = {}) => {
+    if (!isStandaloneAccountCenterPopup) return;
+    document.documentElement.classList.toggle('theme-light', snapshot.theme === 'light');
+    const title = safeGetEl('announcement-title');
+    const icon = safeGetEl('announcement-icon');
+    const content = safeGetEl('announcement-content');
+    const tutorial = safeGetEl('tutorial-link');
+    const version = safeGetEl('app-version');
+    if (title && snapshot.announcementTitle) title.textContent = snapshot.announcementTitle;
+    if (icon && snapshot.announcementIcon) icon.textContent = snapshot.announcementIcon;
+    if (content && snapshot.announcementHtml) content.innerHTML = snapshot.announcementHtml;
+    if (tutorial && snapshot.tutorialUrl) tutorial.href = snapshot.tutorialUrl;
+    if (version && snapshot.appVersion) version.textContent = snapshot.appVersion;
+  });
 
   setSidebarAuthMode('login');
   window.electronAPI.invoke('account-get-session').then((session) => {
@@ -485,4 +495,16 @@ function bindSidebarAccountAuth() {
   }).catch(() => {
     renderSidebarAccountSession({ authenticated: false });
   });
+  if (isStandaloneAccountCenterPopup) setTimeout(openAccountCenterDialog, 0);
+  if (isStandaloneAccountCenterPopup && typeof ResizeObserver === 'function') {
+    const accountCard = document.querySelector('.account-profile-shell');
+    if (accountCard) {
+      const notifyPopupSize = () => {
+        const height = Math.ceil(accountCard.getBoundingClientRect().height) + 20;
+        window.electronAPI?.send?.('resize-account-center-popup', { height });
+      };
+      new ResizeObserver(notifyPopupSize).observe(accountCard);
+      setTimeout(notifyPopupSize, 0);
+    }
+  }
 }

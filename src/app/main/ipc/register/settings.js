@@ -419,6 +419,47 @@ function registerSettingsIPC(ctx) {
     }
   });
 
+  ipcMain.handle('rename-browser-history-batch', async (_event, payload = {}) => {
+    try {
+      const history = syncOpenTabsToBrowserHistory(ui);
+      const historyIds = [...new Set((Array.isArray(payload?.historyIds) ? payload.historyIds : [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean))];
+      if (!historyIds.length) throw new Error('请先选择浏览器记录');
+      const selectedRecords = historyIds.map((historyId) => {
+        const record = history.find((item) => item.id === historyId);
+        if (!record) throw new Error('部分浏览器历史已不存在，请刷新后重试');
+        return record;
+      });
+      const baseName = String(payload?.baseName || '').trim() || DEFAULT_BROWSER_WINDOW_NAME;
+      const selectedIdSet = new Set(historyIds);
+      const occupied = new Set(history
+        .filter((item) => !selectedIdSet.has(item.id))
+        .map((item) => String(item?.name || '').trim().toLocaleLowerCase())
+        .filter(Boolean));
+      const nextNames = selectedRecords.map((_record, index) => (
+        selectedRecords.length === 1 ? baseName : `${baseName}[${index + 1}]`
+      ));
+      const conflictedName = nextNames.find((name) => occupied.has(name.toLocaleLowerCase()));
+      if (conflictedName) throw new Error(`名称“${conflictedName}”已存在，请换一个名称前缀`);
+
+      selectedRecords.forEach((record, index) => { record.name = nextNames[index]; });
+      if (!writeBrowserHistorySafe(history)) throw new Error('浏览器名称未能保存');
+      const openTabs = Array.from(ui?.getTabs?.().values?.() || []);
+      selectedRecords.forEach((record, index) => {
+        const openTab = openTabs.find((tab) => String(tab?.browserHistoryId || '') === record.id);
+        if (openTab?.id && typeof ui?.renameTab === 'function') ui.renameTab(openTab.id, nextNames[index]);
+      });
+      ui.sendToSide?.('browser-history-changed');
+      return {
+        ok: true,
+        renamed: selectedRecords.map((record, index) => ({ historyId: record.id, name: nextNames[index] })),
+      };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
+
   ipcMain.handle('delete-browser-history', async (_event, payload = {}) => {
     try {
       const history = syncOpenTabsToBrowserHistory(ui);

@@ -7,6 +7,9 @@
   <script>
     (function initThemeClass() {
       try {
+        if (new URLSearchParams(window.location.search).get('accountCenterPopup') === '1') {
+          document.documentElement.classList.add('account-center-popup');
+        }
         if (localStorage.getItem('ai-free.control-panel.theme') === 'light') {
           document.documentElement.classList.add('theme-light');
         }
@@ -290,11 +293,42 @@
                     </div>
                   </article>
                 </section>
-                <div class="account-profile-actions">
-                  <button id="account-login-open-btn" class="account-profile-primary" type="button">登录账号</button>
-                  <button id="account-register-open-btn" class="account-profile-secondary" type="button">注册</button>
-                </div>
               </div>
+
+              <section id="sidebar-account-auth" class="sidebar-account-auth" aria-labelledby="sidebar-account-auth-title" hidden>
+                <div class="sidebar-auth-dialog">
+                  <div class="sidebar-auth-heading">
+                    <div class="sidebar-auth-brand">
+                      <img data-app-logo alt="" aria-hidden="true">
+                      <div>
+                        <div class="sidebar-auth-eyebrow">AI-FREE ACCOUNT</div>
+                        <h2 id="sidebar-account-auth-title">登录账号</h2>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="sidebar-auth-tabs" role="tablist" aria-label="账号操作">
+                    <button class="sidebar-auth-tab active" type="button" data-auth-mode="login" role="tab" aria-selected="true">登录</button>
+                    <button class="sidebar-auth-tab" type="button" data-auth-mode="register" role="tab" aria-selected="false">注册</button>
+                  </div>
+                  <div class="sidebar-auth-form">
+                    <div class="sidebar-auth-field">
+                      <label for="sidebar-auth-username">用户名</label>
+                      <input id="sidebar-auth-username" type="text" maxlength="32" placeholder="请输入用户名" autocomplete="username">
+                    </div>
+                    <div class="sidebar-auth-field">
+                      <label for="sidebar-auth-password">密码</label>
+                      <input id="sidebar-auth-password" type="password" maxlength="128" placeholder="请输入密码（至少 6 位）" autocomplete="current-password">
+                    </div>
+                    <div id="sidebar-auth-confirm-group" class="sidebar-auth-field" hidden>
+                      <label for="sidebar-auth-password-confirm">确认密码</label>
+                      <input id="sidebar-auth-password-confirm" type="password" maxlength="128" placeholder="请再次输入密码" autocomplete="new-password">
+                    </div>
+                    <button id="sidebar-auth-submit" class="sidebar-auth-submit" type="button" data-loading-text="登录中...">登录</button>
+                  </div>
+                  <div id="sidebar-auth-status" class="sidebar-auth-status" role="status" aria-live="polite"></div>
+                </div>
+              </section>
+
               <div class="sidebar-quota-redeem" aria-label="统一额度兑换">
                 <label class="sidebar-quota-redeem-label" for="unified-gift-code">兑换码</label>
                 <div class="sidebar-quota-redeem-row">
@@ -309,28 +343,6 @@
                   <div class="announcement-title-wrap">
                     <span id="announcement-icon" class="announcement-icon">📢</span>
                     <span id="announcement-title" class="announcement-title">公告</span>
-                  </div>
-                  <div class="announcement-header-actions">
-                    <div id="update-widget" class="update-widget" hidden>
-                      <div class="update-widget-ring" id="update-widget-ring" style="--update-progress: 0%;">
-                        <div class="update-widget-ring-fill"></div>
-                        <span id="update-widget-percent" class="update-widget-percent">0%</span>
-                      </div>
-                      <div class="update-widget-text-wrap">
-                        <div id="update-widget-label" class="update-widget-label">更新中</div>
-                        <div id="update-widget-text" class="update-widget-text">准备更新...</div>
-                      </div>
-                    </div>
-                    <button id="theme-toggle-btn" class="theme-toggle-btn" type="button" aria-pressed="false" aria-label="切换主题" title="切换到白色模式">
-                      <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true">
-                        <circle cx="12" cy="12" r="4.2"></circle>
-                        <path d="M12 1.8v3.1M12 19.1v3.1M4.6 4.6l2.2 2.2M17.2 17.2l2.2 2.2M1.8 12h3.1M19.1 12h3.1M4.6 19.4l2.2-2.2M17.2 6.8l2.2-2.2"></path>
-                      </svg>
-                      <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M20.4 14.2A8.5 8.5 0 0 1 9.8 3.6a9 9 0 1 0 10.6 10.6Z"></path>
-                        <path d="M18.8 5.2l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4-1.4-.5 1.4-.5.5-1.4Z"></path>
-                      </svg>
-                    </button>
                   </div>
                 </div>
                 <div class="announcement-content" id="announcement-content">
@@ -348,41 +360,6 @@
               </div>
             </section>
 
-            <section id="sidebar-account-auth" class="sidebar-account-auth" aria-labelledby="sidebar-account-auth-title" aria-modal="true" role="dialog" hidden>
-              <button class="sidebar-auth-backdrop" type="button" data-auth-close aria-label="关闭账号窗口"></button>
-              <div class="sidebar-auth-dialog">
-                <div class="sidebar-auth-heading">
-                  <div class="sidebar-auth-brand">
-                    <img data-app-logo alt="" aria-hidden="true">
-                    <div>
-                      <div class="sidebar-auth-eyebrow">AI-FREE ACCOUNT</div>
-                      <h2 id="sidebar-account-auth-title">登录账号</h2>
-                    </div>
-                  </div>
-                  <button id="sidebar-auth-close" class="sidebar-auth-close" type="button" data-auth-close aria-label="关闭">&times;</button>
-                </div>
-                <div class="sidebar-auth-tabs" role="tablist" aria-label="账号操作">
-                  <button class="sidebar-auth-tab active" type="button" data-auth-mode="login" role="tab" aria-selected="true">登录</button>
-                  <button class="sidebar-auth-tab" type="button" data-auth-mode="register" role="tab" aria-selected="false">注册</button>
-                </div>
-                <div class="sidebar-auth-form">
-                  <div class="sidebar-auth-field">
-                    <label for="sidebar-auth-username">用户名</label>
-                    <input id="sidebar-auth-username" type="text" maxlength="32" placeholder="请输入用户名" autocomplete="username">
-                  </div>
-                  <div class="sidebar-auth-field">
-                    <label for="sidebar-auth-password">密码</label>
-                    <input id="sidebar-auth-password" type="password" maxlength="128" placeholder="请输入密码（至少 6 位）" autocomplete="current-password">
-                  </div>
-                  <div id="sidebar-auth-confirm-group" class="sidebar-auth-field" hidden>
-                    <label for="sidebar-auth-password-confirm">确认密码</label>
-                    <input id="sidebar-auth-password-confirm" type="password" maxlength="128" placeholder="请再次输入密码" autocomplete="new-password">
-                  </div>
-                  <button id="sidebar-auth-submit" class="sidebar-auth-submit" type="button" data-loading-text="登录中...">登录</button>
-                </div>
-                <div id="sidebar-auth-status" class="sidebar-auth-status" role="status" aria-live="polite"></div>
-              </div>
-            </section>
             <div hidden aria-hidden="true">
               <input type="text" id="device-id" value="" readonly>
               <input type="password" id="key-input" value="" tabindex="-1" autocomplete="off">

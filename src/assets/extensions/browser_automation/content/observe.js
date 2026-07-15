@@ -1004,6 +1004,12 @@
         clearMarksOverlay();
         const limit = Math.min(Math.max(Number(msg.limit != null ? msg.limit : 120), 1), 200);
         const includeText = msg.include_text !== false;
+        // A useful observation must contain page content.  Previously every
+        // unfiltered scan whose match count crossed a limit returned items: [],
+        // which is common on modern pages and made the caller believe that the
+        // page could not be observed at all.  Truncate by default; callers that
+        // only want overflow statistics can still explicitly pass false.
+        const allowTruncate = msg.allow_truncate !== false;
         const textLimit = Math.min(Math.max(Number(msg.text_limit != null ? msg.text_limit : 200), 0), 500);
         const defaultMaxItems = includeText ? Math.min(500, limit + textLimit + 40) : limit;
         const maxItems = Math.min(Math.max(Number(msg.max_items != null ? msg.max_items : defaultMaxItems), 1), 500);
@@ -1064,7 +1070,6 @@
         const overlayMarks = [];
         const markTargets = [];
         let nextId = 1;
-        const elements = [];
         const interactiveItems = slicedRecords.map((rec) => {
             const id = nextId; nextId += 1;
             markTargets.push({
@@ -1073,7 +1078,6 @@
                 framePath: rec.frame ? buildFramePath(rec.frame) : undefined
             });
             const item = interactiveItemFromRecord(rec, id);
-            elements.push(item);
             overlayMarks.push({ el: rec.el, status: 'clickable', frame: rec.frame });
             return item;
         });
@@ -1120,7 +1124,7 @@
             iframeCandidates: iframeCandidates.length, iframeHittable: iframeHittable.length
         };
 
-        if (tooMany && msg.allow_truncate !== true) {
+        if (tooMany && !allowTruncate) {
             setMarks([]);
             const ctx = viewportContext();
             return {
@@ -1135,8 +1139,10 @@
             };
         }
 
-        const items = [...textItems, ...frameItems, ...mediaItems, ...interactiveItems]
+        const availableItems = [...textItems, ...frameItems, ...mediaItems, ...interactiveItems]
             .sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x || kindSortRank(a.kind) - kindSortRank(b.kind));
+        const items = availableItems.slice(0, maxItems);
+        const wasTruncated = interactiveRecords.length > slicedRecords.length || availableItems.length > items.length;
 
         setMarks(markTargets);
 
@@ -1164,19 +1170,23 @@
 
         return {
             success: true, source: 'browser_observe', url: location.href, title: document.title,
-            count: elements.length, textCount: textItems.length, itemCount: items.length,
+            count: items.filter((item) => item.kind === 'interactive').length,
+            textCount: items.filter((item) => item.kind === 'text').length,
+            itemCount: items.length, matchedItemCount: candidateItems.length,
             frameCount: frameItems.length, accessibleFrameCount: frameItems.filter((f) => f.accessible).length,
             accessibleFrameUrls: accessibleFrameDocUrls(),
             iframeCandidates: iframeCandidates.length, iframeHittable: iframeHittable.length, iframeTextCount,
             stats: statsBase,
-            truncated: interactiveRecords.length > slicedRecords.length,
+            truncated: wasTruncated,
             textTruncated: includeText && rawTexts.length >= textLimit,
             tooMany: false, maxItems, categoryCounts, marked,
             scroll: { y: ctx.scrollY, percent: ctx.scrollPercent, atTop: ctx.atTop, atBottom: ctx.atBottom },
             currentSection: ctx.currentSection,
             ...(scopeFrame ? { scopedToFrame: buildFramePath(scopeFrame) } : {}),
             items: items.map(slimItem),
-            hint: '返回 items 单一混排列表（按位置排序、已去重，用 kind 区分）：kind=text 可见文本（不可点击），' +
+            hint: (wasTruncated
+                ? `页面共匹配 ${candidateItems.length} 个条目，本次已按 limit=${limit}、max_items=${maxItems} 截断返回 ${items.length} 个；可用 filter/tag/keyword 进一步聚焦。`
+                : '') + '返回 items 单一混排列表（按位置排序、已去重，用 kind 区分）：kind=text 可见文本（不可点击），' +
                 'kind=media 图片/视频/音频（不可点击；category=image/video/audio），kind=frame 页面内 iframe 边界' +
                 '（accessible=true 表示同源已扫描，子元素见 inFrame=true 的 interactive；accessible=false 为跨域），' +
                 'kind=interactive 可点击元素（带临时 id 供 ref，同时返回 tag/selector/name/placeholder/ariaLabel/value/optionsSample 等基本信息）。' +

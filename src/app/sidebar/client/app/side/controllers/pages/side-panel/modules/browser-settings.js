@@ -3,6 +3,7 @@
   let current = {};
   let browserHistory = [];
   let selectedHistoryId = '';
+  let selectedHistoryIds = new Set();
   let historyRefreshTimer = null;
   let browserSettingsPreviousFocus = null;
   let editingDefaultSettings = false;
@@ -62,7 +63,7 @@
     browserHistory.forEach((item) => {
       const row = document.createElement('div');
       row.className = 'browser-history-item';
-      row.classList.toggle('is-selected', item.id === selectedHistoryId);
+      row.classList.toggle('is-selected', selectedHistoryIds.has(item.id));
       row.classList.toggle('is-open', item.isOpen === true);
       row.classList.toggle('is-active', item.isActive === true);
       row.classList.toggle('has-error', !!item.lastError);
@@ -71,8 +72,9 @@
       const main = document.createElement('button');
       main.type = 'button';
       main.className = 'browser-history-main';
-      main.title = String(item.name || '未命名浏览器');
-      main.setAttribute('aria-label', `${item.name || '未命名浏览器'}，${item.isActive ? '当前浏览器' : (item.isOpen ? '已打开' : '已关闭')}，打开参数配置`);
+      main.title = `${item.name || '未命名浏览器'}（单击选择，右键批量操作）`;
+      main.setAttribute('aria-pressed', selectedHistoryIds.has(item.id) ? 'true' : 'false');
+      main.setAttribute('aria-label', `${item.name || '未命名浏览器'}，${item.isActive ? '当前浏览器' : (item.isOpen ? '已打开' : '已关闭')}，点击选择`);
       const name = document.createElement('span');
       name.className = 'browser-history-name';
       name.textContent = item.name || '未命名浏览器';
@@ -92,7 +94,7 @@
         autoDelete.textContent = `自动删除：${formatBrowserHistoryDateTime(item.autoDeleteAt) || '等待服务器同步'}`;
         main.append(autoDelete);
       }
-      main.addEventListener('click', () => void selectBrowserHistory(item.id, { openDialog: true }));
+      main.addEventListener('click', () => toggleBrowserHistorySelection(item.id));
 
       const actions = document.createElement('div');
       actions.className = 'browser-history-actions';
@@ -120,8 +122,80 @@
       remove.addEventListener('click', () => void deleteBrowserHistory(item));
       actions.append(open, rename, configure, remove);
       row.append(main, actions);
+      row.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        if (!selectedHistoryIds.has(item.id)) selectedHistoryIds = new Set([item.id]);
+        renderBrowserHistory();
+        showBrowserHistoryContextMenu(event.clientX, event.clientY);
+      });
       list.appendChild(row);
     });
+  }
+
+  function getSelectedBrowserHistory() {
+    return browserHistory.filter((item) => selectedHistoryIds.has(item.id));
+  }
+
+  function toggleBrowserHistorySelection(historyId) {
+    const id = String(historyId || '');
+    if (!id) return;
+    const next = new Set(selectedHistoryIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    selectedHistoryIds = next;
+    hideBrowserHistoryContextMenu();
+    renderBrowserHistory();
+  }
+
+  function ensureBrowserHistoryContextMenu() {
+    let menu = el('browser-history-context-menu');
+    if (menu) return menu;
+    menu = document.createElement('div');
+    menu.id = 'browser-history-context-menu';
+    menu.className = 'browser-history-context-menu';
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-hidden', 'true');
+    menu.innerHTML = `
+      <div class="browser-history-context-summary"></div>
+      <button type="button" role="menuitem" data-browser-history-command="open">批量打开</button>
+      <button type="button" role="menuitem" data-browser-history-command="rename">批量重命名</button>
+      <button type="button" role="menuitem" class="is-danger" data-browser-history-command="delete">批量删除</button>
+    `;
+    menu.addEventListener('click', (event) => {
+      const command = event.target.closest('[data-browser-history-command]')?.dataset.browserHistoryCommand;
+      if (!command) return;
+      hideBrowserHistoryContextMenu();
+      if (command === 'open') void openSelectedBrowserHistory();
+      if (command === 'rename') renameSelectedBrowserHistory();
+      if (command === 'delete') deleteSelectedBrowserHistory();
+    });
+    document.body.appendChild(menu);
+    return menu;
+  }
+
+  function hideBrowserHistoryContextMenu() {
+    const menu = el('browser-history-context-menu');
+    if (!menu) return;
+    menu.classList.remove('is-visible');
+    menu.setAttribute('aria-hidden', 'true');
+  }
+
+  function showBrowserHistoryContextMenu(x, y) {
+    const items = getSelectedBrowserHistory();
+    if (!items.length) return;
+    const menu = ensureBrowserHistoryContextMenu();
+    const summary = menu.querySelector('.browser-history-context-summary');
+    if (summary) summary.textContent = `已选择 ${items.length} 个浏览器`;
+    menu.querySelectorAll('[data-browser-history-command]').forEach((button) => {
+      const label = button.dataset.browserHistoryCommand === 'open'
+        ? '打开'
+        : button.dataset.browserHistoryCommand === 'rename' ? '重命名' : '删除';
+      button.textContent = `${label}选中项（${items.length}）`;
+    });
+    menu.classList.add('is-visible');
+    menu.setAttribute('aria-hidden', 'false');
+    const rect = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - rect.width - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))}px`;
   }
 
   function formatBrowserHistoryDateTime(value) {
@@ -138,6 +212,8 @@
       const response = await window.electronAPI.invoke('get-browser-history');
       if (!response?.ok) throw new Error(response?.error || '读取浏览器记录失败');
       browserHistory = Array.isArray(response.history) ? response.history : [];
+      const availableIds = new Set(browserHistory.map((item) => item.id));
+      selectedHistoryIds = new Set([...selectedHistoryIds].filter((id) => availableIds.has(id)));
       const keepEmptySelection = !selectedHistoryId && (options.keepEmptySelection === true || editingDefaultSettings);
       if (!keepEmptySelection && (options.keepSelection !== true || !browserHistory.some((item) => item.id === selectedHistoryId))) {
         selectedHistoryId = browserHistory.find((item) => item.isActive)?.id || browserHistory[0]?.id || '';
@@ -192,9 +268,8 @@
     try {
       const response = await window.electronAPI.invoke('open-browser-history', { historyId });
       if (!response?.ok) throw new Error(response?.error || '打开浏览器失败');
-      selectedHistoryId = historyId;
       await refreshBrowserHistory({ keepSelection: true, silent: true });
-      await selectBrowserHistory(historyId);
+      setStatus(`已打开“${response.name || '浏览器'}”`, 'success');
     } catch (error) {
       setStatus(error?.message || String(error), 'error');
     }
@@ -213,6 +288,7 @@
           const response = await window.electronAPI.invoke('rename-browser-history', { historyId: item.id, name: requestedName });
           if (!response?.ok) throw new Error(response?.error || '重命名失败');
           selectedHistoryId = item.id;
+          selectedHistoryIds = new Set([item.id]);
           await refreshBrowserHistory({ keepSelection: true, silent: true });
           setStatus(`已重命名为“${response.name}”`, 'success');
         } catch (error) {
@@ -240,6 +316,7 @@
         const response = await window.electronAPI.invoke('delete-browser-history', { historyId: item.id });
         if (!response?.ok) throw new Error(response?.error || '删除失败');
         if (selectedHistoryId === item.id) selectedHistoryId = '';
+        selectedHistoryIds.delete(item.id);
         await refreshBrowserHistory({ silent: true });
         if (selectedHistoryId) {
           await selectBrowserHistory(selectedHistoryId);
@@ -247,6 +324,89 @@
         setStatus(`已删除“${response.name || name}”`, 'success');
       } catch (error) {
         setStatus(error?.message || String(error), 'error');
+      }
+    }, null, 'warning');
+  }
+
+  async function openSelectedBrowserHistory() {
+    const items = getSelectedBrowserHistory();
+    if (!items.length) return;
+    setStatus(`正在打开 ${items.length} 个浏览器…`);
+    const failed = [];
+    for (const item of items) {
+      try {
+        const response = await window.electronAPI.invoke('open-browser-history', { historyId: item.id });
+        if (!response?.ok) throw new Error(response?.error || '打开失败');
+      } catch (error) {
+        failed.push(`${item.name}：${error?.message || String(error)}`);
+      }
+    }
+    await refreshBrowserHistory({ keepSelection: true, silent: true });
+    if (failed.length) {
+      setStatus(`已打开 ${items.length - failed.length} 个，失败 ${failed.length} 个：${failed.join('；')}`, 'error');
+    } else {
+      setStatus(`已打开 ${items.length} 个浏览器`, 'success');
+    }
+  }
+
+  function renameSelectedBrowserHistory() {
+    const items = getSelectedBrowserHistory();
+    if (!items.length) return;
+    if (!window.MessageModal?.showPromptDialog) {
+      setStatus('软件重命名弹窗未就绪', 'error');
+      return;
+    }
+    const initialName = items.length === 1
+      ? items[0].name
+      : String(items[0].name || '新建窗口').replace(/\[\d+\]$/, '');
+    const message = items.length === 1
+      ? '请输入新的浏览器名称'
+      : `请输入名称前缀，${items.length} 个浏览器将依次命名为“名称[1]”到“名称[${items.length}]”`;
+    window.MessageModal.showPromptDialog(message, initialName, async (requestedName) => {
+      const baseName = String(requestedName || '').trim();
+      setStatus(`正在重命名 ${items.length} 个浏览器…`);
+      try {
+        const response = await window.electronAPI.invoke('rename-browser-history-batch', {
+          historyIds: items.map((item) => item.id),
+          baseName,
+        });
+        if (!response?.ok) throw new Error(response?.error || '批量重命名失败');
+        await refreshBrowserHistory({ keepSelection: true, silent: true });
+        setStatus(items.length === 1 ? `已重命名为“${baseName}”` : `已按“${baseName}[n]”重命名 ${items.length} 个浏览器`, 'success');
+      } catch (error) {
+        setStatus(error?.message || String(error), 'error');
+        throw error;
+      }
+    }, null, { title: items.length === 1 ? '重命名浏览器' : '批量重命名浏览器', confirmText: '保存', maxLength: 70 });
+  }
+
+  function deleteSelectedBrowserHistory() {
+    const items = getSelectedBrowserHistory();
+    if (!items.length) return;
+    if (!window.MessageModal?.showConfirmDialog) {
+      setStatus('软件确认弹窗未就绪', 'error');
+      return;
+    }
+    const openCount = items.filter((item) => item.isOpen).length;
+    const detail = openCount ? `，其中 ${openCount} 个已打开的窗口会先关闭` : '';
+    window.MessageModal.showConfirmDialog(`确认删除选中的 ${items.length} 条浏览器记录${detail}？`, async () => {
+      const failed = [];
+      setStatus(`正在删除 ${items.length} 个浏览器…`);
+      for (const item of items) {
+        try {
+          const response = await window.electronAPI.invoke('delete-browser-history', { historyId: item.id });
+          if (!response?.ok) throw new Error(response?.error || '删除失败');
+          selectedHistoryIds.delete(item.id);
+          if (selectedHistoryId === item.id) selectedHistoryId = '';
+        } catch (error) {
+          failed.push(`${item.name}：${error?.message || String(error)}`);
+        }
+      }
+      await refreshBrowserHistory({ keepSelection: true, silent: true });
+      if (failed.length) {
+        setStatus(`已删除 ${items.length - failed.length} 个，失败 ${failed.length} 个：${failed.join('；')}`, 'error');
+      } else {
+        setStatus(`已删除 ${items.length} 个浏览器`, 'success');
       }
     }, null, 'warning');
   }
@@ -392,6 +552,11 @@
     window.electronAPI?.on?.('update-tabs', scheduleBrowserHistoryRefresh);
     window.electronAPI?.on?.('browser-history-changed', scheduleBrowserHistoryRefresh);
     window.electronAPI?.on?.('account-list-updated', scheduleBrowserHistoryRefresh);
-    document.addEventListener('keydown',(event)=>{if(event.key==='Escape'&&!el('browser-settings-dialog')?.hidden)closeBrowserSettingsDialog();});
+    document.addEventListener('click', (event) => {
+      if (!event.target.closest('#browser-history-context-menu')) hideBrowserHistoryContextMenu();
+    });
+    window.addEventListener('blur', hideBrowserHistoryContextMenu);
+    window.addEventListener('resize', hideBrowserHistoryContextMenu);
+    document.addEventListener('keydown',(event)=>{if(event.key==='Escape'){hideBrowserHistoryContextMenu();if(!el('browser-settings-dialog')?.hidden)closeBrowserSettingsDialog();}});
   });
 }());

@@ -469,6 +469,14 @@ function registerAppLifecycle(deps = {}) {
       }
     });
 
+    ipcMain.handle('ai-control-history-rename', async (_event, input = {}) => {
+      try {
+        return aiChatHistory.renameSession(historyCredentials(), input?.id, input?.title);
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error) };
+      }
+    });
+
     ipcMain.handle('ai-control-history-create', async (_event, input = {}) => {
       try {
         return aiChatHistory.createSession(historyCredentials(), input || {});

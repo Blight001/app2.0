@@ -21,6 +21,145 @@ function registerUiIPC(ctx) {
     direct: '直连',
   };
   let tabProxyMenuWindow = null;
+  let accountCenterPopupWindow = null;
+  let accountCenterPopupLayout = null;
+
+  const closeAccountCenterPopupWindow = () => {
+    const popup = accountCenterPopupWindow;
+    accountCenterPopupWindow = null;
+    accountCenterPopupLayout = null;
+    if (!popup || popup.isDestroyed()) return;
+    try { popup.close(); } catch (_) {}
+  };
+
+  const resizeAccountCenterPopupWindow = (requestedHeight) => {
+    const popup = accountCenterPopupWindow;
+    const layout = accountCenterPopupLayout;
+    if (!popup || popup.isDestroyed() || !layout) return;
+    const height = Math.max(320, Math.ceil(Number(requestedHeight) || 0));
+    const workAreaTop = layout.workArea.y + 8;
+    const lowestVisibleY = layout.workArea.y + layout.workArea.height - height - 8;
+    const y = height <= layout.workArea.height - 16
+      ? Math.min(Math.max(layout.desiredY, workAreaTop), lowestVisibleY)
+      : workAreaTop;
+    popup.setBounds({ x: layout.x, y, width: layout.width, height }, false);
+  };
+
+  const captureAccountCenterSnapshot = async () => {
+    try {
+      const sideView = ui.getSideView?.();
+      const webContents = sideView?.webContents;
+      if (!webContents || webContents.isDestroyed?.()) return {};
+      return await webContents.executeJavaScript(`(() => ({
+        theme: document.documentElement.classList.contains('theme-light') ? 'light' : 'dark',
+        announcementTitle: document.getElementById('announcement-title')?.textContent || '',
+        announcementIcon: document.getElementById('announcement-icon')?.textContent || '',
+        announcementHtml: document.getElementById('announcement-content')?.innerHTML || '',
+        tutorialUrl: document.getElementById('tutorial-link')?.href || '',
+        appVersion: document.getElementById('app-version')?.textContent || ''
+      }))()`);
+    } catch (_) {
+      return {};
+    }
+  };
+
+  const toggleAccountCenterPopupWindow = async (payload = {}) => {
+    if (accountCenterPopupWindow && !accountCenterPopupWindow.isDestroyed()) {
+      closeAccountCenterPopupWindow();
+      return;
+    }
+
+    const mainWindow = ui.getMainWindow?.();
+    if (!mainWindow || mainWindow.isDestroyed?.()) return;
+    const contentBounds = mainWindow.getContentBounds();
+    const anchor = payload?.anchor && typeof payload.anchor === 'object' ? payload.anchor : {};
+    const popupWidth = 430;
+    const popupHeight = 520;
+    const anchorRight = Number.isFinite(Number(anchor.right)) ? Number(anchor.right) : contentBounds.width - 8;
+    const anchorBottom = Number.isFinite(Number(anchor.bottom)) ? Number(anchor.bottom) : 36;
+    const desiredX = Math.round(contentBounds.x + anchorRight - popupWidth);
+    const desiredY = Math.round(contentBounds.y + anchorBottom + 6);
+    const display = screen.getDisplayNearestPoint({ x: desiredX, y: desiredY });
+    const workArea = display.workArea;
+    const x = Math.min(Math.max(desiredX, workArea.x + 8), workArea.x + workArea.width - popupWidth - 8);
+    const y = Math.min(Math.max(desiredY, workArea.y + 8), workArea.y + workArea.height - popupHeight - 8);
+    accountCenterPopupLayout = {
+      desiredY,
+      width: popupWidth,
+      workArea,
+      x,
+    };
+
+    const popup = new BrowserWindow({
+      parent: mainWindow,
+      width: popupWidth,
+      height: popupHeight,
+      x,
+      y,
+      show: false,
+      frame: false,
+      transparent: true,
+      backgroundColor: '#00000000',
+      resizable: false,
+      maximizable: false,
+      minimizable: false,
+      fullscreenable: false,
+      skipTaskbar: true,
+      autoHideMenuBar: true,
+      hasShadow: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: false,
+        backgroundThrottling: false,
+        preload: path.join(app.getAppPath(), 'src', 'app', 'main', 'preload.js'),
+      },
+    });
+    accountCenterPopupWindow = popup;
+    let popupShown = false;
+    const showPopup = () => {
+      if (popupShown || popup.isDestroyed()) return;
+      try {
+        popup.show();
+        popup.focus();
+        popupShown = true;
+      } catch (_) {}
+    };
+    popup.on('closed', () => {
+      if (accountCenterPopupWindow === popup) accountCenterPopupWindow = null;
+    });
+    // 不监听 blur 自动关闭：网络魔法切换代理时会重启/聚焦原生 Chromium，
+    // 导致个人中心刚显示就因失焦被误关。浮窗由再次点击头像、关闭按钮或 Esc 关闭。
+    popup.webContents.on('did-finish-load', async () => {
+      if (popup.isDestroyed()) return;
+      showPopup();
+      const snapshot = await captureAccountCenterSnapshot();
+      if (popup.isDestroyed()) return;
+      popup.webContents.send('account-popup-snapshot', snapshot);
+    });
+    popup.once('ready-to-show', showPopup);
+
+    const popupPath = path.join(app.getAppPath(), 'src', 'app', 'sidebar', 'index.html');
+    try {
+      await popup.loadFile(popupPath, { query: { accountCenterPopup: '1' } });
+      // 某些透明窗口不会稳定触发 ready-to-show；loadFile 完成后再做一次显示兜底。
+      showPopup();
+    } catch (error) {
+      console.warn('[UI] 个人中心独立浮窗加载失败:', error?.message || error);
+      closeAccountCenterPopupWindow();
+    }
+  };
+
+  const openAccountCenterPopupWindow = async (payload = {}) => {
+    if (accountCenterPopupWindow && !accountCenterPopupWindow.isDestroyed()) {
+      try {
+        accountCenterPopupWindow.show();
+        accountCenterPopupWindow.focus();
+      } catch (_) {}
+      return;
+    }
+    await toggleAccountCenterPopupWindow(payload);
+  };
 
   const getProxyModeLabel = (mode) => PROXY_MODE_LABELS[String(mode || '').trim()] || String(mode || '').trim() || '未知模式';
   let currentAppTheme = 'dark';
@@ -587,13 +726,17 @@ function registerUiIPC(ctx) {
   });
   ipcMain.on('toggle-sidebar', () => ui.toggleSidebar());
   ipcMain.on('ensure-sidebar-visible', () => ui.ensureSidebarVisible && ui.ensureSidebarVisible());
-  ipcMain.on('open-account-center', () => {
-    try {
-      ui.ensureSidebarVisible?.();
-      ui.sendToSide?.('open-account-center');
-    } catch (error) {
-      console.warn('[UI] 打开个人中心失败:', error?.message || error);
-    }
+  ipcMain.on('toggle-account-center-popup', (_event, payload = {}) => {
+    void toggleAccountCenterPopupWindow(payload);
+  });
+  ipcMain.on('open-account-center-popup', (_event, payload = {}) => {
+    void openAccountCenterPopupWindow(payload);
+  });
+  ipcMain.on('close-account-center-popup', () => closeAccountCenterPopupWindow());
+  ipcMain.on('resize-account-center-popup', (event, payload = {}) => {
+    const popup = accountCenterPopupWindow;
+    if (!popup || popup.isDestroyed() || event.sender !== popup.webContents) return;
+    resizeAccountCenterPopupWindow(payload.height);
   });
   ipcMain.on('sync-app-shell-account', (_event, session = {}) => {
     try {

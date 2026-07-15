@@ -77,7 +77,7 @@
   pointer-events: none;
 }
 
-/* 历史下拉项：标题 + 删除（覆盖通用 option 的 flex，避免长标题撑出横向滚动） */
+/* 历史下拉项：标题 + 操作按钮（覆盖通用 option 的 flex，避免长标题撑出横向滚动） */
 .ai-select-option.ai-select-option-history {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -114,7 +114,12 @@
   white-space: nowrap;
   max-width: 100%;
 }
-.ai-select-option-del {
+.ai-select-option-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.ai-select-option-action {
   flex: 0 0 auto;
   width: 22px;
   height: 22px;
@@ -125,6 +130,10 @@
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
+}
+.ai-select-option-rename:hover {
+  color: #8bc0ff;
+  background: rgba(77, 163, 255, .12);
 }
 .ai-select-option-del:hover {
   color: #ffb4b4;
@@ -1109,7 +1118,11 @@ html.theme-light .ai-chat-composer {
 }
 html.theme-light .ai-chat-composer textarea { color: #243752; }
 html.theme-light .ai-select-option-sub { color: #7b8aa0; }
-html.theme-light .ai-select-option-del { color: #7b8aa0; }
+html.theme-light .ai-select-option-action { color: #7b8aa0; }
+html.theme-light .ai-select-option-rename:hover {
+  color: #2674c8;
+  background: rgba(50, 120, 210, .1);
+}
 html.theme-light .ai-select-option-del:hover {
   color: #c44;
   background: rgba(220, 80, 80, .1);

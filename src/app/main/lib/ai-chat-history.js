@@ -193,12 +193,25 @@ function saveSession(credentials, rawSession, options = {}) {
   session.preview = previewFromMessages(session.messages) || session.preview || '';
   session.updatedAt = Date.now();
 
-  // 无消息的空会话不落盘（避免历史被「新对话」占满）
+  // 无消息的空会话不落盘；已有会话被删空时，同时移除旧记录。
   if (!session.messages.length && options.allowEmpty !== true) {
-    const existing = store.sessions.find((item) => String(item.id) === session.id);
-    if (!existing) {
+    const existingIndex = store.sessions.findIndex((item) => String(item.id) === session.id);
+    if (existingIndex < 0) {
       return { ok: true, session, summary: sessionSummary(session), skipped: true };
     }
+    store.sessions.splice(existingIndex, 1);
+    if (store.currentId === session.id) store.currentId = store.sessions[0]?.id || '';
+    const written = writeStore(scope, store);
+    if (!written) {
+      return { ok: false, message: '对话历史写入本地失败', session, summary: sessionSummary(session) };
+    }
+    return {
+      ok: true,
+      session,
+      summary: sessionSummary(session),
+      removed: true,
+      currentId: store.currentId,
+    };
   }
 
   const index = store.sessions.findIndex((item) => String(item.id) === session.id);
@@ -234,7 +247,10 @@ function deleteSession(credentials, sessionId) {
   if (store.currentId === id) {
     store.currentId = store.sessions[0]?.id || '';
   }
-  writeStore(scope, store);
+  const written = writeStore(scope, store);
+  if (!written) {
+    return { ok: false, message: '对话历史写入本地失败' };
+  }
   return {
     ok: true,
     currentId: store.currentId,
@@ -243,6 +259,25 @@ function deleteSession(credentials, sessionId) {
       .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
       .map(sessionSummary),
   };
+}
+
+function renameSession(credentials, sessionId, rawTitle) {
+  const scope = accountScope(credentials);
+  const store = readStore(scope);
+  const id = String(sessionId || '').trim();
+  const title = String(rawTitle || '').trim().slice(0, 40);
+  if (!title) return { ok: false, message: '对话名称不能为空' };
+  const index = store.sessions.findIndex((item) => String(item.id) === id);
+  if (index < 0) return { ok: false, message: '对话不存在' };
+
+  const session = normalizeSession(store.sessions[index]);
+  session.title = title;
+  // 手动命名后不再让自动标题生成覆盖用户输入。
+  session.titleGenerated = true;
+  store.sessions[index] = session;
+  const written = writeStore(scope, store);
+  if (!written) return { ok: false, message: '对话历史写入本地失败' };
+  return { ok: true, session, summary: sessionSummary(session) };
 }
 
 function createSession(credentials, partial = {}) {
@@ -289,6 +324,7 @@ module.exports = {
   getSession,
   saveSession,
   deleteSession,
+  renameSession,
   createSession,
   setCurrent,
   normalizeSession,

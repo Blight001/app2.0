@@ -59,17 +59,37 @@ async function main() {
   assert.equal(rotatingAccountMeta.autoDeleteAt, 2_000_000_000_000);
   const shellHtml = fs.readFileSync(path.join(__dirname, '../src/app/views/app-shell.html'), 'utf8');
   const shellTabsScript = fs.readFileSync(path.join(__dirname, '../src/app/renderer/controllers/pages/app-shell/tabs.js'), 'utf8');
+  const accountPopupIpcScript = fs.readFileSync(path.join(__dirname, '../src/app/main/ipc/register/ui.js'), 'utf8');
+  const aiLoginControlScript = fs.readFileSync(path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/pages/ai-control.js'), 'utf8');
   assert.ok(shellHtml.includes('id="new-browser-window-btn"'));
-  assert.match(shellHtml, /id="account-center-btn"[\s\S]*?id="add-tab-btn"/);
+  assert.match(shellHtml, /id="new-browser-window-btn"[\s\S]*?svg class="new-window-icon"/);
+  assert.match(shellHtml, /id="update-widget"[\s\S]*?id="theme-toggle-btn"[\s\S]*?id="account-center-btn"[\s\S]*?id="add-tab-btn"/);
+  assert.match(shellHtml, /id="add-tab-btn"[\s\S]*?svg class="settings-icon"/);
   assert.ok(shellHtml.includes('../sidebar/client/scripts/logo-assets.js'));
-  assert.ok(shellTabsScript.includes("IPC.send('open-account-center')"));
+  assert.ok(shellTabsScript.includes("IPC.send('toggle-account-center-popup'"));
+  assert.ok(accountPopupIpcScript.includes("ipcMain.on('open-account-center-popup'"));
+  assert.match(
+    aiLoginControlScript,
+    /function openPersonalLogin\(\) \{\s*window\.electronAPI\?\.send\?\.\('open-account-center-popup'\);\s*\}/,
+  );
+  assert.ok(shellTabsScript.includes("IPC.send('app-theme-changed'"));
+  assert.ok(shellTabsScript.includes("IPC.on('app-update-progress'"));
   assert.ok(shellTabsScript.includes("IPC.invoke('create-independent-browser'"));
   assert.ok(shellTabsScript.includes("IPC.invoke('rename-browser-history'"));
   const settingsIpcScript = fs.readFileSync(path.join(__dirname, '../src/app/main/ipc/register/settings.js'), 'utf8');
   const sidebarSettingsScript = fs.readFileSync(path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/browser-settings.js'), 'utf8');
   const sidebarHtml = fs.readFileSync(path.join(__dirname, '../src/app/sidebar/index.html'), 'utf8');
+  assert.ok(!sidebarHtml.includes('id="theme-toggle-btn"'));
+  assert.ok(!sidebarHtml.includes('id="update-widget"'));
   assert.ok(!sidebarHtml.includes('id="account-history-toggle-btn"'));
   assert.ok(!sidebarHtml.includes('id="account-panel"'));
+  assert.ok(!sidebarHtml.includes('id="account-login-open-btn"'));
+  assert.ok(!sidebarHtml.includes('id="account-register-open-btn"'));
+  assert.ok(!sidebarHtml.includes('class="sidebar-auth-backdrop"'));
+  assert.match(
+    sidebarHtml,
+    /id="sidebar-account-session"[\s\S]*?id="sidebar-account-auth"[\s\S]*?id="sidebar-auth-username"/,
+  );
   assert.ok(settingsIpcScript.includes("ipcMain.handle('delete-browser-history'"));
   assert.match(
     settingsIpcScript,

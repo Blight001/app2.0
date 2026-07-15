@@ -414,12 +414,12 @@ function effectiveAgentToolDefs() {
         // ── 页面观察 ───────────────────────────────────────────────────────
         {
             name: 'browser_observe',
-            description: '感知当前视口里用户能看到的内容：返回 items 单一混排列表（按位置排序、已去重），kind=interactive 是最顶层、未被遮挡的按钮/链接/输入框/下拉/菜单项等（每项带临时 id + tag/selector/name/placeholder/ariaLabel/value/optionsSample 等基本信息），kind=text 是普通可见文本，kind=media 是图片/视频/音频（category=image/video/audio，不可点击），kind=frame 是页面内 iframe 边界（accessible=true 表示同源已扫描，其子元素以 inFrame=true 的 interactive 返回）。会扫描主文档、同源（含嵌套）iframe 内部内容以及 Shadow DOM（开放与被强制开放的封闭 root），并识别 img/video/audio 媒体元素；跨域 iframe 内部仍不可访问。除固定的按钮/链接/表单控件外，还会识别 cursor:pointer 或类名/ID 以 btn/button/link 结尾的自定义控件。若匹配条目超过 limit/max_items，默认不返回 items，只返回 tooMany=true 与 categoryCounts，提示继续用 filter/tag/keyword 缩小范围；也可传 frame（iframe 的 frameSelector）或 frame_path 只观察某个 iframe 内部。默认会在页面上绘制描边标记：绿色=可点击、红色=被遮挡/禁用/不可点、紫色虚线=iframe 边界。用途：点击/输入前的首选观察手段 + 卡片信息收集。场景：observe 后优先使用返回的 selector 或 text+tag 构造自动化卡片步骤（持久化推荐）；ref 可用于临时 browser_action 操作；页面变化后重新 observe（id 只在下一次 observe 前有效）。',
+            description: '感知当前视口里用户能看到的内容：返回 items 单一混排列表（按位置排序、已去重），kind=interactive 是最顶层、未被遮挡的按钮/链接/输入框/下拉/菜单项等（每项带临时 id + tag/selector/name/placeholder/ariaLabel/value/optionsSample 等基本信息），kind=text 是普通可见文本，kind=media 是图片/视频/音频（category=image/video/audio，不可点击），kind=frame 是页面内 iframe 边界（accessible=true 表示同源已扫描，其子元素以 inFrame=true 的 interactive 返回）。会扫描主文档、同源（含嵌套）iframe 内部内容以及 Shadow DOM（开放与被强制开放的封闭 root），并识别 img/video/audio 媒体元素；跨域 iframe 内部仍不可访问。除固定的按钮/链接/表单控件外，还会识别 cursor:pointer 或类名/ID 以 btn/button/link 结尾的自定义控件。若匹配条目超过 limit/max_items，默认截断并返回上限内的真实 items，同时设置 truncated=true；可用 filter/tag/keyword 缩小范围，也可传 frame（iframe 的 frameSelector）或 frame_path 只观察某个 iframe 内部。默认会在页面上绘制描边标记：绿色=可点击、红色=被遮挡/禁用/不可点、紫色虚线=iframe 边界。用途：点击/输入前的首选观察手段 + 卡片信息收集。场景：observe 后优先使用返回的 selector 或 text+tag 构造自动化卡片步骤（持久化推荐）；ref 可用于临时 browser_action 操作；页面变化后重新 observe（id 只在下一次 observe 前有效）。',
             input_schema: {
                 type: 'object',
                 properties: {
-                    limit: { type: 'number', description: '最多返回的可交互元素条目数；超过时默认不返回 items，只返回 tooMany/categoryCounts。默认 120，最大 200。' },
-                    max_items: { type: 'number', description: '最终 items 混排列表允许返回的最大总条数；超过时默认不返回 items，只返回 categoryCounts。默认约等于 limit + text_limit + 40，最大 500。' },
+                    limit: { type: 'number', description: '最多返回的可交互元素条目数；超过时截断并设置 truncated=true。默认 120，最大 200。' },
+                    max_items: { type: 'number', description: '最终 items 混排列表允许返回的最大总条数；超过时截断并设置 truncated=true。默认约等于 limit + text_limit + 40，最大 500。' },
                     filter: {
                         type: ['string', 'array'],
                         items: { type: 'string' },
@@ -434,7 +434,7 @@ function effectiveAgentToolDefs() {
                     text_filter: { type: 'string', description: 'keyword 的兼容别名。' },
                     include_text: { type: 'boolean', description: '是否同时包含普通可见文本（items 中 kind=text 的条目）。默认 true；传 false 时只返回可交互元素。' },
                     text_limit: { type: 'number', description: '最多返回的普通可见文本条数。默认 200，最大 500。' },
-                    allow_truncate: { type: 'boolean', description: '为 true 时即使超过 limit/max_items 也截断返回；默认 false，即超量时不返回 items，只给 categoryCounts 和筛选提示。' },
+                    allow_truncate: { type: 'boolean', description: '是否在超过 limit/max_items 时截断并返回内容，默认 true。显式传 false 时只返回 tooMany/categoryCounts 和筛选提示。' },
                     mark: { type: 'boolean', description: '是否在页面上绘制状态色描边标记，便于随后截图查看。默认 true；传 false 只清除已有标记、不重绘。标记为纯视觉叠加，不影响其他工具或点击。' },
                     tab_id: { type: 'number', description: '可选：指定要观察的真实网页标签页；省略时使用最近操作目标。' }
                 }
