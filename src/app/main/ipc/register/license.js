@@ -40,8 +40,53 @@ function registerLicenseIPC(ctx) {
     DREAM_TARGET_URL,
     getDreamTargetUrl,
   } = ctx;
+  let woolPlatformRefreshInFlight = null;
 
   const resolveDreamTargetUrl = () => resolveConfiguredDreamTargetUrl(getDreamTargetUrl, DREAM_TARGET_URL);
+
+  ipcMain.handle('refresh-wool-platforms', async () => {
+    if (woolPlatformRefreshInFlight) return woolPlatformRefreshInFlight;
+
+    woolPlatformRefreshInFlight = (async () => {
+      try {
+        const credentials = licenseCache?.getCredentials?.() || {};
+        const key = String(credentials.key || '').trim();
+        const deviceId = String(credentials.deviceId || '').trim();
+        if (!key || !deviceId) {
+          return { ok: false, authenticated: false, message: '请先登录账号' };
+        }
+        if (!httpClient || typeof httpClient.validateKey !== 'function') {
+          return { ok: false, message: '羊毛平台服务尚未就绪' };
+        }
+
+        // 切入浏览器配置时只请求一次验证接口，以获取服务器最新羊毛平台。
+        const validation = await httpClient.validateKey(key, deviceId);
+        if (!isValidationSuccess(validation)) {
+          return {
+            ok: false,
+            message: getValidationFailureMessage(validation, '刷新羊毛平台失败'),
+          };
+        }
+
+        const { normalizeValidationRuntimeConfig } = require('../../lib/http-client');
+        const normalized = normalizeValidationRuntimeConfig(validation);
+        const woolPlatforms = Array.isArray(normalized.woolPlatforms)
+          ? normalized.woolPlatforms
+          : [];
+        // 本入口只更新羊毛平台缓存；账号、配额和其它运行配置保持原样。
+        licenseCache?.setRuntimeConfig?.({ woolPlatforms });
+        return { ok: true, woolPlatforms };
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error) };
+      }
+    })();
+
+    try {
+      return await woolPlatformRefreshInFlight;
+    } finally {
+      woolPlatformRefreshInFlight = null;
+    }
+  });
 
   const cleanupAccountBrowserArtifacts = (accountId) => cleanupAccountProfile(accountId, {
     browserRuntimeManager: ui?.browserRuntimeManager,
