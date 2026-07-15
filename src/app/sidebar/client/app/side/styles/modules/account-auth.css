@@ -120,6 +120,27 @@ html.account-center-popup .account-center-dialog-panel {
   width: 100%;
   max-height: none;
   overflow: visible;
+  transform-origin: calc(100% - 18px) -12px;
+  will-change: transform, opacity;
+}
+
+html.account-center-popup.account-center-popup-closing .account-center-dialog {
+  pointer-events: none;
+}
+
+html.account-center-popup.account-center-popup-closing .account-center-dialog-panel {
+  animation: accountCenterPopupOut .18s cubic-bezier(.4, 0, 1, 1) forwards;
+}
+
+@keyframes accountCenterPopupOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-12px) scale(.08);
+  }
 }
 
 html.account-center-popup .account-center-dialog-body {

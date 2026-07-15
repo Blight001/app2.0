@@ -396,6 +396,12 @@ function createTabManager(deps = {}) {
     const browserProxy = getBrowserProxyEndpoint();
     const failures = [];
 
+    // 应用退出时由生命周期统一关闭 Chromium。此处若继续切换代理并重启实例，
+    // 会和 stopAll 竞争，还可能让刚关闭的浏览器再次连到即将退出的 Mihomo。
+    if (global._isShuttingDown === true) {
+      return { ok: true, enabled: false, updated: 0, total: entries.length, failures, skipped: true };
+    }
+
     const results = await Promise.all(entries.map(async (tab) => {
       try {
         // 网络魔法是全局开关：开启时所有 Chromium 统一走 Clash Mini，
@@ -427,6 +433,7 @@ function createTabManager(deps = {}) {
         }
         instance.profile.proxyServer = nextProxyServer;
         instance.profile.proxyBypassList = nextProxyBypassList;
+        if (global._isShuttingDown === true) return false;
         const runtimeState = await browserRuntimeManager.restart(tab.id);
         tab.runtimeStatus = runtimeState?.status || tab.runtimeStatus;
         return true;

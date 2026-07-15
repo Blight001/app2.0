@@ -48,6 +48,7 @@
     container.addEventListener('click', (e) => {
       const clickedButton = e.target && e.target.closest ? e.target.closest('.open-wool-platform-btn') : null;
       if (!clickedButton || !container.contains(clickedButton) || clickedButton.disabled) return;
+      if (window.redirectToSidebarAccountLogin?.()) return;
       const task = withBusyButton(clickedButton, async () => {
 // 处理：key的具体业务逻辑。
         const key = (getEl('key-input')?.value || '').trim();

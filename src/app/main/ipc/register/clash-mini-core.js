@@ -22,7 +22,6 @@ const LOCAL_ASSET_MARKER_FILE = '.bundled-assets.json';
 let clashMiniRuntimePrepPromise = null;
 let clashMiniRuntimePrepResult = null;
 
-// 复制/克隆：copyDirectoryRecursive的具体业务逻辑。
 function copyDirectoryRecursive(src, dest, { overwrite = false } = {}) {
   if (!src || !dest || !fs.existsSync(src)) return false;
   if (!fs.existsSync(dest)) {
@@ -80,7 +79,6 @@ async function copyDirectoryRecursiveAsync(src, dest, { overwrite = false } = {}
   return true;
 }
 
-// 获取/读取/解析：getClashMiniAppRoots的具体业务逻辑。
 function getClashMiniAppRoots() {
   const roots = [];
   try { roots.push(path.join(process.resourcesPath || '', CLASH_MINI_DIR_NAME)); } catch (_) {}
@@ -90,12 +88,10 @@ function getClashMiniAppRoots() {
   return Array.from(new Set(roots.filter(Boolean)));
 }
 
-// 获取/读取/解析：getClashMiniCoreRoots的具体业务逻辑。
 function getClashMiniCoreRoots() {
   return getClashMiniAppRoots().map((root) => path.join(root, 'core'));
 }
 
-// 获取/读取/解析：resolveBundledClashMiniCoreDir的具体业务逻辑。
 function resolveBundledClashMiniCoreDir() {
   for (const root of getClashMiniCoreRoots()) {
     if (!root) continue;
@@ -110,7 +106,6 @@ function resolveBundledClashMiniCoreDir() {
   return getClashMiniCoreRoots()[0] || null;
 }
 
-// 获取/读取/解析：getClashMiniRuntimeRoot的具体业务逻辑。
 function getClashMiniRuntimeRoot() {
   try {
     return path.join(electronApp.getPath('appData'), CLASH_MINI_DIR_NAME);
@@ -119,7 +114,6 @@ function getClashMiniRuntimeRoot() {
   }
 }
 
-// 获取/读取/解析：resolveClashMiniCoreDir的具体业务逻辑。
 function resolveClashMiniCoreDir() {
   const runtimeRoot = getClashMiniRuntimeRoot();
   try {
@@ -147,7 +141,6 @@ function resolveClashMiniCoreDir() {
   return getClashMiniCoreRoots()[0] || null;
 }
 
-// 获取/读取/解析：resolveClashMiniExecutable的具体业务逻辑。
 function resolveClashMiniExecutable(coreDir) {
   if (!coreDir) return null;
   const candidate = path.join(coreDir, 'verge-mihomo.exe');
@@ -320,32 +313,6 @@ async function syncLocalGeoAssetsAsync(runtimeDir) {
   return { ok: missing.length === 0, copied, skipped, missing };
 }
 
-// 创建/初始化：prepareClashMiniRuntimeDir的具体业务逻辑。
-function prepareClashMiniRuntimeDir() {
-  const sourceDir = resolveBundledClashMiniCoreDir();
-  if (!sourceDir || !fs.existsSync(sourceDir)) {
-    return { ok: false, error: `未找到 Clash Mini 源目录: ${sourceDir || 'unknown'}` };
-  }
-
-  const runtimeDir = getClashMiniRuntimeRoot();
-  try {
-    fs.mkdirSync(runtimeDir, { recursive: true });
-    if (path.resolve(runtimeDir) !== path.resolve(sourceDir)) {
-      copyDirectoryRecursive(sourceDir, runtimeDir, { overwrite: false });
-    }
-  } catch (error) {
-    return { ok: false, error: error?.message || String(error) };
-  }
-
-  const exePath = resolveClashMiniExecutable(runtimeDir);
-  if (!exePath) {
-    return { ok: false, error: 'Clash Mini 运行目录中未找到 verge-mihomo.exe' };
-  }
-
-  const assetSync = syncLocalGeoAssets(runtimeDir);
-  return { ok: true, sourceDir, runtimeDir, exePath, assetSync };
-}
-
 async function prepareClashMiniRuntimeDirAsync() {
   if (
     clashMiniRuntimePrepResult?.ok
@@ -397,7 +364,6 @@ async function prepareClashMiniRuntimeDirAsync() {
   }
 }
 
-// 移除/删除：purgeClashMiniRuntimeConfigFiles的具体业务逻辑。
 function purgeClashMiniRuntimeConfigFiles(coreDir) {
   const targets = [
     path.join(coreDir, 'config.yaml'),
@@ -421,25 +387,6 @@ function purgeClashMiniRuntimeConfigFiles(coreDir) {
   return { ok: failed.length === 0, removed, failed };
 }
 
-// 处理：logTextChunks的具体业务逻辑。
-function logTextChunks(prefix, text, chunkSize = 900) {
-  const value = String(text || '');
-  if (!value) {
-    console.log(prefix, '(empty)');
-    return;
-  }
-
-  const clean = value.replace(/\r\n/g, '\n');
-  const total = Math.max(1, Math.ceil(clean.length / chunkSize));
-  for (let index = 0; index < total; index += 1) {
-    const start = index * chunkSize;
-    const chunk = clean.slice(start, start + chunkSize);
-    console.log(`${prefix} (${index + 1}/${total}):`);
-    console.log(chunk);
-  }
-}
-
-// 获取/读取/解析：parseYamlMaybe的具体业务逻辑。
 function parseYamlMaybe(value) {
   if (typeof value === 'string') {
     try {
@@ -451,7 +398,6 @@ function parseYamlMaybe(value) {
   return value && typeof value === 'object' ? value : null;
 }
 
-// 处理：looksLikeRuntimeClashConfig的具体业务逻辑。
 function looksLikeRuntimeClashConfig(value) {
   const parsed = parseYamlMaybe(value);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
@@ -463,7 +409,6 @@ function looksLikeRuntimeClashConfig(value) {
     || typeof parsed['external-controller'] !== 'undefined';
 }
 
-// 处理：looksLikeProfilesIndex的具体业务逻辑。
 function looksLikeProfilesIndex(value) {
   const parsed = parseYamlMaybe(value);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
@@ -476,7 +421,6 @@ function looksLikeProfilesIndex(value) {
   return false;
 }
 
-// 获取/读取/解析：readYamlIfExists的具体业务逻辑。
 function readYamlIfExists(filePath) {
   try {
     if (!filePath || !fs.existsSync(filePath)) return null;
@@ -486,11 +430,49 @@ function readYamlIfExists(filePath) {
   }
 }
 
-// 获取/读取/解析：getClashMiniProxyEndpoint的具体业务逻辑。
+// config.yaml/self.yaml 会被端点、密钥、分组等多个读取器在测速轮询等热路径里反复
+// 读取。按文件 mtime+size 缓存解析结果，避免每次控制请求都重新读盘并解析整份配置。
+const clashMiniRuntimeConfigCache = new Map();
+
+function readClashMiniRuntimeConfig(coreDir) {
+  if (!coreDir) return {};
+  const cached = clashMiniRuntimeConfigCache.get(coreDir);
+  for (const fileName of ['config.yaml', 'self.yaml']) {
+    const filePath = path.join(coreDir, fileName);
+    let stat;
+    try {
+      stat = fs.statSync(filePath);
+    } catch (_) {
+      continue;
+    }
+    if (cached
+      && cached.filePath === filePath
+      && cached.mtimeMs === stat.mtimeMs
+      && cached.size === stat.size) {
+      return cached.value;
+    }
+    let parsed = null;
+    try {
+      parsed = YAML.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch (_) {
+      parsed = null;
+    }
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      clashMiniRuntimeConfigCache.set(coreDir, {
+        filePath,
+        mtimeMs: stat.mtimeMs,
+        size: stat.size,
+        value: parsed,
+      });
+      return parsed;
+    }
+  }
+  clashMiniRuntimeConfigCache.delete(coreDir);
+  return {};
+}
+
 function getClashMiniProxyEndpoint(coreDir) {
-  const config = readYamlIfExists(path.join(coreDir, 'config.yaml'))
-    || readYamlIfExists(path.join(coreDir, 'self.yaml'))
-    || {};
+  const config = readClashMiniRuntimeConfig(coreDir);
   const host = '127.0.0.1';
   const mixedPort = Number(config['mixed-port'] || config.mixed_port);
   const httpPort = Number(config.port || config.http_port);
@@ -499,11 +481,8 @@ function getClashMiniProxyEndpoint(coreDir) {
   return { host, port };
 }
 
-// 获取/读取/解析：getClashMiniControlEndpoint的具体业务逻辑。
 function getClashMiniControlEndpoint(coreDir) {
-  const config = readYamlIfExists(path.join(coreDir, 'config.yaml'))
-    || readYamlIfExists(path.join(coreDir, 'self.yaml'))
-    || {};
+  const config = readClashMiniRuntimeConfig(coreDir);
   const raw = String(config['external-controller'] || config.external_controller || '').trim();
   const [hostPart, portPart] = raw.split(':');
   const host = hostPart || '127.0.0.1';
@@ -514,42 +493,31 @@ function getClashMiniControlEndpoint(coreDir) {
   };
 }
 
-// 获取/读取/解析：getClashMiniControlSecret的具体业务逻辑。
 function getClashMiniControlSecret(coreDir) {
-  const config = readYamlIfExists(path.join(coreDir, 'config.yaml'))
-    || readYamlIfExists(path.join(coreDir, 'self.yaml'))
-    || {};
+  const config = readClashMiniRuntimeConfig(coreDir);
   return String(config.secret || config['control-secret'] || '').trim();
 }
 
-// 获取/读取/解析：getClashMiniManualGroupName的具体业务逻辑。
 function getClashMiniManualGroupName(coreDir) {
-  const config = readYamlIfExists(path.join(coreDir, 'config.yaml'))
-    || readYamlIfExists(path.join(coreDir, 'self.yaml'))
-    || {};
+  const config = readClashMiniRuntimeConfig(coreDir);
   const groups = Array.isArray(config['proxy-groups']) ? config['proxy-groups'] : [];
   const manualGroup = groups.find((group) => group && group.type === 'select' && group.name);
   return manualGroup?.name || groups[0]?.name || '节点选择';
 }
 
-// 获取/读取/解析：getClashMiniConfigProxyNames的具体业务逻辑。
-function getClashMiniConfigProxyNames(coreDir, groupName) {
-  const config = readYamlIfExists(path.join(coreDir, 'config.yaml'))
-    || readYamlIfExists(path.join(coreDir, 'self.yaml'))
-    || {};
+function getClashMiniConfigProxyNames(coreDir) {
+  const config = readClashMiniRuntimeConfig(coreDir);
   return Array.isArray(config.proxies)
     ? config.proxies.map((item) => String(item?.name || '').trim()).filter(Boolean)
     : [];
 }
 
-// 创建/初始化：buildClashMiniControlUrl的具体业务逻辑。
 function buildClashMiniControlUrl(coreDir, pathname) {
   const endpoint = getClashMiniControlEndpoint(coreDir);
   const cleanPath = String(pathname || '').startsWith('/') ? String(pathname || '') : `/${String(pathname || '')}`;
   return `http://${endpoint.host}:${endpoint.port}${cleanPath}`;
 }
 
-// 创建/初始化：buildClashMiniControlHeaders的具体业务逻辑。
 function buildClashMiniControlHeaders(coreDir) {
   const secret = getClashMiniControlSecret(coreDir);
   const headers = {};
@@ -559,7 +527,6 @@ function buildClashMiniControlHeaders(coreDir) {
   return headers;
 }
 
-// 获取/读取/解析：extractDelayValue的具体业务逻辑。
 function extractDelayValue(value) {
   if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value;
   if (typeof value === 'string') {
@@ -582,11 +549,9 @@ function extractDelayValue(value) {
   return null;
 }
 
-// 格式化/规范化：normalizeProxyNameList的具体业务逻辑。
 function normalizeProxyNameList(input) {
   const out = [];
   const seen = new Set();
-// 处理：push的具体业务逻辑。
   const push = (name) => {
     const value = String(name || '').trim();
     if (!value || seen.has(value)) return;
@@ -594,7 +559,6 @@ function normalizeProxyNameList(input) {
     out.push(value);
   };
 
-// 处理：walk的具体业务逻辑。
   const walk = (value) => {
     if (!value) return;
     if (Array.isArray(value)) {
@@ -622,7 +586,6 @@ function normalizeProxyNameList(input) {
   return out;
 }
 
-// 获取/读取/解析：fetchClashMiniProxyNames的具体业务逻辑。
 async function fetchClashMiniProxyNames(coreDir, groupName) {
   let response = null;
   try {
@@ -633,7 +596,7 @@ async function fetchClashMiniProxyNames(coreDir, groupName) {
     console.warn('[IPC] 获取 Clash Mini 节点列表失败，改用本地配置兜底:', error?.message || error);
   }
 
-  const configNames = getClashMiniConfigProxyNames(coreDir, groupName);
+  const configNames = getClashMiniConfigProxyNames(coreDir);
   const configNameSet = new Set(configNames);
   const apiNames = normalizeProxyNameList(response?.all || response?.proxies || response)
     .filter((name) => configNameSet.has(name));
@@ -666,7 +629,6 @@ async function fetchClashMiniProxyNames(coreDir, groupName) {
   };
 }
 
-// 处理：probeClashMiniProxyDelay的具体业务逻辑。
 async function probeClashMiniProxyDelay(coreDir, proxyName, testUrl, timeout) {
   const response = await invokeClashMiniControl(coreDir, 'get', `/proxies/${encodeURIComponent(proxyName)}/delay?timeout=${encodeURIComponent(timeout)}&url=${encodeURIComponent(testUrl)}`, {
     timeoutMs: Math.max(Number(timeout) || 5000, 8000),
@@ -693,14 +655,12 @@ async function probeClashMiniGroupDelay(coreDir, groupName, testUrl, timeout) {
   return response && typeof response === 'object' && !Array.isArray(response) ? response : {};
 }
 
-// 格式化/规范化：formatClashMiniDelayText的具体业务逻辑。
 function formatClashMiniDelayText(delay) {
   const value = Number(delay);
   if (!Number.isFinite(value) || value <= 0) return '超时';
   return `${Math.round(value)}ms`;
 }
 
-// 处理：collectClashMiniProxyDelays的具体业务逻辑。
 async function collectClashMiniProxyDelays(coreDir, names, latencyUrl, timeout, concurrency = 8) {
   const uniqueNames = Array.from(new Set((Array.isArray(names) ? names : [])
     .map((item) => String(item || '').trim())
@@ -745,14 +705,12 @@ async function collectClashMiniProxyDelays(coreDir, names, latencyUrl, timeout, 
   return entries.filter(Boolean);
 }
 
-// 格式化/规范化：normalizeProbeTimeout的具体业务逻辑。
 function normalizeProbeTimeout(value, fallbackMs = 2000) {
   const num = Number(value);
   if (Number.isFinite(num) && num > 0) return Math.max(200, Math.round(num));
   return fallbackMs;
 }
 
-// 格式化/规范化：normalizeProbeUrl的具体业务逻辑。
 function normalizeProbeUrl(value, fallbackUrl = 'http://www.gstatic.com/generate_204') {
   const text = String(value || '').trim();
   if (!text) return fallbackUrl;
@@ -764,7 +722,6 @@ function normalizeProbeUrl(value, fallbackUrl = 'http://www.gstatic.com/generate
   }
 }
 
-// 获取/读取/解析：readClashProbeSettings的具体业务逻辑。
 function readClashProbeSettings() {
   for (const rootDir of getClashMiniProfileRoots()) {
     try {
@@ -832,7 +789,6 @@ function readClashProbeSettings() {
   return null;
 }
 
-// 处理：probeLatencyUrl的具体业务逻辑。
 function probeLatencyUrl(url, timeoutMs = 2000) {
   return new Promise((resolve) => {
     const safeUrl = normalizeProbeUrl(url, '');
@@ -845,7 +801,6 @@ function probeLatencyUrl(url, timeoutMs = 2000) {
     const startedAt = Date.now();
     let request = null;
 
-// 处理：finish的具体业务逻辑。
     const finish = (result) => {
       if (finished) return;
       finished = true;
@@ -939,13 +894,13 @@ function probeLatencyUrl(url, timeoutMs = 2000) {
   });
 }
 
-// 处理：waitForClashMiniControlApi的具体业务逻辑。
-async function waitForClashMiniControlApi(coreDir, timeoutMs = 15000) {
+async function waitForClashMiniControlApi(coreDir, timeoutMs = 15000, shouldCancel = null) {
   const deadline = Date.now() + Math.max(1000, Number(timeoutMs) || 15000);
   const probePaths = ['/version', '/proxies', '/configs'];
   const headers = buildClashMiniControlHeaders(coreDir);
 
   while (Date.now() < deadline) {
+    if (typeof shouldCancel === 'function' && shouldCancel()) return false;
     const probeTimeout = Math.max(100, Math.min(750, deadline - Date.now()));
     const responses = await Promise.all(probePaths.map((probePath) => (
       axios.get(buildClashMiniControlUrl(coreDir, probePath), {
@@ -958,13 +913,13 @@ async function waitForClashMiniControlApi(coreDir, timeoutMs = 15000) {
       return true;
     }
 
+    if (typeof shouldCancel === 'function' && shouldCancel()) return false;
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
 
   return false;
 }
 
-// 处理：invokeClashMiniControl的具体业务逻辑。
 async function invokeClashMiniControl(coreDir, method, pathname, { data = null, timeoutMs = 30000 } = {}) {
   const url = buildClashMiniControlUrl(coreDir, pathname);
   const headers = buildClashMiniControlHeaders(coreDir);
@@ -1003,7 +958,6 @@ async function ensureClashMiniRuleMode(coreDir) {
   }
 }
 
-// 获取/读取/解析：getClashMiniProfileRoots的具体业务逻辑。
 function getClashMiniProfileRoots() {
   const roots = [];
   try { roots.push(path.join(electronApp.getPath('appData'), CLASH_MINI_DIR_NAME)); } catch (_) {}
@@ -1011,11 +965,9 @@ function getClashMiniProfileRoots() {
   return Array.from(new Set(roots.filter(Boolean)));
 }
 
-// 获取/读取/解析：resolveClashMiniProfileFile的具体业务逻辑。
 function resolveClashMiniProfileFile(coreDir, profilesIndex) {
   const items = Array.isArray(profilesIndex?.items) ? profilesIndex.items : [];
   const currentUid = String(profilesIndex?.current || profilesIndex?.getCurrentProfile || '').trim();
-// 处理：currentItem的具体业务逻辑。
   const currentItem = (currentUid && items.length > 0)
     ? items.find((item) => String(item?.uid || '').trim() === currentUid)
     : null;
@@ -1341,7 +1293,6 @@ function normalizeAndWriteClashMiniRuntimeConfig(coreDir, runtimeConfigPath, con
   return normalized;
 }
 
-// 校验/保护：ensureClashMiniRuntimeConfig的具体业务逻辑。
 function ensureClashMiniRuntimeConfig(coreDir) {
   const runtimeConfigPath = path.join(coreDir, 'config.yaml');
   const legacyConfigPath = path.join(coreDir, 'self.yaml');
@@ -1392,7 +1343,6 @@ function ensureClashMiniRuntimeConfig(coreDir) {
   };
 }
 
-// 获取/读取/解析：extractDirectClashConfigContent的具体业务逻辑。
 function extractDirectClashConfigContent(value) {
   if (!value) return '';
   if (typeof value === 'string') {
@@ -1427,7 +1377,6 @@ function extractDirectClashConfigContent(value) {
   return '';
 }
 
-// 处理：tryDecodeBase64Text的具体业务逻辑。
 function tryDecodeBase64Text(text) {
   const raw = String(text || '').replace(/\s+/g, '');
   if (!raw || raw.length < 32 || raw.length % 4 !== 0) {
@@ -1448,13 +1397,11 @@ function tryDecodeBase64Text(text) {
   }
 }
 
-// 处理：looksLikeSubscriptionPayload的具体业务逻辑。
 function looksLikeSubscriptionPayload(text) {
   const value = String(text || '').trim();
   return /^(vmess|vless|trojan|ss|ssr):\/\//im.test(value);
 }
 
-// 处理：decodeSubscriptionItemName的具体业务逻辑。
 function decodeSubscriptionItemName(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -1465,7 +1412,6 @@ function decodeSubscriptionItemName(value) {
   }
 }
 
-// 处理：safeBase64UrlDecode的具体业务逻辑。
 function safeBase64UrlDecode(input) {
   const raw = String(input || '').trim().replace(/-/g, '+').replace(/_/g, '/');
   if (!raw) return '';
@@ -1477,13 +1423,11 @@ function safeBase64UrlDecode(input) {
   }
 }
 
-// 格式化/规范化：sanitizeProxyName的具体业务逻辑。
 function sanitizeProxyName(name, fallback) {
   const value = decodeSubscriptionItemName(name || fallback || '').replace(/\s+/g, ' ').trim();
   return value || String(fallback || 'proxy').trim() || 'proxy';
 }
 
-// 获取/读取/解析：parseVmessSubscriptionLine的具体业务逻辑。
 function parseVmessSubscriptionLine(line, index) {
   const raw = String(line || '').trim();
   if (!raw.startsWith('vmess://')) return null;
@@ -1554,7 +1498,6 @@ function parseVmessSubscriptionLine(line, index) {
   return proxy;
 }
 
-// 获取/读取/解析：parseSubscriptionProxyList的具体业务逻辑。
 function parseSubscriptionProxyList(text) {
   const raw = String(text || '').trim();
   if (!raw) return [];
@@ -1574,7 +1517,6 @@ function parseSubscriptionProxyList(text) {
   return proxies;
 }
 
-// 创建/初始化：buildClashRuntimeConfigFromSubscription的具体业务逻辑。
 function buildClashRuntimeConfigFromSubscription(text) {
   const content = String(text || '').trim();
   const decodedBase64 = tryDecodeBase64Text(content);
@@ -1611,7 +1553,6 @@ function buildClashRuntimeConfigFromSubscription(text) {
   };
 }
 
-// 校验/保护：ensureClashMiniControlFields的具体业务逻辑。
 function ensureClashMiniControlFields(config) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
     return config;
@@ -1624,7 +1565,6 @@ function ensureClashMiniControlFields(config) {
   return next;
 }
 
-// 格式化/规范化：normalizeDirectClashRuntimeConfig的具体业务逻辑。
 function normalizeDirectClashRuntimeConfig(rawContent, options = {}) {
   const text = extractDirectClashConfigContent(rawContent);
   if (!text) {
@@ -1697,24 +1637,9 @@ function normalizeDirectClashRuntimeConfig(rawContent, options = {}) {
     };
   }
 
-  if (typeof text === 'string') {
-    const decodedBase64 = tryDecodeBase64Text(text);
-    if (decodedBase64) {
-      const converted = buildClashRuntimeConfigFromSubscription(decodedBase64);
-      if (converted) {
-        return {
-          ok: true,
-          content: YAML.stringify(converted),
-          rawContent: decodedBase64,
-        };
-      }
-    }
-  }
-
   return { ok: false, error: 'Clash 配置解析失败', rawContent: text };
 }
 
-// 处理：importDirectClashRuntimeConfig的具体业务逻辑。
 function importDirectClashRuntimeConfig(coreDir, payload, sourceLabel = 'server-config') {
   // 服务器配置可能在 Mihomo 首次启动前导入；必须先同步资产再规范化，
   // 否则缺 Geo 的离线兜底会提前把 MATCH,节点组 固化成 MATCH,DIRECT。
@@ -1755,7 +1680,6 @@ function importDirectClashRuntimeConfig(coreDir, payload, sourceLabel = 'server-
   }
 }
 
-let clashNeedRestore = false;
 let clashStartedByApp = false;
 let clashMiniProcess = null;
 let clashMiniPid = null;
@@ -1766,7 +1690,21 @@ let clashMiniProxyAppliedByApp = false;
 let runtimeLicenseCache = null;
 let clashMiniStartPromise = null;
 let clashMiniStopPromise = null;
+let clashMiniStartGeneration = 0;
 const intentionallyStoppedClashProcesses = new WeakSet();
+
+function isClashMiniStartCancelled(startGeneration) {
+  return startGeneration !== clashMiniStartGeneration || global._isShuttingDown === true;
+}
+
+function buildClashMiniStartCancelledResult() {
+  return {
+    ...getClashMiniStatus(),
+    ok: false,
+    cancelled: true,
+    error: 'Clash Mini 启动已取消',
+  };
+}
 
 function hasClashMiniProcessExited(processRef) {
   return !processRef || processRef.exitCode != null || processRef.signalCode != null;
@@ -1823,18 +1761,15 @@ function forceKillClashMiniProcessTree(pid, processRef) {
   });
 }
 
-// 设置/更新/持久化：setRuntimeLicenseCache的具体业务逻辑。
 function setRuntimeLicenseCache(next) {
   runtimeLicenseCache = next || null;
 }
 
-// 处理：isClashMiniProcessRunning的具体业务逻辑。
 function isClashMiniProcessRunning() {
   // killed 仅表示已经调用过 ChildProcess.kill()，不能用它判断 OS 进程已退出。
   return !!(clashMiniProcess && !hasClashMiniProcessExited(clashMiniProcess));
 }
 
-// 获取/读取/解析：getClashMiniStatus的具体业务逻辑。
 function getClashMiniStatus() {
   const actualEnabled = clashMiniProxyAppliedByApp === true;
   return {
@@ -1847,12 +1782,9 @@ function getClashMiniStatus() {
     configPath: clashMiniConfigPath || '',
     startedByApp: clashStartedByApp === true,
     proxyAppliedByApp: actualEnabled,
-    systemProxyEnabled: false,
-    preferredEnabled: false,
   };
 }
 
-// 处理：emitClashMiniLog的具体业务逻辑。
 function emitClashMiniLog(ui, level, message, extra = {}) {
   const text = String(message || '').trim();
   const prefix = '[Clash Mini]';
@@ -1882,42 +1814,22 @@ function emitClashMiniLog(ui, level, message, extra = {}) {
   return entry;
 }
 
-// 处理：detectNetworkMagicStatus的具体业务逻辑。
-async function detectNetworkMagicStatus() {
-  const runtimeConfig = runtimeLicenseCache && typeof runtimeLicenseCache.getRuntimeConfig === 'function'
-    ? runtimeLicenseCache.getRuntimeConfig()
-    : {};
-  const fallbackEnabled = runtimeConfig.systemProxyEnabled !== false;
-  return {
-    ok: true,
-    enabled: fallbackEnabled,
-    source: 'runtime',
-    externalClashRunning: false,
-    clashMiniRunning: isClashMiniProcessRunning(),
-    runningClashClient: isClashMiniProcessRunning(),
-    anyClashProcessRunning: isClashMiniProcessRunning(),
-    appManagedClashRunning: isClashMiniProcessRunning(),
-    matchedProcesses: [],
-    systemProxyEnabled: fallbackEnabled,
-    networkReachable: false,
-    probe: null,
-    profile: null,
-    detectedEnabled: fallbackEnabled,
-  };
-}
+async function startClashMiniProcessOnce(ui, options = {}, startGeneration = clashMiniStartGeneration) {
+  const startCancelled = () => isClashMiniStartCancelled(startGeneration);
+  if (startCancelled()) return buildClashMiniStartCancelledResult();
 
-// 启动/打开/显示：startClashMiniProcess的具体业务逻辑。
-async function startClashMiniProcessOnce(ui, options = {}) {
   if (isClashMiniProcessRunning()) {
     const runningCoreDir = clashMiniCoreDir || getClashMiniRuntimeRoot();
-    const controlApiReady = await waitForClashMiniControlApi(runningCoreDir, 10000);
+    const controlApiReady = await waitForClashMiniControlApi(runningCoreDir, 10000, startCancelled);
+    if (startCancelled()) return buildClashMiniStartCancelledResult();
     if (!controlApiReady) {
       const message = 'Mihomo 进程存在但控制端口不可用，已停止异常进程';
       emitClashMiniLog(ui, 'error', message);
-      await stopClashMiniProcess(ui);
+      await stopClashMiniProcess(ui, { waitForPendingStart: false });
       return { ok: false, error: message, controlApiReady: false };
     }
     const ruleModeResult = await ensureClashMiniRuleMode(runningCoreDir);
+    if (startCancelled()) return buildClashMiniStartCancelledResult();
     if (!ruleModeResult.ok) {
       const message = `Mihomo 无法切换到规则模式：${ruleModeResult.error || '未知错误'}`;
       emitClashMiniLog(ui, 'error', message);
@@ -1927,6 +1839,7 @@ async function startClashMiniProcessOnce(ui, options = {}) {
     if (ui && typeof ui.applyClashMiniBrowserProxy === 'function') {
       browserProxySyncResult = await Promise.resolve(ui.applyClashMiniBrowserProxy(true)).catch(() => null);
     }
+    if (startCancelled()) return buildClashMiniStartCancelledResult();
     clashMiniProxyAppliedByApp = browserProxySyncResult && browserProxySyncResult.ok === true;
     const browserProxyMessage = browserProxySyncResult && browserProxySyncResult.ok === true
       ? `，浏览器代理已同步${Number.isFinite(Number(browserProxySyncResult.updated)) ? `(${Number(browserProxySyncResult.updated)} 个标签页)` : ''}`
@@ -1936,6 +1849,7 @@ async function startClashMiniProcessOnce(ui, options = {}) {
   }
 
   const runtimePrep = await prepareClashMiniRuntimeDirAsync();
+  if (startCancelled()) return buildClashMiniStartCancelledResult();
   if (!runtimePrep.ok) {
     emitClashMiniLog(ui, 'error', runtimePrep.error || '准备 Clash Mini 运行目录失败');
     return { ok: false, error: runtimePrep.error || '准备 Clash Mini 运行目录失败' };
@@ -1949,6 +1863,7 @@ async function startClashMiniProcessOnce(ui, options = {}) {
   }
 
   const configResult = ensureClashMiniRuntimeConfig(runtimePrep.runtimeDir);
+  if (startCancelled()) return buildClashMiniStartCancelledResult();
   if (!configResult.ok) {
     emitClashMiniLog(ui, 'error', configResult.error || '未找到可启动的 Clash 运行配置');
     return { ok: false, error: configResult.error || '未找到可启动的 Clash 运行配置' };
@@ -1961,6 +1876,7 @@ async function startClashMiniProcessOnce(ui, options = {}) {
   }
 
   try {
+    if (startCancelled()) return buildClashMiniStartCancelledResult();
     clashMiniCoreDir = runtimePrep.runtimeDir;
     clashMiniExePath = exePath;
     clashMiniConfigPath = configResult.configPath || path.join(runtimePrep.runtimeDir, 'config.yaml');
@@ -2033,19 +1949,21 @@ async function startClashMiniProcessOnce(ui, options = {}) {
       emitClashMiniLog(ui, 'error', `Clash Mini 启动失败: ${error?.message || error}`);
     });
 
-    const controlApiReady = await waitForClashMiniControlApi(runtimePrep.runtimeDir, 30000);
+    const controlApiReady = await waitForClashMiniControlApi(runtimePrep.runtimeDir, 30000, startCancelled);
+    if (startCancelled()) return buildClashMiniStartCancelledResult();
     if (!controlApiReady || !isClashMiniProcessRunning()) {
       const message = 'Mihomo 控制端口未能在 30 秒内启动，请检查 Clash YAML 配置或端口占用';
       emitClashMiniLog(ui, 'error', message);
-      await stopClashMiniProcess(ui);
+      await stopClashMiniProcess(ui, { waitForPendingStart: false });
       return { ok: false, error: message, controlApiReady: false };
     }
 
     const ruleModeResult = await ensureClashMiniRuleMode(runtimePrep.runtimeDir);
+    if (startCancelled()) return buildClashMiniStartCancelledResult();
     if (!ruleModeResult.ok) {
       const message = `Mihomo 无法切换到规则模式：${ruleModeResult.error || '未知错误'}`;
       emitClashMiniLog(ui, 'error', message);
-      await stopClashMiniProcess(ui);
+      await stopClashMiniProcess(ui, { waitForPendingStart: false });
       return { ok: false, error: message, controlApiReady: true };
     }
 
@@ -2053,6 +1971,7 @@ async function startClashMiniProcessOnce(ui, options = {}) {
     if (ui && typeof ui.applyClashMiniBrowserProxy === 'function') {
       browserProxySyncResult = await Promise.resolve(ui.applyClashMiniBrowserProxy(true)).catch(() => null);
     }
+    if (startCancelled()) return buildClashMiniStartCancelledResult();
     clashMiniProxyAppliedByApp = browserProxySyncResult && browserProxySyncResult.ok === true;
     const browserProxyMessage = browserProxySyncResult && browserProxySyncResult.ok === true
       ? `，浏览器代理已同步${Number.isFinite(Number(browserProxySyncResult.updated)) ? `(${Number(browserProxySyncResult.updated)} 个标签页)` : ''}`
@@ -2062,6 +1981,7 @@ async function startClashMiniProcessOnce(ui, options = {}) {
     emitClashMiniLog(ui, 'info', `Clash Mini 已启动，PID: ${clashMiniPid || 'unknown'}${browserProxyMessage || '，浏览器代理已切换到本地混合端口'}`);
     return { ok: true, started: true, ...status };
   } catch (error) {
+    if (startCancelled()) return buildClashMiniStartCancelledResult();
     emitClashMiniLog(ui, 'error', `启动 Clash Mini 失败: ${error?.message || error}`);
     clashMiniProcess = null;
     clashMiniPid = null;
@@ -2081,7 +2001,8 @@ function startClashMiniProcess(ui, options = {}) {
     return clashMiniStartPromise;
   }
 
-  const sharedPromise = startClashMiniProcessOnce(ui, options).finally(() => {
+  const startGeneration = ++clashMiniStartGeneration;
+  const sharedPromise = startClashMiniProcessOnce(ui, options, startGeneration).finally(() => {
     if (clashMiniStartPromise === sharedPromise) {
       clashMiniStartPromise = null;
     }
@@ -2090,8 +2011,13 @@ function startClashMiniProcess(ui, options = {}) {
   return sharedPromise;
 }
 
-// 停止/关闭/清理：stopClashMiniProcess的具体业务逻辑。
-async function stopClashMiniProcessOnce(ui) {
+async function stopClashMiniProcessOnce(ui, pendingStartPromise = null) {
+  // 停止请求可能发生在资源复制/配置生成阶段，此时还没有 ChildProcess。
+  // 等启动任务看到 generation 变化并自行退出，避免停止流程返回后又拉起核心。
+  if (pendingStartPromise) {
+    await pendingStartPromise.catch(() => {});
+  }
+
   if (!isClashMiniProcessRunning()) {
     if (ui && typeof ui.applyClashMiniBrowserProxy === 'function') {
       await Promise.resolve(ui.applyClashMiniBrowserProxy(false)).catch(() => {});
@@ -2105,6 +2031,14 @@ async function stopClashMiniProcessOnce(ui) {
     intentionallyStoppedClashProcesses.add(processRef);
   }
   emitClashMiniLog(ui, 'info', `正在停止 Clash Mini，PID: ${pid || 'unknown'}`);
+
+  // 先让浏览器脱离本地代理，再结束 Mihomo。反过来会让所有仍在传输的
+  // Chromium socket 同时收到 ECONNRESET，并可能在退出期形成未处理异常。
+  if (ui && typeof ui.applyClashMiniBrowserProxy === 'function') {
+    await Promise.resolve(ui.applyClashMiniBrowserProxy(false)).catch(() => {});
+  }
+  clashMiniProxyAppliedByApp = false;
+
   try {
     if (processRef && typeof processRef.kill === 'function') {
       processRef.kill();
@@ -2130,10 +2064,6 @@ async function stopClashMiniProcessOnce(ui) {
     clashMiniConfigPath = null;
     clashStartedByApp = false;
   }
-  if (ui && typeof ui.applyClashMiniBrowserProxy === 'function') {
-    await Promise.resolve(ui.applyClashMiniBrowserProxy(false)).catch(() => {});
-  }
-  clashMiniProxyAppliedByApp = false;
   if (runtimeLicenseCache && typeof runtimeLicenseCache.setRuntimeConfig === 'function') {
     runtimeLicenseCache.setRuntimeConfig({ systemProxyEnabled: false });
   }
@@ -2146,10 +2076,15 @@ async function stopClashMiniProcessOnce(ui) {
   return { ok: true, stopped: true, ...getClashMiniStatus() };
 }
 
-function stopClashMiniProcess(ui) {
+function stopClashMiniProcess(ui, options = {}) {
   if (clashMiniStopPromise) return clashMiniStopPromise;
 
-  const sharedPromise = stopClashMiniProcessOnce(ui).finally(() => {
+  // 启动流程自身发现失败时也会调用停止；该路径不能等待自身 promise。
+  // 外部停止/应用退出则等待取消后的启动任务收敛，避免代理切换互相覆盖。
+  const pendingStartPromise = options?.waitForPendingStart === false ? null : clashMiniStartPromise;
+  // 同步失效当前启动任务，确保它不会跨过下一处 await 后继续 spawn/应用代理。
+  clashMiniStartGeneration += 1;
+  const sharedPromise = stopClashMiniProcessOnce(ui, pendingStartPromise).finally(() => {
     if (clashMiniStopPromise === sharedPromise) {
       clashMiniStopPromise = null;
     }
@@ -2158,7 +2093,6 @@ function stopClashMiniProcess(ui) {
   return sharedPromise;
 }
 
-// 停止/关闭/清理：cleanupClashMiniRuntimeConfig的具体业务逻辑。
 function cleanupClashMiniRuntimeConfig(coreDir) {
   if (!coreDir || !fs.existsSync(coreDir)) {
     return { ok: true, removed: [], failed: [] };
@@ -2171,11 +2105,9 @@ module.exports = {
   CLASH_MINI_DIR_NAME,
   copyDirectoryRecursive,
   collectClashMiniProxyDelays,
-  detectNetworkMagicStatus,
   emitClashMiniLog,
   extractDirectClashConfigContent,
   fetchClashMiniProxyNames,
-  formatClashMiniDelayText,
   getClashMiniConfigProxyNames,
   getClashMiniManualGroupName,
   getClashMiniProxyEndpoint,
@@ -2190,7 +2122,6 @@ module.exports = {
   normalizeProbeUrl,
   probeClashMiniGroupDelay,
   probeClashMiniProxyDelay,
-  prepareClashMiniRuntimeDir,
   prepareClashMiniRuntimeDirAsync,
   readClashProbeSettings,
   resolveClashMiniCoreDir,

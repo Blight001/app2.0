@@ -3,7 +3,6 @@ const {
   collectClashMiniProxyDelays,
   emitClashMiniLog,
   fetchClashMiniProxyNames,
-  formatClashMiniDelayText,
   getClashMiniManualGroupName,
   getClashMiniRuntimeRoot,
   getClashMiniStatus,
@@ -17,7 +16,6 @@ const {
   invokeClashMiniControl,
 } = require('./clash-mini-core');
 
-// 获取/读取/解析：resolveLatencyConcurrency的具体业务逻辑。
 function resolveLatencyConcurrency(totalCount, requestedConcurrency) {
   const total = Math.max(1, Math.floor(Number(totalCount) || 0));
   // Mihomo 每个测速任务都会建立真实网络连接。过高并发会同时挤占 CPU、
@@ -290,7 +288,6 @@ async function testClashMiniLowestLatency(ui, options = {}) {
   };
 }
 
-// 获取/读取/解析：getClashMiniProxyGroupOptions的具体业务逻辑。
 async function getClashMiniProxyGroupOptions(ui, options = {}) {
   let status = getClashMiniStatus();
   if (!status.running) {
@@ -360,7 +357,6 @@ async function getClashMiniProxyGroupOptions(ui, options = {}) {
   };
 }
 
-// 处理：switchClashMiniProxyNode的具体业务逻辑。
 async function switchClashMiniProxyNode(ui, options = {}) {
   let status = getClashMiniStatus();
   if (!status.running) {

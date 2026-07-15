@@ -7,7 +7,7 @@ const DEFAULT_TUTORIAL_URL = 'https://www.yuque.com/kelingaishipindian/tx5gwq/xb
 
 // 监听/绑定：registerMiscIPC的具体业务逻辑。
 function registerMiscIPC(ctx) {
-  const { licenseCache, getDreamTargetUrl, DREAM_TARGET_URL } = ctx;
+  const { licenseCache } = ctx;
 
   ipcMain.handle('create-desktop-shortcut', async (_event, { createShortcut }) => {
     try {
@@ -78,18 +78,7 @@ function registerMiscIPC(ctx) {
           quota: item?.quota && typeof item.quota === 'object' ? { ...item.quota } : null,
         }))
         .filter((item) => item.name && item.targetUrl);
-      if (woolPlatforms.length > 0) return woolPlatforms;
-
-      // 兼容旧版单平台缓存：旧数据只有 platformName/targetUrl，没有 woolPlatforms。
-      const allowedPlatforms = Array.isArray(runtimeConfig.allowedPlatforms) ? runtimeConfig.allowedPlatforms : [];
-      const name = String(runtimeConfig.platformName || allowedPlatforms[0] || '').trim();
-      const targetUrl = String(
-        runtimeConfig.targetUrl
-        || (typeof getDreamTargetUrl === 'function' ? getDreamTargetUrl() : '')
-        || DREAM_TARGET_URL
-        || ''
-      ).trim();
-      return name && targetUrl ? [{ name, platform: name, targetUrl }] : [];
+      return woolPlatforms;
     } catch (error) {
       console.error('[IPC] 获取羊毛平台列表失败:', error);
       return [];

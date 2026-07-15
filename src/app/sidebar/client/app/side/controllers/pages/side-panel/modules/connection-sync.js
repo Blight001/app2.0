@@ -71,6 +71,7 @@ function setLicenseRequiredButtonsDisabled(disabled) {
   document.querySelectorAll('.open-wool-platform-btn').forEach((button) => {
     button.disabled = nextDisabled || button.dataset.quotaUnavailable === 'true';
   });
+  syncLoggedOutProtectedEntryAvailability();
 }
 
 // 设置/更新/持久化：setAccountTabDisabled的具体业务逻辑。
@@ -88,6 +89,44 @@ function isLicenseValidated() {
   return !!(validateBtn && validateBtn.classList.contains('validated'));
 }
 
+// 未登录时，受保护的主入口仍保持可点击；真正的点击处理器会在任何
+// IPC/网络操作前跳转到登录。测速和手动选路不是登录入口，继续禁用。
+function syncLoggedOutProtectedEntryAvailability() {
+  const accountSession = safeGetEl('sidebar-account-session');
+  const authenticated = accountSession?.dataset.authenticated === 'true';
+
+  const restoreAuthenticatedTitle = (button) => {
+    if (!button?.hasAttribute('data-authenticated-title')) return;
+    button.title = button.dataset.authenticatedTitle || '';
+    button.removeAttribute('data-authenticated-title');
+  };
+
+  if (authenticated) {
+    document.querySelectorAll('.open-wool-platform-btn').forEach(restoreAuthenticatedTitle);
+    restoreAuthenticatedTitle(safeGetEl('VPN-switch'));
+    return;
+  }
+
+  document.querySelectorAll('.open-wool-platform-btn').forEach((button) => {
+    if (button.dataset.busy !== '1') {
+      if (button.title !== '登录后使用羊毛资源') {
+        button.dataset.authenticatedTitle = button.title || '';
+      }
+      button.disabled = false;
+      button.title = '登录后使用羊毛资源';
+    }
+  });
+
+  const vpnButton = safeGetEl('VPN-switch');
+  if (vpnButton && vpnButton.dataset.busy !== '1') {
+    if (vpnButton.title !== '登录后使用网络魔法') {
+      vpnButton.dataset.authenticatedTitle = vpnButton.title || '';
+    }
+    vpnButton.disabled = false;
+    vpnButton.title = '登录后使用网络魔法';
+  }
+}
+
 // 设置/更新/持久化：applyFeatureAvailability的具体业务逻辑。
 function applyFeatureAvailability({
   licenseRequiredDisabled = true,
@@ -98,6 +137,7 @@ function applyFeatureAvailability({
   setButtonsDisabled('.VPN-btn', vpnDisabled);
   setAccountTabDisabled(accountTabDisabled);
   syncLatencyButtonState();
+  syncLoggedOutProtectedEntryAvailability();
 }
 
 // 设置/更新/持久化：setDreamButtonPlatformName的具体业务逻辑。
@@ -129,20 +169,13 @@ function renderWoolPlatformButtons(platforms) {
   if (sectionTitle) sectionTitle.hidden = items.length === 0;
 
   container.innerHTML = '';
+  container.hidden = items.length === 0;
   woolPlatformQuotaText.clear();
   items.forEach((item) => {
     const quotaText = formatWoolPlatformQuotaText(item.quota);
     if (quotaText) woolPlatformQuotaText.set(item.name, quotaText);
   });
   if (!items.length) {
-    const empty = document.createElement('button');
-    empty.id = 'open-dream-page-btn';
-    empty.type = 'button';
-    empty.disabled = true;
-    empty.className = 'main-button btn-large-blue requires-license open-wool-platform-btn';
-    empty.dataset.baseLabel = '暂无可用羊毛平台';
-    applyWoolPlatformButtonLabel(empty);
-    container.appendChild(empty);
     return;
   }
 
@@ -161,6 +194,7 @@ function renderWoolPlatformButtons(platforms) {
     if (item.quota?.account_type) button.title = `账号类型：${item.quota.account_type}`;
     container.appendChild(button);
   });
+  syncLoggedOutProtectedEntryAvailability();
 }
 
 // 设置/更新/持久化：setTutorialLinkHref的具体业务逻辑。
@@ -253,9 +287,7 @@ async function refreshPlatformName() {
 async function refreshWoolPlatforms() {
   try {
     const woolPlatforms = await window.electronAPI.invoke('get-wool-platforms');
-    if (Array.isArray(woolPlatforms) && woolPlatforms.length > 0) {
-      renderWoolPlatformButtons(woolPlatforms);
-    }
+    renderWoolPlatformButtons(Array.isArray(woolPlatforms) ? woolPlatforms : []);
     return Array.isArray(woolPlatforms) ? woolPlatforms : [];
   } catch (error) {
     console.error('[侧边栏] 获取羊毛平台列表失败:', error);

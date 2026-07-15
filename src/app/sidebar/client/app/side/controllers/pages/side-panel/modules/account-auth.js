@@ -88,6 +88,18 @@ function openAccountCenterDialog() {
   }, 0);
 }
 
+function isSidebarAccountAuthenticated() {
+  return safeGetEl('sidebar-account-session')?.dataset.authenticated === 'true';
+}
+
+// 返回 true 表示本次操作已被登录门禁接管。复用顶部头像的独立个人中心
+// 浮窗，只通知主进程打开窗口，不发起任何业务服务器请求。
+function redirectToSidebarAccountLogin() {
+  if (isSidebarAccountAuthenticated()) return false;
+  window.electronAPI?.send?.('open-account-center-popup');
+  return true;
+}
+
 function closeAccountCenterDialog() {
   const dialog = safeGetEl('account-center-dialog');
   if (!dialog || dialog.hidden) return;
@@ -105,6 +117,8 @@ function closeAccountCenterDialog() {
 
 window.openAccountCenterDialog = openAccountCenterDialog;
 window.closeAccountCenterDialog = closeAccountCenterDialog;
+window.isSidebarAccountAuthenticated = isSidebarAccountAuthenticated;
+window.redirectToSidebarAccountLogin = redirectToSidebarAccountLogin;
 
 function closeAccountProfileMenu() {
   const menu = safeGetEl('account-profile-menu');
@@ -256,6 +270,9 @@ function renderSidebarAccountSession(session = {}) {
   const username = authenticated ? String(session.username || '').trim() : '';
 
   if (profile) profile.dataset.authenticated = authenticated ? 'true' : 'false';
+  if (typeof syncLoggedOutProtectedEntryAvailability === 'function') {
+    syncLoggedOutProtectedEntryAvailability();
+  }
   window.electronAPI?.send?.('sync-app-shell-account', { authenticated, username });
   if (usernameDisplay) usernameDisplay.value = username;
   if (usernameInput && username) usernameInput.value = username;
@@ -445,6 +462,12 @@ function bindSidebarAccountAuth() {
   if (!modal || modal.dataset.bound === '1') return;
   modal.dataset.bound = '1';
 
+  if (!isStandaloneAccountCenterPopup) {
+    document.addEventListener('pointerdown', () => {
+      window.electronAPI?.send?.('dismiss-account-center-popup');
+    }, true);
+  }
+
   safeGetEl('sidebar-auth-mode-switch')?.addEventListener('click', (event) => {
     setSidebarAuthMode(event.currentTarget?.dataset.targetMode);
   });
@@ -486,6 +509,10 @@ function bindSidebarAccountAuth() {
     if (content && snapshot.announcementHtml) content.innerHTML = snapshot.announcementHtml;
     if (tutorial && snapshot.tutorialUrl) tutorial.href = snapshot.tutorialUrl;
     if (version && snapshot.appVersion) version.textContent = snapshot.appVersion;
+  });
+  window.electronAPI?.on?.('account-popup-dismiss', () => {
+    if (!isStandaloneAccountCenterPopup) return;
+    document.documentElement.classList.add('account-center-popup-closing');
   });
 
   setSidebarAuthMode('login');

@@ -872,6 +872,9 @@ function applyClashMiniStatus(status, { startBtn, vpnBtn, loadProxyOptions = tru
     }
     syncLatencyButtonState();
     syncVpnNodeSelectorState();
+    if (typeof syncLoggedOutProtectedEntryAvailability === 'function') {
+      syncLoggedOutProtectedEntryAvailability();
+    }
     if (enabled && !wasRunning && loadProxyOptions) {
       loadVpnNodeSelectorOptions({ force: true, probeDelays: false }).catch(() => {});
     } else if (!enabled && wasRunning) {
@@ -991,7 +994,12 @@ async function startClashMiniFlowOnce({ startBtn, vpnBtn, fetchConfig = true } =
   }
   const result = await window.electron.startClashMini();
   if (!result || result.ok !== true) {
-    throw new Error((result && (result.error || result.message)) || '启动网络魔法失败');
+    const error = new Error((result && (result.error || result.message)) || '启动网络魔法失败');
+    if (result?.cancelled === true) {
+      error.code = 'CLASH_MINI_START_CANCELLED';
+      error.cancelled = true;
+    }
+    throw error;
   }
 
   await persistNetworkMagicAutoStartEnabled(true).catch(() => {});
@@ -1052,6 +1060,15 @@ async function toggleClashMini({ startBtn, vpnBtn } = {}) {
 }
 
 function showNetworkMagicOperationError(error) {
+  // 软件退出会主动取消尚未完成的 Clash Mini 启动，并关闭相关 socket。
+  // 这是预期清理，不应再弹错误框打断退出流程。
+  if (
+    window.__aiFreeAppClosing === true
+    || error?.cancelled === true
+    || error?.code === 'CLASH_MINI_START_CANCELLED'
+  ) {
+    return;
+  }
   const message = String(error?.message || error || '网络魔法操作失败').trim() || '网络魔法操作失败';
   console.error('[侧边栏][Clash] 网络魔法操作失败:', message);
   if (window.MessageModal && typeof window.MessageModal.showErrorMessage === 'function') {
@@ -1137,6 +1154,7 @@ function bindClashMiniControls() {
 
   if (vpnBtn && vpnBtn.dataset.bound !== '1') {
     vpnBtn.addEventListener('click', () => {
+      if (window.redirectToSidebarAccountLogin?.()) return;
       observeNetworkMagicTask(withBusyButton(vpnBtn, [startBtn, dreamBtn], () => toggleClashMini({ startBtn, vpnBtn }), {
         preserveTextAfterResolve: true,
       }));
@@ -1200,6 +1218,10 @@ function bindClashMiniControls() {
   }
 
   if (!statusHandlersBound && window.electronAPI && typeof window.electronAPI.on === 'function') {
+    window.electronAPI.on('app-shutting-down', () => {
+      window.__aiFreeAppClosing = true;
+    });
+
     window.electronAPI.on('clash-mini-status', (status) => {
       applyClashMiniStatus(status, { startBtn, vpnBtn });
     });
@@ -1214,7 +1236,9 @@ function bindClashMiniControls() {
     });
     window.electronAPI.on('clash-mini-runtime-failed', (payload = {}) => {
       applyClashMiniStatus({ ok: true, running: false, enabled: false }, { startBtn, vpnBtn });
-      window.MessageModal?.showErrorMessage?.(payload.message || '网络魔法运行异常，已恢复为直连模式。');
+      if (window.__aiFreeAppClosing !== true) {
+        window.MessageModal?.showErrorMessage?.(payload.message || '网络魔法运行异常，已恢复为直连模式。');
+      }
     });
 
     window.electronAPI.on('clash-mini-latency-progress', (payload) => {
@@ -1222,6 +1246,13 @@ function bindClashMiniControls() {
     });
 
     window.__clashMiniConsoleBound = true;
+  }
+
+  if (!window.__aiFreeClosingGuardBound) {
+    window.__aiFreeClosingGuardBound = true;
+    window.addEventListener('beforeunload', () => {
+      window.__aiFreeAppClosing = true;
+    });
   }
 
   if (window.electron && typeof window.electron.getClashMiniStatus === 'function') {

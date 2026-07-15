@@ -23,13 +23,43 @@ function registerUiIPC(ctx) {
   let tabProxyMenuWindow = null;
   let accountCenterPopupWindow = null;
   let accountCenterPopupLayout = null;
+  let accountCenterPopupDismissTimer = null;
+  let accountCenterPopupDismissing = false;
+  let accountCenterPopupBlurArmTimer = null;
+  let accountCenterPopupBlurArmed = false;
+  let accountCenterPopupWindowFocusHandler = null;
 
   const closeAccountCenterPopupWindow = () => {
+    if (accountCenterPopupDismissTimer) {
+      clearTimeout(accountCenterPopupDismissTimer);
+      accountCenterPopupDismissTimer = null;
+    }
+    if (accountCenterPopupWindowFocusHandler && app?.removeListener) {
+      app.removeListener('browser-window-focus', accountCenterPopupWindowFocusHandler);
+      accountCenterPopupWindowFocusHandler = null;
+    }
+    if (accountCenterPopupBlurArmTimer) {
+      clearTimeout(accountCenterPopupBlurArmTimer);
+      accountCenterPopupBlurArmTimer = null;
+    }
+    accountCenterPopupDismissing = false;
+    accountCenterPopupBlurArmed = false;
     const popup = accountCenterPopupWindow;
     accountCenterPopupWindow = null;
     accountCenterPopupLayout = null;
     if (!popup || popup.isDestroyed()) return;
     try { popup.close(); } catch (_) {}
+  };
+
+  const dismissAccountCenterPopupWindow = () => {
+    const popup = accountCenterPopupWindow;
+    if (!popup || popup.isDestroyed() || accountCenterPopupDismissing) return;
+    accountCenterPopupDismissing = true;
+    try { popup.webContents.send('account-popup-dismiss'); } catch (_) {}
+    accountCenterPopupDismissTimer = setTimeout(() => {
+      accountCenterPopupDismissTimer = null;
+      closeAccountCenterPopupWindow();
+    }, 190);
   };
 
   const resizeAccountCenterPopupWindow = (requestedHeight) => {
@@ -65,7 +95,7 @@ function registerUiIPC(ctx) {
 
   const toggleAccountCenterPopupWindow = async (payload = {}) => {
     if (accountCenterPopupWindow && !accountCenterPopupWindow.isDestroyed()) {
-      closeAccountCenterPopupWindow();
+      dismissAccountCenterPopupWindow();
       return;
     }
 
@@ -116,6 +146,11 @@ function registerUiIPC(ctx) {
       },
     });
     accountCenterPopupWindow = popup;
+    accountCenterPopupWindowFocusHandler = (_event, focusedWindow) => {
+      if (focusedWindow === popup || !accountCenterPopupBlurArmed) return;
+      dismissAccountCenterPopupWindow();
+    };
+    app?.on?.('browser-window-focus', accountCenterPopupWindowFocusHandler);
     let popupShown = false;
     const showPopup = () => {
       if (popupShown || popup.isDestroyed()) return;
@@ -123,13 +158,34 @@ function registerUiIPC(ctx) {
         popup.show();
         popup.focus();
         popupShown = true;
+        accountCenterPopupBlurArmed = false;
+        if (accountCenterPopupBlurArmTimer) clearTimeout(accountCenterPopupBlurArmTimer);
+        // 原生 Chromium/父窗口在透明子窗口首次显示后可能短暂抢回焦点。
+        // 稳定期结束时重新聚焦一次，再启用真正的“点击外部关闭”。
+        accountCenterPopupBlurArmTimer = setTimeout(() => {
+          accountCenterPopupBlurArmTimer = null;
+          if (accountCenterPopupWindow !== popup || popup.isDestroyed() || accountCenterPopupDismissing) return;
+          try {
+            popup.show();
+            popup.focus();
+          } catch (_) {}
+          accountCenterPopupBlurArmTimer = setTimeout(() => {
+            accountCenterPopupBlurArmTimer = null;
+            if (accountCenterPopupWindow === popup && !popup.isDestroyed() && !accountCenterPopupDismissing) {
+              accountCenterPopupBlurArmed = true;
+            }
+          }, 80);
+        }, 220);
       } catch (_) {}
     };
     popup.on('closed', () => {
       if (accountCenterPopupWindow === popup) accountCenterPopupWindow = null;
     });
-    // 不监听 blur 自动关闭：网络魔法切换代理时会重启/聚焦原生 Chromium，
-    // 导致个人中心刚显示就因失焦被误关。浮窗由再次点击头像、关闭按钮或 Esc 关闭。
+    popup.on('blur', () => {
+      if (accountCenterPopupWindow !== popup) return;
+      if (!accountCenterPopupBlurArmed) return;
+      dismissAccountCenterPopupWindow();
+    });
     popup.webContents.on('did-finish-load', async () => {
       if (popup.isDestroyed()) return;
       showPopup();
@@ -152,6 +208,11 @@ function registerUiIPC(ctx) {
 
   const openAccountCenterPopupWindow = async (payload = {}) => {
     if (accountCenterPopupWindow && !accountCenterPopupWindow.isDestroyed()) {
+      if (accountCenterPopupDismissing) {
+        closeAccountCenterPopupWindow();
+        await toggleAccountCenterPopupWindow(payload);
+        return;
+      }
       try {
         accountCenterPopupWindow.show();
         accountCenterPopupWindow.focus();
@@ -730,7 +791,8 @@ function registerUiIPC(ctx) {
   ipcMain.on('open-account-center-popup', (_event, payload = {}) => {
     void openAccountCenterPopupWindow(payload);
   });
-  ipcMain.on('close-account-center-popup', () => closeAccountCenterPopupWindow());
+  ipcMain.on('dismiss-account-center-popup', () => dismissAccountCenterPopupWindow());
+  ipcMain.on('close-account-center-popup', () => dismissAccountCenterPopupWindow());
   ipcMain.on('resize-account-center-popup', (event, payload = {}) => {
     const popup = accountCenterPopupWindow;
     if (!popup || popup.isDestroyed() || event.sender !== popup.webContents) return;

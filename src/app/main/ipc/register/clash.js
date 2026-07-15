@@ -5,7 +5,6 @@ const YAML = require('yaml');
 const {
   CLASH_MINI_DIR_NAME,
   copyDirectoryRecursive,
-  detectNetworkMagicStatus,
   extractDirectClashConfigContent,
   getClashMiniRuntimeRoot,
   getClashMiniStatus,
@@ -30,7 +29,6 @@ const {
 } = require('../../../shared/text-preview-utils');
 const { createProxyTrafficMonitor } = require('./proxy-traffic-monitor');
 
-// 监听/绑定：registerClashIPC的具体业务逻辑。
 function registerClashIPC(ctx) {
   const { httpClient, ui, licenseCache } = ctx;
   try {
@@ -201,7 +199,6 @@ function registerClashIPC(ctx) {
     try {
       console.log('[IPC] 获取Clash配置...');
       const result = await httpClient.getClientConfig(key, deviceId);
-// 格式化/规范化：normalizeYamlContent的具体业务逻辑。
       const normalizeYamlContent = (value) => {
         if (!value) return '';
         if (typeof value === 'string') {
@@ -271,19 +268,6 @@ function registerClashIPC(ctx) {
     }
   });
 
-  ipcMain.handle('check-clash-client', async () => {
-    try {
-      console.log('[IPC] 开始检测 Clash 客户端状态（检测是否已有正在运行的 Clash）...');
-      const status = await detectNetworkMagicStatus();
-      console.log('[IPC] 本地 Clash 进程:', Array.isArray(status.matchedProcesses) && status.matchedProcesses.length > 0 ? status.matchedProcesses.join(', ') : '无');
-      console.log(`[IPC] Clash 客户端检测结果: ${status.runningClashClient ? '检测到运行中的 Clash 客户端' : '未检测到运行中的 Clash 客户端'}`);
-      return status.runningClashClient === true;
-    } catch (error) {
-      console.error('[IPC] 检测 Clash 客户端进程失败:', error);
-      return false;
-    }
-  });
-
   ipcMain.handle('stop-clash-service', async () => {
     console.log('[IPC] 关闭Clash服务，手动停止');
     return stopClashMiniProcess(ui);
@@ -313,7 +297,6 @@ function registerClashIPC(ctx) {
 
       const sourcePayload = clashConfig || configContent || profiles || yamlContent || yaml_content || content;
 
-// 获取/读取/解析：resolveSubscriptionUrl的具体业务逻辑。
       const resolveSubscriptionUrl = (value) => {
         const raw = String(value || '').trim();
         if (!raw) {
@@ -336,7 +319,6 @@ function registerClashIPC(ctx) {
         }
       };
 
-// 获取/读取/解析：fetchSubscriptionContent的具体业务逻辑。
       const fetchSubscriptionContent = async (url) => {
         const targetUrl = resolveSubscriptionUrl(url);
         if (!targetUrl) {

@@ -14,7 +14,6 @@ const {
   toFiniteNumber,
   writeStoreConfigSafe,
 } = require('./store-utils');
-const { detectNetworkMagicStatus } = require('./clash-mini-core');
 const {
   DEFAULT_AI_FREE_BROWSER_SETTINGS,
   normalizeAiFreeBrowserSettings,
@@ -901,33 +900,6 @@ function registerSettingsIPC(ctx) {
     } catch (error) {
       console.error('[IPC] 更新系统代理状态失败:', error);
       return { ok: false, error: error.message };
-    }
-  });
-
-  ipcMain.handle('get-system-proxy-enabled', async () => {
-    try {
-      const status = await detectNetworkMagicStatus();
-      return {
-        ok: true,
-        enabled: status.enabled === true,
-        mode: 'clash',
-        source: status.source || 'store',
-        systemProxyEnabled: status.systemProxyEnabled === true,
-        externalClashRunning: status.externalClashRunning === true,
-        vergeMihomoRunning: status.vergeMihomoRunning === true,
-        clashServiceRunning: status.clashServiceRunning === true,
-        runningClashClient: status.runningClashClient === true,
-        anyClashProcessRunning: status.anyClashProcessRunning === true,
-        appManagedClashRunning: status.appManagedClashRunning === true,
-        matchedProcesses: Array.isArray(status.matchedProcesses) ? status.matchedProcesses : [],
-        networkReachable: status.networkReachable === true,
-        probe: status.probe || null,
-        profile: status.profile || null,
-        detectedEnabled: status.detectedEnabled === true,
-      };
-    } catch (error) {
-      console.error('[IPC] 获取系统代理状态失败:', error);
-      return { ok: true, enabled: true, mode: 'clash' };
     }
   });
 

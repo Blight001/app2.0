@@ -228,6 +228,16 @@ function bindAccountCenterBtnOnce() {
   }
 }
 
+function bindAccountCenterOutsideDismissOnce() {
+  if (document.documentElement.dataset.accountCenterOutsideDismissBound === '1') return;
+  document.documentElement.dataset.accountCenterOutsideDismissBound = '1';
+  document.addEventListener('pointerdown', (event) => {
+    const target = event.target;
+    if (target?.closest?.('#account-center-btn')) return;
+    IPC.send('dismiss-account-center-popup');
+  }, true);
+}
+
 function beginTabRename(tabElement, options = {}) {
   if (!tabElement || tabElement.querySelector('.tab-title-editor')) return;
   const historyId = String(tabElement.dataset.browserHistoryId || '').trim();
@@ -620,6 +630,7 @@ onReady(() => {
   bindAddTabBtnOnce();
   bindThemeToggleBtnOnce();
   bindAccountCenterBtnOnce();
+  bindAccountCenterOutsideDismissOnce();
   bindNewBrowserWindowBtnOnce();
 
   // 初始化设置按钮动画监听器

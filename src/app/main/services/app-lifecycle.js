@@ -1,6 +1,7 @@
 const path = require('path');
 const { spawn } = require('child_process');
 const { setLicenseRuntimeConfig } = require('../utils/runtime-config');
+const { installShutdownUncaughtExceptionGuard } = require('../utils/logger');
 const {
   buildStoredAccountSession,
   normalizeAccountSession,
@@ -809,6 +810,12 @@ function registerAppLifecycle(deps = {}) {
       logger.log?.('[退出] 主进程开始退出流程...');
       global._isShuttingDown = true;
       global.willQuit = true;
+      // Node 的 uncaughtExceptionMonitor 只能记日志，不能阻止 Electron 弹出
+      // 主进程异常框；退出期需要真正接住 Mihomo 断连产生的 ECONNRESET。
+      installShutdownUncaughtExceptionGuard();
+      // 让仍在等待 IPC（例如 Clash Mini 启动）的侧边栏把随后到达的取消/
+      // 连接重置识别为正常退出，避免在窗口关闭前弹出错误框。
+      try { sendToSide?.('app-shutting-down', { reason: 'quit' }); } catch (_) {}
       const pendingUpdateInstallTarget = String(global._pendingUpdateInstallTarget || '').trim();
       const pendingUpdateInstallVersion = String(global._pendingUpdateInstallVersion || '').trim();
       const isUpdateExit = Boolean(pendingUpdateInstallTarget);
@@ -821,15 +828,9 @@ function registerAppLifecycle(deps = {}) {
 
       try {
         try {
-          logger.log?.('[退出] 正在关闭 Clash Mini...');
-          const clashStopResult = await stopClashMiniProcess({ sendToSide });
-          if (clashStopResult?.ok === false) {
-            logger.warn?.('[退出] Clash Mini 未完全退出:', clashStopResult.error || clashStopResult);
-          } else {
-            logger.log?.('[退出] Clash Mini 已关闭');
-          }
+          await deps.browserAutomationBridge?.stop?.();
         } catch (e) {
-          logger.warn?.('[退出] 关闭 Clash Mini 失败:', e?.message || e);
+          logger.warn?.('[退出] 关闭浏览器插件桥接失败:', e?.message || e);
         }
 
         try {
@@ -839,6 +840,20 @@ function registerAppLifecycle(deps = {}) {
           }
         } catch (e) {
           logger.warn?.('[退出] Chromium Profile 关闭失败:', e?.message || e);
+        }
+
+        // Chromium 必须先于代理核心退出，否则它的活动连接会在 Mihomo 被杀时
+        // 同时触发 ECONNRESET。启动任务也会由 stopClashMiniProcess 取消并收敛。
+        try {
+          logger.log?.('[退出] 正在关闭 Clash Mini...');
+          const clashStopResult = await stopClashMiniProcess({ sendToSide });
+          if (clashStopResult?.ok === false) {
+            logger.warn?.('[退出] Clash Mini 未完全退出:', clashStopResult.error || clashStopResult);
+          } else {
+            logger.log?.('[退出] Clash Mini 已关闭');
+          }
+        } catch (e) {
+          logger.warn?.('[退出] 关闭 Clash Mini 失败:', e?.message || e);
         }
 
         try {
@@ -864,12 +879,6 @@ function registerAppLifecycle(deps = {}) {
           }
         } catch (e) {
           logger.warn?.('[退出] 释放 HTTP 客户端失败:', e?.message || e);
-        }
-
-        try {
-          await deps.browserAutomationBridge?.stop?.();
-        } catch (e) {
-          logger.warn?.('[退出] 关闭浏览器插件桥接失败:', e?.message || e);
         }
 
         if (!isUpdateExit) {

@@ -3,10 +3,15 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { EventEmitter } = require('node:events');
 const YAML = require('yaml');
 
 const { buildChromiumArgs } = require('../src/app/main/browser-runtime/chromium-launcher');
 const { resolveLatencyConcurrency } = require('../src/app/main/ipc/register/clash-mini-actions');
+const {
+  installShutdownUncaughtExceptionGuard,
+  isExpectedShutdownNetworkError,
+} = require('../src/app/main/utils/logger');
 const {
   importDirectClashRuntimeConfig,
   normalizeClashMiniStartupConfig,
@@ -76,7 +81,7 @@ test('background best-route selection locks controls before status refresh and k
     path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/vpn.js'),
     'utf8',
   );
-  assert.match(source, /const disabled = !canUse \|\| vpnNodeSelectorBusy \|\| backgroundBestRouteSelectionPending/);
+  assert.match(source, /const disabled = !canUse \|\| vpnNodeSelectorBusy \|\| isNetworkMagicStartFlowActive\(\)/);
   const startFlow = source.slice(source.indexOf('async function startClashMiniFlowOnce'), source.indexOf('function startClashMiniFlow('));
   assert.ok(startFlow.indexOf('scheduleBestRouteSelection();') < startFlow.indexOf('applyClashMiniStatus(result'));
   const backgroundFlow = source.slice(source.indexOf('function scheduleBestRouteSelection'), source.indexOf('function getNetworkMagicAutoStartEnabled'));
@@ -84,6 +89,60 @@ test('background best-route selection locks controls before status refresh and k
   assert.match(backgroundFlow, /keepPanelOpen: true/);
   assert.match(backgroundFlow, /showPanel: true/);
   assert.match(backgroundFlow, /reportProgress: true/);
+});
+
+test('app shutdown drains Chromium before terminating Clash Mini', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../src/app/main/services/app-lifecycle.js'),
+    'utf8',
+  );
+  const shutdownFlow = source.slice(source.indexOf("app.on('before-quit'"));
+  assert.ok(shutdownFlow.indexOf("sendToSide?.('app-shutting-down'") < shutdownFlow.indexOf('stopClashMiniProcess({ sendToSide })'));
+  assert.ok(shutdownFlow.indexOf('browserRuntimeManager.stopAll') < shutdownFlow.indexOf('stopClashMiniProcess({ sendToSide })'));
+});
+
+test('shutdown-only connection resets are treated as expected cleanup', (t) => {
+  const previous = global._isShuttingDown;
+  t.after(() => { global._isShuttingDown = previous; });
+  global._isShuttingDown = false;
+  assert.equal(isExpectedShutdownNetworkError(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' })), false);
+  global._isShuttingDown = true;
+  assert.equal(isExpectedShutdownNetworkError(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' })), true);
+  assert.equal(isExpectedShutdownNetworkError(new Error('ordinary failure')), false);
+});
+
+test('shutdown exception guard prevents Electron-level dialogs only for ECONNRESET', (t) => {
+  const previous = global._isShuttingDown;
+  t.after(() => { global._isShuttingDown = previous; });
+  global._isShuttingDown = true;
+  const fakeProcess = new EventEmitter();
+  assert.equal(installShutdownUncaughtExceptionGuard({ processRef: fakeProcess }), true);
+  assert.doesNotThrow(() => {
+    fakeProcess.emit('uncaughtException', Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }));
+  });
+  assert.throws(() => fakeProcess.emit('uncaughtException', new Error('ordinary failure')), /ordinary failure/);
+});
+
+test('expected Clash Mini cancellation does not open an error modal during app shutdown', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/vpn.js'),
+    'utf8',
+  );
+  assert.match(source, /result\?\.cancelled === true/);
+  assert.match(source, /window\.__aiFreeAppClosing === true/);
+  assert.match(source, /electronAPI\.on\('app-shutting-down'/);
+});
+
+test('Clash Mini stop cancels pending startup and detaches browser proxy before kill', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../src/app/main/ipc/register/clash-mini-core.js'),
+    'utf8',
+  );
+  const stopFlow = source.slice(source.indexOf('async function stopClashMiniProcessOnce'), source.indexOf('function cleanupClashMiniRuntimeConfig'));
+  assert.match(stopFlow, /await pendingStartPromise\.catch/);
+  assert.ok(stopFlow.indexOf('ui.applyClashMiniBrowserProxy(false)') < stopFlow.indexOf('processRef.kill()'));
+  assert.ok(stopFlow.indexOf('clashMiniStartGeneration += 1') >= 0);
+  assert.match(source, /stopClashMiniProcess\(ui, \{ waitForPendingStart: false \}\)/);
 });
 
 test('Chromium update domains are forced direct before subscription proxy rules', () => {

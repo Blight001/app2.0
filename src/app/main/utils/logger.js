@@ -4,6 +4,32 @@ const path = require('path');
 const util = require('util');
 
 let activeRunLogger = null;
+const shutdownExceptionGuardTargets = new WeakSet();
+
+// Mihomo 在应用退出时会主动关闭现有代理连接。此时 Node 可能把连接重置
+// 作为未处理 rejection 上报；它只在明确的退出阶段属于预期清理。
+function isExpectedShutdownNetworkError(error) {
+  if (global._isShuttingDown !== true) return false;
+  const code = String(error?.code || error?.cause?.code || '').trim().toUpperCase();
+  const message = String(error?.message || error?.cause?.message || error || '');
+  return code === 'ECONNRESET' || /\bECONNRESET\b/i.test(message);
+}
+
+// Electron 会为主进程未捕获异常显示原生 “A JavaScript error occurred” 对话框。
+// 仅在退出流程明确开始后安装此保护器，并且只接住预期的连接重置；其他异常
+// 继续抛出，保持原有的故障可见性。
+function installShutdownUncaughtExceptionGuard({ processRef = process } = {}) {
+  if (!processRef || typeof processRef.prependListener !== 'function') return false;
+  if (shutdownExceptionGuardTargets.has(processRef)) return false;
+
+  const handler = (error) => {
+    if (isExpectedShutdownNetworkError(error)) return;
+    throw error;
+  };
+  processRef.prependListener('uncaughtException', handler);
+  shutdownExceptionGuardTargets.add(processRef);
+  return true;
+}
 
 // 处理：safeGetAppPath的具体业务逻辑。
 function safeGetAppPath(app, name) {
@@ -210,6 +236,7 @@ function initializeRunFileLogger({ app, dirName = 'logs', prefix = 'run' } = {})
 // 处理：uncaughtExceptionHandler的具体业务逻辑。
   const uncaughtExceptionHandler = (error) => {
     try {
+      if (isExpectedShutdownNetworkError(error)) return;
       const value = error instanceof Error ? (error.stack || error.message || String(error)) : String(error);
       originalConsole.error(value);
       write('error', [value]);
@@ -219,6 +246,7 @@ function initializeRunFileLogger({ app, dirName = 'logs', prefix = 'run' } = {})
 // 处理：unhandledRejectionHandler的具体业务逻辑。
   const unhandledRejectionHandler = (reason) => {
     try {
+      if (isExpectedShutdownNetworkError(reason)) return;
       const value = reason instanceof Error ? (reason.stack || reason.message || String(reason)) : util.format(reason);
       originalConsole.error(value);
       write('error', [value]);
@@ -244,4 +272,6 @@ function initializeRunFileLogger({ app, dirName = 'logs', prefix = 'run' } = {})
 module.exports = {
   createLogger,
   initializeRunFileLogger,
+  installShutdownUncaughtExceptionGuard,
+  isExpectedShutdownNetworkError,
 };
