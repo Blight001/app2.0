@@ -657,10 +657,6 @@ html.theme-gold #new-browser-window-btn.gesture-active {
   box-shadow: 0 0 0 3px rgba(212, 183, 118, .2), 0 8px 20px rgba(0, 0, 0, .32);
 }
 
-html.theme-gold #add-tab-btn.sidebar-reopen-hint {
-  box-shadow: 0 8px 22px rgba(212, 183, 118, .55);
-}
-
 html.theme-gold .ai-browser-particle-layer > i {
   background: rgba(230, 207, 154, var(--particle-opacity));
   box-shadow: 0 0 5px rgba(212, 183, 118, .66), inset 0 0 2px rgba(250, 240, 214, .75);
@@ -779,28 +775,4 @@ html.theme-gold .ai-browser-particle-layer > i.ai-text-particle {
 
 #add-tab-btn.expanding {
   animation: btnExpand 0.15s ease-in-out forwards;
-}
-
-@keyframes sidebarReopenAttention {
-  0% { transform: scale(1); }
-  24% { transform: scale(2); }
-  68% { transform: scale(2); }
-  100% { transform: scale(1); }
-}
-
-#add-tab-btn.sidebar-reopen-hint {
-  position: relative;
-  z-index: 50;
-  box-shadow: 0 8px 22px rgba(77, 163, 255, 0.62);
-}
-
-/* Chromium is a native child HWND above the Electron renderer. Scaling the
-   whole 30px button to 60px would cross the 41px toolbar boundary and the
-   browser would cover that overflow. Scale only the 18px gear to 36px so the
-   complete attention animation stays inside the toolbar. */
-#add-tab-btn.sidebar-reopen-hint .settings-icon {
-  position: relative;
-  z-index: 1;
-  transform-origin: center;
-  animation: sidebarReopenAttention 1.8s ease-in-out forwards;
 }

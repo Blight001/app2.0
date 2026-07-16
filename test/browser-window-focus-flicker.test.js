@@ -57,15 +57,3 @@ test('native host does not schedule or synchronously flush repeated focus paints
   assert.match(source, /if \(ok && !was_visible\)/);
   assert.match(source, /RaiseHostWindow[\s\S]*SWP_NOMOVE \| SWP_NOSIZE \| SWP_NOACTIVATE/);
 });
-
-test('native mouse input focuses Chromium before dispatching the original click', () => {
-  const source = fs.readFileSync(path.join(
-    __dirname,
-    '../native/browser-host/src/mouse_click_monitor.cc',
-  ), 'utf8');
-
-  const focusCall = source.indexOf('FocusBrowserChildWindow(child);');
-  const callbackCall = source.indexOf('napi_call_threadsafe_function(');
-  assert.ok(focusCall >= 0, 'mouse hook must restore Chromium keyboard focus');
-  assert.ok(callbackCall > focusCall, 'focus transfer must precede asynchronous click handling');
-});

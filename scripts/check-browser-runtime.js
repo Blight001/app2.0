@@ -758,8 +758,6 @@ try {
     runtimeType: 'chromium',
     runtimeStatus: 'ready',
   }]]);
-  let browserClickSidebarVisible = true;
-  const browserClickShellMessages = [];
   createTabManager({
     browserRuntimeManager: {
       chromium: {
@@ -769,21 +767,17 @@ try {
     getTabs: () => browserClickTabs,
     getMainWindow: () => ({
       isDestroyed: () => false,
-      webContents: { send: (name) => browserClickShellMessages.push(name) },
+      webContents: { send() {} },
       emit() {},
     }),
     getActiveTabId: () => 'active-browser',
-    getIsSidebarVisible: () => browserClickSidebarVisible,
-    setIsSidebarVisible: (visible) => { browserClickSidebarVisible = visible; },
+    getIsSidebarVisible: () => true,
+    setIsSidebarVisible() {},
     getSideView: () => null,
     updateTabs() {},
     logger: { warn() {}, error() {} },
   });
-  browserClickHandlers.get('browser-clicked')?.({ profileId: 'background-browser' });
-  assert.equal(browserClickSidebarVisible, true, '后台浏览器点击不得回收侧栏');
-  browserClickHandlers.get('browser-clicked')?.({ profileId: 'active-browser' });
-  assert.equal(browserClickSidebarVisible, false, '当前浏览器原生点击必须回收侧栏');
-  assert(browserClickShellMessages.includes('sidebar-reopen-hint'));
+  assert.equal(browserClickHandlers.has('browser-clicked'), false, '浏览器点击不得注册侧栏回收链路');
 
   const magicTabs = new Map([
     ['magic-direct', {

@@ -220,10 +220,6 @@ class ChromiumRuntime extends BrowserRuntime {
         embedded: true,
         lastHeartbeatAt: Date.now(),
       });
-      instance.browserClickWatching = this.windowBridge.watchChildWindowClicks(
-        browserHwnd,
-        () => this.emit('browser-clicked', { profileId }),
-      );
       instance.monitor = new ChromiumHealthMonitor({
         isWindowAlive: (hwnd) => this.windowBridge.isWindowAlive(hwnd),
         onFailure: (error) => this.markCrashed(profileId, error),
@@ -567,9 +563,6 @@ class ChromiumRuntime extends BrowserRuntime {
     const state = this.store.getState(id);
     const instance = this.instances.get(id);
     if (!state) return null;
-    if (state.browserHwnd) {
-      try { this.windowBridge.unwatchChildWindowClicks(state.browserHwnd); } catch (_) {}
-    }
     if (![RUNTIME_STATUS.STOPPING, RUNTIME_STATUS.STOPPED].includes(state.status)) this.store.transition(id, RUNTIME_STATUS.STOPPING);
     if (instance) {
       // 当前已发布 Chromium Bridge 的 close-browser 等价于关闭最后一个
@@ -649,9 +642,6 @@ class ChromiumRuntime extends BrowserRuntime {
     try { if (context.hostHwnd) this.windowBridge.destroyHostWindow(context.hostHwnd); } catch (_) {}
     this.store.releaseLock(profileId);
     const state = this.store.getState(profileId);
-    if (state?.browserHwnd) {
-      try { this.windowBridge.unwatchChildWindowClicks(state.browserHwnd); } catch (_) {}
-    }
     if (state) this.store.patchState(profileId, {
       status: RUNTIME_STATUS.CRASHED,
       sessionId: '',
@@ -664,9 +654,6 @@ class ChromiumRuntime extends BrowserRuntime {
   markCrashed(profileId, error) {
     const state = this.store.getState(profileId);
     if (!state || [RUNTIME_STATUS.STOPPED, RUNTIME_STATUS.STOPPING, RUNTIME_STATUS.CRASHED].includes(state.status)) return;
-    if (state.browserHwnd) {
-      try { this.windowBridge.unwatchChildWindowClicks(state.browserHwnd); } catch (_) {}
-    }
     try { this.windowBridge.hideHostWindow(state.hostHwnd); } catch (_) {}
     this.store.patchState(profileId, { status: RUNTIME_STATUS.CRASHED, browserHwnd: null, bridgeConnected: false, embedded: false, lastError: error, crashCount: Number(state.crashCount || 0) + 1 });
     this.emit('crashed', this.getState(profileId));

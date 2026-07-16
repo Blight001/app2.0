@@ -2,7 +2,6 @@
 #include "browser_host_window.h"
 #include "child_window_manager.h"
 #include "focus_manager.h"
-#include "mouse_click_monitor.h"
 
 napi_value SetPerMonitorDpiAwareness(napi_env env, napi_callback_info info);
 napi_value IsWindowAlive(napi_env env, napi_callback_info info);
@@ -19,8 +18,6 @@ NAPI_MODULE_INIT() {
     {"showHostWindow", nullptr, ShowHostWindow, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"hideHostWindow", nullptr, HideHostWindow, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"focusChildWindow", nullptr, FocusChildWindow, nullptr, nullptr, nullptr, napi_default, nullptr},
-    {"watchChildWindowClicks", nullptr, WatchChildWindowClicks, nullptr, nullptr, nullptr, napi_default, nullptr},
-    {"unwatchChildWindowClicks", nullptr, UnwatchChildWindowClicks, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"isWindowAlive", nullptr, IsWindowAlive, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"getWindowProcessId", nullptr, GetWindowProcessId, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"findMainWindowByProcessId", nullptr, FindMainWindowByProcessId, nullptr, nullptr, nullptr, napi_default, nullptr},

@@ -361,19 +361,6 @@ function createTabManager(deps = {}) {
       if (event.type === 'url-changed') tab.runtimeUrl = String(event.url || '').trim();
       updateTabs();
     });
-    browserRuntimeManager.chromium.on('browser-clicked', (event) => {
-      const profileId = String(event?.profileId || '');
-      // Native hit testing reports clicks for every running Chromium profile.
-      // Collapse only for the visible active browser and only while the
-      // sidebar is currently open; shell/sidebar clicks never reach this path.
-      if (!profileId || profileId !== String(resolveActiveTabId() || '')) return;
-      if (!resolveIsSidebarVisible()) return;
-      const nextVisible = toggleSidebar();
-      const mainWindow = resolveMainWindow();
-      if (nextVisible === false && mainWindow && !mainWindow.isDestroyed?.()) {
-        mainWindow.webContents?.send?.('sidebar-reopen-hint');
-      }
-    });
   }
 // 获取/读取/解析：读取服务器下发的教程地址。
   const resolveConfiguredTutorialUrl = () => {
