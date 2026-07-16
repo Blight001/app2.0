@@ -1,7 +1,9 @@
-const { ipcMain } = require('electron');
+const { BrowserWindow, dialog, ipcMain } = require('electron');
+const { createVipRequiredResult, resolveVipAccess } = require('../../utils/vip-access');
 
 function registerExtensionsIPC(ctx = {}) {
   const extensionManager = ctx.extensionManager || ctx.ui?.extensionManager || null;
+  const hasVipAccess = () => resolveVipAccess(ctx.licenseCache?.getSnapshot?.() || {}).isVip;
 
   function ensureManager() {
     if (!extensionManager) {
@@ -13,7 +15,7 @@ function registerExtensionsIPC(ctx = {}) {
   ipcMain.handle('get-extension-manager-state', async () => {
     const missing = ensureManager();
     if (missing) return missing;
-    return { ok: true, state: extensionManager.getPublicState() };
+    return { ok: true, vipRequired: !hasVipAccess(), state: extensionManager.getPublicState() };
   });
 
   ipcMain.handle('set-extension-enabled', async (_event, payload = {}) => {
@@ -31,6 +33,32 @@ function registerExtensionsIPC(ctx = {}) {
     if (missing) return missing;
     try {
       return await extensionManager.removePlugin(payload?.id);
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error), state: extensionManager.getPublicState() };
+    }
+  });
+
+  ipcMain.handle('import-extension-plugin', async (_event) => {
+    const missing = ensureManager();
+    if (missing) return missing;
+    if (!hasVipAccess()) {
+      return { ...createVipRequiredResult('导入自定义插件'), state: extensionManager.getPublicState() };
+    }
+    try {
+      const owner = BrowserWindow.fromWebContents(_event.sender) || undefined;
+      const selection = owner
+        ? await dialog.showOpenDialog(owner, {
+          title: '选择解压后的浏览器插件目录',
+          properties: ['openDirectory'],
+        })
+        : await dialog.showOpenDialog({
+          title: '选择解压后的浏览器插件目录',
+          properties: ['openDirectory'],
+        });
+      if (selection.canceled || !selection.filePaths?.[0]) {
+        return { ok: false, canceled: true, state: extensionManager.getPublicState() };
+      }
+      return await extensionManager.importPlugin(selection.filePaths[0]);
     } catch (error) {
       return { ok: false, message: error?.message || String(error), state: extensionManager.getPublicState() };
     }

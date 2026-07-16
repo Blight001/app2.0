@@ -10,7 +10,19 @@ const {
   getServerMode,
   isServerBaseAllowedForMode,
 } = require('../utils/server-mode');
-const { getAiControlMcpCallLimit } = require('../utils/ai-control-settings');
+const {
+  CUSTOM_AI_MODEL_ID,
+  getAiControlMcpCallLimit,
+  getCustomAiApiConfig,
+  isCustomAiApiConfigured,
+  isCustomAiModelId,
+} = require('../utils/ai-control-settings');
+const { sendCustomAIControlMessage } = require('./custom-ai-api');
+const { createVipRequiredResult, resolveVipAccess } = require('../utils/vip-access');
+const {
+  MAX_AI_CONTROL_MESSAGES,
+  limitAiControlMessages,
+} = require('../lib/ai-control-message-window');
 
 const BROWSER_CONNECTION_START_MATCH_WINDOW_MS = 60 * 1000;
 
@@ -74,9 +86,16 @@ function enrichBrowserConnectionNames(connections = [], tabs = [], runtimeStates
   }
 
   return connectionItems.map((connection) => {
-    const browserName = browserByConnectionId.get(String(connection?.id || ''))?.browserName || '';
+    const browser = browserByConnectionId.get(String(connection?.id || ''));
+    const browserName = browser?.browserName || '';
     return browserName
-      ? { ...connection, pluginName: connection.name, browserName, name: browserName }
+      ? {
+        ...connection,
+        pluginName: connection.name,
+        profileId: browser.profileId,
+        browserName,
+        name: browserName,
+      }
       : connection;
   });
 }
@@ -162,6 +181,7 @@ function registerAppLifecycle(deps = {}) {
     isMainBootstrappedRef,
     BrowserWindow,
     createMainWindow,
+    getMainWindow,
     logger = console,
   } = deps;
   const {
@@ -260,14 +280,42 @@ function registerAppLifecycle(deps = {}) {
 
     ipcMain.handle('ai-control-get-models', async () => {
       try {
-        const credentials = readStoreConfigSafe()?.userCredentials || {};
+        const store = readStoreConfigSafe();
+        const credentials = store?.userCredentials || {};
         const key = String(credentials.key || '').trim();
         const deviceId = String(credentials.deviceId || '').trim();
+        const customApi = getCustomAiApiConfig(store);
+        const hasVipAccess = resolveVipAccess(credentials).isVip;
+        const customModel = hasVipAccess && isCustomAiApiConfigured(customApi)
+          ? {
+            id: CUSTOM_AI_MODEL_ID,
+            name: customApi.name,
+            model: customApi.model,
+            custom_api: true,
+          }
+          : null;
+        if ((!key || !deviceId) && customModel) {
+          return { ok: true, models: [customModel], quota: null };
+        }
         const httpClient = getGlobalHttpClient?.();
         if (!httpClient || typeof httpClient.getAIControlModels !== 'function') {
-          return { ok: false, message: 'AI 服务尚未就绪' };
+          return customModel
+            ? { ok: true, models: [customModel], quota: null, remoteError: 'AI 服务尚未就绪' }
+            : { ok: false, message: 'AI 服务尚未就绪' };
         }
-        return await httpClient.getAIControlModels(key, deviceId);
+        const result = await httpClient.getAIControlModels(key, deviceId);
+        if (!result?.ok) {
+          return customModel
+            ? { ok: true, models: [customModel], quota: null, remoteError: result?.message || result?.error || '' }
+            : result;
+        }
+        return {
+          ...result,
+          models: [
+            ...(Array.isArray(result.models) ? result.models : []),
+            ...(customModel ? [customModel] : []),
+          ],
+        };
       } catch (error) {
         return { ok: false, message: error?.message || String(error) };
       }
@@ -306,6 +354,185 @@ function registerAppLifecycle(deps = {}) {
           return { ok: false, message: 'AI 服务尚未就绪' };
         }
         return await httpClient.redeemAIControlGiftCode(key, deviceId, code);
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error) };
+      }
+    });
+
+    let legacyCardImportLastAttemptAt = 0;
+    async function importLegacyCardsFromConnectedBrowsers(bridge) {
+      if (!bridge?.dispatch || !bridge?.setCardCacheState) return null;
+      const now = Date.now();
+      if (now - legacyCardImportLastAttemptAt < 15000) return null;
+      legacyCardImportLastAttemptAt = now;
+      const imported = [];
+      const connections = bridge.listConnections?.() || [];
+      for (const connection of connections) {
+        const fullConnection = bridge.getConnection?.(connection.id);
+        const supportsCards = Array.isArray(fullConnection?.tools)
+          && fullConnection.tools.some((tool) => String(tool?.name || '') === 'manage_card');
+        if (!supportsCards) continue;
+        try {
+          const listed = await bridge.dispatch(connection.id, 'manage_card', { action: 'list' }, { timeoutMs: 10000 });
+          for (const summary of Array.isArray(listed?.items) ? listed.items : []) {
+            const id = String(summary?.id || '').trim();
+            if (!id) continue;
+            const detail = await bridge.dispatch(connection.id, 'manage_card', { action: 'get', id }, { timeoutMs: 10000 });
+            if (!detail?.cardData || typeof detail.cardData !== 'object') continue;
+            imported.push({
+              id,
+              cardData: detail.cardData,
+              cardName: String(detail.cardName || detail.cardData.name || id),
+              savedAt: String(detail.savedAt || summary.savedAt || new Date().toISOString()),
+            });
+          }
+        } catch (error) {
+          console.warn('[AutomationBridge] 从旧浏览器迁移卡片失败:', connection.id, error?.message || error);
+        }
+      }
+      if (!imported.length) return null;
+      const current = bridge.getCardCacheState?.()?.state || { items: [], selectedId: '' };
+      const byId = new Map((Array.isArray(current.items) ? current.items : []).map((item) => [String(item?.id || ''), item]));
+      for (const item of imported) {
+        const previous = byId.get(item.id);
+        if (!previous || Date.parse(item.savedAt || '') >= Date.parse(previous.savedAt || '')) byId.set(item.id, item);
+      }
+      const items = Array.from(byId.values()).filter((item) => item?.id);
+      const selectedId = String(current.selectedId || imported[0]?.id || items[0]?.id || '');
+      const state = bridge.setCardCacheState({ items, selectedId });
+      console.log(`[AutomationBridge] 已从在线旧浏览器迁移 ${imported.length} 张卡片到软件卡片库`);
+      return state;
+    }
+
+    ipcMain.handle('ai-control-get-automation-cards', async () => {
+      try {
+        const bridge = deps.browserAutomationBridge;
+        let cached = bridge?.getCardCacheState?.() || { exists: false, state: { items: [], selectedId: '' } };
+        if (!Array.isArray(cached?.state?.items) || cached.state.items.length === 0) {
+          const migrated = await importLegacyCardsFromConnectedBrowsers(bridge);
+          if (migrated) cached = { exists: true, state: migrated };
+        }
+        const items = Array.isArray(cached?.state?.items) ? cached.state.items : [];
+        return {
+          ok: true,
+          selectedId: String(cached?.state?.selectedId || ''),
+          cards: items.map((item) => ({
+            id: String(item?.id || ''),
+            name: String(item?.cardName || item?.cardData?.name || item?.id || '未命名卡片'),
+            stepCount: Array.isArray(item?.cardData?.steps) ? item.cardData.steps.length : 0,
+            savedAt: String(item?.savedAt || ''),
+          })).filter((item) => item.id),
+        };
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error), cards: [], selectedId: '' };
+      }
+    });
+
+    ipcMain.on('ai-control-browser-selection-changed', (_event, input = {}) => {
+      const profileId = String(input?.profileId || '').trim();
+      const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
+      if (!mainWindow || mainWindow.isDestroyed?.() || mainWindow.webContents?.isDestroyed?.()) return;
+      mainWindow.webContents.send('ai-control-browser-selection-changed', { profileId });
+    });
+
+    ipcMain.handle('ai-control-select-automation-card', async (_event, input = {}) => {
+      try {
+        const selected = deps.browserAutomationBridge?.selectCard?.(input?.id);
+        if (!selected?.item) throw new Error('软件卡片库不可用');
+        return {
+          ok: true,
+          selectedId: String(selected.state?.selectedId || ''),
+          card: {
+            id: String(selected.item.id || ''),
+            name: String(selected.item.cardName || selected.item.cardData?.name || selected.item.id || '未命名卡片'),
+            stepCount: Array.isArray(selected.item.cardData?.steps) ? selected.item.cardData.steps.length : 0,
+          },
+        };
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error) };
+      }
+    });
+
+    ipcMain.handle('get-vip-plans', async () => {
+      try {
+        const credentials = normalizeAccountSession(readStoreConfigSafe()?.userCredentials || {});
+        const key = String(credentials.key || '').trim();
+        const deviceId = String(credentials.deviceId || '').trim();
+        if (!key || !deviceId) return { ok: false, message: '请先在个人中心登录账号' };
+        const httpClient = getGlobalHttpClient?.();
+        if (!httpClient || typeof httpClient.getVipPlans !== 'function') {
+          return { ok: false, message: 'VIP 套餐服务尚未就绪' };
+        }
+        return await httpClient.getVipPlans(key, deviceId);
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error) };
+      }
+    });
+
+    ipcMain.handle('redeem-vip-gift-code', async (_event, input = {}) => {
+      try {
+        const currentStore = readStoreConfigSafe() || {};
+        const credentials = normalizeAccountSession(currentStore.userCredentials || {});
+        const key = String(credentials.key || '').trim();
+        const deviceId = String(credentials.deviceId || '').trim();
+        const code = String(input.code || '').trim();
+        if (!key || !deviceId) return { ok: false, message: '请先在个人中心登录账号' };
+        if (!code) return { ok: false, message: '请输入礼品码' };
+        const httpClient = getGlobalHttpClient?.();
+        if (!httpClient || typeof httpClient.redeemVipGiftCode !== 'function') {
+          return { ok: false, message: 'VIP 礼品码服务尚未就绪' };
+        }
+        const redeemed = await httpClient.redeemVipGiftCode(key, deviceId, code);
+        if (!redeemed?.ok) return redeemed;
+
+        let validation = {
+          ...(credentials.validation || {}),
+          is_vip: true,
+          vip_active: true,
+          vip_tier: redeemed.vip_tier || 'vip',
+          vip_expiry_date: redeemed.vip_expiry_date || null,
+        };
+        if (typeof httpClient.validateKey === 'function') {
+          const refreshed = await httpClient.validateKey(key, deviceId);
+          if (refreshed?.valid === true || refreshed?.ok === true) validation = refreshed;
+        }
+        const account = {
+          ...(credentials.account || {}),
+          is_vip: true,
+          vip_active: true,
+          vip_tier: validation.vip_tier || redeemed.vip_tier || 'vip',
+          vip_expiry_date: validation.vip_expiry_date ?? redeemed.vip_expiry_date ?? null,
+        };
+        const storedSession = buildStoredAccountSession({
+          current: currentStore.userCredentials || {},
+          username: credentials.username,
+          key,
+          deviceId,
+          platformName: credentials.platformName,
+          serverBase: credentials.serverBase,
+          serverMode: credentials.serverMode,
+          account,
+          validation,
+        });
+        writeStoreConfigSafe({ ...currentStore, userCredentials: storedSession });
+        licenseCache?.setValidationState?.({
+          key,
+          deviceId,
+          bound: true,
+          validated: true,
+          licenseValidated: true,
+          result: validation,
+          message: redeemed.message || 'VIP 开通成功',
+        });
+        const session = {
+          authenticated: true,
+          username: credentials.username,
+          platformName: credentials.platformName,
+          account,
+          validation,
+        };
+        deps.sendToSide?.('account-session-updated', session);
+        return { ...redeemed, validation, session };
       } catch (error) {
         return { ok: false, message: error?.message || String(error) };
       }
@@ -351,20 +578,53 @@ function registerAppLifecycle(deps = {}) {
       }
     });
 
+    const activeAiChatRuns = new Map();
+    const aiChatRunKey = (event, requestId) => `${event?.sender?.id || 0}:${String(requestId || '').trim()}`;
+
+    ipcMain.handle('ai-control-chat-insert', async (_event, input = {}) => {
+      const requestId = String(input.requestId || '').trim();
+      const content = String(input.content || '').trim().slice(0, 12000);
+      if (!requestId || !content) return { ok: false, message: '缺少要插入的对话内容' };
+      const run = activeAiChatRuns.get(aiChatRunKey(_event, requestId));
+      if (!run || run.stopped) return { ok: false, message: '当前 AI 回复已经结束' };
+      run.insertedMessages.push({ role: 'user', content });
+      return { ok: true, queued: run.insertedMessages.length };
+    });
+
+    ipcMain.handle('ai-control-chat-stop', async (_event, input = {}) => {
+      const requestId = String(input.requestId || '').trim();
+      const run = activeAiChatRuns.get(aiChatRunKey(_event, requestId));
+      if (!run) return { ok: true, stopped: false };
+      run.stopped = true;
+      run.controller.abort();
+      return { ok: true, stopped: true };
+    });
+
     ipcMain.handle('ai-control-chat', async (_event, input = {}) => {
+      let activeRun = null;
+      let activeRunKey = '';
       try {
-        const credentials = readStoreConfigSafe()?.userCredentials || {};
+        const store = readStoreConfigSafe();
+        const credentials = store?.userCredentials || {};
         const key = String(credentials.key || '').trim();
         const deviceId = String(credentials.deviceId || '').trim();
-        if (!key || !deviceId) return { ok: false, message: '请先在个人中心登录账号' };
+        const modelId = String(input.modelId || '').trim();
+        const useCustomApi = isCustomAiModelId(modelId);
+        const customApi = getCustomAiApiConfig(store);
+        if (useCustomApi && !resolveVipAccess(credentials).isVip) {
+          return createVipRequiredResult('自定义模型');
+        }
+        if (useCustomApi && !isCustomAiApiConfigured(customApi)) {
+          return { ok: false, message: '自定义 API 尚未配置完整，请重新配置' };
+        }
+        if (!useCustomApi && (!key || !deviceId)) return { ok: false, message: '请先在个人中心登录账号' };
         const httpClient = getGlobalHttpClient?.();
-        if (!httpClient || typeof httpClient.sendAIControlMessage !== 'function') {
+        if (!useCustomApi && (!httpClient || typeof httpClient.sendAIControlMessage !== 'function')) {
           return { ok: false, message: 'AI 服务尚未就绪' };
         }
-        const modelId = String(input.modelId || '').trim();
         const initialMessages = Array.isArray(input.messages) ? input.messages : [];
         const quota = input.quota && typeof input.quota === 'object' ? input.quota : null;
-        if (quota && quota.unlimited !== true) {
+        if (!useCustomApi && quota && quota.unlimited !== true) {
           const total = Number(quota.quota);
           const used = Number(quota.used || 0);
           const remaining = Number(quota.remaining ?? (total - used));
@@ -373,9 +633,19 @@ function registerAppLifecycle(deps = {}) {
           }
         }
         const connectionId = String(input.browserConnectionId || '').trim();
+        const automationCardId = String(input.automationCardId || '').trim();
         const disableTools = input.disableTools === true;
         const useStream = input.stream === true;
         const requestId = String(input.requestId || '').trim();
+        if (useStream && requestId) {
+          activeRunKey = aiChatRunKey(_event, requestId);
+          activeRun = {
+            controller: new AbortController(),
+            insertedMessages: [],
+            stopped: false,
+          };
+          activeAiChatRuns.set(activeRunKey, activeRun);
+        }
         const emit = (payload) => {
           if (!useStream || !requestId || !_event.sender || _event.sender.isDestroyed()) return;
           _event.sender.send('ai-control-chat-event', { requestId, ...payload });
@@ -386,8 +656,30 @@ function registerAppLifecycle(deps = {}) {
           return { ok: false, message: '所选浏览器插件已离线，请刷新后重新选择' };
         }
 
+        let selectedAutomationCard = null;
+        if (!disableTools && automationCardId) {
+          try {
+            selectedAutomationCard = bridge?.selectCard?.(automationCardId)?.item || null;
+          } catch (error) {
+            return { ok: false, message: error?.message || '所选自动化卡片不存在，请刷新后重新选择' };
+          }
+        }
+
         const tools = connection?.tools || [];
-        const modelMessages = [...initialMessages];
+        const selectedAutomationCardName = String(
+          selectedAutomationCard?.cardName || selectedAutomationCard?.cardData?.name || automationCardId,
+        ).replace(/[\r\n\t]+/g, ' ').trim().slice(0, 120);
+        const selectedAutomationCardId = automationCardId.slice(0, 200);
+        const cardContextMessage = selectedAutomationCard && connection
+          ? {
+            role: 'system',
+            content: `AI 控制当前选中的自动化卡片名称为 ${JSON.stringify(selectedAutomationCardName)}，ID 为 ${JSON.stringify(selectedAutomationCardId)}。当用户要求查看、修改或运行当前卡片时，优先通过 manage_card 使用该 ID；不要擅自改用其他卡片。`,
+            ai_free_card_context: true,
+          }
+          : null;
+        let modelMessages = limitAiControlMessages(cardContextMessage
+          ? [cardContextMessage, ...initialMessages]
+          : [...initialMessages]);
         const compactToolValue = (value) => {
           let serialized = '';
           try { serialized = JSON.stringify(value ?? null); } catch (_) { serialized = String(value ?? ''); }
@@ -396,36 +688,156 @@ function registerAppLifecycle(deps = {}) {
         let runId = '';
         let latestQuota = null;
         let reasoningLog = '';
+        let streamedRoundContent = '';
+        let streamedRoundReasoning = '';
         const toolEvents = [];
         const traceEvents = [];
         const mcpCallLimit = getAiControlMcpCallLimit(readStoreConfigSafe());
         let mcpCallCount = 0;
-        for (let round = 0; ; round += 1) {
-          emit({ type: 'round_start', round });
-          const result = useStream && typeof httpClient.streamAIControlMessage === 'function'
-            ? await httpClient.streamAIControlMessage(
-              key,
-              deviceId,
-              modelId,
-              modelMessages,
-              { tools, runId },
-              (streamEvent) => {
-                if (!['result', 'error'].includes(streamEvent?.type)) {
-                  emit({ ...streamEvent, round });
-                }
+        let unresolvedToolFailure = '';
+        const isStopped = (error) => activeRun?.stopped || activeRun?.controller.signal.aborted
+          || error?.name === 'AbortError' || error?.code === 'ERR_CANCELED';
+        const waitForAbort = (promise) => {
+          if (!activeRun) return promise;
+          if (activeRun.controller.signal.aborted) {
+            const error = new Error('AI 输出已停止');
+            error.name = 'AbortError';
+            return Promise.reject(error);
+          }
+          return new Promise((resolve, reject) => {
+            const signal = activeRun.controller.signal;
+            const onAbort = () => {
+              const error = new Error('AI 输出已停止');
+              error.name = 'AbortError';
+              reject(error);
+            };
+            signal.addEventListener('abort', onAbort, { once: true });
+            Promise.resolve(promise).then(
+              (value) => {
+                signal.removeEventListener('abort', onAbort);
+                resolve(value);
               },
-            )
-            : await httpClient.sendAIControlMessage(
-              key,
-              deviceId,
-              modelId,
-              modelMessages,
-              { tools, runId },
+              (error) => {
+                signal.removeEventListener('abort', onAbort);
+                reject(error);
+              },
             );
+          });
+        };
+        const takeInsertedMessages = (notify = true) => {
+          if (!activeRun?.insertedMessages.length) return false;
+          const inserted = activeRun.insertedMessages.splice(0);
+          modelMessages.push(...inserted);
+          if (notify) emit({ type: 'user_inserted', count: inserted.length });
+          return true;
+        };
+        const buildStoppedResult = () => {
+          takeInsertedMessages(false);
+          const partialReasoning = String(streamedRoundReasoning || '');
+          const partialContent = String(streamedRoundContent || '');
+          const stoppedTraceEvents = partialReasoning
+            ? [...traceEvents, { type: 'reasoning', round: traceEvents.length, content: partialReasoning }]
+            : [...traceEvents];
+          const cleanMessages = modelMessages
+            .filter((message) => message?.ai_free_card_context !== true && message?.role !== 'tool')
+            .map((message) => message?.role === 'assistant'
+              ? { role: 'assistant', content: String(message.content || '') }
+              : message)
+            .filter((message) => message?.role !== 'assistant' || String(message.content || '').trim());
+          const stoppedMessage = {
+            role: 'assistant',
+            content: partialContent,
+            reasoning: `${reasoningLog}${reasoningLog && partialReasoning ? '\n\n' : ''}${partialReasoning}`,
+            tool_events: toolEvents,
+            trace_events: stoppedTraceEvents,
+            stopped: true,
+          };
+          if (partialContent.trim() || stoppedMessage.reasoning.trim() || toolEvents.length) {
+            cleanMessages.push({ role: 'assistant', content: partialContent });
+          }
+          const stoppedResult = {
+            ok: true,
+            stopped: true,
+            quota: latestQuota,
+            messages: limitAiControlMessages(cleanMessages),
+            message: stoppedMessage,
+          };
+          emit({ type: 'stopped', message: stoppedMessage, quota: latestQuota });
+          return stoppedResult;
+        };
+        const finishAfterToolFailure = (failureMessage) => {
+          const detail = String(failureMessage || unresolvedToolFailure || '浏览器插件执行失败').trim().slice(0, 1000);
+          const content = `浏览器插件操作失败：${detail}\n\n当前对话已保留，你可以检查浏览器连接或调整操作后重试。`;
+          const finalMessages = limitAiControlMessages([
+            ...modelMessages.filter((message) => message?.ai_free_card_context !== true),
+            { role: 'assistant', content },
+          ]);
+          const finalResult = {
+            ok: true,
+            recoveredFromToolError: true,
+            quota: latestQuota,
+            messages: finalMessages,
+            message: {
+              role: 'assistant',
+              content,
+              reasoning: reasoningLog,
+              tool_events: toolEvents,
+              trace_events: traceEvents,
+            },
+          };
+          emit({ type: 'done', message: finalResult.message, quota: finalResult.quota });
+          return finalResult;
+        };
+        for (let round = 0; ; round += 1) {
+          if (isStopped()) return buildStoppedResult();
+          takeInsertedMessages();
+          streamedRoundContent = '';
+          streamedRoundReasoning = '';
+          emit({ type: 'round_start', round });
+          modelMessages = limitAiControlMessages(modelMessages);
+          let result;
+          try {
+            result = useCustomApi
+              ? await sendCustomAIControlMessage(customApi, modelMessages, {
+                tools,
+                signal: activeRun?.controller.signal,
+              })
+              : useStream && typeof httpClient.streamAIControlMessage === 'function'
+                ? await httpClient.streamAIControlMessage(
+                key,
+                deviceId,
+                modelId,
+                modelMessages,
+                { tools, runId, signal: activeRun?.controller.signal },
+                (streamEvent) => {
+                  if (streamEvent?.type === 'content_delta') streamedRoundContent += String(streamEvent.delta || '');
+                  if (streamEvent?.type === 'reasoning_delta') streamedRoundReasoning += String(streamEvent.delta || '');
+                  if (!['result', 'error'].includes(streamEvent?.type)) {
+                    emit({ ...streamEvent, round });
+                  }
+                },
+                )
+                : await httpClient.sendAIControlMessage(
+                key,
+                deviceId,
+                modelId,
+                modelMessages,
+                { tools, runId },
+                );
+          } catch (error) {
+            if (isStopped(error)) return buildStoppedResult();
+            if (unresolvedToolFailure) return finishAfterToolFailure(error?.message || unresolvedToolFailure);
+            throw error;
+          }
+          if (isStopped()) return buildStoppedResult();
           if (!result?.ok) {
+            if (unresolvedToolFailure) {
+              return finishAfterToolFailure(result?.message || result?.error || unresolvedToolFailure);
+            }
             emit({ type: 'error', message: result?.message || result?.error || '对话请求失败' });
             return result;
           }
+          unresolvedToolFailure = '';
           latestQuota = result.quota || latestQuota;
           runId = String(result.run_id || runId || '');
           const roundReasoning = String(result.message?.reasoning || '');
@@ -435,13 +847,14 @@ function registerAppLifecycle(deps = {}) {
           }
           const toolCalls = Array.isArray(result.message?.tool_calls) ? result.message.tool_calls : [];
           if (!toolCalls.length) {
-            const finalMessages = [
-              ...modelMessages,
-              {
-                role: 'assistant',
-                content: String(result.message?.content || ''),
-              },
-            ];
+            modelMessages.push({
+              role: 'assistant',
+              content: String(result.message?.content || ''),
+            });
+            if (takeInsertedMessages()) continue;
+            const finalMessages = limitAiControlMessages(
+              modelMessages.filter((message) => message?.ai_free_card_context !== true),
+            );
             const finalResult = {
               ...result,
               quota: latestQuota,
@@ -457,7 +870,11 @@ function registerAppLifecycle(deps = {}) {
             return finalResult;
           }
           if (!connection || !bridge?.dispatch) {
-            return { ok: false, message: '模型请求了浏览器工具，但当前没有选择可用的浏览器插件' };
+            return finishAfterToolFailure('模型请求了浏览器工具，但当前没有选择可用的浏览器插件');
+          }
+
+          if (toolCalls.length >= MAX_AI_CONTROL_MESSAGES) {
+            return finishAfterToolFailure(`模型单轮请求了 ${toolCalls.length} 个浏览器工具，超过可安全处理的数量`);
           }
 
           if (mcpCallCount + toolCalls.length > mcpCallLimit) {
@@ -474,6 +891,9 @@ function registerAppLifecycle(deps = {}) {
             content: String(result.message?.content || ''),
             tool_calls: toolCalls,
           });
+          // 本轮模型输出已经完整进入消息链；后续若在 MCP 执行中停止，不要把同一段流式正文重复保存。
+          streamedRoundContent = '';
+          streamedRoundReasoning = '';
           const roundContent = String(result.message?.content || '').trim();
           if (roundContent) traceEvents.push({ type: 'step', round, content: roundContent });
           for (const call of toolCalls) {
@@ -497,25 +917,69 @@ function registerAppLifecycle(deps = {}) {
             let toolResult;
             try {
               const requestedSeconds = Number(args?.timeout_seconds || 0);
-              toolResult = await bridge.dispatch(connection.id, toolName, args, {
-                timeoutMs: requestedSeconds > 0 ? requestedSeconds * 1000 : 180000,
-              });
+              const isCardRun = toolName === 'manage_card'
+                && String(args?.action || '').trim().toLowerCase() === 'run';
+              toolResult = await waitForAbort(bridge.dispatch(connection.id, toolName, args, {
+                timeoutMs: requestedSeconds > 0
+                  ? Math.min(1800, Math.max(1, requestedSeconds)) * 1000
+                  : (isCardRun ? 900000 : 180000),
+              }));
             } catch (error) {
-              toolResult = { success: false, error: error?.message || String(error) };
+              if (isStopped(error)) return buildStoppedResult();
+              const errorMessage = String(error?.message || error || '浏览器工具执行失败').trim();
+              toolResult = {
+                success: false,
+                error: errorMessage,
+                errorReason: errorMessage,
+                errorCode: String(error?.errorCode || error?.code || 'BROWSER_TOOL_FAILED'),
+                phase: String(error?.phase || 'tool_dispatch'),
+                tool: String(error?.tool || toolName),
+                ...(Number(error?.timeoutMs || 0) > 0 ? { timeoutMs: Number(error.timeoutMs) } : {}),
+              };
             }
-            activity.status = toolResult?.success === false ? 'error' : 'success';
+            const toolFailed = toolResult?.success === false || toolResult?.ok === false;
+            activity.status = toolFailed ? 'error' : 'success';
             activity.result = compactToolValue(toolResult ?? null);
             emit({ type: 'tool_result', tool: { ...activity }, round });
+            if (toolFailed) {
+              unresolvedToolFailure = String(toolResult?.error || toolResult?.message || `${toolName} 执行失败`);
+              toolResult = {
+                ...(toolResult && typeof toolResult === 'object' ? toolResult : {}),
+                success: false,
+                error: unresolvedToolFailure,
+                recoverable: true,
+                instruction: '本次浏览器操作失败。请根据错误调整参数或向用户说明，不要终止整个对话。',
+              };
+            }
+            let serializedToolResult = '';
+            try {
+              serializedToolResult = JSON.stringify(toolResult ?? null);
+            } catch (_) {
+              unresolvedToolFailure = `${toolName} 返回了无法序列化的结果`;
+              serializedToolResult = JSON.stringify({
+                success: false,
+                error: unresolvedToolFailure,
+                recoverable: true,
+              });
+            }
             modelMessages.push({
               role: 'tool',
               tool_call_id: String(call.id || ''),
               name: toolName,
-              content: JSON.stringify(toolResult ?? null),
+              content: serializedToolResult,
             });
           }
+          takeInsertedMessages();
         }
       } catch (error) {
+        if (activeRun?.stopped || error?.name === 'AbortError' || error?.code === 'ERR_CANCELED') {
+          return { ok: true, stopped: true, messages: [], message: { role: 'assistant', content: '' } };
+        }
         return { ok: false, message: error?.message || String(error) };
+      } finally {
+        if (activeRunKey && activeAiChatRuns.get(activeRunKey) === activeRun) {
+          activeAiChatRuns.delete(activeRunKey);
+        }
       }
     });
 

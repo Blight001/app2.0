@@ -4,9 +4,21 @@
     sessionList: [],
     currentSession: null,
     currentBrowserId: '',
+    browserConnectionProfileById: {},
+    browserConnectionsLoading: false,
+    currentCardId: '',
+    sharedAutomationCardId: '',
+    automationCards: [],
+    automationCardsLoading: false,
+    automationCardsRefreshQueued: false,
+    automationCardsQueuedPreferredId: '',
+    automationCardsError: '',
     browserSelectionExplicitlyDisabled: false,
     accountAuthenticated: false,
+    vipActive: false,
     loading: false,
+    stopping: false,
+    activeRequestId: '',
     generatingTitle: false,
     quota: null,
     lastQuotaCost: null,
@@ -19,10 +31,25 @@
     mcpSettingsSaving: false,
     mcpSettingsStatus: '',
     mcpSettingsStatusType: '',
+    customApiHasKey: false,
+    customApiSaving: false,
   };
 
   const HISTORY_LS_PREFIX = 'ai-free.ai-chat-history.v1.';
+  const SEND_BUTTON_ICONS = {
+    send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"></path><path d="M22 2 11 13"></path></svg>',
+    stop: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"></rect></svg>',
+  };
   const el = (id) => document.getElementById(id);
+
+  function notifyBrowserSelection() {
+    const connectionId = String(state.currentBrowserId || '');
+    const profileId = String(state.browserConnectionProfileById[connectionId] || '');
+    window.electronAPI?.send?.('ai-control-browser-selection-changed', {
+      connectionId,
+      profileId,
+    });
+  }
 
   function currentMessages() {
     return state.messages;
@@ -78,6 +105,7 @@
       titleGenerated: session?.titleGenerated === true,
       modelId: String(session?.modelId || ''),
       browserConnectionId: String(session?.browserConnectionId || ''),
+      automationCardId: String(session?.automationCardId || ''),
       preview: String(session?.preview || ''),
       messageCount: messages.length,
       createdAt: Number(session?.createdAt) || Date.now(),
@@ -159,6 +187,105 @@
       modal.showErrorMessage(text);
     } else {
       console.error('[AI 对话]', text);
+    }
+  }
+
+  function selectedModelIsCustom() {
+    const option = el('ai-chat-model')?.selectedOptions?.[0];
+    return option?.dataset?.customApi === 'true';
+  }
+
+  function closeCustomApiDialog() {
+    const dialog = el('ai-custom-api-dialog');
+    if (dialog) dialog.hidden = true;
+    el('ai-chat-model-trigger')?.focus?.();
+  }
+
+  function updateCustomApiDialogBusy(busy) {
+    state.customApiSaving = busy === true;
+    el('ai-custom-api-form')?.querySelectorAll?.('input, button')?.forEach?.((control) => {
+      control.disabled = state.customApiSaving;
+    });
+    const save = el('ai-custom-api-save');
+    if (save) save.textContent = state.customApiSaving ? '保存中…' : '保存并使用';
+  }
+
+  async function openCustomApiDialog() {
+    if (window.isSidebarVipActive?.() !== true && state.vipActive !== true) {
+      window.openVipAccountCenter?.();
+      return;
+    }
+    const dialog = el('ai-custom-api-dialog');
+    const status = el('ai-custom-api-status');
+    if (!dialog || !window.electronAPI?.invoke) return;
+    if (status) status.textContent = '';
+    dialog.hidden = false;
+    updateCustomApiDialogBusy(true);
+    try {
+      const result = await window.electronAPI.invoke('get-ai-control-custom-api');
+      if (result?.vipRequired) {
+        closeCustomApiDialog();
+        window.openVipAccountCenter?.();
+        return;
+      }
+      if (!result?.ok) throw new Error(result?.error || result?.message || '读取自定义 API 失败');
+      const config = result.config || {};
+      state.customApiHasKey = config.hasApiKey === true;
+      el('ai-custom-api-name').value = String(config.name || '自定义 API');
+      el('ai-custom-api-base-url').value = String(config.baseUrl || '');
+      el('ai-custom-api-key').value = '';
+      el('ai-custom-api-key').placeholder = state.customApiHasKey ? '已保存，留空则保持不变' : '可选，支持无鉴权的本地接口';
+      el('ai-custom-api-model').value = String(config.model || '');
+      el('ai-custom-api-clear').hidden = !config.enabled;
+    } catch (error) {
+      if (status) status.textContent = error?.message || String(error);
+    } finally {
+      updateCustomApiDialogBusy(false);
+      el('ai-custom-api-base-url')?.focus?.();
+    }
+  }
+
+  async function saveCustomApi(event) {
+    event?.preventDefault?.();
+    if (state.customApiSaving || !window.electronAPI?.invoke) return;
+    const status = el('ai-custom-api-status');
+    if (status) status.textContent = '';
+    const payload = {
+      enabled: true,
+      name: String(el('ai-custom-api-name')?.value || '').trim(),
+      baseUrl: String(el('ai-custom-api-base-url')?.value || '').trim(),
+      model: String(el('ai-custom-api-model')?.value || '').trim(),
+    };
+    const apiKey = String(el('ai-custom-api-key')?.value || '').trim();
+    if (apiKey || !state.customApiHasKey) payload.apiKey = apiKey;
+    updateCustomApiDialogBusy(true);
+    try {
+      const result = await window.electronAPI.invoke('set-ai-control-custom-api', payload);
+      if (!result?.ok) throw new Error(result?.error || result?.message || '保存自定义 API 失败');
+      closeCustomApiDialog();
+      await loadModels('__custom_openai_api__');
+      setStatus('自定义 API 已保存并选中', 'success');
+    } catch (error) {
+      if (status) status.textContent = error?.message || String(error);
+    } finally {
+      updateCustomApiDialogBusy(false);
+    }
+  }
+
+  async function clearCustomApi() {
+    if (state.customApiSaving || !window.electronAPI?.invoke) return;
+    updateCustomApiDialogBusy(true);
+    try {
+      const result = await window.electronAPI.invoke('set-ai-control-custom-api', { clear: true });
+      if (!result?.ok) throw new Error(result?.error || result?.message || '移除自定义 API 失败');
+      closeCustomApiDialog();
+      await loadModels();
+      setStatus('自定义 API 配置已移除', 'success');
+    } catch (error) {
+      const status = el('ai-custom-api-status');
+      if (status) status.textContent = error?.message || String(error);
+    } finally {
+      updateCustomApiDialogBusy(false);
     }
   }
 
@@ -274,6 +401,16 @@
     if (menu) menu.hidden = true;
   }
 
+  function updateBrowserMenuAvailableHeight(shell) {
+    if (!shell || shell.dataset.aiSelect !== 'browser') return;
+    const trigger = shell.querySelector('.ai-select-trigger');
+    const menu = shell.querySelector('.ai-select-menu');
+    if (!trigger || !menu) return;
+    const viewportTop = Number(window.visualViewport?.offsetTop) || 0;
+    const availableHeight = Math.max(0, Math.floor(trigger.getBoundingClientRect().top - viewportTop - 10));
+    menu.style.setProperty('--ai-browser-menu-available-height', `${availableHeight}px`);
+  }
+
   function openSelect(shell) {
     if (!shell) return;
     const trigger = shell.querySelector('.ai-select-trigger');
@@ -287,6 +424,7 @@
     shell.classList.add('open');
     trigger.setAttribute('aria-expanded', 'true');
     menu.hidden = false;
+    updateBrowserMenuAvailableHeight(shell);
     const selected = menu.querySelector('[aria-selected="true"]');
     (selected || menu.querySelector('.ai-select-option'))?.focus?.();
   }
@@ -381,7 +519,7 @@
 
   function appendBrowserMcpSetting(menu) {
     const item = document.createElement('li');
-    item.className = 'ai-browser-mcp-setting';
+    item.className = 'ai-browser-menu-setting ai-browser-mcp-setting';
 
     const label = document.createElement('label');
     label.htmlFor = 'ai-browser-mcp-call-limit';
@@ -428,6 +566,91 @@
     updateBrowserMcpSettingUi();
   }
 
+  function selectedAutomationCard() {
+    return state.automationCards.find((card) => String(card.id) === state.currentCardId) || null;
+  }
+
+  async function selectAutomationCard(cardId, options = {}) {
+    const id = String(cardId || '').trim();
+    if (!id || !window.electronAPI?.invoke) return false;
+    try {
+      const result = await window.electronAPI.invoke('ai-control-select-automation-card', { id });
+      if (!result?.ok) throw new Error(result?.message || '选择自动化卡片失败');
+      state.currentCardId = String(result.selectedId || id);
+      state.sharedAutomationCardId = state.currentCardId;
+      state.automationCardsError = '';
+      if (state.currentSession) {
+        state.currentSession.automationCardId = state.currentCardId;
+        if (options.persist !== false && currentMessages().length) void persistCurrentSession();
+      }
+      syncSelectUi(el('ai-chat-browser'));
+      if (!currentMessages().length) renderWelcome();
+      return true;
+    } catch (error) {
+      state.automationCardsError = error?.message || String(error);
+      syncSelectUi(el('ai-chat-browser'));
+      if (options.silent !== true) setStatus(state.automationCardsError, 'warning');
+      return false;
+    }
+  }
+
+  function appendAutomationCardSetting(menu) {
+    const header = document.createElement('li');
+    header.className = 'ai-browser-menu-setting ai-browser-card-setting';
+
+    const label = document.createElement('span');
+    label.textContent = '自动化卡片';
+
+    const refresh = document.createElement('button');
+    refresh.type = 'button';
+    refresh.className = 'ai-browser-card-refresh';
+    refresh.textContent = '刷新';
+    refresh.title = '刷新软件卡片库';
+    refresh.disabled = state.automationCardsLoading;
+    refresh.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      refresh.blur();
+      void loadAutomationCards();
+    });
+    header.append(label, refresh);
+    menu.appendChild(header);
+
+    const cards = Array.isArray(state.automationCards) ? state.automationCards : [];
+    if (!cards.length) {
+      const empty = document.createElement('li');
+      empty.className = 'ai-browser-card-empty';
+      empty.dataset.type = state.automationCardsError ? 'error' : '';
+      empty.textContent = state.automationCardsError
+        || (state.automationCardsLoading ? '正在读取卡片…' : '暂无已保存卡片');
+      menu.appendChild(empty);
+      return;
+    }
+
+    cards.forEach((card) => {
+      const id = String(card.id || '');
+      const option = document.createElement('button');
+      option.type = 'button';
+      option.className = 'ai-select-option ai-browser-card-option';
+      option.role = 'option';
+      option.dataset.cardId = id;
+      option.setAttribute('aria-selected', id === state.currentCardId ? 'true' : 'false');
+
+      const name = document.createElement('span');
+      name.className = 'ai-select-option-label';
+      name.textContent = String(card.name || card.id || '未命名卡片');
+      const steps = document.createElement('span');
+      steps.className = 'ai-select-option-meta';
+      steps.textContent = `${Number(card.stepCount || 0)} 步`;
+      option.append(name, steps);
+      option.addEventListener('click', async (event) => {
+        event.preventDefault();
+        if (await selectAutomationCard(id)) closeSelect(menu.closest('.ai-select'));
+      });
+      menu.appendChild(option);
+    });
+  }
+
   function syncSelectUi(select) {
     const shell = getSelectShell(select);
     if (!shell || !select) return;
@@ -443,12 +666,12 @@
     const selected = options.find((opt) => opt.selected) || options[0] || null;
     valueEl.textContent = optionDisplayText(selected);
     if (shell.dataset.aiSelect === 'browser') {
-      shell.classList.toggle('has-selection', Boolean(select.value));
-      trigger.title = selected?.textContent || '选择浏览器插件';
+      shell.classList.toggle('has-selection', Boolean(select.value || state.currentCardId));
+      trigger.title = selected?.textContent || '未连接浏览器';
     }
 
     const activeBrowserSetting = shell.dataset.aiSelect === 'browser'
-      && document.activeElement?.closest?.('.ai-browser-mcp-setting');
+      && document.activeElement?.closest?.('.ai-browser-menu-setting');
     if (activeBrowserSetting) {
       updateBrowserMcpSettingUi();
       return;
@@ -458,7 +681,13 @@
       : null;
     if (existingMcpInput) state.mcpCallLimitDraft = existingMcpInput.value;
     menu.innerHTML = '';
-    if (shell.dataset.aiSelect === 'browser') appendBrowserMcpSetting(menu);
+    if (shell.dataset.aiSelect === 'browser') {
+      appendBrowserMcpSetting(menu);
+      const browserLabel = document.createElement('li');
+      browserLabel.className = 'ai-browser-target-label';
+      browserLabel.textContent = '目标浏览器';
+      menu.appendChild(browserLabel);
+    }
     options.forEach((option) => {
       const item = document.createElement('button');
       item.type = 'button';
@@ -499,6 +728,30 @@
 
       menu.appendChild(item);
     });
+    if (shell.dataset.aiSelect === 'model') {
+      const action = document.createElement('button');
+      action.type = 'button';
+      action.className = 'ai-select-option ai-model-custom-api-action';
+      const customModelLocked = state.vipActive !== true;
+      action.classList.toggle('is-vip-locked', customModelLocked);
+      action.textContent = '添加自定义模型';
+      if (customModelLocked) action.textContent = '🔒 添加自定义模型（VIP）';
+      action.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        closeSelect(shell);
+        if (customModelLocked) {
+          window.openVipAccountCenter?.();
+          return;
+        }
+        void openCustomApiDialog();
+      });
+      menu.appendChild(action);
+    }
+    if (shell.dataset.aiSelect === 'browser') {
+      appendAutomationCardSetting(menu);
+      updateBrowserMenuAvailableHeight(shell);
+    }
   }
 
   function bindSelectShell(shell) {
@@ -610,6 +863,14 @@
     const lastCost = state.lastQuotaCost == null ? '' : ` · 本次 ${formatQuota(state.lastQuotaCost)}`;
     const multiplier = selectedModelMultiplier();
     const multiplierTip = multiplier ? ` · 倍率 ×${formatQuota(multiplier)}` : '';
+
+    if (selectedModelIsCustom()) {
+      ring.style.setProperty('--quota-progress', '100%');
+      valueEl.textContent = 'API';
+      widget.title = '自定义 API 不消耗软件端 AI 额度';
+      syncSendState();
+      return;
+    }
 
     if (!state.quota) {
       ring.style.setProperty('--quota-progress', '0%');
@@ -808,6 +1069,7 @@
         titleGenerated: false,
         modelId,
         browserConnectionId: state.currentBrowserId,
+        automationCardId: state.currentCardId,
         messages: [],
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -820,6 +1082,7 @@
       titleGenerated: state.currentSession.titleGenerated === true,
       modelId,
       browserConnectionId: state.currentBrowserId,
+      automationCardId: state.currentCardId,
       messages: currentMessages(),
       createdAt: state.currentSession.createdAt || Date.now(),
       updatedAt: Date.now(),
@@ -868,6 +1131,11 @@
     state.currentSession = session || null;
     state.messages = Array.isArray(session?.messages) ? [...session.messages] : [];
     state.currentBrowserId = String(session?.browserConnectionId || state.currentBrowserId || '');
+    const sessionCardId = String(session?.automationCardId || '').trim();
+    if (sessionCardId) {
+      state.currentCardId = sessionCardId;
+      void selectAutomationCard(sessionCardId, { persist: false, silent: true });
+    }
     const browserSelect = el('ai-chat-browser');
     if (browserSelect) {
       const exists = Array.from(browserSelect.options).some((opt) => opt.value === state.currentBrowserId);
@@ -876,6 +1144,7 @@
       if (state.currentBrowserId) state.browserSelectionExplicitlyDisabled = false;
       syncSelectUi(browserSelect);
     }
+    notifyBrowserSelection();
     const modelSelect = el('ai-chat-model');
     if (modelSelect && session?.modelId) {
       const hasModel = Array.from(modelSelect.options).some((opt) => opt.value === session.modelId);
@@ -1035,6 +1304,7 @@
       titleGenerated: false,
       modelId: String(el('ai-chat-model')?.value || ''),
       browserConnectionId: state.currentBrowserId,
+      automationCardId: state.currentCardId,
       messages: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -1057,6 +1327,7 @@
       titleGenerated: false,
       modelId: String(el('ai-chat-model')?.value || ''),
       browserConnectionId: state.currentBrowserId,
+      automationCardId: state.currentCardId,
       messages: state.messages,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -1066,7 +1337,7 @@
 
   async function maybeGenerateTitle(modelId) {
     const session = state.currentSession;
-    if (!session || session.titleGenerated || state.generatingTitle || isQuotaExhausted()) return;
+    if (!session || session.titleGenerated || state.generatingTitle || (!selectedModelIsCustom() && isQuotaExhausted())) return;
     const userMsg = currentMessages().find((m) => m.role === 'user' && String(m.content || '').trim());
     const asstMsg = currentMessages().find((m) => m.role === 'assistant' && String(m.content || '').trim());
     if (!userMsg || !asstMsg || !modelId || !window.electronAPI?.invoke) return;
@@ -1763,9 +2034,12 @@
     container.innerHTML = '';
     const welcome = document.createElement('div');
     welcome.className = 'ai-chat-welcome';
+    const card = selectedAutomationCard();
     const browserText = state.currentBrowserId
-      ? '已连接浏览器，AI 将在所选浏览器中执行操作。'
-      : '当前未连接浏览器，将进行普通对话。';
+      ? `已连接浏览器${card ? `，当前卡片为“${card.name}”` : ''}，AI 将在所选浏览器中执行操作。`
+      : (card
+        ? `当前卡片为“${card.name}”，但未连接浏览器，将进行普通对话。`
+        : '当前未连接浏览器，将进行普通对话。');
     const logoUrl = window.aiFreeLogoAssets?.url || '../../assets/logo.ico';
     welcome.innerHTML = `<img class="ai-chat-welcome-icon" data-app-logo src="${logoUrl}" alt="" aria-hidden="true"><strong>有什么可以帮你？</strong><p>${browserText}</p>`;
     container.appendChild(welcome);
@@ -1806,15 +2080,27 @@
     const send = el('ai-chat-send');
     const input = el('ai-chat-input');
     const model = el('ai-chat-model');
-    const modelUnavailable = state.accountAuthenticated && !model?.value;
-    const quotaExhausted = state.accountAuthenticated && isQuotaExhausted();
-    if (send) send.disabled = state.loading || modelUnavailable || quotaExhausted || !input?.value.trim();
+    const modelUnavailable = !model?.value;
+    const quotaExhausted = !selectedModelIsCustom() && state.accountAuthenticated && isQuotaExhausted();
+    if (send) {
+      send.disabled = state.loading
+        ? state.stopping
+        : modelUnavailable || quotaExhausted || !input?.value.trim();
+      const iconMode = state.loading ? 'stop' : 'send';
+      if (send.dataset.iconMode !== iconMode) {
+        send.innerHTML = SEND_BUTTON_ICONS[iconMode];
+        send.dataset.iconMode = iconMode;
+      }
+      send.title = state.loading ? (state.stopping ? '正在停止' : '停止 AI 输出') : '发送消息';
+      send.setAttribute('aria-label', state.loading ? '停止 AI 输出' : '发送消息');
+      send.classList.toggle('is-stop', state.loading);
+    }
   }
 
-  async function loadModels() {
+  async function loadModels(preferredModelId = '') {
     const select = el('ai-chat-model');
     if (!select || !window.electronAPI?.invoke) return;
-    const preferred = state.currentSession?.modelId || select.value;
+    const preferred = String(preferredModelId || state.currentSession?.modelId || select.value || '');
     select.disabled = true;
     select.innerHTML = '<option value="">正在读取可用模型...</option>';
     syncSelectUi(select);
@@ -1823,8 +2109,10 @@
       try {
         const session = await window.electronAPI.invoke('account-get-session');
         state.accountAuthenticated = session?.authenticated === true;
+        state.vipActive = window.isSidebarVipActive?.(session) === true;
       } catch (_) {
         state.accountAuthenticated = false;
+        state.vipActive = false;
       }
       syncSendState();
       const result = await window.electronAPI.invoke('ai-control-get-models');
@@ -1832,15 +2120,20 @@
       const models = Array.isArray(result.models) ? result.models : [];
       select.innerHTML = '';
       if (!models.length) {
-        select.innerHTML = '<option value="">管理员尚未配置模型</option>';
+        select.innerHTML = '<option value="" disabled>管理员尚未配置模型</option>';
+        select.disabled = false;
       } else {
         models.forEach((model) => {
           const option = document.createElement('option');
           option.value = String(model.id || '');
-          const multiplier = Number(model.quota_multiplier || 1);
-          const tokenBase = Number(model.tokens_per_quota_unit || 10000);
-          option.dataset.quotaMultiplier = String(multiplier);
-          option.dataset.tokensPerQuotaUnit = String(tokenBase);
+          const customApi = model.custom_api === true;
+          if (!customApi) {
+            const multiplier = Number(model.quota_multiplier || 1);
+            const tokenBase = Number(model.tokens_per_quota_unit || 10000);
+            option.dataset.quotaMultiplier = String(multiplier);
+            option.dataset.tokensPerQuotaUnit = String(tokenBase);
+          }
+          option.dataset.customApi = customApi ? 'true' : 'false';
           option.textContent = String(model.name || model.model || model.id || '未命名模型');
           select.appendChild(option);
         });
@@ -1852,8 +2145,8 @@
       syncSelectUi(select);
       renderQuota(result.quota);
     } catch (error) {
-      select.innerHTML = '<option value="">暂无可用模型</option>';
-      select.disabled = true;
+      select.innerHTML = '<option value="" disabled>暂无可用模型</option>';
+      select.disabled = false;
       syncSelectUi(select);
       renderQuota(null);
       setStatus(error?.message || String(error));
@@ -1893,12 +2186,17 @@
 
   async function loadBrowserConnections() {
     const select = el('ai-chat-browser');
-    if (!select || !window.electronAPI?.invoke) return;
+    if (!select || !window.electronAPI?.invoke || state.browserConnectionsLoading) return;
+    state.browserConnectionsLoading = true;
     const previous = select.value || state.currentBrowserId;
     try {
       const result = await window.electronAPI.invoke('ai-control-get-browser-connections');
       if (!result?.ok) throw new Error(result?.message || '浏览器连接读取失败');
       const connections = Array.isArray(result.connections) ? result.connections : [];
+      state.browserConnectionProfileById = Object.fromEntries(connections.map((connection) => [
+        String(connection?.id || ''),
+        String(connection?.profileId || ''),
+      ]));
       select.innerHTML = '<option value="">不连接浏览器</option>';
       connections.forEach((connection) => {
         const option = document.createElement('option');
@@ -1923,17 +2221,73 @@
       }
       select.title = connections.length ? `已连接 ${connections.length} 个浏览器插件` : '未发现浏览器插件，请确认扩展和 AI-FREE 已启动';
       syncSelectUi(select);
+      notifyBrowserSelection();
       if (selectionChanged && !currentMessages().length) renderWelcome();
     } catch (error) {
       const selectionChanged = Boolean(state.currentBrowserId);
       select.innerHTML = '<option value="">未发现浏览器插件</option>';
       state.currentBrowserId = '';
+      state.browserConnectionProfileById = {};
       if (state.currentSession && !currentMessages().length) {
         state.currentSession.browserConnectionId = '';
       }
       syncSelectUi(select);
+      notifyBrowserSelection();
       if (selectionChanged && !currentMessages().length) renderWelcome();
       console.warn('[AI 控制] 浏览器连接读取失败:', error?.message || error);
+    } finally {
+      state.browserConnectionsLoading = false;
+    }
+  }
+
+  async function loadAutomationCards(preferredId = '') {
+    if (!window.electronAPI?.invoke) return;
+    if (state.automationCardsLoading) {
+      state.automationCardsRefreshQueued = true;
+      if (preferredId) state.automationCardsQueuedPreferredId = String(preferredId);
+      return;
+    }
+    state.automationCardsLoading = true;
+    state.automationCardsError = '';
+    syncSelectUi(el('ai-chat-browser'));
+    try {
+      const result = await window.electronAPI.invoke('ai-control-get-automation-cards');
+      if (!result?.ok) throw new Error(result?.message || '自动化卡片读取失败');
+      state.automationCards = Array.isArray(result.cards) ? result.cards : [];
+      const explicitPreferredId = String(preferredId || '').trim();
+      const requestedId = String(explicitPreferredId || state.currentCardId || '').trim();
+      const requestedExists = requestedId
+        && state.automationCards.some((card) => String(card.id) === requestedId);
+      const sharedId = String(result.selectedId || '').trim();
+      const sharedExists = sharedId
+        && state.automationCards.some((card) => String(card.id) === sharedId);
+      const sharedSelectionChanged = Boolean(sharedId)
+        && sharedId !== state.sharedAutomationCardId;
+      state.sharedAutomationCardId = sharedId;
+      state.currentCardId = explicitPreferredId && requestedExists
+        ? requestedId
+        : (sharedSelectionChanged && sharedExists
+          ? sharedId
+          : (requestedExists ? requestedId : (sharedExists ? sharedId : String(state.automationCards[0]?.id || ''))));
+      if (state.currentCardId && state.currentCardId !== sharedId) {
+        await selectAutomationCard(state.currentCardId, { persist: false, silent: true });
+      }
+      if (state.currentSession && !currentMessages().length) {
+        state.currentSession.automationCardId = state.currentCardId;
+      }
+    } catch (error) {
+      state.automationCardsError = error?.message || String(error);
+      console.warn('[AI 控制] 自动化卡片读取失败:', state.automationCardsError);
+    } finally {
+      state.automationCardsLoading = false;
+      syncSelectUi(el('ai-chat-browser'));
+      if (!currentMessages().length) renderWelcome();
+      if (state.automationCardsRefreshQueued) {
+        const queuedPreferredId = state.automationCardsQueuedPreferredId;
+        state.automationCardsRefreshQueued = false;
+        state.automationCardsQueuedPreferredId = '';
+        window.setTimeout(() => { void loadAutomationCards(queuedPreferredId); }, 0);
+      }
     }
   }
 
@@ -2021,23 +2375,75 @@
     return false;
   }
 
+  async function insertMessageDuringRun(content, input) {
+    if (!state.activeRequestId || state.stopping) return;
+    const messages = currentMessages();
+    const insertedMessage = { role: 'user', content };
+    messages.push(insertedMessage);
+    const userRow = appendMessage('user', content, { messageIndex: messages.length - 1 });
+    if (input) {
+      input.value = '';
+      resizeInput();
+    }
+    syncSendState();
+    try {
+      const result = await window.electronAPI.invoke('ai-control-chat-insert', {
+        requestId: state.activeRequestId,
+        content,
+      });
+      if (!result?.ok) throw new Error(result?.message || '当前 AI 回复已经结束');
+    } catch (error) {
+      const index = messages.indexOf(insertedMessage);
+      if (index >= 0) messages.splice(index, 1);
+      userRow?.remove();
+      if (input && !input.value) {
+        input.value = content;
+        resizeInput();
+      }
+      setStatus(error?.message || String(error), 'warning');
+      syncSendState();
+    }
+  }
+
+  async function stopAIOutput() {
+    if (!state.loading || !state.activeRequestId || state.stopping) return;
+    state.stopping = true;
+    syncSendState();
+    try {
+      await window.electronAPI.invoke('ai-control-chat-stop', {
+        requestId: state.activeRequestId,
+      });
+    } catch (error) {
+      state.stopping = false;
+      syncSendState();
+      setStatus(error?.message || String(error));
+    }
+  }
+
   async function sendMessage() {
-    if (state.loading) return;
     const input = el('ai-chat-input');
     const select = el('ai-chat-model');
     const content = String(input?.value || '').trim();
     if (!content) return;
+    if (state.loading) {
+      await insertMessageDuringRun(content, input);
+      return;
+    }
 
-    // 登录校验必须发生在写入对话和调用 AI 接口之前；未登录时统一打开头像使用的独立个人中心窗口。
-    if (!await ensureAuthenticatedForChat()) return;
+    const useCustomApi = selectedModelIsCustom();
+
+    // 软件端模型沿用账号鉴权；自定义 API 使用本地配置，可独立工作。
+    if (!useCustomApi && !await ensureAuthenticatedForChat()) return;
     if (!select?.value) return;
 
     // 每次发送前刷新服务端额度。额度查询不会请求模型，可避免使用页面里的旧额度继续发起对话。
-    try {
-      const quotaResult = await window.electronAPI?.invoke?.('ai-control-get-models');
-      if (quotaResult?.quota) renderQuota(quotaResult.quota);
-    } catch (_) {}
-    if (isQuotaExhausted()) {
+    if (!useCustomApi) {
+      try {
+        const quotaResult = await window.electronAPI?.invoke?.('ai-control-get-models');
+        if (quotaResult?.quota) renderQuota(quotaResult.quota);
+      } catch (_) {}
+    }
+    if (!useCustomApi && isQuotaExhausted()) {
       showChatBusinessError('AI 对话额度已用尽，请联系管理员');
       syncSendState();
       return;
@@ -2053,10 +2459,13 @@
     input.value = '';
     resizeInput();
     state.loading = true;
+    state.stopping = false;
     setStatus('');
     syncSendState();
-    const streamView = createAssistantView({ pending: true });
+    let streamView = createAssistantView({ pending: true });
+    let insertedDuringRun = false;
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    state.activeRequestId = requestId;
     const streamListener = window.electronAPI?.on?.('ai-control-chat-event', (event) => {
       if (!event || event.requestId !== requestId) return;
       if (event.type === 'round_start') {
@@ -2071,14 +2480,20 @@
       if (event.type === 'tool_start' || event.type === 'tool_result') {
         streamView?.upsertTool(event.tool || {}, event.round);
       }
+      if (event.type === 'user_inserted') {
+        insertedDuringRun = true;
+        streamView?.finalize();
+        streamView = createAssistantView({ pending: true });
+      }
     });
 
     try {
       const result = await window.electronAPI.invoke('ai-control-chat', {
         modelId: select.value,
         messages,
-        quota: state.quota,
+        quota: useCustomApi ? null : state.quota,
         browserConnectionId: state.currentBrowserId,
+        automationCardId: state.currentCardId,
         stream: true,
         requestId,
       });
@@ -2120,18 +2535,25 @@
           ? result.message.trace_events
           : [];
       }
-      streamView?.setContent(replyText || '模型未返回内容');
-      streamView?.finalize();
       state.lastQuotaCost = result.quota_cost ?? result.quota_cost_increment ?? null;
-      renderQuota(result.quota);
-
+      renderQuota(useCustomApi ? state.quota : (result.quota || state.quota));
       if (state.currentSession) {
         state.currentSession.modelId = select.value;
         state.currentSession.browserConnectionId = state.currentBrowserId;
+        state.currentSession.automationCardId = state.currentCardId;
         if (!state.currentSession.title || state.currentSession.title === '新对话') {
           state.currentSession.title = provisionalTitle(content);
         }
       }
+      if (result.stopped) {
+        streamView?.finalize();
+        renderConversation();
+        await persistCurrentSession();
+        return;
+      }
+      streamView?.setContent(replyText || '模型未返回内容');
+      streamView?.finalize();
+      if (insertedDuringRun) renderConversation();
       await persistCurrentSession();
       if (wasFirstExchange) {
         void maybeGenerateTitle(select.value);
@@ -2152,6 +2574,8 @@
     } finally {
       if (streamListener) window.electronAPI?.off?.('ai-control-chat-event', streamListener);
       state.loading = false;
+      state.stopping = false;
+      state.activeRequestId = '';
       syncSendState();
       updateSessionTitleUi();
       input?.focus();
@@ -2191,6 +2615,11 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     initCustomSelects();
+    const resizeOpenBrowserMenu = () => {
+      updateBrowserMenuAvailableHeight(document.querySelector('.ai-browser-gear-select.open'));
+    };
+    window.addEventListener('resize', resizeOpenBrowserMenu);
+    window.visualViewport?.addEventListener?.('resize', resizeOpenBrowserMenu);
     el('ai-chat-redeem-gift')?.addEventListener('click', redeemGiftCode);
     el('ai-chat-gift-code')?.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
@@ -2212,6 +2641,11 @@
         if (currentMessages().length) void persistCurrentSession();
       }
     });
+    el('ai-custom-api-form')?.addEventListener('submit', saveCustomApi);
+    el('ai-custom-api-clear')?.addEventListener('click', clearCustomApi);
+    document.querySelectorAll('[data-ai-custom-api-close]').forEach((button) => {
+      button.addEventListener('click', closeCustomApiDialog);
+    });
     el('ai-chat-browser')?.addEventListener('change', (event) => {
       state.currentBrowserId = String(event.target?.value || '');
       state.browserSelectionExplicitlyDisabled = !state.currentBrowserId;
@@ -2220,11 +2654,13 @@
         if (currentMessages().length) void persistCurrentSession();
       }
       if (!currentMessages().length) renderWelcome();
+      notifyBrowserSelection();
       syncSendState();
     });
     el('ai-chat-form')?.addEventListener('submit', (event) => {
       event.preventDefault();
-      sendMessage();
+      if (state.loading) stopAIOutput();
+      else sendMessage();
     });
     const chatInput = el('ai-chat-input');
     // 用 pointerdown（捕获）尽早拉回侧栏键盘焦点，避免假聚焦
@@ -2249,17 +2685,21 @@
     document.querySelector('[data-tab="ai-control-panel"]')?.addEventListener('click', () => {
       loadModels();
       loadBrowserConnections();
+      loadAutomationCards(state.currentSession?.automationCardId || '');
       void refreshHistoryList();
       window.setTimeout(() => reclaimAiInputFocus(el('ai-chat-input')), 50);
     });
     window.electronAPI?.on?.('account-session-updated', () => {
       loadModels();
       loadBrowserConnections();
+      loadAutomationCards(state.currentSession?.automationCardId || '');
       void bootstrapHistory();
     });
     loadModels();
     loadBrowserConnections();
+    loadAutomationCards();
     void bootstrapHistory();
-    window.setInterval(loadBrowserConnections, 4000);
+    window.setInterval(loadBrowserConnections, 750);
+    window.setInterval(loadAutomationCards, 1000);
   });
 })();

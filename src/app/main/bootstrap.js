@@ -186,7 +186,12 @@ function applyPluginSettings(partial = {}) {
 let auth;
 // 日志封装（侧栏转发通过 sideView.webContents）
 const logger = createLogger({ getSideWebContents: () => (appRuntime.getSideView() && appRuntime.getSideView().webContents) || null });
-const browserAutomationBridge = createBrowserAutomationBridge({ logger: console });
+// 卡片库属于软件级数据，放在 userData/extensions 下，不随任一 Chromium Profile
+// 或注入用的扩展副本一起删除。
+const browserAutomationBridge = createBrowserAutomationBridge({
+  logger: console,
+  cardCacheDir: path.join(app.getPath('userData'), 'extensions', 'browser_automation'),
+});
 app.whenReady().then(() => browserAutomationBridge.start()).catch((error) => {
   console.error('[AutomationBridge] 启动失败:', error?.message || error);
 });
@@ -587,6 +592,7 @@ registerAppLifecycle({
   getLicenseWindow: appRuntime.getLicenseWindow,
   BrowserWindow,
   createMainWindow,
+  getMainWindow: appRuntime.getMainWindow,
   createDevConsoleWindow: appShell.createDevConsoleWindow,
   getAppConsoleHistory,
   getDebugConsoleHistory,

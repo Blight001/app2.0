@@ -1,9 +1,84 @@
 .sidebar-account-auth[hidden],
 .account-center-dialog[hidden],
+.vip-benefits-dialog[hidden],
 .sidebar-auth-field[hidden],
 .account-profile-menu[hidden] {
   display: none !important;
 }
+
+.account-vip-card[hidden] {
+  display: none !important;
+}
+
+.vip-benefits-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  place-items: center;
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+.vip-benefits-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.vip-benefits-panel {
+  position: relative;
+  z-index: 1;
+  width: min(410px, calc(100vw - 20px));
+  max-height: calc(100vh - 20px);
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid rgba(235, 183, 74, .52);
+  border-radius: 18px;
+  color: #f8ecd0;
+  background:
+    radial-gradient(circle at 85% 0, rgba(255, 211, 104, .2), transparent 35%),
+    linear-gradient(155deg, #241c10, #121722 52%, #171109);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, .58), inset 0 0 0 1px rgba(255, 238, 186, .06);
+  box-sizing: border-box;
+  animation: accountAuthDialogIn .2s ease-out;
+}
+
+.vip-benefits-header { display: flex; justify-content: space-between; gap: 12px; }
+.vip-benefits-header h2 { margin: 3px 0 4px; color: #ffe4a0; font-size: 20px; }
+.vip-benefits-header p { margin: 0; color: rgba(244, 230, 199, .68); font-size: 11px; }
+.vip-benefits-kicker { color: #d9a93e; font-size: 9px; font-weight: 900; letter-spacing: .18em; }
+.vip-benefits-close { width: 30px; height: 30px; flex: 0 0 auto; border: 1px solid rgba(255, 222, 143, .24); border-radius: 50%; color: #f7dfaa; background: rgba(255,255,255,.04); font-size: 20px; cursor: pointer; }
+
+.vip-permission-table { margin-top: 14px; overflow-x: auto; border: 1px solid rgba(255, 222, 143, .16); border-radius: 10px; }
+.vip-permission-row { display: grid; grid-template-columns: 1.25fr .8fr .8fr .8fr; gap: 5px; padding: 7px 8px; border-top: 1px solid rgba(255,255,255,.055); font-size: 9px; align-items: center; }
+.vip-permission-row:first-child { border-top: 0; }
+.vip-permission-row > span:nth-child(2) { color: rgba(223, 226, 232, .55); }
+.vip-permission-row:not(.vip-permission-head) > strong { color: #ffd879; }
+.vip-permission-head { color: rgba(244, 230, 199, .72); background: rgba(255, 213, 116, .08); }
+
+.vip-tier-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 12px; padding: 3px; overflow-x: auto; border: 1px solid rgba(255, 222, 143, .16); border-radius: 10px; background: rgba(0,0,0,.16); }
+.vip-tier-tabs button { padding: 7px; border: 0; border-radius: 7px; color: rgba(244,230,199,.62); background: transparent; font: inherit; font-size: 10px; font-weight: 900; cursor: pointer; }
+.vip-tier-tabs button.is-active { color: #2b1c04; background: linear-gradient(135deg, #ffe59a, #dca83f); }
+.vip-plan-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 12px; }
+.vip-plan-empty { grid-column: 1 / -1; padding: 18px 10px; color: var(--text-muted); text-align: center; }
+.vip-permission-table[hidden], .vip-tier-tabs[hidden], .vip-plan-list[hidden] { display: none !important; }
+.vip-plan-option { position: relative; display: grid; gap: 3px; min-width: 0; padding: 11px 6px 9px; border: 1px solid rgba(255, 222, 143, .2); border-radius: 10px; color: #f7e7c0; background: rgba(255,255,255,.035); text-align: center; cursor: pointer; }
+.vip-plan-option:hover, .vip-plan-option.is-selected { border-color: rgba(255, 205, 91, .82); background: rgba(255, 196, 64, .12); transform: translateY(-1px); }
+.vip-plan-option span { font-size: 11px; font-weight: 700; }
+.vip-plan-option strong { color: #ffd36c; font-size: 18px; }
+.vip-plan-option small { color: rgba(244, 230, 199, .56); font-size: 9px; }
+.vip-plan-option em { position: absolute; top: -7px; right: 5px; padding: 2px 5px; border-radius: 8px; color: #251b08; background: #ffd36c; font-size: 8px; font-style: normal; font-weight: 900; }
+.vip-plan-status { min-height: 16px; margin: 8px 2px 0; color: rgba(244, 230, 199, .62); font-size: 10px; }
+.vip-benefits-actions { display: grid; grid-template-columns: 1fr 1.35fr; gap: 8px; margin-top: 8px; }
+.vip-benefits-actions button { min-height: 34px; padding: 7px 8px; border-radius: 9px; font: inherit; font-size: 10px; font-weight: 800; cursor: pointer; }
+.vip-gold-theme-action { border: 1px solid rgba(212, 183, 118, .30); color: #e3cb92; background: rgba(212, 183, 118, .08); }
+.vip-gold-theme-action.is-locked { opacity: .55; }
+.vip-use-gift-code { border: 0; color: #2a1d05; background: linear-gradient(135deg, #ffe59a, #dca83f); box-shadow: 0 7px 20px rgba(219, 161, 49, .2); }
 
 .account-center-dialog {
   position: fixed;
@@ -312,6 +387,34 @@ html.account-center-popup .account-center-dialog-body {
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
+
+.account-vip-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  width: 100%;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 11px 12px;
+  border: 1px solid rgba(246, 190, 70, .3);
+  border-radius: 12px;
+  color: #ffe6a0;
+  background: linear-gradient(135deg, rgba(119, 79, 12, .34), rgba(48, 35, 17, .54));
+  text-align: left;
+  cursor: pointer;
+}
+
+.account-vip-lock { font-size: 17px; }
+.account-vip-copy { display: grid; gap: 2px; min-width: 0; }
+.account-vip-copy strong { font-size: 13px; }
+.account-vip-copy small { color: rgba(255, 231, 168, .68); font-size: 10px; line-height: 1.35; }
+.account-vip-action { color: #ffd46f; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.account-vip-card:hover { border-color: rgba(255, 211, 105, .62); transform: translateY(-1px); }
+.account-vip-card[data-active='true'] { border-color: rgba(70, 208, 139, .32); color: #baf5d6; background: rgba(28, 91, 63, .22); cursor: default; }
+.account-vip-card[data-active='true'] .account-vip-lock { font-size: 0; }
+.account-vip-card[data-active='true'] .account-vip-lock::after { content: '◆'; color: #55d998; font-size: 14px; }
+.account-vip-card[data-active='true'] .account-vip-copy small,
+.account-vip-card[data-active='true'] .account-vip-action { color: rgba(168, 241, 204, .74); }
 
 .account-usage-details {
   display: grid;
@@ -879,6 +982,10 @@ html.theme-light .account-profile-cover {
 }
 
 html.theme-light .account-profile-presence { border-color: #fff; }
+html.theme-light .account-vip-card { color: #7a550d; border-color: rgba(181, 127, 18, .25); background: linear-gradient(135deg, #fff9e9, #f8edcf); }
+html.theme-light .account-vip-copy small,
+html.theme-light .account-vip-action { color: #9a711f; }
+html.theme-light .account-vip-card[data-active='true'] { color: #176b48; border-color: rgba(22, 142, 91, .22); background: #effaf5; }
 html.theme-light .account-profile-secondary { color: #60758f; background: #f5f8fc; }
 html.theme-light .account-usage-card {
   border-color: rgba(78, 116, 166, .14);

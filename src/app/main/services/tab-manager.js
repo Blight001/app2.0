@@ -11,6 +11,7 @@ const {
 const {
   toggleSidebarVisibility,
 } = require('./tab-common');
+const { FREE_BROWSER_WINDOW_LIMIT, resolveVipAccess } = require('../utils/vip-access');
 
 function resolveChromiumExtensionPaths(browserSettings = {}, extensionManager = null) {
   const configuredExtensionPaths = Array.isArray(browserSettings.chromiumExtensionPaths)
@@ -654,6 +655,20 @@ function createTabManager(deps = {}) {
     if (existingTab && existingTab.id) {
       switchTab(existingTab.id, { focusBrowser: options.focusBrowser === true });
       return existingTab.id;
+    }
+
+    const vipAccess = resolveVipAccess(licenseCache?.getSnapshot?.() || {});
+    if (!vipAccess.isVip && resolveTabs().size >= FREE_BROWSER_WINDOW_LIMIT) {
+      try {
+        sendToSide?.('vip-access-required', {
+          feature: '更多独立浏览器窗口',
+          limit: FREE_BROWSER_WINDOW_LIMIT,
+        });
+      } catch (_) {}
+      const error = new Error(`普通用户最多同时打开 ${FREE_BROWSER_WINDOW_LIMIT} 个独立浏览器窗口，请前往个人中心开通 VIP`);
+      error.code = 'VIP_BROWSER_WINDOW_LIMIT';
+      error.vipRequired = true;
+      throw error;
     }
 
     const newTabId = String(options.tabId || accountId || Date.now().toString());

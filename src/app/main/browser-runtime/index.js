@@ -44,6 +44,12 @@ class BrowserRuntimeManager {
   getState(profileId) { return this.store.getState(profileId); }
   listStates() { return this.store.listStates(); }
   deleteProfile(profileId) { return this.store.deleteProfile(profileId); }
+  async deleteProfileAsync(profileId) {
+    if (typeof this.store.deleteProfileAsync === 'function') {
+      return this.store.deleteProfileAsync(profileId);
+    }
+    return this.store.deleteProfile(profileId);
+  }
   isChromiumAvailable() { return this.windowBridge.isAvailable(); }
 }
 

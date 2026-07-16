@@ -6,6 +6,7 @@ const AUTOMATION_CARD_CACHE_NAME_KEY = 'cookie-capture-automation-card-cache-nam
 const AUTOMATION_CARD_CACHE_TIME_KEY = 'cookie-capture-automation-card-cache-time';
 const AUTOMATION_CARD_CACHE_LIST_KEY = 'cookie-capture-automation-card-cache-list';
 const AUTOMATION_CARD_SELECTED_ID_KEY = 'cookie-capture-automation-card-cache-selected-id';
+const AUTOMATION_CARD_PERSIST_PENDING_KEY = 'cookie-capture-automation-card-persist-pending';
 const CARD_SIDEBAR_STATE_KEY = 'cookie-capture-card-sidebar-state';
 const STANDALONE_PROGRESS_STATE_KEY = 'cookie-capture-standalone-progress-state';
 const runtimeStateStorage = chrome.storage.session || chrome.storage.local;

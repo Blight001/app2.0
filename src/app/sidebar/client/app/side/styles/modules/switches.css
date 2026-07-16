@@ -57,6 +57,34 @@
   gap: 4px;
 }
 
+.extension-plugin-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.extension-plugin-import,
+.extension-plugin-remove {
+  border: 1px solid rgba(64, 158, 255, 0.42);
+  border-radius: 6px;
+  color: #b9dcff;
+  background: rgba(64, 158, 255, 0.1);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.extension-plugin-import { padding: 4px 8px; }
+.extension-plugin-import .vip-lock { display: inline-block; margin-right: 3px; font-size: 9px; }
+.extension-plugin-import:not(.is-vip-locked) .vip-lock { display: none; }
+.extension-plugin-import.is-vip-locked { color: #ffd16f; border-color: rgba(235, 178, 55, .42); background: rgba(235, 178, 55, .09); }
+.extension-plugin-remove { width: 22px; height: 22px; padding: 0; color: #ff9ca4; border-color: rgba(255, 99, 112, .3); background: rgba(255, 99, 112, .08); }
+.extension-plugin-import:hover:not(:disabled) { color: #fff; border-color: #409eff; }
+.extension-plugin-remove:hover:not(:disabled) { color: #fff; border-color: #ff6370; }
+.extension-plugin-import:disabled,
+.extension-plugin-remove:disabled { opacity: .55; cursor: wait; }
+
 .extension-plugin-empty {
   color: rgba(225, 232, 240, 0.72);
   font-size: 12px;
@@ -66,7 +94,7 @@
 
 .extension-plugin-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 6px;
   min-height: 34px;

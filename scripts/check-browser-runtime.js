@@ -88,6 +88,12 @@ try {
   assert.equal(store.deleteProfile('profile_001'), true);
   assert.equal(fs.existsSync(paths.root), false);
 
+  const asyncDeletePaths = store.ensureProfile({ profileId: 'profile_async_delete', runtimeType: 'chromium' });
+  fs.mkdirSync(path.join(asyncDeletePaths.chromiumData, 'Cache', 'nested'), { recursive: true });
+  fs.writeFileSync(path.join(asyncDeletePaths.chromiumData, 'Cache', 'nested', 'entry'), 'cache-data');
+  assert.equal(await store.deleteProfileAsync('profile_async_delete'), true);
+  assert.equal(fs.existsSync(asyncDeletePaths.root), false, '后台删除必须清理完整 Chromium Profile');
+
   const legacyElectronUserData = path.join(root, 'electron-user-data');
   const legacyPartitionRoot = path.join(legacyElectronUserData, 'Partitions');
   fs.mkdirSync(path.join(legacyPartitionRoot, 'tab-account@example.com'), { recursive: true });

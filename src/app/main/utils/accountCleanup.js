@@ -6,6 +6,8 @@ const {
 } = require('./normalizers');
 
 let recycleTimers = new Map();
+let cleanupQueue = Promise.resolve();
+const cleanupTasks = new Map();
 
 const MAX_TIMEOUT_MS = 2147483647;
 const CLEANUP_RETRY_DELAY_MS = 10000;
@@ -97,6 +99,10 @@ function notifyAccountListUpdated(options = {}) {
   } catch (_) {}
 }
 
+function yieldToMainLoop() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 // 先删除 Chromium Profile，再删除账号元数据，避免留下无法追踪的登录态。
 async function deleteAccountNow(accountStorage, accountId, options = {}) {
   clearRecycleTimer(accountId);
@@ -117,12 +123,12 @@ async function deleteAccountNow(accountStorage, accountId, options = {}) {
     const result = accountStorage.deleteAccount(accountId);
     if (result && result.ok) {
       console.log(`[AccountCleanup] 已删除到期账号: ${accountId}`);
-      notifyAccountListUpdated(options);
+      if (options.notifyOnDelete !== false) notifyAccountListUpdated(options);
       return true;
     }
 
     if (result?.error === '账号不存在') {
-      notifyAccountListUpdated(options);
+      if (options.notifyOnDelete !== false) notifyAccountListUpdated(options);
       return true;
     }
 
@@ -136,11 +142,28 @@ async function deleteAccountNow(accountStorage, accountId, options = {}) {
   }
 }
 
+// 多个账号可能在同一秒到期。统一串行执行磁盘清理，既避免同时争抢磁盘，
+// 也避免多个定时器并发删除同一个账号；每项开始前让主进程处理一次界面事件。
+function queueAccountDeletion(accountStorage, accountId, options = {}) {
+  const normalizedId = String(accountId || '').trim();
+  if (!normalizedId) return Promise.resolve(false);
+  if (cleanupTasks.has(normalizedId)) return cleanupTasks.get(normalizedId);
+
+  const operation = cleanupQueue
+    .catch(() => {})
+    .then(yieldToMainLoop)
+    .then(() => deleteAccountNow(accountStorage, normalizedId, options))
+    .finally(() => cleanupTasks.delete(normalizedId));
+  cleanupTasks.set(normalizedId, operation);
+  cleanupQueue = operation.catch(() => false);
+  return operation;
+}
+
 function scheduleCleanupRetry(accountStorage, accountId, options) {
   clearRecycleTimer(accountId);
   const timer = setTimeout(async () => {
     recycleTimers.delete(accountId);
-    const deleted = await deleteAccountNow(accountStorage, accountId, options);
+    const deleted = await queueAccountDeletion(accountStorage, accountId, options);
     if (!deleted) scheduleCleanupRetry(accountStorage, accountId, options);
   }, CLEANUP_RETRY_DELAY_MS);
   recycleTimers.set(accountId, timer);
@@ -199,7 +222,7 @@ function scheduleAccountDeletion(accountStorage, account, options = {}) {
       return;
     }
 
-    const deleted = await deleteAccountNow(accountStorage, accountId, options);
+    const deleted = await queueAccountDeletion(accountStorage, accountId, options);
     if (!deleted) scheduleCleanupRetry(accountStorage, accountId, options);
   }, timeoutMs);
 
@@ -236,7 +259,10 @@ async function refreshAccountRecycleTimers(accountStorage, options = {}) {
     }
 
     if (recycleAt <= Date.now()) {
-      const deleted = await deleteAccountNow(accountStorage, accountId, options);
+      const deleted = await queueAccountDeletion(accountStorage, accountId, {
+        ...options,
+        notifyOnDelete: false,
+      });
       if (deleted) {
         removed += 1;
       } else {
@@ -255,6 +281,8 @@ async function refreshAccountRecycleTimers(accountStorage, options = {}) {
       clearRecycleTimer(accountId);
     }
   }
+
+  if (removed > 0) notifyAccountListUpdated(options);
 
   return { scheduled, removed };
 }

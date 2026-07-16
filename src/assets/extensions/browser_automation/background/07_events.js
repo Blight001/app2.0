@@ -34,6 +34,42 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return false;
     }
 
+    if (message.type === 'card-cache-persistent-get') {
+        (async () => {
+            try {
+                const state = await loadCardCacheState();
+                sendResponse({ success: true, state });
+            } catch (error) {
+                sendResponse({
+                    success: false,
+                    error: error && error.message ? error.message : '读取软件卡片库失败'
+                });
+            }
+        })();
+        return true;
+    }
+
+    if (message.type === 'card-cache-persistent-set') {
+        (async () => {
+            try {
+                const payload = message.payload && typeof message.payload === 'object' ? message.payload : {};
+                const state = await replaceCardCacheState(payload.items, payload.selectedId);
+                sendResponse({
+                    success: state.persisted === true,
+                    persisted: state.persisted === true,
+                    state,
+                    error: state.persisted === true ? '' : (state.persistError || '软件卡片库未完成落盘')
+                });
+            } catch (error) {
+                sendResponse({
+                    success: false,
+                    error: error && error.message ? error.message : '保存软件卡片库失败'
+                });
+            }
+        })();
+        return true;
+    }
+
     if (message.type === 'cookie-capture-start') {
         (async () => {
             try {

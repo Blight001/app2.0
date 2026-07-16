@@ -12,6 +12,7 @@ function registerUiIPC(ctx) {
   let accountCenterPopupDismissing = false;
   let accountCenterPopupBlurArmTimer = null;
   let accountCenterPopupBlurArmed = false;
+  let accountCenterPopupDismissOnBlur = true;
   let accountCenterPopupWindowFocusHandler = null;
   const pendingBrowserDataClearRequests = new Map();
 
@@ -30,6 +31,7 @@ function registerUiIPC(ctx) {
     }
     accountCenterPopupDismissing = false;
     accountCenterPopupBlurArmed = false;
+    accountCenterPopupDismissOnBlur = true;
     const popup = accountCenterPopupWindow;
     accountCenterPopupWindow = null;
     accountCenterPopupLayout = null;
@@ -67,7 +69,7 @@ function registerUiIPC(ctx) {
       const webContents = sideView?.webContents;
       if (!webContents || webContents.isDestroyed?.()) return {};
       return await webContents.executeJavaScript(`(() => ({
-        theme: document.documentElement.classList.contains('theme-light') ? 'light' : 'dark',
+        theme: document.documentElement.classList.contains('theme-gold') ? 'gold' : (document.documentElement.classList.contains('theme-light') ? 'light' : 'dark'),
         announcementTitle: document.getElementById('announcement-title')?.textContent || '',
         announcementIcon: document.getElementById('announcement-icon')?.textContent || '',
         announcementHtml: document.getElementById('announcement-content')?.innerHTML || '',
@@ -87,6 +89,7 @@ function registerUiIPC(ctx) {
 
     const mainWindow = ui.getMainWindow?.();
     if (!mainWindow || mainWindow.isDestroyed?.()) return;
+    accountCenterPopupDismissOnBlur = payload?.dismissOnBlur !== false;
     const contentBounds = mainWindow.getContentBounds();
     const anchor = payload?.anchor && typeof payload.anchor === 'object' ? payload.anchor : {};
     const popupWidth = 430;
@@ -133,7 +136,7 @@ function registerUiIPC(ctx) {
     });
     accountCenterPopupWindow = popup;
     accountCenterPopupWindowFocusHandler = (_event, focusedWindow) => {
-      if (focusedWindow === popup || !accountCenterPopupBlurArmed) return;
+      if (focusedWindow === popup || !accountCenterPopupBlurArmed || !accountCenterPopupDismissOnBlur) return;
       dismissAccountCenterPopupWindow();
     };
     app?.on?.('browser-window-focus', accountCenterPopupWindowFocusHandler);
@@ -169,7 +172,7 @@ function registerUiIPC(ctx) {
     });
     popup.on('blur', () => {
       if (accountCenterPopupWindow !== popup) return;
-      if (!accountCenterPopupBlurArmed) return;
+      if (!accountCenterPopupBlurArmed || !accountCenterPopupDismissOnBlur) return;
       dismissAccountCenterPopupWindow();
     });
     popup.webContents.on('did-finish-load', async () => {
@@ -183,7 +186,10 @@ function registerUiIPC(ctx) {
 
     const popupPath = path.join(app.getAppPath(), 'src', 'app', 'sidebar', 'index.html');
     try {
-      await popup.loadFile(popupPath, { query: { accountCenterPopup: '1' } });
+      await popup.loadFile(popupPath, { query: {
+        accountCenterPopup: '1',
+        showVipPlans: payload?.showVipPlans === true ? '1' : '0',
+      } });
       // 某些透明窗口不会稳定触发 ready-to-show；loadFile 完成后再做一次显示兜底。
       showPopup();
     } catch (error) {
@@ -199,9 +205,13 @@ function registerUiIPC(ctx) {
         await toggleAccountCenterPopupWindow(payload);
         return;
       }
+      accountCenterPopupDismissOnBlur = payload?.dismissOnBlur !== false;
       try {
         accountCenterPopupWindow.show();
         accountCenterPopupWindow.focus();
+        if (payload?.showVipPlans === true) {
+          accountCenterPopupWindow.webContents.send('open-vip-plans');
+        }
       } catch (_) {}
       return;
     }
@@ -210,7 +220,10 @@ function registerUiIPC(ctx) {
 
   let currentAppTheme = 'dark';
 
-  const normalizeAppTheme = (theme) => (String(theme || '').trim() === 'light' ? 'light' : 'dark');
+  const normalizeAppTheme = (theme) => {
+    const value = String(theme || '').trim();
+    return value === 'light' || value === 'gold' ? value : 'dark';
+  };
 
   ipcMain.handle('get-browser-runtime-state', async (_event, payload = {}) => {
     const manager = ui?.browserRuntimeManager;
@@ -301,14 +314,14 @@ function registerUiIPC(ctx) {
 
     try {
       if (nativeTheme) {
-        nativeTheme.themeSource = nextTheme;
+        nativeTheme.themeSource = nextTheme === 'light' ? 'light' : 'dark';
       }
     } catch (_) {}
 
     try {
       const mainWindow = ui && typeof ui.getMainWindow === 'function' ? ui.getMainWindow() : null;
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.setBackgroundColor(nextTheme === 'light' ? '#f6f9fd' : '#0f1115');
+        mainWindow.setBackgroundColor(nextTheme === 'light' ? '#f6f9fd' : (nextTheme === 'gold' ? '#0c0b09' : '#0f1115'));
         sendAppThemeToWebContents(mainWindow.webContents, nextTheme);
       }
     } catch (_) {}

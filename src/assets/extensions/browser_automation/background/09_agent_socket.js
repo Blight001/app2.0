@@ -228,6 +228,47 @@ function getPayloadValue(payload, names) {
     return undefined;
 }
 
+function inferAgentToolErrorCode(error, message = '') {
+    const explicit = String(error?.errorCode || error?.code || error?.stepCode || '').trim();
+    if (explicit) return explicit;
+    const text = String(message || error?.message || error || '').trim();
+    if (/页面加载超时|navigation.{0,20}timeout/i.test(text)) return 'NAVIGATION_TIMEOUT';
+    if (/等待.{0,30}超时|wait.{0,30}timeout/i.test(text)) return 'WAIT_TIMEOUT';
+    if (/超时|timeout/i.test(text)) return 'TOOL_TIMEOUT';
+    if (/failed to fetch|network|网络|ERR_(?:CONNECTION|NAME|INTERNET|PROXY|TIMED_OUT)/i.test(text)) return 'NETWORK_ERROR';
+    if (/标签页|tab/i.test(text) && /未找到|不存在|closed|关闭/i.test(text)) return 'TAB_NOT_FOUND';
+    if (/未找到自动化卡片|卡片.*不存在/i.test(text)) return 'CARD_NOT_FOUND';
+    if (/卡片.*格式|cardData|steps/i.test(text)) return 'CARD_INVALID';
+    if (/停止|stopped|abort/i.test(text)) return 'STOPPED';
+    return 'TOOL_EXECUTION_ERROR';
+}
+
+function buildAgentToolFailureResult(error, task = {}) {
+    const message = String(error?.message || error || '浏览器工具执行失败').trim() || '浏览器工具执行失败';
+    const failure = error?.failure && typeof error.failure === 'object' ? error.failure : null;
+    const errorCode = String(failure?.errorCode || inferAgentToolErrorCode(error, message));
+    const cardId = String(task?.args?.id || task?.args?.card_id || task?.args?.cardId || '').trim();
+    return {
+        success: false,
+        error: message,
+        errorReason: message,
+        errorCode,
+        phase: String(error?.phase || (failure ? 'step_failed' : 'tool_execution')),
+        tool: String(task?.tool || ''),
+        ...(cardId ? { cardId } : {}),
+        ...(error?.execution ? { execution: error.execution } : {}),
+        ...(failure ? {
+            stepIndex: failure.stepIndex,
+            stepTotal: failure.stepTotal,
+            stepName: failure.stepName,
+            stepType: failure.stepType,
+            selector: failure.selector,
+            attempts: failure.attempts,
+            failureSnapshot: failure.failureSnapshot || null
+        } : {})
+    };
+}
+
 function requireStepObject(value, label) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
         throw new Error(`${label} 必须是步骤对象`);
@@ -356,12 +397,13 @@ function effectiveAgentToolDefs() {
     return [
         {
             name: 'manage_card',
-            description: '自动化卡片唯一入口（管理 + 执行合一）。action=rules 返回卡片步骤类型（10 种 type，含 condition 判断分支）与 flow 流程图结构（nodes/edges/start）、运行规则（失败重试、变量输入、需显式 save_cookies 步骤保存 Cookie 等）——写卡片前必须先调用，字段与步骤类型只能取自规范，不要凭空编造；action=list 列出所有已保存卡片的基本信息；action=get 读取指定卡片完整 JSON；action=write 创建新卡片或用同一个 id 覆盖已有卡片（需完整 cardData）；action=patch_step 合并/替换某一步，insert_step 插入步骤，delete_step 删除步骤，move_step 移动步骤（step_index 均为 1-based，局部编辑后仍会按完整规范校验）；action=delete 删除整张卡片；action=run 在当前活动标签页执行卡片，可用 inputs 覆盖 type 步骤输入，执行中通过 task:progress 及时反馈完整过程。run 失败时返回结构化现场：errorCode、失败步骤 stepIndex/selector、failureSnapshot 与 context；页面停留在失败现场，修复卡片后可用 action=run + start_step=stepIndex 续跑。',
+            description: '自动化卡片唯一入口（管理 + 执行合一）。action=rules 返回卡片步骤类型（10 种 type，含 condition 判断分支）与 flow 流程图结构（nodes/edges/start）、运行规则（失败重试、变量输入、需显式 save_cookies 步骤保存 Cookie 等）——写卡片前必须先调用，字段与步骤类型只能取自规范，不要凭空编造；action=list 列出所有已保存卡片的基本信息；action=get 读取指定卡片完整 JSON；action=write 创建新卡片或用同一个 id 覆盖已有卡片（需完整 cardData）；action=patch_step 合并/替换某一步，insert_step 插入步骤，delete_step 删除步骤，move_step 移动步骤（step_index 均为 1-based，局部编辑后仍会按完整规范校验）；action=delete 删除整张卡片（可用 id/card_name 指定，都省略则删除当前选中卡片）；action=run 在当前活动标签页执行卡片，可用 inputs 覆盖 type 步骤输入，执行中通过 task:progress 及时反馈完整过程。run 失败时返回结构化现场：errorCode、失败步骤 stepIndex/selector、failureSnapshot 与 context；页面停留在失败现场，修复卡片后可用 action=run + start_step=stepIndex 续跑。',
             input_schema: {
                 type: 'object',
                 properties: {
                     action: { type: 'string', enum: [...CARD_MANAGE_ACTIONS], description: 'rules 获取步骤类型与运行规则（写卡片前必看）；list 列出全部卡片；get 读取卡片完整 JSON；write 写入/覆盖完整卡片；patch_step 修改某一步；insert_step 插入步骤；delete_step 删除步骤；move_step 移动步骤；delete 删除整张卡片；run 执行卡片。' },
-                    id: { type: 'string', description: '目标卡片 id：get/run/patch_step/insert_step/delete_step/move_step 省略时用当前选中卡片；write 省略时按卡片名新建（同名覆盖）；delete 必填；rules/list 忽略。' },
+                    id: { type: 'string', description: '目标卡片 id：get/run/patch_step/insert_step/delete_step/move_step/delete 省略时用当前选中卡片；write 省略时按卡片名新建（同名覆盖）；rules/list 忽略。' },
+                    card_name: { type: 'string', description: '可选：action=delete 时可按卡片名删除；存在同名卡片时必须改用 id。' },
                     cardData: { type: 'object', description: '完整卡片 JSON（至少含 name/website/steps；如需分支则包含 flow.nodes/flow.edges/flow.start），仅 action=write 需要；格式必须严格遵循 action=rules 返回的规范。' },
                     step_index: { type: 'number', description: '局部步骤编辑使用，1-based。patch_step/delete_step/move_step 表示目标步骤；insert_step 表示插入到第 N 步之前，省略则追加，允许传 steps.length+1 追加。' },
                     to_step_index: { type: 'number', description: '仅 action=move_step 使用，1-based，表示移动后的目标位置。' },
@@ -657,12 +699,22 @@ class LocalAutomationBridgeSocket {
 
     disconnect() {
         const wasConnected = this.connected;
+        const connectionId = this.connectionId;
+        const token = this.token;
         this.connected = false;
         this.active = false;
         if (this.pollTimer) clearTimeout(this.pollTimer);
         this.pollTimer = null;
         this.connectionId = '';
         this.token = '';
+        if (connectionId && token) {
+            const url = `${this.baseUrl}/v1/disconnect?connection_id=${encodeURIComponent(connectionId)}`;
+            void fetch(url, {
+                method: 'POST',
+                headers: { 'X-Bridge-Token': token },
+                keepalive: true
+            }).catch(() => {});
+        }
         if (wasConnected) this.fire('disconnect', 'client disconnect');
     }
 
@@ -726,6 +778,47 @@ class LocalAutomationBridgeSocket {
         if (!this.connectionId) return;
         await this.request('/v1/task-progress', { method: 'POST', body: JSON.stringify(payload) }).catch(() => {});
     }
+}
+
+// 卡片库由软件桥接统一落盘。这里使用独立的 loopback 请求，不等待 agent
+// 工具连接登记完成；否则刚打开的新 Profile 会在登记竞态中退回独立本地存储。
+async function requestSoftwareCardCache(path, options = {}) {
+    const settings = await getAgentSettings();
+    const baseUrl = trimUrl(settings.localBridgeUrl || AGENT_SETTINGS_DEFAULT.localBridgeUrl);
+    let lastError = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+            const headers = { ...(options.headers || {}) };
+            if (options.body != null) headers['Content-Type'] = 'application/json';
+            const response = await fetch(`${baseUrl}${path}`, {
+                ...options,
+                headers,
+                signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+                    ? AbortSignal.timeout(5000)
+                    : undefined
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.ok === false) {
+                throw new Error(data.message || `软件卡片库 HTTP ${response.status}`);
+            }
+            return data;
+        } catch (error) {
+            lastError = error;
+            if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 150));
+        }
+    }
+    throw lastError || new Error('软件卡片库连接失败');
+}
+
+async function readSoftwareCardCache() {
+    return requestSoftwareCardCache('/v1/card-cache');
+}
+
+async function writeSoftwareCardCache(state = {}) {
+    return requestSoftwareCardCache('/v1/card-cache', {
+        method: 'PUT',
+        body: JSON.stringify({ state })
+    });
 }
 
 async function agentConnect() {
@@ -900,6 +993,8 @@ async function runAgentToolCommand(tool, args, taskId = null) {
                 action = 'delete_step';
             } else if (action === 'reorder_step') {
                 action = 'move_step';
+            } else if (action === 'remove' || action === 'delete_card' || action === 'remove_card') {
+                action = 'delete';
             }
             if (action === 'rules') {
                 // stepTypes 冗余给出机器可读列表，便于 AI 直接校验自己生成的步骤。
@@ -943,7 +1038,10 @@ async function runAgentToolCommand(tool, args, taskId = null) {
                 };
             }
             if (action === 'delete') {
-                return await deleteCardCacheEntry(String(payload.id || '').trim());
+                const targetReference = getPayloadValue(payload, [
+                    'id', 'card_id', 'cardId', 'card_name', 'cardName', 'name'
+                ]);
+                return await deleteCardCacheEntry(String(targetReference || '').trim());
             }
             if (action === 'write') {
                 validateCardDataForWrite(payload.cardData);
@@ -1018,7 +1116,9 @@ async function runAgentToolCommand(tool, args, taskId = null) {
                                 stepIndex: lp.stepIndex,
                                 stepTotal: lp.stepTotal,
                                 stepName: lp.stepName,
-                                phase: lp.phase
+                                phase: lp.phase,
+                                progress: lp.progress,
+                                ...(lp.errorCode ? { errorCode: lp.errorCode } : {})
                             };
                         }
                     } catch (_) {}
@@ -1028,11 +1128,17 @@ async function runAgentToolCommand(tool, args, taskId = null) {
                     const failure = (runErr && typeof runErr === 'object' && runErr.failure && typeof runErr.failure === 'object')
                         ? runErr.failure
                         : null;
+                    const errorCode = String(
+                        failure?.errorCode || runErr?.errorCode || extra.errorCode
+                        || inferAgentToolErrorCode(runErr, finalErr)
+                    );
+                    const failureSnapshot = failure?.failureSnapshot || null;
                     return {
                         success: false,
                         cardName: (entry && entry.cardName) || '',
                         error: finalErr,
                         errorReason: finalErr,
+                        errorCode,
                         account: payload.account || '',
                         password: payload.password || '',
                         email: payload.email || '',
@@ -1041,15 +1147,31 @@ async function runAgentToolCommand(tool, args, taskId = null) {
                         ...extra,
                         // 完整执行明细（每步过程 / 尝试次数 / 每步耗时），失败也一并带回
                         ...(runErr && runErr.execution ? { execution: runErr.execution } : {}),
+                        diagnostics: {
+                            category: errorCode,
+                            phase: String(extra.phase || (failure ? 'step_failed' : 'run_failed')),
+                            step: failure ? {
+                                index: failure.stepIndex,
+                                total: failure.stepTotal,
+                                name: failure.stepName,
+                                type: failure.stepType,
+                                selector: failure.selector,
+                                attempts: failure.attempts
+                            } : null,
+                            page: failureSnapshot ? {
+                                url: failureSnapshot.url || '',
+                                title: failureSnapshot.title || '',
+                                candidates: Array.isArray(failureSnapshot.candidates) ? failureSnapshot.candidates : []
+                            } : null
+                        },
                         ...(failure ? {
-                            errorCode: failure.errorCode || '',
                             stepIndex: failure.stepIndex,
                             stepTotal: failure.stepTotal,
                             stepName: failure.stepName,
                             stepType: failure.stepType,
                             selector: failure.selector,
                             attempts: failure.attempts,
-                            failureSnapshot: failure.failureSnapshot || null,
+                            failureSnapshot,
                             context: failure.context || null,
                             resumeHint: `页面已停在失败现场。修复卡片（action=write）后可用 action=run + start_step=${failure.stepIndex} 从失败步骤继续，并把本结果 context 里已用到的变量值（如 account/password/email/code 或自定义变量键）通过 inputs 原样回传，避免丢失验证码等运行期取值。`
                         } : {})
@@ -1204,10 +1326,20 @@ async function handleAgentTask(task) {
         rememberAgentOutcome(taskId, entry);
         emitAgentOutcome(taskId, entry);
     } catch (error) {
-        const errMsg = error && error.message ? error.message : String(error);
-        // 尽量保留更多上下文（例如卡片相关）
-        const detailedErr = (task && task.args && task.args.id) ? `${errMsg} (卡片ID: ${task.args.id})` : errMsg;
-        const entry = { kind: 'error', error: detailedErr, userId: task.userId };
+        // 即使工具在卡片 runner 外部抛错，也统一按结构化 result 回传；task:error
+        // 只保留为旧协议兼容。这样连接、网络、超时、标签页和参数错误都不会退化成一句兜底文案。
+        const result = buildAgentToolFailureResult(error, task);
+        const payload = {
+            taskId,
+            userId: task.userId,
+            aiConfigId: task.aiConfigId,
+            sessionId: task.sessionId,
+            tool,
+            success: false,
+            result,
+            summary: `执行失败: ${tool} - [${result.errorCode}] ${result.error}`
+        };
+        const entry = { kind: 'result', payload };
         rememberAgentOutcome(taskId, entry);
         emitAgentOutcome(taskId, entry);
     }
@@ -1288,6 +1420,12 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
     void ensureAgentOffscreen();
     void restoreAndConnectAgent();
+});
+
+// 扩展刷新或后台 worker 被回收时尽力通知软件立即移除旧连接；
+// 浏览器进程直接退出时仍由主进程的短心跳超时兜底。
+chrome.runtime.onSuspend?.addListener(() => {
+    if (agentSocket) agentSocket.disconnect();
 });
 
 // ── popup 消息接口 ──────────────────────────────────────────────────────────
@@ -1388,3 +1526,13 @@ chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
 // 模块加载即尝试恢复连接（SW 被唤醒时）。
 void ensureAgentOffscreen();
 void restoreAndConnectAgent();
+
+// 升级后的旧 Profile 可能仍只在 chrome.storage.local 中保存卡片。后台一唤醒
+// 就主动迁移，不要求用户先打开插件弹窗；软件桥接启动较慢时做有限重试。
+void (async function migrateLegacyCardCacheOnStartup() {
+    for (const delay of [0, 1000, 3000]) {
+        if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
+        const state = await loadCardCacheState().catch(() => null);
+        if (state?.persisted === true) return;
+    }
+})();

@@ -254,13 +254,7 @@ async function loadCardCache() {
 }
 
 async function clearCardCache() {
-    await chrome.storage.local.remove([
-        AUTOMATION_CARD_CACHE_LIST_KEY,
-        AUTOMATION_CARD_SELECTED_ID_KEY,
-        AUTOMATION_CARD_CACHE_KEY,
-        AUTOMATION_CARD_CACHE_NAME_KEY,
-        AUTOMATION_CARD_CACHE_TIME_KEY
-    ]);
+    await saveCardCacheState([], '');
     void renderCardCacheList({ items: [], selectedId: '' });
     setCardFileName('未选择卡片');
 }
@@ -280,13 +274,7 @@ async function deleteSelectedCardCache() {
     nextItems.splice(removeIndex, 1);
 
     if (nextItems.length === 0) {
-        await chrome.storage.local.remove([
-            AUTOMATION_CARD_CACHE_LIST_KEY,
-            AUTOMATION_CARD_SELECTED_ID_KEY,
-            AUTOMATION_CARD_CACHE_KEY,
-            AUTOMATION_CARD_CACHE_NAME_KEY,
-            AUTOMATION_CARD_CACHE_TIME_KEY
-        ]);
+        await saveCardCacheState([], '');
         void renderCardCacheList({ items: [], selectedId: '' });
         setCardFileName('未选择卡片');
         return deletedItem;

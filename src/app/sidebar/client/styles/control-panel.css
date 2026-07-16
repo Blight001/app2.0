@@ -32,12 +32,51 @@ html.theme-light {
   --card-shadow: 0 6px 18px rgba(27, 52, 83, 0.07);
 }
 
+html.theme-gold {
+  color-scheme: dark;
+  --bg: #0d0c0a;
+  --panel: #14120e;
+  --panel-2: #1a1712;
+  --panel-3: #211d15;
+  --border: rgba(212, 183, 118, .16);
+  --text: #ece5d3;
+  --muted: #a2977d;
+  --accent: #d4b776;
+  --accent-strong: #b99a55;
+  --brand: #d4b776;
+  --brand-grad: linear-gradient(135deg, #e6cf9a, #b8985a);
+  --brand-grad-hover: linear-gradient(135deg, #f0dcae, #c7a768);
+  --brand-soft: rgba(212, 183, 118, .10);
+  --brand-border: rgba(212, 183, 118, .22);
+  --brand-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  --teal: #bfa76a;
+}
+
 body {
   background:
     radial-gradient(circle at top left, rgba(60, 115, 255, 0.18), transparent 36%),
     radial-gradient(circle at top right, rgba(33, 201, 191, 0.14), transparent 28%),
     linear-gradient(180deg, #091018 0%, #0c1016 46%, #080c12 100%);
   color: #eff4fb;
+}
+
+html.theme-gold body {
+  background:
+    radial-gradient(circle at 12% 0, rgba(212, 183, 118, .10), transparent 34%),
+    radial-gradient(circle at 88% 8%, rgba(150, 120, 60, .08), transparent 30%),
+    linear-gradient(180deg, #12100c 0%, #0d0c0a 52%, #0a0908 100%);
+  color: #ece5d3;
+}
+
+html.theme-gold .account-profile-shell,
+html.theme-gold .panel,
+html.theme-gold .info-group {
+  border-color: rgba(212, 183, 118, .16);
+  background-color: rgba(20, 18, 14, .96);
+}
+
+html.theme-gold .account-profile-cover {
+  background: radial-gradient(circle at 18% 20%, rgba(235, 215, 160, .16), transparent 40%), linear-gradient(125deg, #2c2517, #191510 52%, #3a2f1a);
 }
 
 .control-shell {

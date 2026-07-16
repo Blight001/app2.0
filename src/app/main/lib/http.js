@@ -166,9 +166,16 @@ function getJson(url, timeoutMs = 15000, options = {}) {
 }
 
 // 发送：postEventStream。逐事件解析 SSE，供 AI 思考、工具调用和正文实时转发。
-function postEventStream(url, data, onEvent, timeoutMs = 180000) {
+function postEventStream(url, data, onEvent, timeoutMs = 180000, options = {}) {
   return new Promise((resolve, reject) => {
     try {
+      const signal = options?.signal;
+      if (signal?.aborted) {
+        const error = new Error('AI 输出已停止');
+        error.name = 'AbortError';
+        reject(error);
+        return;
+      }
       const u = new URL(url);
       const isHttps = u.protocol === 'https:';
       const payload = Buffer.from(JSON.stringify(data ?? {}));
@@ -248,6 +255,11 @@ function postEventStream(url, data, onEvent, timeoutMs = 180000) {
         try { req.destroy(); } catch (_) {}
         reject(new Error(`请求超时（${Math.round((Number(timeoutMs) || 180000) / 1000)}秒）`));
       });
+      signal?.addEventListener?.('abort', () => {
+        const error = new Error('AI 输出已停止');
+        error.name = 'AbortError';
+        try { req.destroy(error); } catch (_) {}
+      }, { once: true });
       req.write(payload);
       req.end();
     } catch (error) {

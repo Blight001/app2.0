@@ -6,6 +6,7 @@ const AUTOMATION_CARD_CACHE_NAME_KEY = shared.STORAGE_KEYS.AUTOMATION_CARD_CACHE
 const AUTOMATION_CARD_CACHE_TIME_KEY = shared.STORAGE_KEYS.AUTOMATION_CARD_CACHE_TIME_KEY;
 const AUTOMATION_CARD_CACHE_LIST_KEY = shared.STORAGE_KEYS.AUTOMATION_CARD_CACHE_LIST_KEY;
 const AUTOMATION_CARD_SELECTED_ID_KEY = shared.STORAGE_KEYS.AUTOMATION_CARD_SELECTED_ID_KEY;
+const AUTOMATION_CARD_PERSIST_PENDING_KEY = shared.STORAGE_KEYS.AUTOMATION_CARD_PERSIST_PENDING_KEY;
 const AUTOMATION_CARD_RUN_INPUTS_KEY = shared.STORAGE_KEYS.AUTOMATION_CARD_RUN_INPUTS_KEY;
 const LAST_MAIN_PANEL_KEY = shared.STORAGE_KEYS.LAST_MAIN_PANEL_KEY;
 const STANDALONE_PROGRESS_STATE_KEY = shared.STORAGE_KEYS.STANDALONE_PROGRESS_STATE_KEY;
@@ -2514,14 +2515,16 @@ async function exportCard() {
     };
 }
 
-async function loadCardCacheState() {
+async function loadLocalCardCacheState() {
     const stored = await chrome.storage.local.get([
         AUTOMATION_CARD_CACHE_LIST_KEY,
         AUTOMATION_CARD_SELECTED_ID_KEY,
         AUTOMATION_CARD_CACHE_KEY,
         AUTOMATION_CARD_CACHE_NAME_KEY,
-        AUTOMATION_CARD_CACHE_TIME_KEY
+        AUTOMATION_CARD_CACHE_TIME_KEY,
+        AUTOMATION_CARD_PERSIST_PENDING_KEY
     ]);
+    const persistPending = stored[AUTOMATION_CARD_PERSIST_PENDING_KEY] === true;
 
     const list = Array.isArray(stored[AUTOMATION_CARD_CACHE_LIST_KEY]) ? stored[AUTOMATION_CARD_CACHE_LIST_KEY] : [];
     if (list.length > 0) {
@@ -2538,7 +2541,7 @@ async function loadCardCacheState() {
             if (!selectedId || !items.some((item) => item.id === selectedId)) {
                 selectedId = String(items[0]?.id || '').trim();
             }
-            return { items, selectedId };
+            return { items, selectedId, persistPending };
         }
     }
 
@@ -2553,14 +2556,83 @@ async function loadCardCacheState() {
         }, 0);
         return {
             items: [legacyItem],
-            selectedId: legacyItem.id
+            selectedId: legacyItem.id,
+            persistPending
         };
     }
 
-    return { items: [], selectedId: '' };
+    return { items: [], selectedId: '', persistPending };
 }
 
-async function saveCardCacheState(items = [], selectedId = '') {
+async function requestSoftwareCardCacheDirect(path, options = {}) {
+    const stored = await chrome.storage.local.get('agent-settings');
+    const settings = stored && stored['agent-settings'] && typeof stored['agent-settings'] === 'object'
+        ? stored['agent-settings']
+        : {};
+    const baseUrl = String(settings.localBridgeUrl || 'http://127.0.0.1:18765').replace(/\/+$/, '');
+    const headers = { ...(options.headers || {}) };
+    if (options.body != null) headers['Content-Type'] = 'application/json';
+    const response = await fetch(`${baseUrl}${path}`, {
+        ...options,
+        headers,
+        signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+            ? AbortSignal.timeout(5000)
+            : undefined
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) {
+        throw new Error(data.message || `软件卡片库 HTTP ${response.status}`);
+    }
+    return data;
+}
+
+function normalizeSoftwareCardCacheResponse(source = {}) {
+    const items = Array.isArray(source?.state?.items)
+        ? source.state.items.map((item, index) => normalizeCardCacheEntry(item, index))
+        : [];
+    const requestedSelectedId = String(source?.state?.selectedId || '').trim();
+    return {
+        items,
+        selectedId: items.some((item) => item.id === requestedSelectedId)
+            ? requestedSelectedId
+            : String(items[0]?.id || '').trim()
+    };
+}
+
+async function loadCardCacheState() {
+    let backgroundError = null;
+    try {
+        const response = await chrome.runtime.sendMessage({ type: 'card-cache-persistent-get' });
+        if (!response || response.success !== true) {
+            throw new Error(response?.error || '读取软件卡片库失败');
+        }
+        if (response.state?.persisted === false) {
+            throw new Error(response.state?.persistError || '后台尚未同步软件卡片库');
+        }
+        return normalizeSoftwareCardCacheResponse(response);
+    } catch (error) {
+        backgroundError = error;
+    }
+
+    const local = await loadLocalCardCacheState();
+    try {
+        const direct = local.persistPending
+            ? await requestSoftwareCardCacheDirect('/v1/card-cache', {
+                method: 'PUT',
+                body: JSON.stringify({ state: { items: local.items, selectedId: local.selectedId } })
+            })
+            : await requestSoftwareCardCacheDirect('/v1/card-cache');
+        const normalized = normalizeSoftwareCardCacheResponse(direct);
+        await saveLocalCardCacheState(normalized.items, normalized.selectedId, false);
+        return normalized;
+    } catch (directError) {
+        local.persisted = false;
+        local.persistError = directError?.message || backgroundError?.message || '读取软件卡片库失败';
+        return local;
+    }
+}
+
+async function saveLocalCardCacheState(items = [], selectedId = '', persistPending = true) {
     const normalizedItems = Array.isArray(items) ? items.map((item, index) => normalizeCardCacheEntry(item, index)) : [];
     const requestedSelectedId = String(selectedId || '').trim();
     const normalizedSelectedId = normalizedItems.some((item) => item.id === requestedSelectedId)
@@ -2571,12 +2643,48 @@ async function saveCardCacheState(items = [], selectedId = '') {
         [AUTOMATION_CARD_SELECTED_ID_KEY]: normalizedSelectedId,
         [AUTOMATION_CARD_CACHE_KEY]: normalizedItems.find((item) => item.id === normalizedSelectedId)?.cardData || normalizedItems[0]?.cardData || {},
         [AUTOMATION_CARD_CACHE_NAME_KEY]: normalizedItems.find((item) => item.id === normalizedSelectedId)?.cardName || normalizedItems[0]?.cardName || '',
-        [AUTOMATION_CARD_CACHE_TIME_KEY]: normalizedItems.find((item) => item.id === normalizedSelectedId)?.savedAt || normalizedItems[0]?.savedAt || ''
+        [AUTOMATION_CARD_CACHE_TIME_KEY]: normalizedItems.find((item) => item.id === normalizedSelectedId)?.savedAt || normalizedItems[0]?.savedAt || '',
+        [AUTOMATION_CARD_PERSIST_PENDING_KEY]: persistPending === true
     });
     return {
         items: normalizedItems,
         selectedId: normalizedSelectedId
     };
+}
+
+async function saveCardCacheState(items = [], selectedId = '') {
+    const normalized = await saveLocalCardCacheState(items, selectedId, true);
+    let backgroundError = null;
+    try {
+        const response = await chrome.runtime.sendMessage({
+            type: 'card-cache-persistent-set',
+            payload: normalized
+        });
+        if (!response || response.success !== true || response.persisted !== true) {
+            throw new Error(response?.error || '保存软件卡片库失败');
+        }
+        const savedItems = Array.isArray(response.state?.items)
+            ? response.state.items.map((item, index) => normalizeCardCacheEntry(item, index))
+            : [];
+        return saveLocalCardCacheState(savedItems, response.state?.selectedId, false);
+    } catch (error) {
+        backgroundError = error;
+    }
+
+    // 后台 worker 可能正在随插件刷新而重载。弹窗具备同样的 loopback
+    // 访问权限，直接写一次软件桥接，避免导入结果只停留在当前 Profile。
+    try {
+        const direct = await requestSoftwareCardCacheDirect('/v1/card-cache', {
+            method: 'PUT',
+            body: JSON.stringify({ state: normalized })
+        });
+        const saved = normalizeSoftwareCardCacheResponse(direct);
+        return saveLocalCardCacheState(saved.items, saved.selectedId, false);
+    } catch (directError) {
+        // 本地镜像已经标为待同步，但不能再把“仅当前浏览器暂存”伪装成保存成功。
+        const reason = directError?.message || backgroundError?.message || '保存软件卡片库失败';
+        throw new Error(`${reason}（已暂存在当前浏览器，尚未完成跨窗口保存）`);
+    }
 }
 
 async function refreshCardCacheUi() {

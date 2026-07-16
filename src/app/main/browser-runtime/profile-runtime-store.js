@@ -285,6 +285,37 @@ class ProfileRuntimeStore {
     this.states.delete(id);
     return true;
   }
+
+  async deleteProfileAsync(profileId) {
+    const id = safeProfileId(profileId);
+    if (this.locks.has(id)) throw new Error(`Profile ${id} 仍在运行，不能删除`);
+    const paths = this.getProfilePaths(id);
+    const legacyPaths = this.getLegacyProfilePaths(profileId);
+    const targets = new Set([paths.root, legacyPaths.root]);
+    for (const target of targets) {
+      const relative = path.relative(this.rootDir, target);
+      if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Profile 删除路径越界');
+      const lockPath = path.join(target, '.runtime.lock');
+      if (fs.existsSync(lockPath)) {
+        let lock = {};
+        try { lock = JSON.parse(fs.readFileSync(lockPath, 'utf8')); } catch (_) {}
+        const pid = Number(lock.pid || 0);
+        if (pid > 0) {
+          try {
+            process.kill(pid, 0);
+            throw new Error(`Profile ${path.basename(target)} 仍被进程 ${pid} 使用，不能删除`);
+          } catch (error) {
+            if (!error || error.code !== 'ESRCH') throw error;
+          }
+        }
+      }
+      // Chromium Profile 通常包含大量缓存小文件。异步递归删除放到
+      // libuv 工作线程执行，避免长时间阻塞 Electron 主进程和界面事件。
+      await fs.promises.rm(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+    this.states.delete(id);
+    return true;
+  }
 }
 
 module.exports = { ProfileRuntimeStore, legacySafeProfileId, safeProfileId };

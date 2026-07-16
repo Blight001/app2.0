@@ -114,39 +114,36 @@ function normalizeCardCacheEntry(entry = {}, index = 0) {
     };
 }
 
-async function loadCardCacheState() {
-    const stored = await chrome.storage.local.get([
-        AUTOMATION_CARD_CACHE_LIST_KEY,
-        AUTOMATION_CARD_SELECTED_ID_KEY,
-        AUTOMATION_CARD_CACHE_KEY,
-        AUTOMATION_CARD_CACHE_NAME_KEY,
-        AUTOMATION_CARD_CACHE_TIME_KEY
-    ]);
+function normalizeCardCacheState(items = [], selectedId = '') {
+    const normalizedItems = (Array.isArray(items) ? items : []).map((item, index) => {
+        try {
+            return normalizeCardCacheEntry(item, index);
+        } catch (_error) {
+            return null;
+        }
+    }).filter(Boolean);
+    const requestedSelectedId = String(selectedId || '').trim();
+    const normalizedSelectedId = normalizedItems.some((item) => item.id === requestedSelectedId)
+        ? requestedSelectedId
+        : String(normalizedItems[0]?.id || '').trim();
+    return { items: normalizedItems, selectedId: normalizedSelectedId };
+}
 
+function readLocalCardCacheState(stored = {}) {
     const list = Array.isArray(stored[AUTOMATION_CARD_CACHE_LIST_KEY]) ? stored[AUTOMATION_CARD_CACHE_LIST_KEY] : [];
     if (list.length > 0) {
-        const items = list.map((item, index) => {
-            try {
-                return normalizeCardCacheEntry(item, index);
-            } catch (_error) {
-                return null;
-            }
-        }).filter(Boolean);
-        if (items.length > 0) {
-            let selectedId = String(stored[AUTOMATION_CARD_SELECTED_ID_KEY] || '').trim();
-            if (!selectedId || !items.some((item) => item.id === selectedId)) {
-                selectedId = String(items[0]?.id || '').trim();
-            }
-            return { items, selectedId };
+        const state = normalizeCardCacheState(list, stored[AUTOMATION_CARD_SELECTED_ID_KEY]);
+        if (state.items.length > 0) {
+            return state;
         }
     }
 
     const cachedCard = stored[AUTOMATION_CARD_CACHE_KEY];
-    if (!cachedCard || typeof cachedCard !== 'object') {
+    if (!cachedCard || typeof cachedCard !== 'object' || !Array.isArray(cachedCard.steps)) {
         return { items: [], selectedId: '' };
     }
 
-    const normalized = normalizeCardData(cachedCard);
+    const normalized = normalizeCardData(cachedCard, { allowEmptySteps: true });
     const legacyId = String(stored[AUTOMATION_CARD_CACHE_NAME_KEY] || normalized.name || 'automation').trim() || 'automation';
     return {
         items: [{
@@ -157,6 +154,80 @@ async function loadCardCacheState() {
         }],
         selectedId: legacyId
     };
+}
+
+async function writeLocalCardCacheMirror(state = {}, persistPending = false) {
+    const normalized = normalizeCardCacheState(state.items, state.selectedId);
+    const selectedItem = normalized.items.find((item) => item.id === normalized.selectedId) || normalized.items[0] || null;
+    await chrome.storage.local.set({
+        [AUTOMATION_CARD_CACHE_LIST_KEY]: normalized.items,
+        [AUTOMATION_CARD_SELECTED_ID_KEY]: normalized.selectedId,
+        [AUTOMATION_CARD_CACHE_KEY]: selectedItem?.cardData || {},
+        [AUTOMATION_CARD_CACHE_NAME_KEY]: selectedItem?.cardName || '',
+        [AUTOMATION_CARD_CACHE_TIME_KEY]: selectedItem?.savedAt || '',
+        [AUTOMATION_CARD_PERSIST_PENDING_KEY]: persistPending === true
+    });
+    return normalized;
+}
+
+async function replaceCardCacheState(items = [], selectedId = '') {
+    const normalized = normalizeCardCacheState(items, selectedId);
+    try {
+        const response = await writeSoftwareCardCache(normalized);
+        const saved = normalizeCardCacheState(response?.state?.items, response?.state?.selectedId);
+        await writeLocalCardCacheMirror(saved, false);
+        return { ...saved, persisted: true };
+    } catch (error) {
+        // 软件桥接短暂不可用时仍允许编辑，并标记为待同步；下次读取会优先
+        // 把这份新镜像写回软件卡片库，避免旧的共享文件覆盖刚保存的卡片。
+        await writeLocalCardCacheMirror(normalized, true);
+        return {
+            ...normalized,
+            persisted: false,
+            persistError: error && error.message ? error.message : String(error || '软件卡片库写入失败')
+        };
+    }
+}
+
+async function loadCardCacheState() {
+    const stored = await chrome.storage.local.get([
+        AUTOMATION_CARD_CACHE_LIST_KEY,
+        AUTOMATION_CARD_SELECTED_ID_KEY,
+        AUTOMATION_CARD_CACHE_KEY,
+        AUTOMATION_CARD_CACHE_NAME_KEY,
+        AUTOMATION_CARD_CACHE_TIME_KEY,
+        AUTOMATION_CARD_PERSIST_PENDING_KEY
+    ]);
+    const localState = readLocalCardCacheState(stored);
+
+    try {
+        if (stored[AUTOMATION_CARD_PERSIST_PENDING_KEY] === true) {
+            const synced = await writeSoftwareCardCache(localState);
+            const saved = normalizeCardCacheState(synced?.state?.items, synced?.state?.selectedId);
+            await writeLocalCardCacheMirror(saved, false);
+            return { ...saved, persisted: true };
+        }
+
+        const remote = await readSoftwareCardCache();
+        if (remote?.exists === true) {
+            const sharedState = normalizeCardCacheState(remote?.state?.items, remote?.state?.selectedId);
+            await writeLocalCardCacheMirror(sharedState, false);
+            return { ...sharedState, persisted: true };
+        }
+
+        // 首次升级时，把当前 Profile 里已有的旧卡片自动迁移到软件目录。
+        if (localState.items.length > 0) {
+            const migrated = await writeSoftwareCardCache(localState);
+            const saved = normalizeCardCacheState(migrated?.state?.items, migrated?.state?.selectedId);
+            await writeLocalCardCacheMirror(saved, false);
+            return { ...saved, persisted: true };
+        }
+        return { ...localState, persisted: true };
+    } catch (_error) {
+        // 保留离线兼容；软件运行且桥接恢复后会重新读取共享卡片库。
+    }
+
+    return { ...localState, persisted: false };
 }
 
 async function loadCardCache() {
@@ -189,46 +260,61 @@ async function saveCardCacheState(cardData, selectedId = '') {
     const nextItems = state.items.filter((item) => item.id !== nextItem.id);
     nextItems.push(nextItem);
     const nextSelectedId = nextItem.id;
-    await chrome.storage.local.set({
-        [AUTOMATION_CARD_CACHE_LIST_KEY]: nextItems,
-        [AUTOMATION_CARD_SELECTED_ID_KEY]: nextSelectedId,
-        [AUTOMATION_CARD_CACHE_KEY]: safeCardData,
-        [AUTOMATION_CARD_CACHE_NAME_KEY]: String(safeCardData.name || '').trim(),
-        [AUTOMATION_CARD_CACHE_TIME_KEY]: new Date().toISOString()
-    });
+    const saved = await replaceCardCacheState(nextItems, nextSelectedId);
     return {
-        items: nextItems,
-        selectedId: nextSelectedId,
+        items: saved.items,
+        selectedId: saved.selectedId,
         cardData: safeCardData
     };
 }
 
-async function deleteCardCacheEntry(id) {
-    const targetId = String(id || '').trim();
-    if (!targetId) {
-        throw new Error('缺少要删除的自动化卡片 id');
+function resolveCardCacheDeleteTarget(state = {}, reference = '') {
+    const items = Array.isArray(state.items) ? state.items : [];
+    const requested = String(reference || '').trim();
+    if (items.length === 0) {
+        throw new Error('当前没有已保存的自动化卡片');
     }
 
-    const state = await loadCardCacheState().catch(() => ({ items: [], selectedId: '' }));
-    if (!state.items.some((item) => item.id === targetId)) {
-        throw new Error(`未找到自动化卡片: ${targetId}`);
+    // 删除“当前卡片”时与 get/run/局部编辑保持一致：未传 id 就使用当前选中项。
+    if (!requested) {
+        const selected = items.find((item) => String(item?.id || '').trim() === String(state.selectedId || '').trim());
+        return selected || items[0];
     }
+
+    // AI 偶尔会把 list 返回的 cardName 当作 id 传回。先精确匹配 id，
+    // 再兼容卡片名；同名时不猜测，明确要求使用 id，避免误删。
+    const byId = items.find((item) => String(item?.id || '').trim() === requested);
+    if (byId) {
+        return byId;
+    }
+
+    const requestedName = requested.toLocaleLowerCase();
+    const byName = items.filter((item) => [item?.cardName, item?.cardData?.name]
+        .some((name) => String(name || '').trim().toLocaleLowerCase() === requestedName));
+    if (byName.length === 1) {
+        return byName[0];
+    }
+    if (byName.length > 1) {
+        throw new Error(`存在多张同名自动化卡片: ${requested}，请使用卡片 id 删除`);
+    }
+    throw new Error(`未找到自动化卡片: ${requested}`);
+}
+
+async function deleteCardCacheEntry(reference = '') {
+    const state = await loadCardCacheState().catch(() => ({ items: [], selectedId: '' }));
+    const target = resolveCardCacheDeleteTarget(state, reference);
+    const targetId = String(target.id || '').trim();
 
     const nextItems = state.items.filter((item) => item.id !== targetId);
     const nextSelectedId = state.selectedId === targetId ? String(nextItems[0]?.id || '') : state.selectedId;
-    await chrome.storage.local.set({
-        [AUTOMATION_CARD_CACHE_LIST_KEY]: nextItems,
-        [AUTOMATION_CARD_SELECTED_ID_KEY]: nextSelectedId,
-        [AUTOMATION_CARD_CACHE_KEY]: nextItems.find((item) => item.id === nextSelectedId)?.cardData || nextItems[0]?.cardData || {},
-        [AUTOMATION_CARD_CACHE_NAME_KEY]: nextItems.find((item) => item.id === nextSelectedId)?.cardName || nextItems[0]?.cardName || '',
-        [AUTOMATION_CARD_CACHE_TIME_KEY]: nextItems.find((item) => item.id === nextSelectedId)?.savedAt || nextItems[0]?.savedAt || ''
-    });
+    const saved = await replaceCardCacheState(nextItems, nextSelectedId);
 
     return {
         deleted: true,
         id: targetId,
-        items: nextItems,
-        selectedId: nextSelectedId
+        cardName: String(target.cardName || target.cardData?.name || '').trim(),
+        items: saved.items,
+        selectedId: saved.selectedId
     };
 }
 
@@ -248,4 +334,9 @@ function normalizeStandaloneSteps(cardData) {
     }
     const normalizedSteps = ensureStepIds(steps);
     return { ...normalizedCard, steps: normalizedSteps, flow: normalizeFlowData(normalizedCard.flow, normalizedSteps) || normalizedCard.flow };
+}
+
+// 仅供 Node 回归测试使用；扩展 service worker 中没有 CommonJS module。
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { resolveCardCacheDeleteTarget };
 }

@@ -237,8 +237,19 @@ function findSessionPaths(accountId) {
     const sessionFileName = getSessionFileName(normalizedAccountId);
     const legacyFlat = getLegacyRootSessionPath(accountId);
     const legacyFlatJson = getLegacyRootSessionJsonPath(accountId);
-    if (fs.existsSync(legacyFlat)) results.push(legacyFlat);
-    if (fs.existsSync(legacyFlatJson)) results.push(legacyFlatJson);
+    const directCandidates = [
+      legacyFlat,
+      legacyFlatJson,
+      getSessionFilePath(accountId, ''),
+      getSessionFilePath(accountId, '', 'manual'),
+    ];
+    for (const candidate of directCandidates) {
+      if (fs.existsSync(candidate)) results.push(candidate);
+    }
+
+    // 当前服务端账号都位于 __no_key__，可由账号 ID 直接定位。命中后不再
+    // 为每个待删除账号同步遍历整个会话目录，避免批量回收退化为 O(n²)。
+    if (results.length > 0) return Array.from(new Set(results));
 
     const allFiles = walkSessionFiles(getSessionsDir(), []);
     for (const filePath of allFiles) {

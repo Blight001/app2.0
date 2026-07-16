@@ -1240,6 +1240,13 @@ function createExtensionManager(deps = {}) {
       }
     }
 
+    // 用户导入的解压插件不位于内置资源目录，刷新内置插件时仍需保留。
+    for (const plugin of storedPlugins) {
+      if (!plugin?.id || plugin.builtin === true || seenIds.has(plugin.id)) continue;
+      seenIds.add(plugin.id);
+      bundledPlugins.push(plugin);
+    }
+
     return bundledPlugins;
   }
 
@@ -1705,6 +1712,49 @@ function createExtensionManager(deps = {}) {
     return { ok: true, plugin: toPublicPlugin(plugin), state: getPublicState(), browserRefresh };
   }
 
+  async function importPlugin(sourcePath) {
+    const absPath = normalizeAbsolutePath(sourcePath);
+    if (!absPath) return { ok: false, message: '未选择插件目录', state: getPublicState() };
+
+    let record;
+    try {
+      readManifest(absPath);
+      const existing = state.plugins.find((plugin) => normalizeAbsolutePath(plugin?.path) === absPath) || null;
+      if (existing?.builtin === true) {
+        return { ok: false, message: '该目录是内置插件，无需重复导入', state: getPublicState() };
+      }
+      record = buildPluginRecord(absPath, existing || {}, {
+        id: existing?.id || `local-${hashId(absPath)}`,
+        builtin: false,
+        enabled: true,
+        hint: existing?.hint || '自定义导入插件',
+      });
+      if (existing?.enabled === true) await unloadPluginFromAllSessions(existing);
+      state.plugins = state.plugins.filter((plugin) => plugin.id !== record.id);
+      state.plugins.push(record);
+      persistState();
+      await loadPluginIntoAllCurrentSessions(record);
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error), state: getPublicState() };
+    }
+
+    let browserRefresh = null;
+    if (typeof onPluginStateChanged === 'function') {
+      try {
+        browserRefresh = await onPluginStateChanged({
+          plugin: toPublicPlugin(record),
+          enabled: true,
+          imported: true,
+        });
+      } catch (error) {
+        browserRefresh = { ok: false, message: error?.message || String(error) };
+        logger.warn?.('[Extensions] 插件已导入，但浏览器刷新失败:', error?.message || error);
+      }
+    }
+    emitStateChanged();
+    return { ok: true, plugin: toPublicPlugin(record), state: getPublicState(), browserRefresh };
+  }
+
   async function removePlugin(pluginId) {
     const plugin = getPluginById(pluginId);
     if (!plugin) return { ok: false, message: '插件不存在', state: getPublicState() };
@@ -1737,6 +1787,7 @@ function createExtensionManager(deps = {}) {
     getEnabledExtensionPaths,
     loadEnabledIntoSession,
     ensureEnabledPluginsLoadedInCurrentSessions,
+    importPlugin,
     setPluginEnabled,
     removePlugin,
     isPluginEnabled,

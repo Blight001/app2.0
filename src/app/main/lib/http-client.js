@@ -397,6 +397,24 @@ class HttpClient {
         });
     }
 
+    async redeemVipGiftCode(key, deviceId, code) {
+        return this._request({
+            actionLabel: 'redeemVipGiftCode',
+            path: '/api/vip-gift-codes/redeem',
+            method: 'POST',
+            data: { key, device_id: deviceId, code },
+        });
+    }
+
+    async getVipPlans(key, deviceId) {
+        return this._request({
+            actionLabel: 'getVipPlans',
+            path: '/api/vip/plans',
+            method: 'POST',
+            data: { key, device_id: deviceId },
+        });
+    }
+
     async getProxyTrafficQuota(key, deviceId) {
         return this._request({
             actionLabel: 'getProxyTrafficQuota',
@@ -463,7 +481,7 @@ class HttpClient {
                 messages,
                 tools: Array.isArray(options.tools) ? options.tools : [],
                 run_id: String(options.runId || ''),
-            }, onEvent, 240000);
+            }, onEvent, 240000, { signal: options.signal });
         } catch (error) {
             console.warn('[HTTP] streamAIControlMessage 请求失败:', error?.message || error);
             return { ok: false, message: error?.message || String(error) };

@@ -23,9 +23,13 @@ const {
   DEFAULT_AI_CONTROL_MCP_CALL_LIMIT,
   MIN_AI_CONTROL_MCP_CALL_LIMIT,
   MAX_AI_CONTROL_MCP_CALL_LIMIT,
+  getCustomAiApiConfig,
   getAiControlMcpCallLimit,
+  normalizeCustomAiApiConfig,
   normalizeAiControlMcpCallLimit,
+  toPublicCustomAiApiConfig,
 } = require('../../utils/ai-control-settings');
+const { FREE_BROWSER_WINDOW_LIMIT, createVipRequiredResult, resolveVipAccess } = require('../../utils/vip-access');
 
 const getBrowserRuntimeInfo = () => ({
   chromiumVersion: String(process.versions?.chrome || ''),
@@ -546,6 +550,56 @@ function registerSettingsIPC(ctx) {
     }
   });
 
+  ipcMain.handle('get-ai-control-custom-api', async () => {
+    try {
+      if (!resolveVipAccess(licenseCache?.getSnapshot?.() || {}).isVip) {
+        return createVipRequiredResult('自定义模型');
+      }
+      const config = getCustomAiApiConfig(readStoreConfigSafe());
+      return { ok: true, config: toPublicCustomAiApiConfig(config) };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle('set-ai-control-custom-api', async (_event, payload = {}) => {
+    try {
+      if (payload?.clear !== true && !resolveVipAccess(licenseCache?.getSnapshot?.() || {}).isVip) {
+        return createVipRequiredResult('自定义模型');
+      }
+      const currentStore = readStoreConfigSafe();
+      const previous = getCustomAiApiConfig(currentStore);
+      const clear = payload?.clear === true;
+      const next = normalizeCustomAiApiConfig(clear ? {} : {
+        enabled: payload?.enabled !== false,
+        name: payload?.name,
+        baseUrl: payload?.baseUrl,
+        model: payload?.model,
+        apiKey: Object.prototype.hasOwnProperty.call(payload, 'apiKey')
+          ? payload.apiKey
+          : previous.apiKey,
+      });
+      if (!clear) {
+        if (!next.baseUrl) throw new Error('请输入自定义 API 地址');
+        if (!/^https?:\/\//i.test(next.baseUrl)) throw new Error('API 地址必须以 http:// 或 https:// 开头');
+        if (!next.model) throw new Error('请输入模型名称');
+      }
+      const wrote = writeStoreConfigSafe({
+        ...(currentStore && typeof currentStore === 'object' ? currentStore : {}),
+        aiControlSettings: {
+          ...(currentStore?.aiControlSettings && typeof currentStore.aiControlSettings === 'object'
+            ? currentStore.aiControlSettings
+            : {}),
+          customApi: next,
+        },
+      });
+      if (!wrote) throw new Error('自定义 API 未能写入本地配置');
+      return { ok: true, config: toPublicCustomAiApiConfig(next) };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
+
   ipcMain.handle('get-browser-history', async () => {
     try {
       const history = syncOpenTabsToBrowserHistory(ui);
@@ -609,6 +663,14 @@ function registerSettingsIPC(ctx) {
   });
 
   ipcMain.handle('create-independent-browser', async (_event, payload = {}) => {
+    if (!resolveVipAccess(licenseCache?.getSnapshot?.() || {}).isVip
+      && Number(ui?.getTabs?.()?.size || 0) >= FREE_BROWSER_WINDOW_LIMIT) {
+      ui?.sendToSide?.('vip-access-required', { feature: '更多独立浏览器窗口', limit: FREE_BROWSER_WINDOW_LIMIT });
+      return {
+        ...createVipRequiredResult('更多独立浏览器窗口'),
+        error: `普通用户最多同时打开 ${FREE_BROWSER_WINDOW_LIMIT} 个独立浏览器窗口，请前往个人中心开通 VIP`,
+      };
+    }
     if (independentBrowserCreation) {
       return {
         ...independentBrowserCreation.response,

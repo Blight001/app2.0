@@ -59,8 +59,11 @@ async function runAccountProfileCleanup(normalizedAccountId, deps = {}) {
       await browserRuntimeManager.stop(normalizedAccountId, 'chromium', { timeoutMs: 5000 });
     }
 
-    if (browserRuntimeManager?.deleteProfile) {
-      browserRuntimeManager.deleteProfile(normalizedAccountId);
+    if (browserRuntimeManager?.deleteProfileAsync) {
+      await browserRuntimeManager.deleteProfileAsync(normalizedAccountId);
+    } else if (browserRuntimeManager?.deleteProfile) {
+      // 兼容测试替身和旧的运行时管理器。
+      await browserRuntimeManager.deleteProfile(normalizedAccountId);
     } else {
       return { ok: false, error: 'Chromium Profile 管理器不可用' };
     }

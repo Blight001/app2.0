@@ -26,8 +26,18 @@ test('个人中心浮窗失焦后自动关闭', () => {
   const blurHandler = source.slice(blurHandlerStart, blurHandlerEnd);
 
   assert.notEqual(blurHandlerStart, -1);
-  assert.match(blurHandler, /if \(!accountCenterPopupBlurArmed\) return/);
+  assert.match(blurHandler, /!accountCenterPopupBlurArmed \|\| !accountCenterPopupDismissOnBlur/);
   assert.match(blurHandler, /dismissAccountCenterPopupWindow\(\)/);
+});
+
+test('VIP 门禁浮窗不因原生浏览器抢焦点而关闭', () => {
+  assert.match(source, /accountCenterPopupDismissOnBlur = payload\?\.dismissOnBlur !== false/);
+  assert.match(accountControllerSource, /open-account-center-popup', \{ dismissOnBlur: false, showVipPlans: true \}/);
+
+  const focusHandlerStart = source.indexOf('accountCenterPopupWindowFocusHandler = (_event, focusedWindow) =>');
+  const focusHandlerEnd = source.indexOf('\n    };', focusHandlerStart);
+  const focusHandler = source.slice(focusHandlerStart, focusHandlerEnd);
+  assert.match(focusHandler, /!accountCenterPopupDismissOnBlur/);
 });
 
 test('浮窗启动期焦点抖动不会被误判为外部点击', () => {

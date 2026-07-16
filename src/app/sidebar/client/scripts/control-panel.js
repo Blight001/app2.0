@@ -43,7 +43,7 @@
   function getSavedTheme() {
     try {
       const value = localStorage.getItem(themeStorageKey);
-      return value === 'light' ? 'light' : 'dark';
+      return value === 'light' || value === 'gold' ? value : 'dark';
     } catch (_) {
       return 'dark';
     }
@@ -58,11 +58,12 @@
   }
 
   function applyTheme(theme, options = {}) {
-    const nextTheme = theme === 'light' ? 'light' : 'dark';
+    const nextTheme = theme === 'light' || theme === 'gold' ? theme : 'dark';
     const isLight = nextTheme === 'light';
 
     if (root) {
       root.classList.toggle('theme-light', isLight);
+      root.classList.toggle('theme-gold', nextTheme === 'gold');
       root.dataset.theme = nextTheme;
     }
 
@@ -82,7 +83,7 @@
   }
 
   function toggleTheme() {
-    const currentTheme = root && root.classList.contains('theme-light') ? 'light' : getSavedTheme();
+    const currentTheme = root?.dataset?.theme || getSavedTheme();
     applyTheme(currentTheme === 'light' ? 'dark' : 'light');
   }
 

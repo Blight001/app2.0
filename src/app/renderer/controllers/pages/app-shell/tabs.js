@@ -37,9 +37,19 @@ const appShellUpdateState = {
   activated: false,
   version: '',
 };
+let aiConnectedBrowserProfileId = '';
+
+function syncAiConnectedBrowserHighlight() {
+  for (const [tabId, tabElement] of tabElementById.entries()) {
+    const isConnected = Boolean(aiConnectedBrowserProfileId)
+      && tabId === aiConnectedBrowserProfileId;
+    tabElement.classList.toggle('ai-browser-connected', isConnected);
+  }
+}
 
 function normalizeAppTheme(theme) {
-  return String(theme || '').trim() === 'light' ? 'light' : 'dark';
+  const value = String(theme || '').trim();
+  return value === 'light' || value === 'gold' ? value : 'dark';
 }
 
 function getSavedAppTheme() {
@@ -54,6 +64,7 @@ function applyAppShellTheme(theme, options = {}) {
   const nextTheme = normalizeAppTheme(theme);
   const isLight = nextTheme === 'light';
   document.documentElement.classList.toggle('theme-light', isLight);
+  document.documentElement.classList.toggle('theme-gold', nextTheme === 'gold');
   document.documentElement.dataset.theme = nextTheme;
   const themeToggleBtn = document.getElementById('theme-toggle-btn');
   if (themeToggleBtn) {
@@ -98,6 +109,10 @@ if (IPC && typeof IPC.on === 'function') {
   });
   IPC.on('app-update-error', () => resetAppShellUpdateProgress());
   IPC.on('app-update-skip', () => resetAppShellUpdateProgress());
+  IPC.on('ai-control-browser-selection-changed', (payload = {}) => {
+    aiConnectedBrowserProfileId = String(payload?.profileId || '');
+    syncAiConnectedBrowserHighlight();
+  });
 }
 
 let tabsContainer = document.getElementById('tabs-container');
@@ -172,13 +187,13 @@ function bindThemeToggleBtnOnce() {
   themeToggleBtn.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
-    const currentTheme = document.documentElement.classList.contains('theme-light') ? 'light' : 'dark';
+    const currentTheme = document.documentElement.dataset.theme || 'dark';
     const nextTheme = currentTheme === 'light' ? 'dark' : 'light';
     applyAppShellTheme(nextTheme, { persist: true });
     IPC.send('app-theme-changed', nextTheme);
   });
   themeToggleBtn.dataset.bound = '1';
-  applyAppShellTheme(document.documentElement.classList.contains('theme-light') ? 'light' : 'dark');
+  applyAppShellTheme(document.documentElement.dataset.theme || 'dark');
 }
 
 // 监听/绑定：onReady的具体业务逻辑。
@@ -797,6 +812,50 @@ function applyAdaptiveTabSizing() {
   });
 }
 
+function createAiBrowserParticleLayer(seedValue) {
+  const layer = document.createElement('span');
+  layer.className = 'ai-browser-particle-layer';
+  layer.setAttribute('aria-hidden', 'true');
+
+  let seed = 2166136261;
+  for (const char of String(seedValue || 'browser')) {
+    seed ^= char.charCodeAt(0);
+    seed = Math.imul(seed, 16777619);
+  }
+  const random = () => {
+    seed += 0x6D2B79F5;
+    let value = seed;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+
+  for (let index = 0; index < 10; index += 1) {
+    const particle = document.createElement('i');
+    const isAiText = (index + 1) % 3 === 0;
+    const size = isAiText
+      ? 8 + Math.floor(random() * 4)
+      : 3 + Math.floor(random() * 4);
+    const duration = 2.5 + (random() * 4.2);
+    const maxTop = Math.max(3, 26 - size);
+    if (isAiText) {
+      particle.className = 'ai-text-particle';
+      particle.textContent = 'AI';
+      particle.style.setProperty('--particle-font-size', `${size}px`);
+    }
+    particle.style.setProperty('--particle-size', `${size}px`);
+    particle.style.setProperty('--particle-top', `${2 + Math.floor(random() * maxTop)}px`);
+    particle.style.setProperty('--particle-duration', `${duration.toFixed(2)}s`);
+    particle.style.setProperty('--particle-delay', `${(-random() * duration).toFixed(2)}s`);
+    particle.style.setProperty('--particle-opacity', (0.28 + (random() * 0.46)).toFixed(2));
+    particle.style.setProperty('--particle-drift-mid', `${Math.round((random() - 0.5) * 9)}px`);
+    particle.style.setProperty('--particle-drift-end', `${Math.round((random() - 0.5) * 7)}px`);
+    particle.style.setProperty('--particle-radius', random() > 0.72 ? '2px' : '0px');
+    layer.appendChild(particle);
+  }
+  return layer;
+}
+
 // 创建/初始化：createTabElement的具体业务逻辑。
 function createTabElement(tab) {
   const tabElement = document.createElement('div');
@@ -808,6 +867,12 @@ function createTabElement(tab) {
   tabElement.dataset.runtimeType = String(tab?.runtimeType || 'chromium');
   tabElement.dataset.runtimeStatus = String(tab?.runtimeStatus || 'ready');
   tabElement.dataset.browserHistoryId = String(tab?.browserHistoryId || '');
+  tabElement.classList.toggle(
+    'ai-browser-connected',
+    Boolean(aiConnectedBrowserProfileId) && String(tab.id) === aiConnectedBrowserProfileId,
+  );
+
+  tabElement.appendChild(createAiBrowserParticleLayer(tab.id));
 
   const titleSpan = document.createElement('span');
   titleSpan.className = 'tab-title';
@@ -815,23 +880,19 @@ function createTabElement(tab) {
   titleSpan.title = buildTabTooltip(tab);
   tabElement.appendChild(titleSpan);
 
-  if (tab?.runtimeType === 'chromium') {
+  if (tab?.runtimeType === 'chromium' && tab?.runtimeStatus === 'crashed') {
     const runtimeBadge = document.createElement('button');
-    const crashed = tab.runtimeStatus === 'crashed';
-    const starting = tab.runtimeStatus === 'starting';
     runtimeBadge.type = 'button';
-    runtimeBadge.className = `tab-runtime-badge${crashed ? ' crashed' : ''}`;
-    runtimeBadge.textContent = crashed ? '重启' : (starting ? '…' : 'C');
-    runtimeBadge.title = crashed
-      ? 'AI-FREE 浏览器已退出，点击重新启动'
-      : `AI-FREE 浏览器：${formatRuntimeStatus(tab.runtimeStatus)}`;
+    runtimeBadge.className = 'tab-runtime-badge crashed';
+    runtimeBadge.textContent = '重启';
+    runtimeBadge.title = 'AI-FREE 浏览器已退出，点击重新启动';
     runtimeBadge.addEventListener('click', async (event) => {
       event.stopPropagation();
-      if (!runtimeBadge.classList.contains('crashed') || typeof IPC.invoke !== 'function' || runtimeBadge.disabled) return;
+      if (typeof IPC.invoke !== 'function' || runtimeBadge.disabled) return;
       runtimeBadge.disabled = true;
       runtimeBadge.textContent = '…';
       try {
-        const result = await IPC.invoke('restart-browser-runtime', { profileId: tab.id });
+        const result = await IPC.invoke('restart-browser-runtime', { profileId: tabElement.dataset.id });
         if (!result?.ok) throw new Error(result?.message || '重启失败');
       } catch (error) {
         showControllerError('重启 AI-FREE 环境失败', error);
@@ -938,15 +999,35 @@ function syncTabElement(tabElement, tab) {
   tabElement.title = buildTabTooltip(tab);
   tabElement.dataset.browserHistoryId = String(tab?.browserHistoryId || '');
   tabElement.dataset.runtimeStatus = String(tab?.runtimeStatus || 'starting');
+  tabElement.classList.toggle(
+    'ai-browser-connected',
+    Boolean(aiConnectedBrowserProfileId) && String(tab.id) === aiConnectedBrowserProfileId,
+  );
   const runtimeBadge = tabElement.querySelector('.tab-runtime-badge');
-  if (runtimeBadge) {
-    const crashed = tab?.runtimeStatus === 'crashed';
-    const starting = tab?.runtimeStatus === 'starting';
-    runtimeBadge.classList.toggle('crashed', crashed);
-    runtimeBadge.textContent = crashed ? '重启' : (starting ? '…' : 'C');
-    runtimeBadge.title = crashed
-      ? 'AI-FREE 浏览器已退出，点击重新启动'
-      : `AI-FREE 浏览器：${formatRuntimeStatus(tab?.runtimeStatus)}`;
+  const crashed = tab?.runtimeType === 'chromium' && tab?.runtimeStatus === 'crashed';
+  if (runtimeBadge && !crashed) {
+    runtimeBadge.remove();
+  } else if (!runtimeBadge && crashed) {
+    const recoveryButton = document.createElement('button');
+    recoveryButton.type = 'button';
+    recoveryButton.className = 'tab-runtime-badge crashed';
+    recoveryButton.textContent = '重启';
+    recoveryButton.title = 'AI-FREE 浏览器已退出，点击重新启动';
+    recoveryButton.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      if (typeof IPC.invoke !== 'function' || recoveryButton.disabled) return;
+      recoveryButton.disabled = true;
+      recoveryButton.textContent = '…';
+      try {
+        const result = await IPC.invoke('restart-browser-runtime', { profileId: tabElement.dataset.id });
+        if (!result?.ok) throw new Error(result?.message || '重启失败');
+      } catch (error) {
+        showControllerError('重启 AI-FREE 环境失败', error);
+        recoveryButton.disabled = false;
+        recoveryButton.textContent = '重启';
+      }
+    });
+    tabElement.insertBefore(recoveryButton, tabElement.querySelector('.tab-close'));
   }
   tabElement.classList.toggle('active', !!tab.isActive);
 }

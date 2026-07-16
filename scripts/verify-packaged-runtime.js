@@ -115,7 +115,7 @@ function verifyAsarIntegrity(appOutDir) {
     }
     if (!/id="account-center-btn"[\s\S]*?id="add-tab-btn"/.test(appShell)
       || !appShell.includes('../sidebar/client/scripts/logo-assets.js')
-      || (appShell.match(/<img[^>]*data-app-logo/g) || []).length !== 1) {
+      || (appShell.match(/<img[^>]*data-app-logo/g) || []).length !== 2) {
       throw new Error('主窗口个人中心头像未放置在侧栏齿轮左侧');
     }
   } finally {
