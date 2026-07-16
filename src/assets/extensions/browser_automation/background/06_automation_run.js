@@ -301,7 +301,7 @@ async function runStandaloneCard(payload = {}) {
     const stepProgressSpan = totalSteps > 0 ? (stepProgressEnd - stepProgressStart) / totalSteps : 0;
     const retryFailedStepInRunMode = true;
     const stepRetryDelayMs = Math.max(1000, Number(payload.step_retry_delay_ms || payload.stepRetryDelayMs || payload.retryDelayMs || 2000));
-    const MAX_STEP_RETRIES = 3; // 仅 wait 步骤使用；其他动作步骤失败后不重试（maxAttempts=1）
+    const MAX_WAIT_STEP_ATTEMPTS = 1; // 找不到元素或等待超时时只尝试一次，不再自动重试
     let tabId = 0;
     let currentCardName = '';
 
@@ -461,7 +461,7 @@ async function runStandaloneCard(payload = {}) {
         throw createStopError();
     }
 
-    // 重试控制：wait 步骤最多尝试 3 次，其他动作步骤失败后不反复尝试（直接失败）
+    // 重试控制：所有步骤最多尝试 1 次；找不到元素或等待超时后立即返回详细失败现场。
     let stepAttempt = 1;
     let lastFailedStepIndex = -1;
     let maxRetriesExceeded = false;
@@ -575,7 +575,7 @@ async function runStandaloneCard(payload = {}) {
         const liveStepSpan = liveTotalSteps > 0 ? (stepProgressEnd - stepProgressStart) / liveTotalSteps : 0;
         const stepStartProgress = Math.min(stepProgressEnd, stepProgressStart + (index * liveStepSpan));
         const stepEndProgress = Math.min(stepProgressEnd, stepProgressStart + ((index + 1) * liveStepSpan));
-        const maxAttempts = (stepType === 'wait') ? MAX_STEP_RETRIES : 1;
+        const maxAttempts = (stepType === 'wait') ? MAX_WAIT_STEP_ATTEMPTS : 1;
         const attemptInfo = (retryFailedStepInRunMode && currentAttempt > 1) ? ` (尝试 ${currentAttempt}/${maxAttempts})` : '';
         const stepLabel = formatStepProgressLabel(index + 1, liveTotalSteps, stepName) + attemptInfo;
         const previousStepName = index > 0 ? String(steps[index - 1]?.name || `步骤${index}`).trim() || `步骤${index}` : '';
@@ -725,7 +725,7 @@ async function runStandaloneCard(payload = {}) {
                     });
                 } else {
                     await chrome.tabs.update(tabId, { url });
-                    await waitForTabComplete(tabId, Number(step.timeout || 5000));
+                    await waitForTabComplete(tabId, Number(step.timeout || 15000));
                     await emitProgress({
                         message: `${stepLabel} · 已跳转`,
                         progress: stepEndProgress,

@@ -104,6 +104,38 @@ test('failed browser tool results retain structured diagnostics across the local
   assert.equal(result.execution.failed, 1);
 });
 
+test('automation card navigation waits 15 seconds by default', () => {
+  const root = path.join(__dirname, '..');
+  const runner = fs.readFileSync(
+    path.join(root, 'src/assets/extensions/browser_automation/background/06_automation_run.js'),
+    'utf8',
+  );
+  const socket = fs.readFileSync(
+    path.join(root, 'src/assets/extensions/browser_automation/background/09_agent_socket.js'),
+    'utf8',
+  );
+
+  assert.match(runner, /waitForTabComplete\(tabId, Number\(step\.timeout \|\| 15000\)\)/);
+  assert.match(socket, /navigate: 跳转 url（[^\n]+timeout 默认 15000）/);
+});
+
+test('automation card element lookup failures only attempt once', () => {
+  const root = path.join(__dirname, '..');
+  const runner = fs.readFileSync(
+    path.join(root, 'src/assets/extensions/browser_automation/background/06_automation_run.js'),
+    'utf8',
+  );
+  const socket = fs.readFileSync(
+    path.join(root, 'src/assets/extensions/browser_automation/background/09_agent_socket.js'),
+    'utf8',
+  );
+
+  assert.match(runner, /const MAX_WAIT_STEP_ATTEMPTS = 1/);
+  assert.match(runner, /\? MAX_WAIT_STEP_ATTEMPTS : 1/);
+  assert.match(socket, /找不到元素或等待超时后立即失败并结束，不再自动重试/);
+  assert.doesNotMatch(socket, /等待步骤最多重试 3 次/);
+});
+
 test('AI control can select a shared automation card', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-card-selection-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

@@ -589,8 +589,76 @@ html.theme-light .ai-browser-particle-layer > i.ai-text-particle {
 html.theme-gold .tab.ai-browser-connected {
   border-color: rgba(212, 183, 118, .85);
   background: linear-gradient(105deg, rgba(120, 95, 45, .38), rgba(180, 148, 82, .16));
-  box-shadow: inset 0 0 13px rgba(212, 183, 118, .22), 0 0 9px rgba(212, 183, 118, .26);
+  box-shadow: inset 0 0 13px rgba(212, 183, 118, .22), 0 0 14px rgba(212, 183, 118, .42);
   color: #f4ead2;
+}
+
+html.theme-gold .tab.active {
+  box-shadow: 0 0 12px rgba(212, 183, 118, .16);
+}
+
+html.theme-gold #account-center-btn {
+  border-color: rgba(212, 183, 118, .45);
+  background: linear-gradient(145deg, rgba(255, 250, 235, .95), rgba(212, 183, 118, .85));
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .3), 0 0 10px rgba(212, 183, 118, .22);
+}
+
+html.theme-gold #account-center-btn:hover {
+  border-color: rgba(226, 200, 138, .9);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .3), 0 0 14px rgba(212, 183, 118, .4);
+}
+
+html.theme-gold #account-center-btn:focus-visible {
+  box-shadow: 0 0 0 3px rgba(212, 183, 118, .24), 0 6px 16px rgba(0, 0, 0, .3);
+}
+
+html.theme-gold #account-center-btn img {
+  background: #171410;
+}
+
+html.theme-gold .shell-theme-toggle-btn {
+  color: #f4ead2;
+  border-color: rgba(212, 183, 118, .34);
+  background: rgba(212, 183, 118, .14);
+}
+
+html.theme-gold .shell-theme-toggle-btn:hover {
+  border-color: rgba(226, 200, 138, .72);
+  background: rgba(212, 183, 118, .26);
+  box-shadow: 0 0 12px rgba(212, 183, 118, .28);
+}
+
+html.theme-gold .shell-theme-toggle-btn:focus-visible {
+  box-shadow: 0 0 0 3px rgba(212, 183, 118, .22);
+}
+
+html.theme-gold .shell-update-ring::before {
+  background: conic-gradient(from 180deg, var(--shell-accent) 0 var(--update-progress), rgba(212, 183, 118, .14) var(--update-progress) 100%);
+}
+
+html.theme-gold #add-tab-btn {
+  color: #2a2214;
+  box-shadow: 0 0 10px rgba(212, 183, 118, .24);
+}
+
+html.theme-gold #new-browser-window-btn {
+  border-color: rgba(212, 183, 118, .28);
+  background: rgba(150, 124, 70, .28);
+}
+
+html.theme-gold #new-browser-window-btn:hover:not(:disabled) {
+  border-color: rgba(226, 200, 138, .4);
+  background: rgba(170, 142, 84, .38);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .24), 0 0 12px rgba(212, 183, 118, .24);
+}
+
+html.theme-gold #new-browser-window-btn.gesture-active {
+  border-color: rgba(240, 224, 180, .58);
+  box-shadow: 0 0 0 3px rgba(212, 183, 118, .2), 0 8px 20px rgba(0, 0, 0, .32);
+}
+
+html.theme-gold #add-tab-btn.sidebar-reopen-hint {
+  box-shadow: 0 8px 22px rgba(212, 183, 118, .55);
 }
 
 html.theme-gold .ai-browser-particle-layer > i {

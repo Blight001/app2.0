@@ -48,7 +48,7 @@ html.theme-gold {
   --brand-grad-hover: linear-gradient(135deg, #f0dcae, #c7a768);
   --brand-soft: rgba(212, 183, 118, .10);
   --brand-border: rgba(212, 183, 118, .22);
-  --brand-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  --brand-shadow: 0 6px 20px rgba(212, 183, 118, .18);
   --teal: #bfa76a;
 }
 
