@@ -499,7 +499,6 @@ function createAppShell(deps = {}) {
           statePluginGetter,
           setRuntimeTcpConfig,
           setRuntimeServerBase,
-          getTabs: () => resolveTabs(),
           getAppConsoleHistory: () => (typeof getAppConsoleHistory === 'function' ? getAppConsoleHistory() : []),
           getDebugConsoleHistory: () => (typeof getDebugConsoleHistory === 'function'
             ? getDebugConsoleHistory()

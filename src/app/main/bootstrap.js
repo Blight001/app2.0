@@ -502,7 +502,6 @@ const appShellDeps = {
   getAppConsoleHistory,
   getDebugConsoleHistory,
   statePluginGetter: () => state.pluginSettings,
-  getDreamTargetUrl,
   setRuntimeTcpConfig,
   setRuntimeServerBase,
   httpGetUniversal,

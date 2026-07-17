@@ -1478,13 +1478,7 @@ function registerAppLifecycle(deps = {}) {
       }
     });
 
-    ipcMain.handle('license-close-window', async () => {
-      try {
-        return { ok: true };
-      } catch (e) {
-        return { ok: false, message: e?.message || String(e) };
-      }
-    });
+    ipcMain.handle('license-close-window', async () => ({ ok: true }));
 
     let membershipRefreshInFlight = null;
     const refreshStoredMembership = async (credentials, reason = 'startup') => {
