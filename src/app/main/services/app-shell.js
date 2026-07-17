@@ -527,6 +527,7 @@ function createAppShell(deps = {}) {
         log: deps.log,
         state,
         licenseCache,
+        computeDeviceId,
         appendLicenseRecord: typeof appendLicenseRecord === 'function' ? appendLicenseRecord : null,
         refreshAllowedPlatformsAndNotify: typeof refreshAllowedPlatformsAndNotify === 'function' ? refreshAllowedPlatformsAndNotify : null,
         refreshAnnouncements: (options = {}) => ensureAnnouncementPoller().refreshNow(options),

@@ -9,6 +9,7 @@ function source(relativePath) {
 
 const hardware = source('src/app/main/utils/hardware-js.js');
 const lifecycle = source('src/app/main/services/app-lifecycle.js');
+const appShell = source('src/app/main/services/app-shell.js');
 const resolver = source('src/app/main/services/server-resolver.js');
 const clash = source('src/app/main/ipc/register/clash.js');
 const sidebar = source('src/app/sidebar/index.html');
@@ -48,4 +49,10 @@ test('四类客户端兑换均在请求前重新读取本机封装设备号', ()
   const trafficStart = clash.indexOf("ipcMain.handle('redeem-proxy-traffic-gift-code'");
   const trafficEnd = clash.indexOf('\n  });', trafficStart);
   assert.match(clash.slice(trafficStart, trafficEnd), /await computeDeviceId\(\)/);
+});
+
+test('流量 IPC 注册时接入主进程设备号计算函数', () => {
+  const start = appShell.indexOf('registerIPC({');
+  const end = appShell.indexOf("logger.log?.('[启动] IPC handlers 已注册')", start);
+  assert.match(appShell.slice(start, end), /computeDeviceId/);
 });

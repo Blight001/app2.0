@@ -66,10 +66,12 @@ function setButtonsDisabled(selector, disabled) {
 
 // 设置/更新/持久化：setLicenseRequiredButtonsDisabled的具体业务逻辑。
 function setLicenseRequiredButtonsDisabled(disabled) {
-  const nextDisabled = !!disabled;
-  setButtonsDisabled('.requires-license', nextDisabled);
+  // 羊毛资源主入口不再依赖隐藏的卡密按钮状态。未登录点击时由入口处理器
+  // 跳转个人中心；登录后仅由服务器下发的平台额度决定是否可用。
   document.querySelectorAll('.open-wool-platform-btn').forEach((button) => {
-    button.disabled = nextDisabled || button.dataset.quotaUnavailable === 'true';
+    if (button.dataset.busy !== '1') {
+      button.disabled = button.dataset.quotaUnavailable === 'true';
+    }
   });
   syncLoggedOutProtectedEntryAvailability();
 }
@@ -86,7 +88,9 @@ function setAccountTabDisabled(disabled) {
 // 处理：isLicenseValidated的具体业务逻辑。
 function isLicenseValidated() {
   const validateBtn = safeGetEl('validate-key-btn');
-  return !!(validateBtn && validateBtn.classList.contains('validated'));
+  const accountSession = safeGetEl('sidebar-account-session');
+  return accountSession?.dataset.authenticated === 'true'
+    || !!(validateBtn && validateBtn.classList.contains('validated'));
 }
 
 // 未登录时，受保护的主入口仍保持可点击；真正的点击处理器会在任何
@@ -102,8 +106,17 @@ function syncLoggedOutProtectedEntryAvailability() {
   };
 
   if (authenticated) {
-    document.querySelectorAll('.open-wool-platform-btn').forEach(restoreAuthenticatedTitle);
-    restoreAuthenticatedTitle(safeGetEl('VPN-switch'));
+    document.querySelectorAll('.open-wool-platform-btn').forEach((button) => {
+      restoreAuthenticatedTitle(button);
+      if (button.dataset.busy !== '1') {
+        button.disabled = button.dataset.quotaUnavailable === 'true';
+      }
+    });
+    const vpnButton = safeGetEl('VPN-switch');
+    restoreAuthenticatedTitle(vpnButton);
+    if (vpnButton && vpnButton.dataset.busy !== '1' && !sideButtonLockSnapshot) {
+      vpnButton.disabled = false;
+    }
     return;
   }
 
@@ -134,7 +147,8 @@ function applyFeatureAvailability({
   accountTabDisabled = true,
 } = {}) {
   setLicenseRequiredButtonsDisabled(licenseRequiredDisabled);
-  setButtonsDisabled('.VPN-btn', vpnDisabled);
+  // 主开关必须始终可作为登录入口；测速等二级操作仍由代理运行状态控制。
+  setButtonsDisabled('.VPN-btn:not(#VPN-switch)', vpnDisabled);
   setAccountTabDisabled(accountTabDisabled);
   syncLatencyButtonState();
   syncLoggedOutProtectedEntryAvailability();
@@ -190,7 +204,7 @@ function renderWoolPlatformButtons(platforms) {
     applyWoolPlatformButtonLabel(button);
     const quotaUnavailable = item.quota?.expired === true || item.quota?.exhausted === true;
     button.dataset.quotaUnavailable = quotaUnavailable ? 'true' : 'false';
-    button.disabled = !isLicenseValidated() || quotaUnavailable;
+    button.disabled = quotaUnavailable;
     if (item.quota?.account_type) button.title = `账号类型：${item.quota.account_type}`;
     container.appendChild(button);
   });

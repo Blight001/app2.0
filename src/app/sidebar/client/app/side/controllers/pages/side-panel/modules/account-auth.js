@@ -506,6 +506,9 @@ function renderSidebarAccountSession(session = {}) {
   const username = authenticated ? String(session.username || '').trim() : '';
 
   if (profile) profile.dataset.authenticated = authenticated ? 'true' : 'false';
+  if (authenticated && typeof applyAuthenticatedAccountFeatureAccess === 'function') {
+    applyAuthenticatedAccountFeatureAccess(session);
+  }
   if (vipCard) vipCard.hidden = !authenticated;
   renderAccountVipState(authenticated ? session : {});
   if (typeof syncLoggedOutProtectedEntryAvailability === 'function') {

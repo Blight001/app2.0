@@ -19,6 +19,7 @@ function setAutoValidateStatus(message, level) {
 }
 
 let autoValidateTimer = null;
+let licenseCredentialsUpdateRevision = 0;
 
 // 停止/关闭/清理：clearAutoValidateTimer的具体业务逻辑。
 function clearAutoValidateTimer() {
@@ -288,6 +289,7 @@ function bindLicenseCredentialsListener() {
   }
 
   window.electronAPI.on('license-credentials-updated', (data = {}) => {
+    licenseCredentialsUpdateRevision += 1;
     const usernameEl = safeGetEl('account-username-display');
     if (usernameEl) usernameEl.value = String(data.username || '');
     if (data.loggedOut === true) {
@@ -319,6 +321,36 @@ function bindLicenseCredentialsListener() {
       console.warn('[侧边栏] 处理卡密回填失败:', error?.message || error);
     }
   });
+}
+
+// 账号登录成功本身就是主进程确认过的授权结果。把账号会话同步为许可证
+// 可用状态，避免功能解锁依赖另一个 IPC 事件是否恰好被当前视图收到。
+function applyAuthenticatedAccountFeatureAccess(session = {}) {
+  if (session?.authenticated !== true) return;
+
+  const validation = session.validation && typeof session.validation === 'object'
+    ? session.validation
+    : {};
+  const key = String(
+    validation.key
+    || session.key
+    || currentLicenseState.key
+    || safeGetEl('key-input')?.value
+    || '',
+  ).trim();
+  const deviceId = String(
+    validation.deviceId
+    || validation.device_id
+    || session.deviceId
+    || session.device_id
+    || currentLicenseState.deviceId
+    || safeGetEl('device-id')?.value
+    || '',
+  ).trim();
+
+  applyLicenseCredentialsToInput({ key, deviceId });
+  applyValidatedLicenseResult(validation, { key, deviceId });
+  enableAllLicenseRequiredButtons();
 }
 
 // 处理：consumeAutoValidateFlag的具体业务逻辑。
@@ -457,11 +489,19 @@ function bindLicenseValidationControls() {
 // 获取/读取/解析：loadCredentials的具体业务逻辑。
   const loadCredentials = async () => {
     try {
+      const requestRevision = licenseCredentialsUpdateRevision;
       let loadedKey = '';
       let loadedDeviceId = '';
       const result = await window.electronAPI.invoke('get-user-credentials');
       if (result && result.ok && result.credentials) {
         const credentials = result.credentials;
+
+        // 清除旧版本遗留的自动卡密验证标记，但不再向中台调用 /api/validate_key。
+        await consumeAutoValidateFlag();
+        // 登录期间主进程会推送更新后的凭证。初始化请求若更早发出、稍后才
+        // 返回，不能再用它的旧快照覆盖刚刚完成的登录状态。
+        if (requestRevision !== licenseCredentialsUpdateRevision) return;
+
         loadedKey = credentials.key || '';
         keyInput.value = loadedKey;
         globalCurrentKey = loadedKey || '';
@@ -476,9 +516,6 @@ function bindLicenseValidationControls() {
         });
 
         setLicenseButtonsDisabled(true);
-
-        // 清除旧版本遗留的自动卡密验证标记，但不再向中台调用 /api/validate_key。
-        await consumeAutoValidateFlag();
         if (loadedKey && credentials.validated === true && credentials.bound === true) {
           displayExpirationInfo(credentials);
           applyValidatedLicenseResult(credentials, {
