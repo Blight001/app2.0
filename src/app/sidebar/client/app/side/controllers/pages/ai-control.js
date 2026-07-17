@@ -1679,6 +1679,127 @@
     try { return JSON.stringify(value ?? null, null, 2); } catch (_) { return String(value ?? ''); }
   }
 
+  const TOOL_DISPLAY_NAMES = Object.freeze({
+    manage_card: '自动化卡片',
+    save_cookies: '保存浏览器数据',
+    browser_tab: '浏览器标签页',
+    browser_observe: '观察页面',
+    browser_action: '操作页面',
+    browser_wait: '等待页面',
+    software_window_list: '查看窗口列表',
+    software_window_open: '打开浏览器窗口',
+    software_window_create: '新建浏览器窗口',
+    software_window_rename: '重命名浏览器窗口',
+    software_window_close: '关闭浏览器窗口',
+    get_status: '查看卡片状态',
+    run_card: '运行自动化卡片',
+    write_card: '保存自动化卡片',
+  });
+
+  const TOOL_ACTION_DISPLAY_NAMES = Object.freeze({
+    manage_card: {
+      rules: '查看卡片规范',
+      list: '查看卡片列表',
+      get: '读取自动化卡片',
+      write: '保存自动化卡片',
+      patch_step: '修改卡片步骤',
+      insert_step: '插入卡片步骤',
+      delete_step: '删除卡片步骤',
+      move_step: '移动卡片步骤',
+      delete: '删除自动化卡片',
+      run: '运行自动化卡片',
+    },
+    browser_tab: {
+      list: '查看浏览器标签页',
+      switch: '切换浏览器标签页',
+      replace: '在当前页打开网址',
+      navigate: '打开新网页',
+      close: '关闭浏览器标签页',
+      back: '浏览器后退',
+      forward: '浏览器前进',
+    },
+    browser_action: {
+      click: '点击页面元素',
+      double_click: '双击页面元素',
+      right_click: '右键点击页面元素',
+      scroll: '滚动页面',
+      type: '输入文本',
+      press_key: '按下键盘按键',
+    },
+  });
+
+  const TOOL_NAMESPACE_NAMES = Object.freeze({
+    platform: '平台',
+    config: '平台配置',
+    catalog: '选项目录',
+    announce: '公告',
+    presence: '在线状态',
+    stats: '数据统计',
+    proxy: '代理',
+    account: 'AI 账号',
+    member: '卡密',
+  });
+
+  const TOOL_OPERATION_NAMES = Object.freeze({
+    list: '列表',
+    create: '新建',
+    disable: '停用',
+    get: '查看',
+    set: '修改',
+    options: '选项',
+    update: '修改',
+    set_status: '设置状态',
+    delete: '删除',
+    online_users: '在线用户',
+    tenant: '概览',
+    trend: '使用趋势',
+    traffic: '流量',
+    rate_limit_get: '查看频率限制',
+    rate_limit_set: '修改频率限制',
+    subscriptions: '订阅列表',
+    nodes: '节点列表',
+    settings_get: '查看高级设置',
+    settings_set: '修改高级设置',
+    switch_subscription: '切换订阅',
+    usage_stats: '使用统计',
+    score_distribution: '积分分布',
+    regions: '地区分布',
+    priority_get: '查看调度优先级',
+    priority_set: '设置调度优先级',
+    group_tags: '分组标签',
+    clear_device: '清除设备绑定',
+  });
+
+  function parseToolArguments(value) {
+    if (value && typeof value === 'object') return value;
+    if (typeof value !== 'string' || !value.trim()) return {};
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function toolDisplayName(tool = {}) {
+    const rawName = String(tool.name || '').trim();
+    const args = parseToolArguments(tool.arguments);
+    const action = String(args.action || '').trim().toLowerCase();
+    const actionName = TOOL_ACTION_DISPLAY_NAMES[rawName]?.[action];
+    if (actionName) return actionName;
+    if (TOOL_DISPLAY_NAMES[rawName]) return TOOL_DISPLAY_NAMES[rawName];
+    if (/\p{Script=Han}/u.test(rawName)) return rawName;
+
+    const separatorIndex = rawName.indexOf('.');
+    if (separatorIndex > 0) {
+      const namespace = TOOL_NAMESPACE_NAMES[rawName.slice(0, separatorIndex)];
+      const operation = TOOL_OPERATION_NAMES[rawName.slice(separatorIndex + 1)];
+      if (namespace && operation) return `${namespace}${operation}`;
+      if (namespace) return `${namespace}工具`;
+    }
+    return '扩展工具';
+  }
+
   function enableDetailsAnimation(details, content) {
     const summary = details.querySelector(':scope > summary');
     let heightAnimation = null;
@@ -1766,7 +1887,7 @@
     card.className = `ai-chat-tool ${tool.status || 'running'}`;
     card.dataset.toolId = String(tool.id || '');
     const summary = document.createElement('summary');
-    summary.innerHTML = '<span class="ai-chat-tool-icon" aria-hidden="true">⌁</span><span class="ai-chat-tool-kind">MCP</span><span class="ai-chat-tool-name"></span><span class="ai-chat-tool-status"></span><span class="ai-chat-disclosure" aria-hidden="true">›</span>';
+    summary.innerHTML = '<span class="ai-chat-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.75"></circle></svg></span><span class="ai-chat-tool-kind">工具</span><span class="ai-chat-tool-name"></span><span class="ai-chat-tool-status"></span><span class="ai-chat-disclosure" aria-hidden="true">›</span>';
     const detail = document.createElement('div');
     detail.className = 'ai-chat-tool-detail';
     card.append(summary, detail);
@@ -1776,7 +1897,7 @@
       Object.assign(tool, next);
       const status = String(tool.status || 'running');
       card.className = `ai-chat-tool ${status}`;
-      summary.querySelector('.ai-chat-tool-name').textContent = String(tool.name || 'MCP 工具');
+      summary.querySelector('.ai-chat-tool-name').textContent = toolDisplayName(tool);
       summary.querySelector('.ai-chat-tool-status').textContent =
         status === 'running' ? '调用中' : status === 'error' ? '调用失败' : '已完成';
       detail.innerHTML = '';

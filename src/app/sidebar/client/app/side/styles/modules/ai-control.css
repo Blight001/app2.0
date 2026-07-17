@@ -847,12 +847,19 @@ summary[aria-expanded="true"] .ai-chat-disclosure { transform: rotate(90deg); }
   border-radius: 5px;
   color: #8fc5ff;
   background: rgba(77, 163, 255, .11);
-  font-size: 13px;
+}
+.ai-chat-tool-icon svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .ai-chat-tool-name {
   min-width: 0;
   color: #cbd8ea;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

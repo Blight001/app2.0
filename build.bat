@@ -45,6 +45,12 @@ set "EXIT_CODE=!ERRORLEVEL!"
 echo.
 if "!EXIT_CODE!"=="0" (
   echo [OK] Build completed. Installer output: appbuild
+  node scripts/increment-package-version.js
+  set "VERSION_EXIT_CODE=!ERRORLEVEL!"
+  if not "!VERSION_EXIT_CODE!"=="0" (
+    set "EXIT_CODE=!VERSION_EXIT_CODE!"
+    echo [ERROR] Build succeeded, but package.json version bump failed.
+  )
 ) else (
   echo [ERROR] Build failed with exit code: !EXIT_CODE!
 )

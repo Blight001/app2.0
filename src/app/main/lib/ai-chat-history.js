@@ -78,7 +78,7 @@ function sanitizeMessages(raw) {
       };
       message.tool_events = item.tool_events.slice(0, 32).map((entry) => ({
         id: String(entry?.id || ''),
-        name: String(entry?.name || 'MCP 工具'),
+        name: String(entry?.name || '工具'),
         status: String(entry?.status || 'success'),
         arguments: compact(entry?.arguments),
         result: compact(entry?.result),
@@ -99,7 +99,7 @@ function sanitizeMessages(raw) {
             round: Number(entry?.round) || 0,
             tool: {
               id: String(entry?.tool?.id || `tool-${index}`),
-              name: String(entry?.tool?.name || 'MCP 工具'),
+              name: String(entry?.tool?.name || '工具'),
               status: String(entry?.tool?.status || 'success'),
               arguments: compact(entry?.tool?.arguments),
               result: compact(entry?.tool?.result),

@@ -5,6 +5,29 @@ const path = require('path');
 const JavaScriptObfuscator = require('javascript-obfuscator');
 
 const SKIPPED_DIRS = new Set(['node_modules', 'vendor']);
+const EXECUTE_SCRIPT_PATTERN = /chrome\s*\.\s*scripting\s*\.\s*executeScript\s*\(/;
+
+// chrome.scripting.executeScript({ func }) serializes func and evaluates it in the
+// target page. String-array obfuscation may make that function reference a decoder
+// in the extension worker's outer scope, which does not exist in the page context.
+// Keep identifier obfuscation for these files, but leave their strings inline so
+// every serialized function remains self-contained.
+function buildObfuscationOptions(source = '') {
+  const containsSerializedPageFunction = String(source)
+    .split(/\r?\n/)
+    .some((line) => !/^\s*\/\//.test(line) && EXECUTE_SCRIPT_PATTERN.test(line));
+  return {
+    compact: true,
+    identifierNamesGenerator: 'hexadecimal',
+    renameGlobals: false,
+    selfDefending: false,
+    stringArray: !containsSerializedPageFunction,
+    stringArrayEncoding: containsSerializedPageFunction ? [] : ['base64'],
+    stringArrayThreshold: 0.75,
+    transformObjectKeys: false,
+    unicodeEscapeSequence: false,
+  };
+}
 
 function walkJavaScriptFiles(rootDir) {
   const files = [];
@@ -51,19 +74,11 @@ exports.default = async function obfuscatePackagedExtensions(context) {
     const source = fs.readFileSync(filePath, 'utf8');
     if (!source.trim()) continue;
 
-    const result = JavaScriptObfuscator.obfuscate(source, {
-      compact: true,
-      identifierNamesGenerator: 'hexadecimal',
-      renameGlobals: false,
-      selfDefending: false,
-      stringArray: true,
-      stringArrayEncoding: ['base64'],
-      stringArrayThreshold: 0.75,
-      transformObjectKeys: false,
-      unicodeEscapeSequence: false,
-    });
+    const result = JavaScriptObfuscator.obfuscate(source, buildObfuscationOptions(source));
     fs.writeFileSync(filePath, result.getObfuscatedCode(), 'utf8');
   }
 
   console.log(`[extensions-protection] 插件 JavaScript 混淆完成: ${extensionsRoot}`);
 };
+
+exports.buildObfuscationOptions = buildObfuscationOptions;
