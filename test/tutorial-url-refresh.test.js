@@ -41,10 +41,11 @@ test('初始教程地址通过公开服务接口刷新且不依赖登录', () =>
 });
 
 test('运行时配置刷新会同步已打开的教程页', () => {
-  const source = read('src/app/main/bootstrap.js');
+  // 阶段 2D-3：刷新逻辑迁至 composition/create-refresh-platforms.js
+  const source = read('src/app/main/composition/create-refresh-platforms.js');
   const start = source.indexOf('async function refreshAllowedPlatformsAndNotify');
-  const end = source.indexOf('const appShellDeps', start);
-  const refresh = source.slice(start, end);
+  assert.ok(start >= 0);
+  const refresh = source.slice(start);
 
   assert.match(refresh, /await syncTutorialTabUrl\(tutorialUrl\)/);
 });

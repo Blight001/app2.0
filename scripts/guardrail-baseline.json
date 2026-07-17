@@ -1,7 +1,7 @@
 {
   "eslintErrors": 2,
-  "maxLines": 34,
-  "maxLinesPerFunction": 120,
-  "complexity": 381,
+  "maxLines": 33,
+  "maxLinesPerFunction": 119,
+  "complexity": 380,
   "tscErrors": 331
 }

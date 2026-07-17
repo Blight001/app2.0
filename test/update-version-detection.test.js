@@ -152,12 +152,13 @@ test('账号登录成功后立即刷新公告且启动层已接通刷新能力',
   ), 'utf8');
   assert.match(shellSource, /refreshAnnouncements: \(options = \{\}\) => ensureAnnouncementPoller\(\)\.refreshNow\(options\)/);
 
-  const bootstrapSource = fs.readFileSync(path.join(
+  // 阶段 2D-3：lifecycle deps 装配迁至 composition/build-lifecycle-deps.js
+  const lifecycleDepsSource = fs.readFileSync(path.join(
     __dirname,
-    '../src/app/main/bootstrap.js',
+    '../src/app/main/composition/build-lifecycle-deps.js',
   ), 'utf8');
-  assert.match(bootstrapSource, /const \{[\s\S]*?refreshAnnouncements,[\s\S]*?\} = appShell;/);
-  assert.match(bootstrapSource, /registerAppLifecycle\(\{[\s\S]*?refreshAnnouncements,[\s\S]*?refreshAllowedPlatformsAndNotify,/);
+  assert.match(lifecycleDepsSource, /refreshAnnouncements: appShell\.refreshAnnouncements,/);
+  assert.match(lifecycleDepsSource, /refreshAllowedPlatformsAndNotify,/);
 });
 
 test('主进程仅对高于当前版本的公告发出更新提醒', async () => {

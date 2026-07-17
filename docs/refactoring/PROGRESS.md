@@ -24,12 +24,12 @@
 
 ## 阶段 2：装配、类型和 IPC 基础设施
 
-- [ ] bootstrap.js 收缩为 ≤250 行 composition root（当前 629 行）
+- [x] bootstrap.js 收缩为 ≤250 行 composition root：629 → **172 行**。装配细节迁至 composition/（electron-runtime-tuning 52 / create-core-services 226 / create-refresh-platforms 94 / build-app-shell-deps 168 / build-lifecycle-deps 91）；晚绑定统一收敛为 late 访问器对象。装配模块豁免 max-lines-per-function（声明式接线，行数由依赖数决定），max-lines 与 complexity 门禁仍生效
 - [~] AppContext / 统一错误类型 / 集中路径解析 / 结构化日志
   - [x] runtime/app-context.js：8 个业务性 global.* 全部迁入（退出标志/更新挂起/sessionId/调试钩子），2 个只写不读死全局（__APP_CONSOLE_HISTORY__、willQuit）删除
   - [x] contracts/ipc-result.js：AppError + ok/fail/wrapIpcResult 统一返回契约（新接口使用，存量随阶段 3/4 迁移）
   - [x] lib/structured-log.js：domain/operation/correlationId/channel/errorCode 结构化日志（register.js 重建路径为首个消费方）
-  - [ ] 集中路径解析（随 bootstrap 收缩一起做）
+  - [x] 集中路径解析：config/paths.js（Chromium resources 路径、自动化卡片缓存目录等非平凡推导）
 - [~] contracts + payload 校验 + 窄化 preload + 可释放 IPC 注册器：
   - [x] contracts/ipc-channels.js 通道注册表（105 invoke + 24 event + 50 push）+ 双向一致契约测试 + 单通道单注册校验
   - [x] ipc/registry.js 可释放注册器（未登记抛错/同实例重复抛错/dispose 精确释放），7 个 register 模块全迁移，monkeypatch 去重补丁已删除；顺带修复被补丁掩盖的真实冲突（get-app-console-history 双注册）
@@ -68,3 +68,4 @@
 | 2026-07-17 | 阶段 1 主体落地：ESLint/checkJs/guardrails 基线门禁 + verify + 分层测试目录 + 首个 Electron 集成测试（180 用例 179 过 1 skip）。护栏顺带查出并修复 3 处正确性问题（重复键 ×2、空 try-catch 不可达 ×1） |
 | 2026-07-17 | 阶段 2A/2B/2C：IPC 契约注册表 + 可释放注册器（废除 monkeypatch 去重）+ preload 白名单。fail-fast 暴露并修复 get-app-console-history 真实双注册；白名单抓出 19 个漏登记 push 通道。npm start 实机验证 0 handler 错误 0 preload 告警；verify 189 用例全绿 |
 | 2026-07-17 | 阶段 2D-1/2D-2：AppContext 迁移全部业务性 global.*（checkJs 门禁提交前拦下一处漏 require 的 ReferenceError）；ipc-result 统一返回契约 + structured-log 结构化日志落地。verify 206 用例 205 过 1 skip；npm start 冒烟启动/退出路径无异常 |
+| 2026-07-18 | 阶段 2D-3：bootstrap 629→172 行 composition root + config/paths.js 集中路径解析。基线三降（超限文件 34→33、超限函数 120→119、复杂度 381→380）并收紧。verify 210 用例 209 过 1 skip；npm start 实机冒烟零接线错误、正常退出 |
