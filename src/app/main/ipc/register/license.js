@@ -1,4 +1,4 @@
-const { ipcMain } = require('electron');
+
 const { writeDebugConsoleOnly } = require('../../runtime/debug-console-log');
 const fs = require('fs');
 const accountStorage = require('../../lib/account-storage');
@@ -28,6 +28,7 @@ const { cleanupAccountProfile } = require('../../services/account-profile-cleanu
 
 // 监听/绑定：registerLicenseIPC的具体业务逻辑。
 function registerLicenseIPC(ctx) {
+  const ipc = ctx.ipc.scope('register/license');
   const {
     httpClient,
     auth,
@@ -47,7 +48,7 @@ function registerLicenseIPC(ctx) {
 
   const resolveDreamTargetUrl = () => resolveConfiguredDreamTargetUrl(getDreamTargetUrl, DREAM_TARGET_URL);
 
-  ipcMain.handle('refresh-wool-platforms', async () => {
+  ipc.handle('refresh-wool-platforms', async () => {
     if (woolPlatformRefreshInFlight) return woolPlatformRefreshInFlight;
 
     woolPlatformRefreshInFlight = (async () => {
@@ -91,7 +92,7 @@ function registerLicenseIPC(ctx) {
     }
   });
 
-  ipcMain.handle('refresh-tutorial-url', async () => {
+  ipc.handle('refresh-tutorial-url', async () => {
     if (tutorialUrlRefreshInFlight) return tutorialUrlRefreshInFlight;
 
     tutorialUrlRefreshInFlight = (async () => {
@@ -400,7 +401,7 @@ function registerLicenseIPC(ctx) {
     };
   };
 
-  ipcMain.handle('validate-key', async (_event, { key, device_id, manualProxyPreferred }) => {
+  ipc.handle('validate-key', async (_event, { key, device_id, manualProxyPreferred }) => {
     try {
       console.log('[验证] 开始验证卡密（HTTP）');
       console.log('[验证] 请求参数:', { key: key?.substring(0, 5) + '***', device_id });
@@ -601,7 +602,7 @@ function registerLicenseIPC(ctx) {
     }
   });
 
-  ipcMain.handle('unbind-device', async (_event, { key, device_id, deviceId }) => {
+  ipc.handle('unbind-device', async (_event, { key, device_id, deviceId }) => {
     try {
       const normalizedKey = String(key || '').trim();
       const normalizedDeviceId = String(device_id || deviceId || '').trim();
@@ -661,7 +662,7 @@ function registerLicenseIPC(ctx) {
     }
   });
 
-  ipcMain.handle('open-dream-page', async (_event, payload = {}) => {
+  ipc.handle('open-dream-page', async (_event, payload = {}) => {
     try {
       let {
         key,
@@ -898,7 +899,7 @@ function registerLicenseIPC(ctx) {
     }
   });
 
-  ipcMain.handle('refresh-subscription-url', async () => {
+  ipc.handle('refresh-subscription-url', async () => {
     try {
       console.log('[刷新] 开始重新获取订阅链接...');
 

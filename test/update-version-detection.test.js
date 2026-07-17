@@ -119,8 +119,8 @@ test('卡密登录态写入后先刷新公告，再执行其它登录后任务',
     __dirname,
     '../src/app/main/ipc/register/license.js',
   ), 'utf8');
-  const handlerStart = licenseSource.indexOf("ipcMain.handle('validate-key'");
-  const handlerEnd = licenseSource.indexOf("ipcMain.handle('unbind-device'", handlerStart);
+  const handlerStart = licenseSource.indexOf("ipc.handle('validate-key'");
+  const handlerEnd = licenseSource.indexOf("ipc.handle('unbind-device'", handlerStart);
   const handler = licenseSource.slice(handlerStart, handlerEnd);
   const cacheReady = handler.indexOf("console.log('[验证] 卡密状态已写入运行时缓存')");
   const announcementRefresh = handler.indexOf('refreshAnnouncements()', cacheReady);

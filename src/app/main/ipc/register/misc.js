@@ -1,4 +1,4 @@
-const { app, ipcMain } = require('electron');
+const { app } = require('electron');
 const { createHttpClient } = require('../../lib/http-client');
 const { getStorePath } = require('../../config');
 const { summarizeUpdatePayload } = require('../../utils/update-payload');
@@ -7,9 +7,10 @@ const DEFAULT_TUTORIAL_URL = 'https://www.yuque.com/kelingaishipindian/tx5gwq/xb
 
 // 监听/绑定：registerMiscIPC的具体业务逻辑。
 function registerMiscIPC(ctx) {
+  const ipc = ctx.ipc.scope('register/misc');
   const { licenseCache, httpClient, ui } = ctx;
 
-  ipcMain.handle('create-desktop-shortcut', async (_event, { createShortcut }) => {
+  ipc.handle('create-desktop-shortcut', async (_event, { createShortcut }) => {
     try {
       if (!createShortcut) {
         console.log('[Shortcut] 用户选择不创建桌面快捷方式');
@@ -25,7 +26,7 @@ function registerMiscIPC(ctx) {
     }
   });
 
-  ipcMain.handle('network:diagnose', async () => {
+  ipc.handle('network:diagnose', async () => {
     try {
       console.log('[IPC] 开始网络连接诊断...');
       const httpClient = createHttpClient();
@@ -46,7 +47,7 @@ function registerMiscIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-platform-name', async () => {
+  ipc.handle('get-platform-name', async () => {
     try {
       const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
         ? licenseCache.getRuntimeConfig()
@@ -65,7 +66,7 @@ function registerMiscIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-wool-platforms', async () => {
+  ipc.handle('get-wool-platforms', async () => {
     try {
       const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
         ? licenseCache.getRuntimeConfig()
@@ -85,7 +86,7 @@ function registerMiscIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-tutorial-url', async () => {
+  ipc.handle('get-tutorial-url', async () => {
     try {
       if (httpClient && typeof httpClient.getTutorialUrl === 'function') {
         const response = await httpClient.getTutorialUrl();
@@ -111,7 +112,7 @@ function registerMiscIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-target-url', async () => {
+  ipc.handle('get-target-url', async () => {
     try {
       const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
         ? licenseCache.getRuntimeConfig()
@@ -126,7 +127,7 @@ function registerMiscIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-app-session-id', async () => {
+  ipc.handle('get-app-session-id', async () => {
     try {
       return {
         ok: true,
@@ -138,7 +139,7 @@ function registerMiscIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-app-version', async () => {
+  ipc.handle('get-app-version', async () => {
     try {
       return { ok: true, version: app.getVersion() };
     } catch (error) {
@@ -147,7 +148,7 @@ function registerMiscIPC(ctx) {
     }
   });
 
-  ipcMain.handle('start-app-update', async (_event, payload = {}) => {
+  ipc.handle('start-app-update', async (_event, payload = {}) => {
     try {
       const startAppUpdate = typeof ctx.startAppUpdate === 'function'
         ? ctx.startAppUpdate

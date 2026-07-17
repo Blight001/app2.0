@@ -17,7 +17,7 @@ test('仅从 AI 控制切入浏览器配置时请求最新羊毛平台', () => {
 
 test('羊毛平台刷新只发起一次验证请求并只更新羊毛平台缓存', () => {
   const source = read('src/app/main/ipc/register/license.js');
-  const start = source.indexOf("ipcMain.handle('refresh-wool-platforms'");
+  const start = source.indexOf("ipc.handle('refresh-wool-platforms'");
   const end = source.indexOf('const cleanupAccountBrowserArtifacts', start);
   const handler = source.slice(start, end);
 

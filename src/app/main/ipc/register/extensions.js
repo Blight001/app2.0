@@ -1,7 +1,8 @@
-const { BrowserWindow, dialog, ipcMain } = require('electron');
+const { BrowserWindow, dialog } = require('electron');
 const { createVipRequiredResult, resolveVipAccess } = require('../../utils/vip-access');
 
 function registerExtensionsIPC(ctx = {}) {
+  const ipc = ctx.ipc.scope('register/extensions');
   const extensionManager = ctx.extensionManager || ctx.ui?.extensionManager || null;
   const hasVipAccess = () => resolveVipAccess(ctx.licenseCache?.getSnapshot?.() || {}).isVip;
 
@@ -12,13 +13,13 @@ function registerExtensionsIPC(ctx = {}) {
     return null;
   }
 
-  ipcMain.handle('get-extension-manager-state', async () => {
+  ipc.handle('get-extension-manager-state', async () => {
     const missing = ensureManager();
     if (missing) return missing;
     return { ok: true, vipRequired: !hasVipAccess(), state: extensionManager.getPublicState() };
   });
 
-  ipcMain.handle('set-extension-enabled', async (_event, payload = {}) => {
+  ipc.handle('set-extension-enabled', async (_event, payload = {}) => {
     const missing = ensureManager();
     if (missing) return missing;
     try {
@@ -28,7 +29,7 @@ function registerExtensionsIPC(ctx = {}) {
     }
   });
 
-  ipcMain.handle('remove-extension-plugin', async (_event, payload = {}) => {
+  ipc.handle('remove-extension-plugin', async (_event, payload = {}) => {
     const missing = ensureManager();
     if (missing) return missing;
     try {
@@ -38,7 +39,7 @@ function registerExtensionsIPC(ctx = {}) {
     }
   });
 
-  ipcMain.handle('import-extension-plugin', async (_event) => {
+  ipc.handle('import-extension-plugin', async (_event) => {
     const missing = ensureManager();
     if (missing) return missing;
     if (!hasVipAccess()) {

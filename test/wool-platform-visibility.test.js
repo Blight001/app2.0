@@ -9,8 +9,8 @@ function read(relativePath) {
 
 test('empty wool platform list is not rebuilt from cached platform defaults', () => {
   const source = read('src/app/main/ipc/register/misc.js');
-  const start = source.indexOf("ipcMain.handle('get-wool-platforms'");
-  const end = source.indexOf("ipcMain.handle('get-tutorial-url'", start);
+  const start = source.indexOf("ipc.handle('get-wool-platforms'");
+  const end = source.indexOf("ipc.handle('get-tutorial-url'", start);
   const handler = source.slice(start, end);
 
   assert.match(handler, /return woolPlatforms;/);

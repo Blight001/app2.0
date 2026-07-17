@@ -53,6 +53,6 @@ test('custom unpacked extensions can be imported and remain in manager state', (
   const ipc = read('src/app/main/ipc/register/extensions.js');
   assert.match(extensionManager, /async function importPlugin\(sourcePath\)/);
   assert.match(extensionManager, /plugin\.builtin === true \|\| seenIds\.has\(plugin\.id\)/);
-  assert.match(ipc, /ipcMain\.handle\('import-extension-plugin'/);
+  assert.match(ipc, /ipc.handle\('import-extension-plugin'/);
   assert.match(ipc, /properties: \['openDirectory'\]/);
 });

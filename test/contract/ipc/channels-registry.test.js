@@ -23,7 +23,7 @@ function walk(dir, out = []) {
 }
 
 function scanRegistrations() {
-  const invoke = new Map();
+  const invoke = new Map(); // channel -> [files]
   const event = new Map();
   for (const file of walk(mainDir)) {
     const rel = path.relative(root, file).replace(/\\/g, '/');
@@ -32,11 +32,21 @@ function scanRegistrations() {
     const re = /\b(?:ipcMain|ipc)\.(handle|on)\(\s*['"]([^'"]+)['"]/g;
     let m;
     while ((m = re.exec(src))) {
-      (m[1] === 'handle' ? invoke : event).set(m[2], rel);
+      const map = m[1] === 'handle' ? invoke : event;
+      if (!map.has(m[2])) map.set(m[2], []);
+      map.get(m[2]).push(rel);
     }
   }
   return { invoke, event };
 }
+
+test('同一通道不得在源码中注册多于一次（曾被 monkeypatch 掩盖的真实冲突）', () => {
+  const { invoke, event } = scanRegistrations();
+  const dupInvoke = [...invoke.entries()].filter(([, files]) => files.length > 1);
+  const dupEvent = [...event.entries()].filter(([, files]) => files.length > 1);
+  assert.deepEqual(dupInvoke, [], `invoke 通道重复注册: ${dupInvoke.map(([ch, files]) => `${ch} @ ${files.join(' & ')}`).join('; ')}`);
+  assert.deepEqual(dupEvent, [], `event 通道重复注册: ${dupEvent.map(([ch, files]) => `${ch} @ ${files.join(' & ')}`).join('; ')}`);
+});
 
 test('主进程实际注册的 invoke/event 通道与 contracts 注册表双向一致', () => {
   const { invoke, event } = scanRegistrations();

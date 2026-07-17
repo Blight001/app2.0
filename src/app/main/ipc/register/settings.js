@@ -1,5 +1,5 @@
 const path = require('path');
-const { BrowserWindow, ipcMain, net, screen, session: electronSession } = require('electron');
+const { BrowserWindow, net, screen, session: electronSession } = require('electron');
 const fs = require('fs');
 const { getStorePath } = require('../../config');
 const accountStorage = require('../../lib/account-storage');
@@ -401,6 +401,7 @@ function setNetworkMagicAutoStartEnabledSafe(enabled) {
 
 // 监听/绑定：registerSettingsIPC的具体业务逻辑。
 function registerSettingsIPC(ctx) {
+  const ipc = ctx.ipc.scope('register/settings');
   const { ui, computeDeviceId, licenseCache } = ctx;
   const extensionManager = ctx.extensionManager || ui?.extensionManager || null;
   let independentBrowserCreation = null;
@@ -569,7 +570,7 @@ function registerSettingsIPC(ctx) {
     console.warn('[IPC] 启动时无法自动清理孤立 Chromium 环境:', error?.message || error);
   }
 
-  ipcMain.handle('get-ai-control-settings', async () => {
+  ipc.handle('get-ai-control-settings', async () => {
     try {
       return {
         ok: true,
@@ -591,7 +592,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('set-ai-control-settings', async (_event, payload = {}) => {
+  ipc.handle('set-ai-control-settings', async (_event, payload = {}) => {
     try {
       const rawLimit = payload?.mcpCallLimit;
       if (!Number.isFinite(Number(rawLimit))) throw new Error('MCP 调用上限必须是有效数字');
@@ -613,7 +614,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-ai-control-custom-api', async () => {
+  ipc.handle('get-ai-control-custom-api', async () => {
     try {
       if (!resolveVipAccess(licenseCache?.getSnapshot?.() || {}).isVip) {
         return createVipRequiredResult('自定义模型');
@@ -625,7 +626,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('set-ai-control-custom-api', async (_event, payload = {}) => {
+  ipc.handle('set-ai-control-custom-api', async (_event, payload = {}) => {
     try {
       if (payload?.clear !== true && !resolveVipAccess(licenseCache?.getSnapshot?.() || {}).isVip) {
         return createVipRequiredResult('自定义模型');
@@ -663,7 +664,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-browser-history', async () => {
+  ipc.handle('get-browser-history', async () => {
     try {
       const history = syncOpenTabsToBrowserHistory(ui);
       const serialized = serializeBrowserHistory(history, ui);
@@ -695,7 +696,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('show-browser-history-gesture-popup', async (_event, payload = {}) => {
+  ipc.handle('show-browser-history-gesture-popup', async (_event, payload = {}) => {
     try {
       return showBrowserHistoryGestureWindow(payload);
     } catch (error) {
@@ -704,16 +705,16 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.on('update-browser-history-gesture-popup-selection', (_event, payload = {}) => {
+  ipc.on('update-browser-history-gesture-popup-selection', (_event, payload = {}) => {
     browserHistoryGestureSelectedId = String(payload?.historyId || '');
     const popup = browserHistoryGestureWindow;
     if (!popup || popup.isDestroyed()) return;
     try { popup.webContents.send('browser-history-gesture-selection', browserHistoryGestureSelectedId); } catch (_) {}
   });
 
-  ipcMain.on('close-browser-history-gesture-popup', () => closeBrowserHistoryGestureWindow());
+  ipc.on('close-browser-history-gesture-popup', () => closeBrowserHistoryGestureWindow());
 
-  ipcMain.handle('cleanup-orphan-browser-profiles', async (_event, payload = {}) => {
+  ipc.handle('cleanup-orphan-browser-profiles', async (_event, payload = {}) => {
     try {
       if (payload?.confirm !== true) throw new Error('清理孤儿 Profile 需要明确确认');
       const history = syncOpenTabsToBrowserHistory(ui);
@@ -725,7 +726,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('create-independent-browser', async (_event, payload = {}) => {
+  ipc.handle('create-independent-browser', async (_event, payload = {}) => {
     if (!resolveVipAccess(licenseCache?.getSnapshot?.() || {}).isVip
       && Number(ui?.getTabs?.()?.size || 0) >= FREE_BROWSER_WINDOW_LIMIT) {
       ui?.sendToSide?.('vip-access-required', { feature: '更多独立浏览器窗口', limit: FREE_BROWSER_WINDOW_LIMIT });
@@ -831,7 +832,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('open-browser-history', async (_event, payload = {}) => {
+  ipc.handle('open-browser-history', async (_event, payload = {}) => {
     try {
       return await openBrowserHistoryRecord(ui, payload?.historyId);
     } catch (error) {
@@ -840,7 +841,7 @@ function registerSettingsIPC(ctx) {
   });
 
   // 开启网络魔法后由侧边栏调用：返回当前激活浏览器及其是否已选择魔法端口代理。
-  ipcMain.handle('get-network-magic-active-browser', async () => {
+  ipc.handle('get-network-magic-active-browser', async () => {
     try {
       const activeTabId = String(typeof ui?.getActiveTabId === 'function' ? ui.getActiveTabId() || '' : '');
       const tab = activeTabId ? ui?.getTabs?.()?.get?.(activeTabId) : null;
@@ -860,7 +861,7 @@ function registerSettingsIPC(ctx) {
   });
 
   // 把网络魔法代理应用到/移出单个浏览器（记录持久化 + 已打开则切换代理并自动重启）。
-  ipcMain.handle('apply-network-magic-to-browser', async (_event, payload = {}) => {
+  ipc.handle('apply-network-magic-to-browser', async (_event, payload = {}) => {
     try {
       const enabled = payload?.enabled !== false;
       const history = syncOpenTabsToBrowserHistory(ui);
@@ -909,7 +910,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('rename-browser-history', async (_event, payload = {}) => {
+  ipc.handle('rename-browser-history', async (_event, payload = {}) => {
     try {
       return renameBrowserHistoryRecord(ui, payload?.historyId, payload?.name);
     } catch (error) {
@@ -917,7 +918,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('rename-browser-history-batch', async (_event, payload = {}) => {
+  ipc.handle('rename-browser-history-batch', async (_event, payload = {}) => {
     try {
       const history = syncOpenTabsToBrowserHistory(ui);
       const historyIds = [...new Set((Array.isArray(payload?.historyIds) ? payload.historyIds : [])
@@ -958,7 +959,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('delete-browser-history', async (_event, payload = {}) => {
+  ipc.handle('delete-browser-history', async (_event, payload = {}) => {
     try {
       const history = syncOpenTabsToBrowserHistory(ui);
       const historyId = String(payload?.historyId || '').trim();
@@ -1002,7 +1003,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-ai-free-browser-settings', async (_event, payload = {}) => {
+  ipc.handle('get-ai-free-browser-settings', async (_event, payload = {}) => {
     try {
       const store = readStoreConfigSafe();
       const historyId = String(payload?.historyId || '').trim();
@@ -1033,7 +1034,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('test-ai-free-proxy', async (_event, payload = {}) => {
+  ipc.handle('test-ai-free-proxy', async (_event, payload = {}) => {
     const proxy = normalizeAiFreeBrowserSettings({ proxy: payload?.proxy }).proxy;
     if (proxy.mode !== 'custom' || !proxy.host || !proxy.port) return { ok: false, error: '请先填写代理主机和端口' };
     const startedAt = Date.now();
@@ -1061,7 +1062,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('extract-ai-free-proxy', async (_event, payload = {}) => {
+  ipc.handle('extract-ai-free-proxy', async (_event, payload = {}) => {
     try {
       const apiUrl = String(payload?.apiUrl || '').trim();
       const parsedUrl = new URL(apiUrl);
@@ -1100,7 +1101,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('set-ai-free-browser-settings', async (_event, payload = {}) => {
+  ipc.handle('set-ai-free-browser-settings', async (_event, payload = {}) => {
     try {
       const rawSettings = payload?.settings || payload;
       validateBrowserSettingsPayload(rawSettings);
@@ -1144,7 +1145,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('reset-ai-free-browser-settings', async (_event, payload = {}) => {
+  ipc.handle('reset-ai-free-browser-settings', async (_event, payload = {}) => {
     try {
       const settings = normalizeAiFreeBrowserSettings({});
       const historyId = String(payload?.historyId || '').trim();
@@ -1182,7 +1183,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-plugin-settings', async () => {
+  ipc.handle('get-plugin-settings', async () => {
     try {
       const pluginState = typeof ui?.statePluginGetter === 'function'
         ? ui.statePluginGetter()
@@ -1207,7 +1208,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('set-plugin-settings', async (_event, payload = {}) => {
+  ipc.handle('set-plugin-settings', async (_event, payload = {}) => {
     try {
       const currentSettings = typeof ui?.statePluginGetter === 'function'
         ? ui.statePluginGetter()
@@ -1246,7 +1247,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-user-credentials', async () => {
+  ipc.handle('get-user-credentials', async () => {
     try {
       const deviceId = typeof computeDeviceId === 'function' ? await computeDeviceId() : '';
       const snapshot = licenseCache && typeof licenseCache.getSnapshot === 'function'
@@ -1269,7 +1270,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('consume-auto-validate-flag', async () => {
+  ipc.handle('consume-auto-validate-flag', async () => {
     try {
       const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
         ? licenseCache.getRuntimeConfig()
@@ -1298,7 +1299,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('save-user-credentials', async (_event, { key, deviceId }) => {
+  ipc.handle('save-user-credentials', async (_event, { key, deviceId }) => {
     try {
       saveLicenseCredentialsSafe({
         readStoreConfigSafe,
@@ -1313,7 +1314,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('update-system-proxy-enabled', async (_event, { enabled }) => {
+  ipc.handle('update-system-proxy-enabled', async (_event, { enabled }) => {
     try {
       if (licenseCache && typeof licenseCache.setRuntimeConfig === 'function') {
         licenseCache.setRuntimeConfig({ systemProxyEnabled: enabled });
@@ -1326,7 +1327,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-network-magic-auto-start-enabled', async () => {
+  ipc.handle('get-network-magic-auto-start-enabled', async () => {
     try {
       return {
         ok: true,
@@ -1338,7 +1339,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('set-network-magic-auto-start-enabled', async (_event, { enabled } = {}) => {
+  ipc.handle('set-network-magic-auto-start-enabled', async (_event, { enabled } = {}) => {
     try {
       const nextEnabled = enabled !== false;
       const wrote = setNetworkMagicAutoStartEnabledSafe(nextEnabled);
@@ -1352,7 +1353,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-vpn-status', async () => {
+  ipc.handle('get-vpn-status', async () => {
     try {
       const windows = BrowserWindow.getAllWindows();
       for (const win of windows) {
@@ -1387,7 +1388,7 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  ipcMain.on('server-account-cookie-received', (_event, data) => {
+  ipc.on('server-account-cookie-received', (_event, data) => {
     try {
       console.log('[IPC] 收到账号 Cookie 消息，正在转发到侧边栏');
       if (ui && ui.sendToSide) {

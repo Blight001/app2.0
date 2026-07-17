@@ -74,7 +74,7 @@ test('消失动画以头像方向为原点缩小并淡出', () => {
 test('主窗口和侧边栏点击其它区域时显式通知浮窗收起', () => {
   assert.match(appShellSource, /pointerdown[\s\S]*dismiss-account-center-popup/);
   assert.match(accountControllerSource, /!isStandaloneAccountCenterPopup[\s\S]*pointerdown[\s\S]*dismiss-account-center-popup/);
-  assert.match(source, /ipcMain\.on\('dismiss-account-center-popup'/);
+  assert.match(source, /ipc.on\('dismiss-account-center-popup'/);
   assert.match(source, /browser-window-focus/);
 });
 

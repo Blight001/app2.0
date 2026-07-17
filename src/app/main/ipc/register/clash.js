@@ -1,4 +1,4 @@
-const { ipcMain } = require('electron');
+
 const fs = require('fs');
 const path = require('path');
 const YAML = require('yaml');
@@ -26,6 +26,7 @@ const {
 const { createProxyTrafficMonitor } = require('./proxy-traffic-monitor');
 
 function registerClashIPC(ctx) {
+  const ipc = ctx.ipc.scope('register/clash');
   const { httpClient, ui, licenseCache, computeDeviceId } = ctx;
   try {
     if (typeof setRuntimeLicenseCache === 'function') {
@@ -59,7 +60,7 @@ function registerClashIPC(ctx) {
     },
   });
 
-  ipcMain.handle('start-clash-mini', async (_event, options = {}) => {
+  ipc.handle('start-clash-mini', async (_event, options = {}) => {
     try {
       const authorization = await trafficMonitor.authorize();
       if (!authorization?.ok) {
@@ -79,7 +80,7 @@ function registerClashIPC(ctx) {
     }
   });
 
-  ipcMain.handle('test-min-latency', async (_event, options = {}) => {
+  ipc.handle('test-min-latency', async (_event, options = {}) => {
     try {
       return await testClashMiniLowestLatency(ui, options || {});
     } catch (error) {
@@ -87,7 +88,7 @@ function registerClashIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-clash-mini-proxy-options', async (_event, options = {}) => {
+  ipc.handle('get-clash-mini-proxy-options', async (_event, options = {}) => {
     try {
       return await getClashMiniProxyGroupOptions(ui, options || {});
     } catch (error) {
@@ -95,7 +96,7 @@ function registerClashIPC(ctx) {
     }
   });
 
-  ipcMain.handle('switch-clash-mini-proxy', async (_event, options = {}) => {
+  ipc.handle('switch-clash-mini-proxy', async (_event, options = {}) => {
     try {
       return await switchClashMiniProxyNode(ui, options || {});
     } catch (error) {
@@ -103,7 +104,7 @@ function registerClashIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-clash-mini-status', async () => {
+  ipc.handle('get-clash-mini-status', async () => {
     try {
       return getClashMiniStatus();
     } catch (error) {
@@ -111,7 +112,7 @@ function registerClashIPC(ctx) {
     }
   });
 
-  ipcMain.handle('stop-clash-mini', async () => {
+  ipc.handle('stop-clash-mini', async () => {
     try {
       await trafficMonitor.stop();
       return await stopClashMiniProcess(ui);
@@ -120,7 +121,7 @@ function registerClashIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-proxy-traffic-quota', async () => {
+  ipc.handle('get-proxy-traffic-quota', async () => {
     try {
       const credentials = readCredentials();
       const key = String(credentials?.key || '').trim();
@@ -132,7 +133,7 @@ function registerClashIPC(ctx) {
     }
   });
 
-  ipcMain.handle('redeem-proxy-traffic-gift-code', async (_event, input = {}) => {
+  ipc.handle('redeem-proxy-traffic-gift-code', async (_event, input = {}) => {
     try {
       const credentials = readCredentials();
       const key = String(credentials?.key || '').trim();
@@ -148,7 +149,7 @@ function registerClashIPC(ctx) {
     }
   });
 
-  ipcMain.handle('ensure-clash-config-dir', async () => {
+  ipc.handle('ensure-clash-config-dir', async () => {
     try {
       console.log('[IPC] 检查 Clash Mini 配置目录是否存在...');
 
@@ -191,7 +192,7 @@ function registerClashIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-clash-config', async (_event, { key, deviceId }) => {
+  ipc.handle('get-clash-config', async (_event, { key, deviceId }) => {
     try {
       console.log('[IPC] 获取Clash配置...');
       const result = await httpClient.getClientConfig(key, deviceId);
@@ -251,12 +252,12 @@ function registerClashIPC(ctx) {
     }
   });
 
-  ipcMain.handle('stop-clash-service', async () => {
+  ipc.handle('stop-clash-service', async () => {
     console.log('[IPC] 关闭Clash服务，手动停止');
     return stopClashMiniProcess(ui);
   });
 
-  ipcMain.handle('save-clash-config', async (_event, payload = {}) => {
+  ipc.handle('save-clash-config', async (_event, payload = {}) => {
     try {
       const runtimePrep = await prepareClashMiniRuntimeDirAsync();
       if (!runtimePrep.ok) {

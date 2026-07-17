@@ -13,6 +13,7 @@ const { cleanupAccountProfile } = require('../services/account-profile-cleanup')
 
 // 监听/绑定：registerAccountIPC的具体业务逻辑。
 function registerAccountIPC(ctx) {
+  const ipc = ctx.ipc.scope('account_remember');
   const {
     httpClient,
     auth,
@@ -403,7 +404,7 @@ function registerAccountIPC(ctx) {
 
   // ---- IPC: 账号管理 ----
   // 保存用户凭证（兼容性接口，已重定向到新的 store/content 操作）
-  ipcMain.handle('save-global-credentials', async (_event, { key, deviceId }) => {
+  ipc.handle('save-global-credentials', async (_event, { key, deviceId }) => {
     try {
       if (!key) {
         return { ok: false, error: '卡密不能为空' };
@@ -421,7 +422,7 @@ function registerAccountIPC(ctx) {
   });
 
   // 获取用户凭证（兼容性接口，已重定向到新的 store/content 操作）
-  ipcMain.handle('get-global-credentials', async () => {
+  ipc.handle('get-global-credentials', async () => {
     try {
       const snapshot = licenseCache && typeof licenseCache.getSnapshot === 'function'
         ? licenseCache.getSnapshot()
@@ -441,7 +442,7 @@ function registerAccountIPC(ctx) {
   });
 
   // 获取 cookies（不打开页面）
-  ipcMain.handle('fetch-cookies', async (_event, { key, deviceId }) => {
+  ipc.handle('fetch-cookies', async (_event, { key, deviceId }) => {
     try {
       const resolvedDeviceId = await resolveDeviceId(deviceId);
       if (!key || !resolvedDeviceId) {
@@ -477,7 +478,7 @@ function registerAccountIPC(ctx) {
   });
 
   // 保存账号
-  ipcMain.handle('save-account', async (_event, { cookies, accountName }) => {
+  ipc.handle('save-account', async (_event, { cookies, accountName }) => {
     try {
       // 检查用户凭证是否存在
       const snapshot = licenseCache && typeof licenseCache.getSnapshot === 'function'
@@ -566,7 +567,7 @@ function registerAccountIPC(ctx) {
   });
 
   // 导入 Cookie 文件并保存账号
-  ipcMain.handle('import-cookie-file', async () => {
+  ipc.handle('import-cookie-file', async () => {
     try {
       const credentials = readGlobalCredentialsFromStore();
       const deviceId = await resolveDeviceId('');
@@ -697,7 +698,7 @@ function registerAccountIPC(ctx) {
   });
 
   // 获取所有账号列表
-  ipcMain.handle('get-all-accounts', async () => {
+  ipc.handle('get-all-accounts', async () => {
     try {
       const accounts = accountStorage.getAllAccounts();
       return { ok: true, accounts };
@@ -706,7 +707,7 @@ function registerAccountIPC(ctx) {
     }
   });
 
-  ipcMain.handle('delete-accounts', async (_event, { accountIds }) => {
+  ipc.handle('delete-accounts', async (_event, { accountIds }) => {
     try {
       const ids = Array.from(new Set((Array.isArray(accountIds) ? accountIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
       if (!ids.length) {
@@ -753,7 +754,7 @@ function registerAccountIPC(ctx) {
 
   // 账号历史只负责打开账号已经绑定的专属浏览器 Profile。服务器拉取、账号
   // 迁移和 Cookie 注入只允许发生在 open-dream-page 的新账号流程中。
-  ipcMain.handle('switch-account', async (_event, { accountId }) => {
+  ipc.handle('switch-account', async (_event, { accountId }) => {
     try {
       const normalizedAccountId = String(accountId || '').trim();
       if (!normalizedAccountId) {

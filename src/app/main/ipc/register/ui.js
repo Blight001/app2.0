@@ -1,9 +1,10 @@
 const path = require('path');
-const { ipcMain, BrowserWindow, screen, nativeTheme } = require('electron');
+const { BrowserWindow, screen, nativeTheme } = require('electron');
 const { resolveTabTitle } = require('../../services/tab-common');
 
 // 监听/绑定：registerUiIPC的具体业务逻辑。
 function registerUiIPC(ctx) {
+  const ipc = ctx.ipc.scope('register/ui');
   const { ui, getAppConsoleHistory, app } = ctx;
   let tabContextMenuWindow = null;
   let accountCenterPopupWindow = null;
@@ -225,7 +226,7 @@ function registerUiIPC(ctx) {
     return value === 'light' || value === 'gold' ? value : 'dark';
   };
 
-  ipcMain.handle('get-browser-runtime-state', async (_event, payload = {}) => {
+  ipc.handle('get-browser-runtime-state', async (_event, payload = {}) => {
     const manager = ui?.browserRuntimeManager;
     if (!manager) return { ok: false, message: 'Browser Runtime 不可用' };
     const profileId = String(payload?.profileId || '').trim();
@@ -237,7 +238,7 @@ function registerUiIPC(ctx) {
     };
   });
 
-  ipcMain.handle('restart-browser-runtime', async (_event, payload = {}) => {
+  ipc.handle('restart-browser-runtime', async (_event, payload = {}) => {
     const profileId = String(payload?.profileId || '').trim();
     if (!profileId || !ui?.browserRuntimeManager) return { ok: false, message: '缺少 Chromium Profile ID' };
     try {
@@ -248,7 +249,7 @@ function registerUiIPC(ctx) {
     }
   });
 
-  ipcMain.handle('clear-browser-runtime-data', async (_event, payload = {}) => {
+  ipc.handle('clear-browser-runtime-data', async (_event, payload = {}) => {
     const profileId = String(payload?.profileId || '').trim();
     const manager = ui?.browserRuntimeManager;
     if (!profileId || !manager || typeof manager.clearData !== 'function') {
@@ -279,7 +280,7 @@ function registerUiIPC(ctx) {
     }
   });
 
-  ipcMain.handle('resolve-browser-data-clear-confirm', async (event, payload = {}) => {
+  ipc.handle('resolve-browser-data-clear-confirm', async (event, payload = {}) => {
     const requestId = String(payload?.requestId || '').trim();
     const pending = pendingBrowserDataClearRequests.get(requestId);
     if (!pending) return { ok: false, message: '清空请求已失效，请重新操作' };
@@ -521,20 +522,20 @@ function registerUiIPC(ctx) {
     }
   };
 
-  ipcMain.on('app-theme-changed', (_e, theme) => {
+  ipc.on('app-theme-changed', (_e, theme) => {
     broadcastAppTheme(theme);
   });
 
-  ipcMain.handle('get-app-theme', async () => ({
+  ipc.handle('get-app-theme', async () => ({
     ok: true,
     theme: currentAppTheme,
   }));
 
-  ipcMain.on('add-tab', (_e, url) => ui.addTab(url));
-  ipcMain.on('switch-tab', (_e, tabId) => ui.switchTab(tabId));
-  ipcMain.on('close-tab', (_e, tabId) => { void ui.closeTab(tabId); });
+  ipc.on('add-tab', (_e, url) => ui.addTab(url));
+  ipc.on('switch-tab', (_e, tabId) => ui.switchTab(tabId));
+  ipc.on('close-tab', (_e, tabId) => { void ui.closeTab(tabId); });
 
-  ipcMain.handle('show-tab-context-menu', async (_e, payload = {}) => {
+  ipc.handle('show-tab-context-menu', async (_e, payload = {}) => {
     try {
       const tabId = String(payload?.tabId || '').trim();
       if (!tabId) {
@@ -554,7 +555,7 @@ function registerUiIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-tabs-state', async () => {
+  ipc.handle('get-tabs-state', async () => {
     try {
       const tabs = ui.getTabs && typeof ui.getTabs === 'function' ? ui.getTabs() : new Map();
       const activeTabId = ui.getActiveTabId && typeof ui.getActiveTabId === 'function'
@@ -628,7 +629,7 @@ function registerUiIPC(ctx) {
     }
   };
 
-  ipcMain.handle('browser-mcp-bridge', async (_event, payload = {}) => {
+  ipc.handle('browser-mcp-bridge', async (_event, payload = {}) => {
     try {
       const command = String(payload?.command || payload?.action || '').trim();
       const activeTab = findManagedTabById(getManagedActiveTabId());
@@ -707,7 +708,7 @@ function registerUiIPC(ctx) {
     }
   });
 
-  ipcMain.handle('refresh-tab', async (_e, tabId) => {
+  ipc.handle('refresh-tab', async (_e, tabId) => {
     try {
       if (!ui.refreshTab) {
         return { ok: false, message: '刷新功能不可用' };
@@ -719,29 +720,29 @@ function registerUiIPC(ctx) {
     }
   });
 
-  ipcMain.on('reorder-tab', (_e, payload = {}) => {
+  ipc.on('reorder-tab', (_e, payload = {}) => {
     try {
       ui.reorderTab && ui.reorderTab(payload.tabId, payload.targetTabId, payload.position);
     } catch (error) {
       console.warn('[IPC] 重排标签失败:', error?.message || error);
     }
   });
-  ipcMain.on('toggle-sidebar', () => ui.toggleSidebar());
-  ipcMain.on('ensure-sidebar-visible', () => ui.ensureSidebarVisible && ui.ensureSidebarVisible());
-  ipcMain.on('toggle-account-center-popup', (_event, payload = {}) => {
+  ipc.on('toggle-sidebar', () => ui.toggleSidebar());
+  ipc.on('ensure-sidebar-visible', () => ui.ensureSidebarVisible && ui.ensureSidebarVisible());
+  ipc.on('toggle-account-center-popup', (_event, payload = {}) => {
     void toggleAccountCenterPopupWindow(payload);
   });
-  ipcMain.on('open-account-center-popup', (_event, payload = {}) => {
+  ipc.on('open-account-center-popup', (_event, payload = {}) => {
     void openAccountCenterPopupWindow(payload);
   });
-  ipcMain.on('dismiss-account-center-popup', () => dismissAccountCenterPopupWindow());
-  ipcMain.on('close-account-center-popup', () => dismissAccountCenterPopupWindow());
-  ipcMain.on('resize-account-center-popup', (event, payload = {}) => {
+  ipc.on('dismiss-account-center-popup', () => dismissAccountCenterPopupWindow());
+  ipc.on('close-account-center-popup', () => dismissAccountCenterPopupWindow());
+  ipc.on('resize-account-center-popup', (event, payload = {}) => {
     const popup = accountCenterPopupWindow;
     if (!popup || popup.isDestroyed() || event.sender !== popup.webContents) return;
     resizeAccountCenterPopupWindow(payload.height);
   });
-  ipcMain.on('sync-app-shell-account', (_event, session = {}) => {
+  ipc.on('sync-app-shell-account', (_event, session = {}) => {
     try {
       const mainWindow = ui.getMainWindow?.();
       if (!mainWindow || mainWindow.isDestroyed?.()) return;
@@ -752,7 +753,7 @@ function registerUiIPC(ctx) {
     } catch (_) {}
   });
 
-  ipcMain.handle('open-active-web-console', async () => {
+  ipc.handle('open-active-web-console', async () => {
     try {
       const wc = ui.getActiveWC && ui.getActiveWC();
       if (!wc || (wc.isDestroyed && wc.isDestroyed())) {
@@ -775,18 +776,10 @@ function registerUiIPC(ctx) {
     }
   });
 
-  ipcMain.handle('get-app-console-history', async () => {
-    try {
-      const history = typeof ui.getDebugConsoleHistory === 'function'
-        ? ui.getDebugConsoleHistory()
-        : (typeof getAppConsoleHistory === 'function' ? getAppConsoleHistory() : []);
-      return { ok: true, history: Array.isArray(history) ? history : [] };
-    } catch (error) {
-      return { ok: false, error: error?.message || String(error), history: [] };
-    }
-  });
+  // get-app-console-history 由 app-lifecycle 在 app.whenReady 阶段注册
+  // （需早于 bootstrapMainApp 供调试控制台使用），此处不得重复注册。
 
-  ipcMain.on('reveal-cookie-import', () => {
+  ipc.on('reveal-cookie-import', () => {
     try {
       console.log('[IPC] 收到 Cookie 导入解锁请求');
       if (ui && ui.sendToSide) {
@@ -800,11 +793,11 @@ function registerUiIPC(ctx) {
     }
   });
 
-  ipcMain.on('set-zoom', (_e, zoomFactor) => ui.setZoom(zoomFactor));
-  ipcMain.on('refresh-active-tab-to-url', (_e, url) => ui.refreshActiveTabToUrl(url));
-  ipcMain.on('refresh-active-tab', () => ui.refreshActiveTab());
+  ipc.on('set-zoom', (_e, zoomFactor) => ui.setZoom(zoomFactor));
+  ipc.on('refresh-active-tab-to-url', (_e, url) => ui.refreshActiveTabToUrl(url));
+  ipc.on('refresh-active-tab', () => ui.refreshActiveTab());
 
-  ipcMain.on('smart-refresh-active-tab', async () => {
+  ipc.on('smart-refresh-active-tab', async () => {
     try {
       const wc = ui.getActiveWC && ui.getActiveWC();
       if (!wc || (wc.isDestroyed && wc.isDestroyed())) return;
@@ -821,7 +814,7 @@ function registerUiIPC(ctx) {
     } catch (_) {}
   });
 
-  ipcMain.handle('focus-sidebar-input', async (event, request = {}) => {
+  ipc.handle('focus-sidebar-input', async (event, request = {}) => {
     try {
       // Pointer entry/movement is used to repair the native Chromium wheel
       // target, but hover must not take focus away from an open account-center
@@ -895,7 +888,7 @@ function registerUiIPC(ctx) {
     }
   });
 
-  ipcMain.on('open-tutorial', (event, url) => {
+  ipc.on('open-tutorial', (event, url) => {
     if (typeof ui?.openTutorialTab === 'function') {
       void ui.openTutorialTab(url);
     }

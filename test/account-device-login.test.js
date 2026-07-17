@@ -46,7 +46,7 @@ test('四类客户端兑换均在请求前重新读取本机封装设备号', ()
     const end = lifecycle.indexOf('\n    });', start);
     assert.match(lifecycle.slice(start, end), /await computeDeviceId\(\)/, channel);
   }
-  const trafficStart = clash.indexOf("ipcMain.handle('redeem-proxy-traffic-gift-code'");
+  const trafficStart = clash.indexOf("ipc.handle('redeem-proxy-traffic-gift-code'");
   const trafficEnd = clash.indexOf('\n  });', trafficStart);
   assert.match(clash.slice(trafficStart, trafficEnd), /await computeDeviceId\(\)/);
 });

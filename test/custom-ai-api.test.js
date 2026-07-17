@@ -95,7 +95,7 @@ test('AI 控制界面和 IPC 已接入自定义 API', () => {
   assert.match(html, /id="ai-custom-api-dialog"/);
   assert.match(renderer, /action\.textContent = '添加自定义模型'/);
   assert.match(renderer, /set-ai-control-custom-api/);
-  assert.match(settings, /ipcMain\.handle\('get-ai-control-custom-api'/);
-  assert.match(settings, /ipcMain\.handle\('set-ai-control-custom-api'/);
+  assert.match(settings, /ipc.handle\('get-ai-control-custom-api'/);
+  assert.match(settings, /ipc.handle\('set-ai-control-custom-api'/);
   assert.match(lifecycle, /sendCustomAIControlMessage/);
 });
