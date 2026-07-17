@@ -123,7 +123,7 @@ test('extension manager injects the rotating token into a separate runtime copy 
     fs.rmSync(userData, { recursive: true, force: true });
   });
 
-  const accessToken = 'rotating-test-token-never-write-to-source';
+  let accessToken = 'rotating-test-token-never-write-to-source';
   const manager = createExtensionManager({
     app: {
       getPath: () => userData,
@@ -145,6 +145,11 @@ test('extension manager injects the rotating token into a separate runtime copy 
     .find((item) => path.basename(item).toLowerCase() === 'browser_automation');
   assert.ok(runtimePath);
   assert.ok(path.resolve(runtimePath).startsWith(path.resolve(userData)));
+  assert.notEqual(
+    path.dirname(runtimePath),
+    path.join(userData, 'protected-extension-runtime'),
+    '运行副本应放在随启动凭据轮换的会话子目录中，以避开 Chromium Worker 缓存',
+  );
 
   const runtimeEnvironment = fs.readFileSync(
     path.join(runtimePath, 'background/00_environment.js'),
@@ -158,4 +163,14 @@ test('extension manager injects the rotating token into a separate runtime copy 
   assert.ok(runtimeEnvironment.includes(accessToken));
   assert.match(sourceEnvironment, /protectedRuntime: false/);
   assert.ok(!sourceEnvironment.includes(accessToken));
+
+  accessToken = 'next-start-token-uses-another-extension-path';
+  const rotatedRuntimePath = manager.getEnabledExtensionPaths()
+    .find((item) => path.basename(item).toLowerCase() === 'browser_automation');
+  assert.ok(rotatedRuntimePath);
+  assert.notEqual(rotatedRuntimePath, runtimePath);
+  assert.ok(fs.readFileSync(
+    path.join(rotatedRuntimePath, 'background/00_environment.js'),
+    'utf8',
+  ).includes(accessToken));
 });

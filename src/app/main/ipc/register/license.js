@@ -43,6 +43,7 @@ function registerLicenseIPC(ctx) {
     getDreamTargetUrl,
   } = ctx;
   let woolPlatformRefreshInFlight = null;
+  let tutorialUrlRefreshInFlight = null;
 
   const resolveDreamTargetUrl = () => resolveConfiguredDreamTargetUrl(getDreamTargetUrl, DREAM_TARGET_URL);
 
@@ -87,6 +88,63 @@ function registerLicenseIPC(ctx) {
       return await woolPlatformRefreshInFlight;
     } finally {
       woolPlatformRefreshInFlight = null;
+    }
+  });
+
+  ipcMain.handle('refresh-tutorial-url', async () => {
+    if (tutorialUrlRefreshInFlight) return tutorialUrlRefreshInFlight;
+
+    tutorialUrlRefreshInFlight = (async () => {
+      try {
+        // 新版服务器提供公开教程配置接口。优先直接读取，使未登录用户、
+        // 会员验证暂时失败的用户也能同步管理员刚保存的新地址。
+        if (httpClient && typeof httpClient.getTutorialUrl === 'function') {
+          const response = await httpClient.getTutorialUrl();
+          const tutorialUrl = String(response?.tutorialUrl || response?.tutorial_url || '').trim();
+          if (response?.ok === true && tutorialUrl) {
+            licenseCache?.setRuntimeConfig?.({ tutorialUrl });
+            return { ok: true, tutorialUrl };
+          }
+        }
+
+        // 兼容尚未提供公开接口的旧服务器。
+        const credentials = licenseCache?.getCredentials?.() || {};
+        const key = String(credentials.key || '').trim();
+        const deviceId = String(credentials.deviceId || '').trim();
+        if (!key || !deviceId) {
+          return { ok: false, authenticated: false, message: '请先登录账号' };
+        }
+        if (!httpClient || typeof httpClient.validateKey !== 'function') {
+          return { ok: false, message: '教程配置服务尚未就绪' };
+        }
+
+        // 教程入口可能由服务器随时更换。每次打开前只刷新这一项，避免继续
+        // 使用登录时留下的旧缓存，也不改动账号状态、配额或其它运行配置。
+        const validation = await httpClient.validateKey(key, deviceId);
+        if (!isValidationSuccess(validation)) {
+          return {
+            ok: false,
+            message: getValidationFailureMessage(validation, '刷新教程链接失败'),
+          };
+        }
+
+        const { normalizeValidationRuntimeConfig } = require('../../lib/http-client');
+        const normalized = normalizeValidationRuntimeConfig(validation);
+        const tutorialUrl = String(normalized.tutorialUrl || '').trim();
+        if (!tutorialUrl) {
+          return { ok: false, message: '服务器未配置教程链接' };
+        }
+        licenseCache?.setRuntimeConfig?.({ tutorialUrl });
+        return { ok: true, tutorialUrl };
+      } catch (error) {
+        return { ok: false, message: error?.message || String(error) };
+      }
+    })();
+
+    try {
+      return await tutorialUrlRefreshInFlight;
+    } finally {
+      tutorialUrlRefreshInFlight = null;
     }
   });
 
@@ -431,6 +489,19 @@ function registerLicenseIPC(ctx) {
             });
           }
           console.log('[验证] 卡密状态已写入运行时缓存');
+
+          // 运行时地址和登录态一就绪就立即拉取公告，不等待账号清理、平台列表
+          // 等其它登录后任务。这里不阻塞登录响应，拉取失败由轮询器继续重试。
+          try {
+            if (typeof refreshAnnouncements === 'function') {
+              void Promise.resolve(refreshAnnouncements()).catch((announcementErr) => {
+                console.warn('[验证] 获取服务器公告失败:', announcementErr?.message || announcementErr);
+              });
+            }
+          } catch (announcementErr) {
+            console.warn('[验证] 获取服务器公告失败:', announcementErr?.message || announcementErr);
+          }
+
           try {
             if (typeof initializeAccountCleanup === 'function') {
               await initializeAccountCleanup(accountStorage, buildAccountCleanupOptions());
@@ -483,14 +554,6 @@ function registerLicenseIPC(ctx) {
             console.warn('[验证] 刷新平台名称失败:', refreshErr?.message || refreshErr);
           }
 
-          try {
-            if (typeof refreshAnnouncements === 'function') {
-              // 验证成功只做普通刷新；已展示过的公告不会重复弹出。
-              await refreshAnnouncements();
-            }
-          } catch (announcementErr) {
-            console.warn('[验证] 获取服务器公告失败:', announcementErr?.message || announcementErr);
-          }
         } catch (e) {
           console.warn('[验证] 保存凭证过程出错:', e?.message || e);
         }

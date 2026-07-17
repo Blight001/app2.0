@@ -73,6 +73,12 @@
   }
 
   function notifyBrowserSelection() {
+    // 个人中心浮窗复用本页面，但它不是 AI 控制入口。浮窗初始化时自己的
+    // 选择是空的，若照常广播会把主窗口标签栏的 AI 连接高亮清掉，等真正
+    // 的侧边栏再次广播才恢复，表现为蓝色/蓝紫特效消失和闪烁。
+    if (new URLSearchParams(window.location.search).get('accountCenterPopup') === '1') {
+      return;
+    }
     const connectionIds = normalizeBrowserIds(state.currentBrowserIds);
     const profileIds = normalizeBrowserIds(
       connectionIds.map((id) => String(state.browserConnectionProfileById[id] || '')),

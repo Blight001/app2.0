@@ -135,6 +135,7 @@ global.__APP_SESSION_ID__ = `${Date.now()}-${Math.random().toString(16).slice(2,
 
 let addTab;
 let openTutorialTab;
+let syncTutorialTabUrl;
 let applyClashMiniBrowserProxy;
 let applyNetworkMagicToTab;
 let switchTab;
@@ -367,6 +368,9 @@ async function refreshAllowedPlatformsAndNotify() {
     if (tutorialUrl) {
       try {
         sendToSide('tutorial-url-updated', { tutorialUrl });
+        if (typeof syncTutorialTabUrl === 'function') {
+          await syncTutorialTabUrl(tutorialUrl);
+        }
       } catch (e) {
         console.warn('[启动] 同步教程地址失败:', e?.message || e);
       }
@@ -444,6 +448,7 @@ const appShellDeps = {
   setAuth: (next) => { auth = next; },
   getAddTab: () => addTab,
   getOpenTutorialTab: () => openTutorialTab,
+  getSyncTutorialTabUrl: () => syncTutorialTabUrl,
   getSwitchTab: () => switchTab,
   getCloseTab: () => closeTab,
   getReorderTab: () => reorderTab,
@@ -516,6 +521,7 @@ const {
   bootstrapMainApp,
   createMainWindow,
   revealMainWindow,
+  refreshAnnouncements,
 } = appShell;
 
   tabManager = createTabManager({
@@ -547,6 +553,7 @@ const {
 ({
   addTab,
   openTutorialTab,
+  syncTutorialTabUrl,
   applyClashMiniBrowserProxy,
   applyNetworkMagicToTab,
   switchTab,
@@ -602,6 +609,7 @@ registerAppLifecycle({
   shortcutManager,
   authenticateAccount: serverResolver.authenticateAccount,
   applyResolvedConfigToStore: serverResolver.applyResolvedConfigToStore,
+  refreshAnnouncements,
   refreshAllowedPlatformsAndNotify,
   setRuntimeServerBase,
   setRuntimeTcpConfig,

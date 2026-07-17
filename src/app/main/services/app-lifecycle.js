@@ -1306,6 +1306,16 @@ function registerAppLifecycle(deps = {}) {
           httpClient.runtimeServerBase = String(resolved.serverBase || '').trim().replace(/\/+$/, '');
         }
 
+        // 登录态和租户服务器地址就绪后立即拉取公告。公告是登录后的首要
+        // 可见数据，不等待平台配置、教程页或浏览器初始化。
+        try {
+          void Promise.resolve(deps.refreshAnnouncements?.()).catch((announcementError) => {
+            logger.warn?.('[账号] 登录后获取公告失败:', announcementError?.message || announcementError);
+          });
+        } catch (announcementError) {
+          logger.warn?.('[账号] 登录后获取公告失败:', announcementError?.message || announcementError);
+        }
+
         const validationState = licenseCache?.getValidationState?.() || resolved;
         // 平台通知、教程页和浏览器初始化都是登录后的附加动作，不阻塞登录响应。
         setImmediate(() => {
@@ -1479,6 +1489,9 @@ function registerAppLifecycle(deps = {}) {
     const refreshStoredMembership = async (credentials, reason = 'startup') => {
       if (membershipRefreshInFlight) return membershipRefreshInFlight;
       membershipRefreshInFlight = (async () => {
+        const previousTutorialUrl = String(
+          licenseCache?.getRuntimeConfig?.()?.tutorialUrl || ''
+        ).trim();
         const httpClient = getGlobalHttpClient?.();
         if (httpClient && Object.prototype.hasOwnProperty.call(httpClient, 'runtimeServerBase')) {
           httpClient.runtimeServerBase = String(credentials.serverBase || '').trim().replace(/\/+$/, '');
@@ -1525,6 +1538,12 @@ function registerAppLifecycle(deps = {}) {
         });
         setLicenseRuntimeConfig(licenseCache, validation);
         licenseCache?.setRuntimeConfig?.({ autoValidatePending: false });
+        const nextTutorialUrl = String(
+          licenseCache?.getRuntimeConfig?.()?.tutorialUrl || ''
+        ).trim();
+        if (verified && nextTutorialUrl && nextTutorialUrl !== previousTutorialUrl) {
+          await Promise.resolve(deps.refreshAllowedPlatformsAndNotify?.());
+        }
         if (reason !== 'startup') {
           deps.sendToSide?.('account-session-updated', {
             authenticated: true,

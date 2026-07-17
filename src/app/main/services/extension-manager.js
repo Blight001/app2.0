@@ -84,6 +84,7 @@ function createExtensionManager(deps = {}) {
   let extensionWatchers = [];
   let protectedAutomationSignature = '';
   let protectedAutomationPath = '';
+  let protectedRuntimeRootPrepared = false;
 
   function normalizeAbsolutePath(value) {
     try {
@@ -1230,7 +1231,12 @@ function createExtensionManager(deps = {}) {
     if (!sourcePath || !accessToken) return sourcePath;
 
     const runtimeRoot = resolveProtectedRuntimeRoot();
-    const runtimePath = path.join(runtimeRoot, BROWSER_AUTOMATION_DIR_NAME);
+    // 路径也必须随软件启动凭据轮换。若一直复用同一路径，Chromium 可能从
+    // Profile 的扩展 Service Worker 缓存恢复上一次的 00_environment.js，
+    // 从而拿旧密钥连接本次新桥接。
+    const runtimeSessionId = hashId(`browser-automation-session|${accessToken}`);
+    const runtimeSessionRoot = path.join(runtimeRoot, runtimeSessionId);
+    const runtimePath = path.join(runtimeSessionRoot, BROWSER_AUTOMATION_DIR_NAME);
     const signature = hashId([
       sourcePath,
       plugin?.runtimeSignature || '',
@@ -1247,6 +1253,20 @@ function createExtensionManager(deps = {}) {
 
     try {
       fs.mkdirSync(runtimeRoot, { recursive: true });
+      if (!protectedRuntimeRootPrepared) {
+        for (const entry of fs.readdirSync(runtimeRoot, { withFileTypes: true })) {
+          if (entry.name === runtimeSessionId) continue;
+          const stalePath = path.join(runtimeRoot, entry.name);
+          if (!isPathInside(runtimeRoot, stalePath)) continue;
+          try {
+            fs.rmSync(stalePath, { recursive: true, force: true });
+          } catch (cleanupError) {
+            logger.warn?.('[Extensions] 清理旧自动化插件运行副本失败:', cleanupError?.message || cleanupError);
+          }
+        }
+        protectedRuntimeRootPrepared = true;
+      }
+      fs.mkdirSync(runtimeSessionRoot, { recursive: true });
       if (fs.existsSync(runtimePath)) {
         if (!isPathInside(runtimeRoot, runtimePath)) {
           throw new Error('受保护插件运行目录校验失败');

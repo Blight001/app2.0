@@ -7,7 +7,7 @@ const DEFAULT_TUTORIAL_URL = 'https://www.yuque.com/kelingaishipindian/tx5gwq/xb
 
 // 监听/绑定：registerMiscIPC的具体业务逻辑。
 function registerMiscIPC(ctx) {
-  const { licenseCache } = ctx;
+  const { licenseCache, httpClient, ui } = ctx;
 
   ipcMain.handle('create-desktop-shortcut', async (_event, { createShortcut }) => {
     try {
@@ -87,6 +87,17 @@ function registerMiscIPC(ctx) {
 
   ipcMain.handle('get-tutorial-url', async () => {
     try {
+      if (httpClient && typeof httpClient.getTutorialUrl === 'function') {
+        const response = await httpClient.getTutorialUrl();
+        const tutorialUrl = String(response?.tutorialUrl || response?.tutorial_url || '').trim();
+        if (response?.ok === true && tutorialUrl) {
+          licenseCache?.setRuntimeConfig?.({ tutorialUrl });
+          if (typeof ui?.syncTutorialTabUrl === 'function') {
+            await ui.syncTutorialTabUrl(tutorialUrl);
+          }
+          return tutorialUrl;
+        }
+      }
       const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
         ? licenseCache.getRuntimeConfig()
         : {};

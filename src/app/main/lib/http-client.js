@@ -233,6 +233,17 @@ class HttpClient {
     }
 
     /**
+     * 获取服务器当前公开的教程入口，不依赖账号验证状态。
+     */
+    async getTutorialUrl() {
+        return this._request({
+            actionLabel: 'getTutorialUrl',
+            path: '/api/get_tutorial_url',
+            method: 'GET',
+        });
+    }
+
+    /**
      * 获取Cookie
      */
     async fetchCookie(key, platform, deviceId) {

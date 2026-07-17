@@ -16,9 +16,9 @@
   --shell-tab-bg: rgba(77, 163, 255, 0.14);
   --shell-tab-border: rgba(77, 163, 255, 0.24);
   --shell-tab-text: #8bbcff;
-  --shell-tab-active-bg: rgba(65, 184, 98, 0.16);
-  --shell-tab-active-border: rgba(65, 184, 98, 0.28);
-  --shell-tab-active-text: #b9efc8;
+  --shell-tab-active-bg: rgba(77, 163, 255, 0.24);
+  --shell-tab-active-border: rgba(77, 163, 255, 0.45);
+  --shell-tab-active-text: #d8eaff;
   --shell-tab-drop-glow: rgba(77, 163, 255, 0.55);
   --shell-tab-height: 30px;
   --shell-tab-gap: 4px;
@@ -42,9 +42,9 @@ html.theme-light {
   --shell-tab-bg: rgba(47, 127, 230, 0.09);
   --shell-tab-border: rgba(47, 127, 230, 0.18);
   --shell-tab-text: #2f6fc7;
-  --shell-tab-active-bg: rgba(42, 166, 86, 0.12);
-  --shell-tab-active-border: rgba(42, 166, 86, 0.24);
-  --shell-tab-active-text: #247a42;
+  --shell-tab-active-bg: rgba(47, 127, 230, 0.16);
+  --shell-tab-active-border: rgba(47, 127, 230, 0.36);
+  --shell-tab-active-text: #1d5a9e;
   --shell-tab-drop-glow: rgba(47, 127, 230, 0.28);
 }
 
@@ -486,6 +486,9 @@ html.sidebar-collapsed #browser-empty-state {
   text-overflow: ellipsis;
   flex-grow: 1;
   min-width: 0;
+  /* 显式基准字号：标题原本继承浏览器默认 16px，选中放大需要明确起点。 */
+  font-size: 16px;
+  transition: font-size 0.22s ease;
 }
 
 .tab-title-editor {
@@ -506,6 +509,13 @@ html.sidebar-collapsed #browser-empty-state {
   background-color: var(--shell-tab-active-bg);
   border-color: var(--shell-tab-active-border);
   color: var(--shell-tab-active-text);
+}
+
+/* 当前选中标签统一用放大加粗的标题字体标识（普通/魔法/AI 状态都适用），
+   字号随 .tab-title 的 transition 平滑变大变小。 */
+.tab.active .tab-title {
+  font-size: 19px;
+  font-weight: 700;
 }
 
 .tab.ai-browser-connected {
@@ -597,11 +607,6 @@ html.sidebar-collapsed #browser-empty-state {
   z-index: 1;
 }
 
-.tab.network-magic.active {
-  border-color: rgba(216, 180, 254, 1);
-  box-shadow: inset 0 0 15px rgba(192, 132, 252, .4), 0 0 12px rgba(168, 85, 247, .5);
-}
-
 /* AI 接管 + 网络魔法同时生效：蓝紫流动渐变叠加，蓝色粒子层继续显示。 */
 .tab.ai-browser-connected.network-magic {
   border-color: rgba(139, 92, 246, .96);
@@ -658,6 +663,10 @@ html.theme-light .tab.ai-browser-connected.network-magic {
   .tab.network-magic,
   .tab.ai-browser-connected.network-magic {
     animation: none;
+  }
+
+  .tab-title {
+    transition: none;
   }
 }
 

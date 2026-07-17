@@ -7,6 +7,15 @@ function bindTutorialLink() {
   async function resolveTutorialUrl() {
     try {
       if (window.electronAPI && typeof window.electronAPI.invoke === 'function') {
+        const refreshed = await window.electronAPI.invoke('refresh-tutorial-url');
+        const refreshedUrl = String(refreshed?.tutorialUrl || '').trim();
+        if (refreshed?.ok === true && refreshedUrl) {
+          if (typeof setTutorialLinkHref === 'function') {
+            setTutorialLinkHref(refreshedUrl);
+          }
+          return refreshedUrl;
+        }
+
         const latestUrl = await window.electronAPI.invoke('get-tutorial-url');
         if (typeof latestUrl === 'string' && latestUrl.trim()) {
           if (typeof setTutorialLinkHref === 'function') {

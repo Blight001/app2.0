@@ -209,6 +209,71 @@ test('普通空白栏目不会把服务器教程地址当作默认主页', async
   assert.equal(tabs.get('ordinary-browser')?.isTutorialTab, false);
 });
 
+test('服务器更换教程地址后同步刷新已打开的教程页', async () => {
+  const chromium = new EventEmitter();
+  const tabs = new Map([['tutorial-browser', {
+    id: 'tutorial-browser',
+    runtimeType: 'chromium',
+    isTutorialTab: true,
+    requestedUrl: 'https://old.example.com/guide',
+    runtimeUrl: 'https://old.example.com/guide',
+  }]]);
+  const navigations = [];
+  let updateCount = 0;
+  const manager = createTabManager({
+    browserRuntimeManager: {
+      chromium,
+      async navigate(profileId, runtimeType, url) {
+        navigations.push({ profileId, runtimeType, url });
+      },
+    },
+    getTabs: () => tabs,
+    getMainWindow: () => ({ isDestroyed: () => false, emit() {} }),
+    getActiveTabId: () => 'tutorial-browser',
+    getIsSidebarVisible: () => false,
+    updateTabs() { updateCount += 1; },
+    sendToSide() {},
+    logger: { warn() {}, error() {} },
+  });
+
+  const result = await manager.syncTutorialTabUrl('https://new.example.com/guide');
+
+  assert.equal(result.updated, true);
+  assert.deepEqual(navigations, [{
+    profileId: 'tutorial-browser',
+    runtimeType: 'chromium',
+    url: 'https://new.example.com/guide',
+  }]);
+  assert.equal(tabs.get('tutorial-browser').requestedUrl, 'https://new.example.com/guide');
+  assert.equal(tabs.get('tutorial-browser').runtimeUrl, 'https://new.example.com/guide');
+  assert.equal(updateCount, 1);
+});
+
+test('同步教程地址不会重新打开用户已经关闭的教程页', async () => {
+  const tabs = new Map();
+  let launchCount = 0;
+  const manager = createTabManager({
+    browserRuntimeManager: {
+      chromium: new EventEmitter(),
+      async launchProfile() { launchCount += 1; },
+      async navigate() { throw new Error('不应导航'); },
+    },
+    getTabs: () => tabs,
+    getMainWindow: () => ({ isDestroyed: () => false, emit() {} }),
+    getActiveTabId: () => null,
+    getIsSidebarVisible: () => false,
+    updateTabs() {},
+    sendToSide() {},
+    logger: { warn() {}, error() {} },
+  });
+
+  const result = await manager.syncTutorialTabUrl('https://new.example.com/guide');
+
+  assert.equal(result.updated, false);
+  assert.equal(launchCount, 0);
+  assert.equal(tabs.size, 0);
+});
+
 test('关闭最后一个栏目后重建普通新标签页而不是教程栏目', async () => {
   const chromium = new EventEmitter();
   const tabs = new Map([['old-browser', {

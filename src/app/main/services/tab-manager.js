@@ -406,6 +406,37 @@ function createTabManager(deps = {}) {
     }
   }
 
+  function findExistingTutorialTab() {
+    return Array.from(resolveTabs().values()).find(
+      (tab) => tab?.isTutorialTab === true
+        || String(tab?.fixedTitle || tab?.runtimeTitle || '').trim() === TUTORIAL_TAB_TITLE,
+    );
+  }
+
+  // 服务器在软件运行期间更换教程地址时，只刷新仍然打开的教程页。
+  // 用户主动关闭教程页后不应因登录或后台配置同步而被重新打开。
+  async function syncTutorialTabUrl(tutorialUrl = '') {
+    const targetUrl = String(tutorialUrl || resolveConfiguredTutorialUrl()).trim();
+    const existingTab = findExistingTutorialTab();
+    if (!targetUrl || !existingTab?.id) {
+      return { ok: true, updated: false, tabId: existingTab?.id || '' };
+    }
+    if (String(existingTab.requestedUrl || '').trim() === targetUrl) {
+      return { ok: true, updated: false, tabId: existingTab.id };
+    }
+    try {
+      await browserRuntimeManager.navigate(existingTab.id, 'chromium', targetUrl);
+      existingTab.requestedUrl = targetUrl;
+      existingTab.runtimeUrl = targetUrl;
+      resolveTabs().set(existingTab.id, existingTab);
+      updateTabs();
+      return { ok: true, updated: true, tabId: existingTab.id };
+    } catch (error) {
+      logger.warn?.('[教程] 同步服务器最新地址失败:', error?.message || error);
+      return { ok: false, updated: false, tabId: existingTab.id, message: error?.message || String(error) };
+    }
+  }
+
 // 启动/打开/显示：openTutorialTab 的具体业务逻辑。
   async function openTutorialTab(requestedUrl = '', options = {}) {
     const requestedTutorialUrl = String(requestedUrl || '').trim();
@@ -423,15 +454,19 @@ function createTabManager(deps = {}) {
       restoreSideViewFocus();
       setImmediate(restoreSideViewFocus);
     };
-    const existingTab = Array.from(resolveTabs().values()).find(
-      (tab) => tab?.isTutorialTab === true
-        || String(tab?.fixedTitle || tab?.runtimeTitle || '').trim() === TUTORIAL_TAB_TITLE,
-    );
+    const existingTab = findExistingTutorialTab();
     const navigateExistingTab = async (tabId) => {
       const targetUrl = requestedTutorialUrl || resolveConfiguredTutorialUrl();
       if (targetUrl) {
         try {
           await browserRuntimeManager.navigate(tabId, 'chromium', targetUrl);
+          const tab = resolveTabs().get(String(tabId || ''));
+          if (tab) {
+            tab.requestedUrl = targetUrl;
+            tab.runtimeUrl = targetUrl;
+            resolveTabs().set(tab.id, tab);
+            updateTabs();
+          }
         } catch (error) {
           logger.warn?.('[教程] 更新服务器下发地址失败:', error?.message || error);
         }
@@ -1156,6 +1191,7 @@ function createTabManager(deps = {}) {
   return {
     addTab,
     openTutorialTab,
+    syncTutorialTabUrl,
     applyClashMiniBrowserProxy,
     applyNetworkMagicToTab,
     setTabBrowserSettings,

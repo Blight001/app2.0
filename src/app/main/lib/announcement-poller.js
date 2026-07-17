@@ -20,6 +20,7 @@ function createAnnouncementPoller({
 } = {}) {
   let timer = null;
   let inFlight = false;
+  let pendingPoll = false;
   let pendingDeliveryReset = false;
   let lastServerBase = '';
   // 每个平台分别记录上次成功下发的内容指纹，避免相同数字 ID 在租户间互相抑制。
@@ -63,6 +64,9 @@ function createAnnouncementPoller({
   // 处理/分发：pollOnce 的具体业务逻辑。
   async function pollOnce({ resetDelivery = false } = {}) {
     if (inFlight) {
+      // 登录成功、侧边栏加载完成等主动刷新不能被正在进行的轮询吞掉，
+      // 否则只能等到下一个 60 秒周期才能看到公告。
+      pendingPoll = true;
       pendingDeliveryReset = pendingDeliveryReset || resetDelivery;
       return;
     }
@@ -83,11 +87,17 @@ function createAnnouncementPoller({
         sendToSide('server-announcements-reset', { serverBase: base });
       }
 
+      // 公告请求是登录后的用户可见关键路径，先发起它；心跳仅用于在线状态
+      // 维护，失败或响应较慢都不应阻塞公告展示。
+      const url = `${base}/api/user_announcement`;
+      const announcementRequest = getJson(url, timeoutMs);
+
       const identity = typeof getClientIdentity === 'function' ? getClientIdentity() : null;
       const key = String(identity?.key || '').trim();
       const deviceId = String(identity?.deviceId || identity?.device_id || '').trim();
+      let heartbeatTask = null;
       if (key && deviceId && typeof postJson === 'function') {
-        try {
+        heartbeatTask = Promise.resolve().then(async () => {
           const heartbeatResp = await postJson(
             `${base}/api/client/heartbeat`,
             { key, device_id: deviceId },
@@ -97,14 +107,13 @@ function createAnnouncementPoller({
           if (!heartbeatBody || heartbeatBody.success !== true) {
             logger.warn?.('[HTTP 心跳] 服务器未确认在线状态:', heartbeatBody?.message || '未知响应');
           }
-        } catch (e) {
+        }).catch((e) => {
           // 心跳失败不应阻止公告拉取；下一轮会自动重试。
           logger.warn?.('[HTTP 心跳] 上报失败:', e?.message || e);
-        }
+        });
       }
 
-      const url = `${base}/api/user_announcement`;
-      const resp = await getJson(url, timeoutMs);
+      const resp = await announcementRequest;
       const body = resp && typeof resp === 'object' && resp.body !== undefined ? resp.body : resp;
       if (!body || body.success === false) {
         throw new Error(body?.message || '公告接口返回失败');
@@ -140,13 +149,17 @@ function createAnnouncementPoller({
       }
       // 只保留本次接口仍然返回的公告。公告被禁用后再启用时会重新展示。
       seenByServer.set(base, current);
+      // 不让心跳延迟公告处理；但在本轮结束前收敛任务，避免无界并发。
+      if (heartbeatTask) await heartbeatTask;
     } catch (e) {
       logger.warn?.('[公告轮询] 拉取公告失败:', e?.message || e);
     } finally {
       inFlight = false;
-      if (pendingDeliveryReset) {
+      if (pendingPoll || pendingDeliveryReset) {
+        pendingPoll = false;
+        const resetDelivery = pendingDeliveryReset;
         pendingDeliveryReset = false;
-        void pollOnce({ resetDelivery: true });
+        void pollOnce({ resetDelivery });
       }
     }
   }

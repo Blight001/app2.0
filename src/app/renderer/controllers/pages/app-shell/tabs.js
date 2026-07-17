@@ -1198,27 +1198,45 @@ IPC.on('update-tabs', (tabs) => {
     }
   }
 
-  const fragment = document.createDocumentFragment();
-  tabs.forEach((tab) => {
-    const tabId = String(tab.id);
-    let tabElement = tabElementById.get(tabId);
-    if (!tabElement) {
-      tabElement = createTabElement(tab);
-      tabElementById.set(tabId, tabElement);
-    } else {
-      syncTabElement(tabElement, tab);
-    }
-    fragment.appendChild(tabElement);
-  });
+  // 移动 DOM 节点会重启节点上的 CSS 动画（网络魔法流动渐变、AI 粒子层）。
+  // 个人中心等浮窗打开时会连环触发强制 update-tabs，若每次都把标签搬进
+  // fragment 再插回，特效就会反复闪烁。集合与顺序未变时只原地同步。
+  const currentOrder = [];
+  for (const child of tabsContainer.children) {
+    if (child.classList?.contains('tab')) currentOrder.push(String(child.dataset.id || ''));
+  }
+  const orderUnchanged = currentOrder.length === nextTabIds.length
+    && currentOrder.every((id, index) => id === nextTabIds[index])
+    && nextTabIds.every((id) => tabElementById.has(id));
 
-  // 手势期间加号持有 pointer capture。标签刷新时若用 replaceChildren 把
-  // 加号移出再插回 DOM，Chromium 会发送 lostpointercapture 并中止手势。
-  // 始终让加号留在容器中，只在它前面重排标签节点。
-  if (newBrowserWindowBtn?.parentNode === tabsContainer) {
-    tabsContainer.insertBefore(fragment, newBrowserWindowBtn);
+  if (orderUnchanged) {
+    tabs.forEach((tab) => {
+      const tabElement = tabElementById.get(String(tab.id));
+      if (tabElement) syncTabElement(tabElement, tab);
+    });
   } else {
-    if (newBrowserWindowBtn) fragment.appendChild(newBrowserWindowBtn);
-    tabsContainer.replaceChildren(fragment);
+    const fragment = document.createDocumentFragment();
+    tabs.forEach((tab) => {
+      const tabId = String(tab.id);
+      let tabElement = tabElementById.get(tabId);
+      if (!tabElement) {
+        tabElement = createTabElement(tab);
+        tabElementById.set(tabId, tabElement);
+      } else {
+        syncTabElement(tabElement, tab);
+      }
+      fragment.appendChild(tabElement);
+    });
+
+    // 手势期间加号持有 pointer capture。标签刷新时若用 replaceChildren 把
+    // 加号移出再插回 DOM，Chromium 会发送 lostpointercapture 并中止手势。
+    // 始终让加号留在容器中，只在它前面重排标签节点。
+    if (newBrowserWindowBtn?.parentNode === tabsContainer) {
+      tabsContainer.insertBefore(fragment, newBrowserWindowBtn);
+    } else {
+      if (newBrowserWindowBtn) fragment.appendChild(newBrowserWindowBtn);
+      tabsContainer.replaceChildren(fragment);
+    }
   }
 
   if (pendingRenameTabId) {

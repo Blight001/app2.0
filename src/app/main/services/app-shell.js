@@ -48,6 +48,7 @@ function createAppShell(deps = {}) {
     setAuth,
     getAddTab,
     getOpenTutorialTab,
+    getSyncTutorialTabUrl,
     getSwitchTab,
     getCloseTab,
     getReorderTab,
@@ -229,6 +230,7 @@ function createAppShell(deps = {}) {
 // 获取/读取/解析：resolveAddTab的具体业务逻辑。
   const resolveAddTab = () => (typeof getAddTab === 'function' ? getAddTab() : null);
   const resolveOpenTutorialTab = () => (typeof getOpenTutorialTab === 'function' ? getOpenTutorialTab() : null);
+  const resolveSyncTutorialTabUrl = () => (typeof getSyncTutorialTabUrl === 'function' ? getSyncTutorialTabUrl() : null);
 // 获取/读取/解析：resolveSwitchTab的具体业务逻辑。
   const resolveSwitchTab = () => (typeof getSwitchTab === 'function' ? getSwitchTab() : null);
 // 获取/读取/解析：resolveCloseTab的具体业务逻辑。
@@ -473,6 +475,7 @@ function createAppShell(deps = {}) {
         ui: {
           addTab: resolveAddTab(),
           openTutorialTab: resolveOpenTutorialTab(),
+          syncTutorialTabUrl: resolveSyncTutorialTabUrl(),
           switchTab: resolveSwitchTab(),
           closeTab: resolveCloseTab(),
           renameTab: resolveRenameTab(),
@@ -562,6 +565,15 @@ function createAppShell(deps = {}) {
         }
         runtimeUrlRefreshInFlight = true;
         try {
+          const httpClient = resolveGlobalHttpClient();
+          if (httpClient && typeof httpClient.getTutorialUrl === 'function') {
+            const response = await httpClient.getTutorialUrl();
+            const tutorialUrl = String(response?.tutorialUrl || response?.tutorial_url || '').trim();
+            if (response?.ok === true && tutorialUrl) {
+              licenseCache?.setRuntimeConfig?.({ tutorialUrl });
+              sendToSide('tutorial-url-updated', { tutorialUrl });
+            }
+          }
           if (typeof refreshAllowedPlatformsAndNotify === 'function') {
             await refreshAllowedPlatformsAndNotify();
           }
@@ -585,6 +597,14 @@ function createAppShell(deps = {}) {
         } catch (e) {
           logger.warn?.('[启动] 初始化插件开关失败，使用默认值:', e?.message || e);
           applyPluginSettings({ translateExtEnabled: false });
+        }
+
+        // 教程 Chromium 创建前先从公开接口取得服务器最新地址。必须早于
+        // openTutorialTab，否则历史记录中的旧链接会被固化进浏览器启动参数。
+        try {
+          await refreshRuntimeUrls();
+        } catch (e) {
+          logger.warn?.('[启动] 获取URL配置失败:', e?.message || e);
         }
 
         // 每次软件启动都创建一次教程浏览器，与登录状态无关。后续登录只
@@ -622,13 +642,6 @@ function createAppShell(deps = {}) {
           }
         } catch (e) {
           logger.warn?.('[启动] 刷新账号回收定时器失败:', e?.message || e);
-        }
-
-        // 插件就绪后再同步运行配置并创建教程标签页，确保首次导航即可注入。
-        try {
-          await refreshRuntimeUrls();
-        } catch (e) {
-          logger.warn?.('[启动] 获取URL配置失败:', e?.message || e);
         }
 
         // 启动公告轮询（替代原 TCP 推送公告）。
@@ -896,6 +909,7 @@ function createAppShell(deps = {}) {
     bootstrapMainApp,
     createMainWindow,
     revealMainWindow,
+    refreshAnnouncements: (options = {}) => ensureAnnouncementPoller().refreshNow(options),
   };
 }
 
