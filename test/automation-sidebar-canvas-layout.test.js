@@ -6,7 +6,8 @@ const test = require('node:test');
 const extensionRoot = path.join(__dirname, '../src/assets/extensions/browser_automation');
 
 function read(relativePath) {
-  return fs.readFileSync(path.join(extensionRoot, relativePath), 'utf8');
+  // 归一化行尾，避免 Windows CRLF 检出让跨行 includes 断言失效。
+  return fs.readFileSync(path.join(extensionRoot, relativePath), 'utf8').replace(/\r\n/g, '\n');
 }
 
 test('automation sidebar is canvas-first and keeps node settings in a canvas overlay', () => {
@@ -215,7 +216,7 @@ test('canvas supports multi-select group dragging, right-click deletion, inline 
   assert.ok(workbench.includes('startPositions,'));
   assert.ok(workbench.includes('function deleteSelectedSidebarFlowNodes('));
   assert.ok(workbench.includes('edges: sidebarFlowState.edges.filter((edge) => retainedIds.has(edge.from) && retainedIds.has(edge.to))'));
-  assert.ok(workbench.includes('x: 34 + index * 220'));
+  assert.ok(workbench.includes('y: SIDEBAR_FLOW_LAYOUT.marginY + index * SIDEBAR_FLOW_LAYOUT.stepHeight'));
   assert.ok(bindings.includes("addEventListener('contextmenu'"));
   assert.ok(bindings.includes('event.ctrlKey === true || event.metaKey === true || event.shiftKey === true'));
   assert.ok(bindings.includes('deleteSelectedSidebarFlowNodes()'));
@@ -223,7 +224,8 @@ test('canvas supports multi-select group dragging, right-click deletion, inline 
   assert.match(css, /\.sidebar-flow-port--right\s*\{[\s\S]*?left:\s*100%;[\s\S]*?top:\s*50%;/);
   assert.match(css, /\.sidebar-flow-port\s*\{[\s\S]*?transition:\s*none !important;[\s\S]*?animation:\s*none !important;/);
   assert.match(css, /\.sidebar-flow-port:hover\s*\{[\s\S]*?transform:\s*translate\(-50%, -50%\);/);
-  assert.ok(workbench.includes('const path = `M ${sx} ${sy} C ${c1x} ${sy}, ${c2x} ${ty}, ${tx} ${ty}`'));
+  assert.ok(workbench.includes('function buildSidebarFlowEdgeGeometry('));
+  assert.ok(workbench.includes('buildSidebarFlowEdgeGeometry(sx, sy, tx, ty, fromPort, toPort, spread)'));
   assert.ok(workbench.includes("fromPort: 'right'"));
   assert.ok(workbench.includes("toPort: 'left'"));
   assert.ok(workbench.includes('function beginSidebarFlowPortDrag('));
