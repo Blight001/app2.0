@@ -531,15 +531,18 @@ let sidebarInputFocusLastRequestedAt = 0;
 // the pointer is already over the Electron sidebar. Repair it as soon as the
 // sidebar receives pointer movement instead of waiting for a wheel event that
 // will never reach this renderer.
-function requestSidebarInputFocus(force = false) {
+function requestSidebarInputFocus(force = false, textInput = false) {
   if (sidebarInputFocusPending || !window.electronAPI?.invoke) return;
+  if (document.documentElement.dataset.aiInputComposing === 'true' && !textInput) return;
   const now = Date.now();
   if (!force && now - sidebarInputFocusLastRequestedAt < 120) return;
   sidebarInputFocusLastRequestedAt = now;
   sidebarInputFocusPending = true;
-  void window.electronAPI.invoke('focus-sidebar-input', {
+  const focusRequest = {
     interaction: force ? 'explicit' : 'passive',
-  })
+  };
+  if (textInput) focusRequest.interaction = 'text-input';
+  void window.electronAPI.invoke('focus-sidebar-input', focusRequest)
     .catch(() => {})
     .finally(() => {
       sidebarInputFocusPending = false;
@@ -558,10 +561,15 @@ function initSidebarInputRouting() {
   // cached focus flag. The move listener remains a cheap fallback for Windows
   // wheel routing after a native focus transition.
   document.addEventListener('pointerenter', () => requestSidebarInputFocus(), true);
-  document.addEventListener('pointerdown', () => requestSidebarInputFocus(true), true);
+  document.addEventListener('pointerdown', (event) => {
+    const textInput = event.target?.matches?.('input, textarea, [contenteditable="true"]') === true;
+    if (textInput) requestSidebarInputFocus(true, true);
+    else requestSidebarInputFocus(true);
+  }, true);
   document.addEventListener('focusin', (event) => {
     if (event.target?.matches?.('input, textarea, select, [contenteditable="true"]')) {
-      requestSidebarInputFocus(true);
+      const textInput = event.target?.matches?.('input, textarea, [contenteditable="true"]') === true;
+      requestSidebarInputFocus(true, textInput);
     }
   }, true);
   document.addEventListener('pointermove', () => {

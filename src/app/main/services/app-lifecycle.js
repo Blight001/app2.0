@@ -188,6 +188,7 @@ function registerAppLifecycle(deps = {}) {
     BrowserWindow,
     createMainWindow,
     getMainWindow,
+    isDevMode = false,
     logger = console,
   } = deps;
   const {
@@ -200,7 +201,7 @@ function registerAppLifecycle(deps = {}) {
   } = require('../ipc/register/clash-mini-core');
 
   app.whenReady().then(async () => {
-    // 独立调试控制台早于 bootstrapMainApp 加载，先注册历史接口；打包版本也启用。
+    // 独立调试控制台仅供开发环境使用，并早于 bootstrapMainApp 加载。
     try {
       ipcMain.removeHandler('get-app-console-history');
       ipcMain.handle('get-app-console-history', async () => {
@@ -217,7 +218,7 @@ function registerAppLifecycle(deps = {}) {
       logger.warn?.('[启动] 注册调试控制台历史 IPC 失败:', e?.message || e);
     }
 
-    if (typeof createDevConsoleWindow === 'function') {
+    if (isDevMode && typeof createDevConsoleWindow === 'function') {
       try {
         createDevConsoleWindow();
       } catch (e) {

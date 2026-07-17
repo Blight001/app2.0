@@ -51,22 +51,66 @@ function isChromiumExtraResource(entry) {
     && String(entry.from || '').replace(/\\/g, '/') === 'resources/chromium';
 }
 
-function syncChromiumRuntime(appOutDir) {
-  const sourceDir = path.join(projectDir, 'resources', 'chromium');
-  const targetDir = path.join(appOutDir, 'resources', 'chromium');
-  if (!fs.existsSync(path.join(sourceDir, 'ai-free-browser.exe'))) {
-    throw new Error(`未找到内置 Chromium: ${sourceDir}`);
-  }
+function isClashCoreExtraResource(entry) {
+  return entry
+    && String(entry.from || '').replace(/\\/g, '/') === 'resources/clash-mini/core';
+}
 
+function isDeferredExtraResource(entry) {
+  return isChromiumExtraResource(entry) || isClashCoreExtraResource(entry);
+}
+
+function assertExpectedAppOutput(appOutDir) {
   const resolvedOutput = path.resolve(appOutDir);
   const resolvedBuildRoot = path.resolve(projectDir, 'appbuild');
   if (resolvedOutput !== path.join(resolvedBuildRoot, 'win-unpacked')) {
-    throw new Error(`拒绝同步 Chromium 到非预期目录: ${resolvedOutput}`);
+    throw new Error(`拒绝操作非预期构建目录: ${resolvedOutput}`);
+  }
+}
+
+function writeStageConfigFile(appOutDir, stageConfig) {
+  assertExpectedAppOutput(appOutDir);
+  const outputDir = path.dirname(appOutDir);
+  const configPath = path.join(outputDir, '.electron-builder-stage.json');
+  fs.mkdirSync(outputDir, { recursive: true });
+  fs.writeFileSync(configPath, `${JSON.stringify(stageConfig, null, 2)}\n`, 'utf8');
+  return configPath;
+}
+
+async function syncDeferredExtraResource(appOutDir, entry, options = {}) {
+  assertExpectedAppOutput(appOutDir);
+
+  const label = String(options.label || entry?.to || entry?.from || '延后资源');
+  const requiredFile = String(options.requiredFile || '').trim();
+  const sourceDir = path.resolve(projectDir, String(entry?.from || ''));
+  const resourcesDir = path.resolve(appOutDir, 'resources');
+  const targetDir = path.resolve(resourcesDir, String(entry?.to || path.basename(sourceDir)));
+  const relativeTarget = path.relative(resourcesDir, targetDir);
+  if (!relativeTarget || relativeTarget.startsWith('..') || path.isAbsolute(relativeTarget)) {
+    throw new Error(`拒绝同步 ${label} 到 resources 之外: ${targetDir}`);
+  }
+  if (!fs.existsSync(sourceDir) || (requiredFile && !fs.existsSync(path.join(sourceDir, requiredFile)))) {
+    throw new Error(`未找到内置 ${label}: ${sourceDir}`);
   }
 
-  fs.rmSync(targetDir, { recursive: true, force: true });
-  fs.cpSync(sourceDir, targetDir, { recursive: true, force: true });
-  console.log(`[build:win] Chromium 已独立同步到: ${targetDir}`);
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      fs.rmSync(targetDir, { recursive: true, force: true });
+      fs.cpSync(sourceDir, targetDir, { recursive: true, force: true });
+      console.log(`[build:win] ${label} 已独立同步到: ${targetDir}`);
+      return;
+    } catch (error) {
+      if (!isTransientFileLock(error) || attempt === maxAttempts) {
+        if (isTransientFileLock(error)) {
+          error.message = `${error.message}\n${label} 连续 ${maxAttempts} 次遇到文件占用。请稍后重试，并确认未运行 appbuild 中的 AI-FREE。`;
+        }
+        throw error;
+      }
+      console.warn(`[build:win] ${label} 同步遇到临时文件占用，等待 2 秒后重试 (${attempt}/${maxAttempts - 1})...`);
+      await delay(2000);
+    }
+  }
 }
 
 function cleanAppOutput(appOutDir) {
@@ -144,39 +188,60 @@ async function main() {
     console.log(`[extensions] 本次排除: ${excluded.join(', ')}`);
   }
 
-  if (process.argv.includes('--check')) {
-    return;
-  }
-
   const outputDir = path.resolve(projectDir, builderConfig.directories?.output || 'dist');
   const appOutDir = path.join(outputDir, 'win-unpacked');
   const extraResources = Array.isArray(builderConfig.extraResources)
     ? builderConfig.extraResources
     : [];
-  if (!extraResources.some(isChromiumExtraResource)) {
+  const chromiumResource = extraResources.find(isChromiumExtraResource);
+  const clashCoreResource = extraResources.find(isClashCoreExtraResource);
+  if (!chromiumResource) {
     throw new Error('build.extraResources 缺少 resources/chromium');
   }
+  if (!clashCoreResource) {
+    throw new Error('build.extraResources 缺少 resources/clash-mini/core');
+  }
 
-  // Chromium 的 chrome.dll 体积很大。electron-builder 在复制它的同时会并行
-  // 处理/签名同目录可执行文件，Windows 偶发返回 EBUSY。先在不包含 Chromium
-  // 的情况下生成完整应用，再独立同步 Chromium，最后由预打包目录生成 NSIS。
+  if (process.argv.includes('--check')) {
+    console.log('[build:win] 延后资源配置校验通过: Chromium, Clash Mini Core');
+    return;
+  }
+
+  // Chromium 和 Clash Core 都包含会触发签名/实时扫描的可执行文件。若交给
+  // electron-builder 与其它资源并行复制，Windows 偶发返回 EBUSY/EPERM。
+  // 先生成主程序，再串行同步这两项资源，最后由预打包目录生成 NSIS。
   const stageConfig = {
     ...builderConfig,
-    extraResources: extraResources.filter((entry) => !isChromiumExtraResource(entry)),
+    extraResources: extraResources.filter((entry) => !isDeferredExtraResource(entry)),
   };
+  // electron-builder 会把 API 对象中的数组与 package.json 数组追加合并，直接把
+  // stageConfig 作为 options.config 传入无法真正删除原 extraResources。显式配置
+  // 文件会替代 package.json 的 build 字段，确保延后资源只在串行阶段复制一次。
+  cleanAppOutput(appOutDir);
+  const stageConfigPath = writeStageConfigFile(appOutDir, stageConfig);
   const stageOptions = {
     projectDir,
     targets: Platform.WINDOWS.createTarget('dir'),
-    config: stageConfig,
+    config: stageConfigPath,
   };
 
-  cleanAppOutput(appOutDir);
-  await buildWithRetry(stageOptions, '应用预打包阶段', {
-    // 首次失败会留下半成品。重试前清掉它，避免刚生成的 exe 被扫描器
-    // 短暂占用后，下一轮继续复制到同一个目标文件而再次触发 EBUSY。
-    beforeRetry: () => cleanAppOutputForRetry(appOutDir),
+  try {
+    await buildWithRetry(stageOptions, '应用预打包阶段', {
+      // 首次失败会留下半成品。重试前清掉它，避免刚生成的 exe 被扫描器
+      // 短暂占用后，下一轮继续复制到同一个目标文件而再次触发 EBUSY。
+      beforeRetry: () => cleanAppOutputForRetry(appOutDir),
+    });
+  } finally {
+    fs.rmSync(stageConfigPath, { force: true });
+  }
+  await syncDeferredExtraResource(appOutDir, clashCoreResource, {
+    label: 'Clash Mini Core',
+    requiredFile: 'verge-mihomo.exe',
   });
-  syncChromiumRuntime(appOutDir);
+  await syncDeferredExtraResource(appOutDir, chromiumResource, {
+    label: 'Chromium',
+    requiredFile: 'ai-free-browser.exe',
+  });
   verifyPackagedRuntime({ projectDir, appOutDir });
 
   const installerOptions = {
@@ -188,7 +253,17 @@ async function main() {
   await buildWithRetry(installerOptions, 'NSIS 安装包阶段');
 }
 
-main().catch((error) => {
-  console.error(`[build:win] ${error && error.stack ? error.stack : error}`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(`[build:win] ${error && error.stack ? error.stack : error}`);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  isChromiumExtraResource,
+  isClashCoreExtraResource,
+  isDeferredExtraResource,
+  syncDeferredExtraResource,
+  writeStageConfigFile,
+};

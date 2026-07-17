@@ -6,6 +6,8 @@
     currentBrowserIds: [],
     availableBrowserIds: [],
     browserConnectionsInitialized: false,
+    browserConnectionsSnapshot: '',
+    browserConnectionsError: '',
     browserConnectionProfileById: {},
     browserConnectionsLoading: false,
     currentCardId: '',
@@ -14,6 +16,7 @@
     automationCardsLoading: false,
     automationCardsRefreshQueued: false,
     automationCardsQueuedPreferredId: '',
+    automationCardsSnapshot: '',
     automationCardsError: '',
     browserSelectionExplicitlyDisabled: false,
     browserSelectionTouched: false,
@@ -36,6 +39,13 @@
     mcpSettingsStatusType: '',
     customApiHasKey: false,
     customApiSaving: false,
+    aiInputComposing: false,
+    aiInputCompositionBase: '',
+    aiInputCompositionDraft: '',
+    aiInputCompositionCancelled: false,
+    accountSessionRefreshQueued: false,
+    dynamicDataRefreshQueued: false,
+    dynamicUiRefreshPending: false,
   };
 
   const HISTORY_LS_PREFIX = 'ai-free.ai-chat-history.v1.';
@@ -50,6 +60,27 @@
     return [...new Set((Array.isArray(list) ? list : [])
       .map((value) => String(value || '').trim())
       .filter(Boolean))];
+  }
+
+  function browserConnectionsSnapshot(connections) {
+    return JSON.stringify((Array.isArray(connections) ? connections : []).map((connection) => ({
+      id: String(connection?.id || ''),
+      profileId: String(connection?.profileId || ''),
+      browserName: String(connection?.browserName || connection?.name || ''),
+      toolCount: Number(connection?.toolCount || 0),
+    })));
+  }
+
+  function automationCardsSnapshot(cards, selectedId) {
+    return JSON.stringify({
+      selectedId: String(selectedId || ''),
+      cards: (Array.isArray(cards) ? cards : []).map((card) => ({
+        id: String(card?.id || ''),
+        name: String(card?.name || ''),
+        stepCount: Number(card?.stepCount || 0),
+        savedAt: String(card?.savedAt || ''),
+      })),
+    });
   }
 
   function sessionBrowserIds(session) {
@@ -93,6 +124,33 @@
 
   function currentMessages() {
     return state.messages;
+  }
+
+  function aiInputHasActiveDraft() {
+    const input = el('ai-chat-input');
+    return input === document.activeElement
+      && (state.aiInputComposing || Boolean(String(input?.value || '')));
+  }
+
+  function flushDeferredAiControlRefresh() {
+    if (aiInputHasActiveDraft()) return;
+    if (state.dynamicUiRefreshPending) {
+      state.dynamicUiRefreshPending = false;
+      syncSelectUi(el('ai-chat-browser'));
+      if (!currentMessages().length) renderWelcome();
+    }
+    if (state.dynamicDataRefreshQueued) {
+      state.dynamicDataRefreshQueued = false;
+      void loadBrowserConnections();
+      void loadAutomationCards(state.currentSession?.automationCardId || '');
+    }
+    if (state.accountSessionRefreshQueued) {
+      state.accountSessionRefreshQueued = false;
+      void loadModels();
+      void loadBrowserConnections();
+      void loadAutomationCards(state.currentSession?.automationCardId || '');
+      void bootstrapHistory();
+    }
   }
 
   function makeSessionId() {
@@ -2282,12 +2340,29 @@
   async function loadBrowserConnections() {
     const select = el('ai-chat-browser');
     if (!select || !window.electronAPI?.invoke || state.browserConnectionsLoading) return;
+    if (aiInputHasActiveDraft()) {
+      state.dynamicDataRefreshQueued = true;
+      return;
+    }
     state.browserConnectionsLoading = true;
     const previousIds = normalizeBrowserIds([...getSelectBrowserIds(select), ...state.currentBrowserIds]);
     try {
       const result = await window.electronAPI.invoke('ai-control-get-browser-connections');
       if (!result?.ok) throw new Error(result?.message || '浏览器连接读取失败');
+      if (aiInputHasActiveDraft()) {
+        state.dynamicDataRefreshQueued = true;
+        return;
+      }
       const connections = Array.isArray(result.connections) ? result.connections : [];
+      const snapshot = browserConnectionsSnapshot(connections);
+      const listChanged = !state.browserConnectionsInitialized
+        || snapshot !== state.browserConnectionsSnapshot
+        || Boolean(state.browserConnectionsError);
+      // 心跳轮询只负责发现连接变化。列表内容没变时不重建 select/menu，
+      // 也不重复广播到主窗口，避免打断 textarea 的中文输入法合成状态。
+      if (!listChanged) return;
+      state.browserConnectionsSnapshot = snapshot;
+      state.browserConnectionsError = '';
       state.browserConnectionProfileById = Object.fromEntries(connections.map((connection) => [
         String(connection?.id || ''),
         String(connection?.profileId || ''),
@@ -2333,11 +2408,22 @@
       notifyBrowserSelection();
       if (selectionChanged && !currentMessages().length) renderWelcome();
     } catch (error) {
+      if (aiInputHasActiveDraft()) {
+        state.dynamicDataRefreshQueued = true;
+        return;
+      }
+      const errorMessage = error?.message || String(error);
+      const shouldUpdateUi = state.browserConnectionsInitialized
+        || Boolean(state.currentBrowserIds.length)
+        || state.browserConnectionsError !== errorMessage;
+      if (!shouldUpdateUi) return;
       const selectionChanged = Boolean(state.currentBrowserIds.length);
       select.innerHTML = '<option value="">未发现浏览器插件</option>';
       state.currentBrowserIds = [];
       state.availableBrowserIds = [];
       state.browserConnectionsInitialized = false;
+      state.browserConnectionsSnapshot = '';
+      state.browserConnectionsError = errorMessage;
       state.browserConnectionProfileById = {};
       if (state.currentSession && !currentMessages().length) {
         state.currentSession.browserConnectionId = '';
@@ -2346,7 +2432,7 @@
       syncSelectUi(select);
       notifyBrowserSelection();
       if (selectionChanged && !currentMessages().length) renderWelcome();
-      console.warn('[AI 控制] 浏览器连接读取失败:', error?.message || error);
+      console.warn('[AI 控制] 浏览器连接读取失败:', errorMessage);
     } finally {
       state.browserConnectionsLoading = false;
     }
@@ -2354,33 +2440,47 @@
 
   async function loadAutomationCards(preferredId = '') {
     if (!window.electronAPI?.invoke) return;
+    if (aiInputHasActiveDraft()) {
+      state.dynamicDataRefreshQueued = true;
+      return;
+    }
     if (state.automationCardsLoading) {
       state.automationCardsRefreshQueued = true;
       if (preferredId) state.automationCardsQueuedPreferredId = String(preferredId);
       return;
     }
     state.automationCardsLoading = true;
-    state.automationCardsError = '';
-    syncSelectUi(el('ai-chat-browser'));
+    let uiChanged = false;
     try {
       const result = await window.electronAPI.invoke('ai-control-get-automation-cards');
       if (!result?.ok) throw new Error(result?.message || '自动化卡片读取失败');
-      state.automationCards = Array.isArray(result.cards) ? result.cards : [];
+      if (aiInputHasActiveDraft()) {
+        state.dynamicDataRefreshQueued = true;
+        return;
+      }
+      const cards = Array.isArray(result.cards) ? result.cards : [];
+      const sharedId = String(result.selectedId || '').trim();
+      const snapshot = automationCardsSnapshot(cards, sharedId);
+      uiChanged = snapshot !== state.automationCardsSnapshot || Boolean(state.automationCardsError);
+      state.automationCardsSnapshot = snapshot;
+      state.automationCardsError = '';
+      state.automationCards = cards;
       const explicitPreferredId = String(preferredId || '').trim();
       const requestedId = String(explicitPreferredId || state.currentCardId || '').trim();
       const requestedExists = requestedId
         && state.automationCards.some((card) => String(card.id) === requestedId);
-      const sharedId = String(result.selectedId || '').trim();
       const sharedExists = sharedId
         && state.automationCards.some((card) => String(card.id) === sharedId);
       const sharedSelectionChanged = Boolean(sharedId)
         && sharedId !== state.sharedAutomationCardId;
       state.sharedAutomationCardId = sharedId;
+      const previousCardId = state.currentCardId;
       state.currentCardId = explicitPreferredId && requestedExists
         ? requestedId
         : (sharedSelectionChanged && sharedExists
           ? sharedId
           : (requestedExists ? requestedId : (sharedExists ? sharedId : String(state.automationCards[0]?.id || ''))));
+      uiChanged = uiChanged || previousCardId !== state.currentCardId;
       if (state.currentCardId && state.currentCardId !== sharedId) {
         await selectAutomationCard(state.currentCardId, { persist: false, silent: true });
       }
@@ -2388,12 +2488,24 @@
         state.currentSession.automationCardId = state.currentCardId;
       }
     } catch (error) {
-      state.automationCardsError = error?.message || String(error);
+      if (aiInputHasActiveDraft()) {
+        state.dynamicDataRefreshQueued = true;
+        return;
+      }
+      const errorMessage = error?.message || String(error);
+      uiChanged = state.automationCardsError !== errorMessage;
+      state.automationCardsError = errorMessage;
       console.warn('[AI 控制] 自动化卡片读取失败:', state.automationCardsError);
     } finally {
       state.automationCardsLoading = false;
-      syncSelectUi(el('ai-chat-browser'));
-      if (!currentMessages().length) renderWelcome();
+      if (uiChanged) {
+        if (aiInputHasActiveDraft()) {
+          state.dynamicUiRefreshPending = true;
+        } else {
+          syncSelectUi(el('ai-chat-browser'));
+          if (!currentMessages().length) renderWelcome();
+        }
+      }
       if (state.automationCardsRefreshQueued) {
         const queuedPreferredId = state.automationCardsQueuedPreferredId;
         state.automationCardsRefreshQueued = false;
@@ -2426,8 +2538,10 @@
    */
   function reclaimAiInputFocus(input) {
     if (!input || state._aiInputReclaiming) return;
-    focusElement(input);
-    if (!window.electronAPI?.invoke) return;
+    if (!window.electronAPI?.invoke) {
+      focusElement(input);
+      return;
+    }
 
     const now = Date.now();
     // 短防抖：pointerdown/click 连续触发时只回收一次
@@ -2440,6 +2554,7 @@
 
     const refocus = () => {
       if (state._aiInputFocusToken !== token) return;
+      if (aiInputHasActiveDraft()) return;
       // 若用户已点到别处，不要强行抢回
       if (document.activeElement && document.activeElement !== input) {
         const active = document.activeElement;
@@ -2454,14 +2569,9 @@
         state._aiInputReclaiming = false;
         return;
       }
-      void window.electronAPI.invoke('focus-sidebar-input').then(() => {
+      void window.electronAPI.invoke('focus-sidebar-input', { interaction: 'text-input' }).then(() => {
         refocus();
-        requestAnimationFrame(refocus);
-        window.setTimeout(refocus, 30);
-        window.setTimeout(() => {
-          refocus();
-          state._aiInputReclaiming = false;
-        }, 80);
+        state._aiInputReclaiming = false;
       }).catch((error) => {
         console.warn('[AI 控制] 恢复输入框焦点失败:', error?.message || error);
         refocus();
@@ -2496,6 +2606,7 @@
     if (input) {
       input.value = '';
       resizeInput();
+      flushDeferredAiControlRefresh();
     }
     syncSendState();
     try {
@@ -2570,6 +2681,7 @@
     updateSessionTitleUi();
     input.value = '';
     resizeInput();
+    flushDeferredAiControlRefresh();
     state.loading = true;
     state.stopping = false;
     setStatus('');
@@ -2779,15 +2891,49 @@
       else sendMessage();
     });
     const chatInput = el('ai-chat-input');
-    // 用 pointerdown（捕获）尽早拉回侧栏键盘焦点，避免假聚焦
-    chatInput?.addEventListener('pointerdown', () => reclaimAiInputFocus(chatInput), true);
-    chatInput?.addEventListener('click', () => reclaimAiInputFocus(chatInput));
+    // 用户点击文本框时由全局侧栏输入路由统一处理原生焦点，避免这里再发起
+    // 第二套主页面 → 侧栏焦点切换。程序化聚焦仍通过 reclaimAiInputFocus。
     chatInput?.addEventListener('input', () => {
+      if (state.aiInputComposing) {
+        state.aiInputCompositionDraft = chatInput.value;
+      }
       resizeInput();
       syncSendState();
+      if (!chatInput.value) flushDeferredAiControlRefresh();
+    });
+    chatInput?.addEventListener('compositionstart', () => {
+      state.aiInputComposing = true;
+      state.aiInputCompositionBase = chatInput.value;
+      state.aiInputCompositionDraft = chatInput.value;
+      state.aiInputCompositionCancelled = false;
+      document.documentElement.dataset.aiInputComposing = 'true';
+    });
+    chatInput?.addEventListener('compositionend', (event) => {
+      const compositionWasUnexpectedlyCleared = !state.aiInputCompositionCancelled
+        && !String(event.data || '')
+        && chatInput.value === state.aiInputCompositionBase
+        && state.aiInputCompositionDraft !== state.aiInputCompositionBase;
+      if (compositionWasUnexpectedlyCleared) {
+        chatInput.value = state.aiInputCompositionDraft;
+      }
+      state.aiInputComposing = false;
+      state.aiInputCompositionBase = '';
+      state.aiInputCompositionDraft = '';
+      state.aiInputCompositionCancelled = false;
+      delete document.documentElement.dataset.aiInputComposing;
+      resizeInput();
+      syncSendState();
+      flushDeferredAiControlRefresh();
+    });
+    chatInput?.addEventListener('blur', () => {
+      window.setTimeout(flushDeferredAiControlRefresh, 0);
     });
     chatInput?.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' && !event.shiftKey) {
+      if (state.aiInputComposing && event.key === 'Escape') {
+        state.aiInputCompositionCancelled = true;
+      }
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing
+        && event.keyCode !== 229 && !state.aiInputComposing) {
         event.preventDefault();
         sendMessage();
       }
@@ -2806,6 +2952,10 @@
       window.setTimeout(() => reclaimAiInputFocus(el('ai-chat-input')), 50);
     });
     window.electronAPI?.on?.('account-session-updated', () => {
+      if (aiInputHasActiveDraft()) {
+        state.accountSessionRefreshQueued = true;
+        return;
+      }
       loadModels();
       loadBrowserConnections();
       loadAutomationCards(state.currentSession?.automationCardId || '');
@@ -2815,6 +2965,8 @@
     loadBrowserConnections();
     loadAutomationCards();
     void bootstrapHistory();
+    // 保留连接离线和外部卡片修改的发现速度；两个加载函数内部先比对快照，
+    // 数据未变化时不会重建菜单、欢迎页或重复广播主窗口状态。
     window.setInterval(loadBrowserConnections, 750);
     window.setInterval(loadAutomationCards, 1000);
   });

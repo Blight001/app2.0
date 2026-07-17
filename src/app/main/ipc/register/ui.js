@@ -828,6 +828,7 @@ function registerUiIPC(ctx) {
       // BrowserWindow. A real sidebar click is marked explicit and continues
       // through the normal focus/blur dismissal path.
       const passiveInteraction = request?.interaction === 'passive';
+      const textInputInteraction = request?.interaction === 'text-input';
       const accountCenterPopupOpen = accountCenterPopupWindow
         && !accountCenterPopupWindow.isDestroyed?.()
         && !accountCenterPopupDismissing;
@@ -877,6 +878,12 @@ function registerUiIPC(ctx) {
 
       // 立刻 + 延迟补焦，覆盖 Chromium 子窗口/布局同步抢焦点的时序。
       focusSide();
+      // 文本框已经开始接管键盘输入时只能做一次原生焦点交接。
+      // 后续 setImmediate/20ms 补焦会在中文输入法刚进入 composition 后
+      // 再次切走焦点，从而把尚未上屏的拼音预编辑文本清掉。
+      if (textInputInteraction) {
+        return { ok: true, stableTextInput: true };
+      }
       await new Promise((resolve) => setImmediate(resolve));
       focusSide();
       await new Promise((resolve) => setTimeout(resolve, 20));

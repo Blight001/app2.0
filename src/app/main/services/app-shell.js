@@ -106,6 +106,7 @@ function createAppShell(deps = {}) {
     getAppConsoleHistory,
     getDebugConsoleHistory,
     statePluginGetter = () => state?.pluginSettings || {},
+    isDevMode = false,
   } = deps;
 
   let controlPanelWindow = null;
@@ -259,6 +260,10 @@ function createAppShell(deps = {}) {
 
 // 创建/初始化：createDevConsoleWindow的具体业务逻辑。
   function createDevConsoleWindow() {
+    if (!isDevMode) {
+      return null;
+    }
+
     const existing = typeof getConsoleWindow === 'function' ? getConsoleWindow() : null;
     if (existing && !existing.isDestroyed()) {
       return existing;
@@ -549,10 +554,12 @@ function createAppShell(deps = {}) {
       logger.warn?.('[启动] 创建主窗口失败:', e?.message || e);
     }
 
-    try {
-      createDevConsoleWindow();
-    } catch (e) {
-      logger.warn?.('[启动] 创建调试控制台窗口失败:', e?.message || e);
+    if (isDevMode) {
+      try {
+        createDevConsoleWindow();
+      } catch (e) {
+        logger.warn?.('[启动] 创建调试控制台窗口失败:', e?.message || e);
+      }
     }
 
     void (async () => {

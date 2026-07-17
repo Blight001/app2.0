@@ -65,7 +65,7 @@ test('debug console history is separate from sidebar app console history', () =>
   assert.doesNotMatch(shellSource, /sendToSide\('app-console-history',[\s\S]*?getDebugConsoleHistory/);
 });
 
-test('the separate debug console opens in packaged and development builds', () => {
+test('the separate debug console opens only in development builds', () => {
   const shellSource = fs.readFileSync(
     path.join(__dirname, '../src/app/main/services/app-shell.js'),
     'utf8',
@@ -78,9 +78,8 @@ test('the separate debug console opens in packaged and development builds', () =
     shellSource.indexOf('function createDevConsoleWindow()'),
     shellSource.indexOf('function createControlPanelWindow()'),
   );
-  assert.doesNotMatch(createFlow, /if \(!isDevMode\)/);
-  assert.match(lifecycleSource, /if \(typeof createDevConsoleWindow === 'function'\)/);
-  assert.doesNotMatch(lifecycleSource, /if \(isDevMode && typeof createDevConsoleWindow/);
+  assert.match(createFlow, /if \(!isDevMode\)\s*{\s*return null;/);
+  assert.match(lifecycleSource, /if \(isDevMode && typeof createDevConsoleWindow === 'function'\)/);
 });
 
 test('Clash configuration import logs one compact success summary without YAML previews', () => {
