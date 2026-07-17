@@ -82,7 +82,8 @@ test('sidebar repairs native wheel focus when pointer input returns', () => {
   assert.match(announcements, /document\.addEventListener\('pointerenter'/);
   assert.match(announcements, /document\.addEventListener\('pointerdown',[\s\S]*requestSidebarInputFocus\(true\)/);
   assert.match(announcements, /document\.addEventListener\('focusin'/);
-  assert.match(announcements, /invoke\('focus-sidebar-input'\)/);
+  assert.match(announcements, /invoke\('focus-sidebar-input',/);
+  assert.match(announcements, /interaction:\s*force \? 'explicit' : 'passive'/);
   assert.match(bindings, /initSidebarInputRouting\(\)/);
   assert.match(uiIpc, /mainWindow\.webContents\.focus\(\)[\s\S]*sideWc\.focus\(\)/);
   assert.doesNotMatch(uiIpc, /if \(!sideWc\.isFocused/);

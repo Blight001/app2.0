@@ -132,9 +132,9 @@
       magic.classList.toggle('is-applied', item.networkMagicSelected === true);
       magic.textContent = '魔法';
       magic.title = item.networkMagicSelected === true
-        ? '该浏览器已选择魔法端口代理，点击可重新应用'
+        ? '该浏览器已选择魔法端口代理，点击关闭魔法'
         : '将网络魔法代理应用到该浏览器（已打开时自动重启）';
-      magic.addEventListener('click', () => void applyNetworkMagicToBrowserHistory(item, magic));
+      magic.addEventListener('click', () => void applyNetworkMagicToBrowserHistory(item, magic, item.networkMagicSelected !== true));
       const open = document.createElement('button');
       open.type = 'button';
       open.className = 'browser-history-action browser-history-open';
@@ -334,24 +334,28 @@
     }
   }
 
-  // 把网络魔法代理应用到该浏览器记录：持久化魔法端口选择；浏览器已打开
-  // 且魔法运行中时由主进程自动重启使其立即生效。
-  async function applyNetworkMagicToBrowserHistory(item, triggerButton = null) {
+  // 切换该浏览器记录的网络魔法代理：持久化魔法端口选择；浏览器已打开时
+  // 由主进程自动重启使其立即生效。
+  async function applyNetworkMagicToBrowserHistory(item, triggerButton = null, enabled = true) {
     const name = String(item?.name || '浏览器');
     triggerButton?.classList.add('is-processing');
     if (triggerButton) triggerButton.disabled = true;
-    setStatus(`正在为“${name}”应用魔法代理…`);
+    setStatus(enabled ? `正在为“${name}”应用魔法代理…` : `正在关闭“${name}”的魔法代理…`);
     try {
-      const response = await window.electronAPI.invoke('apply-network-magic-to-browser', { historyId: item.id });
-      if (!response?.ok) throw new Error(response?.error || '应用魔法代理失败');
+      const response = await window.electronAPI.invoke('apply-network-magic-to-browser', { historyId: item.id, enabled });
+      if (!response?.ok) throw new Error(response?.error || (enabled ? '应用魔法代理失败' : '关闭魔法代理失败'));
       await refreshBrowserHistory({ keepSelection: true, silent: true, animate: false });
-      const message = response.restarted
-        ? `已为“${name}”应用魔法代理，浏览器正在自动重启`
-        : response.isOpen
-          ? (response.magicRunning === false
-            ? `已记住“${name}”的魔法代理选择，开启网络魔法后自动生效`
-            : `已为“${name}”应用魔法代理`)
-          : `已保存“${name}”的魔法代理，打开该浏览器时自动生效`;
+      const message = enabled
+        ? (response.restarted
+          ? `已为“${name}”应用魔法代理，浏览器正在自动重启`
+          : response.isOpen
+            ? (response.magicRunning === false
+              ? `已记住“${name}”的魔法代理选择，开启网络魔法后自动生效`
+              : `已为“${name}”应用魔法代理`)
+            : `已保存“${name}”的魔法代理，打开该浏览器时自动生效`)
+        : (response.restarted
+          ? `已关闭“${name}”的魔法代理，浏览器正在自动重启`
+          : `已关闭“${name}”的魔法代理`);
       setStatus(message, 'success');
     } catch (error) {
       setStatus(error?.message || String(error), 'error');

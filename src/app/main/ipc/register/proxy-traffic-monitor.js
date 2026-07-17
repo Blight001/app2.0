@@ -38,15 +38,23 @@ function createBillableTrafficTracker() {
   };
 
   const sample = (snapshot) => {
-    if (!snapshot || !Array.isArray(snapshot.connections)) {
+    // Mihomo 没有活动连接时（例如没有任何浏览器选择魔法端口），Go 的
+    // nil slice 会把 connections 序列化成 null，这仍是合法的空闲响应，
+    // 不能当成格式错误——连续误判会触发“控制端口不可用”而停掉 Clash。
+    const idleSnapshot = snapshot
+      && snapshot.connections == null
+      && Number.isFinite(Number(snapshot.downloadTotal))
+      && Number.isFinite(Number(snapshot.uploadTotal));
+    if (!snapshot || (!Array.isArray(snapshot.connections) && !idleSnapshot)) {
       throw new Error('Mihomo 连接流量响应格式无效');
     }
+    const connections = Array.isArray(snapshot.connections) ? snapshot.connections : [];
 
     const currentConnections = new Map();
     let upload = 0;
     let download = 0;
 
-    for (const connection of snapshot.connections) {
+    for (const connection of connections) {
       const id = String(connection?.id || '').trim();
       if (!id) continue;
 

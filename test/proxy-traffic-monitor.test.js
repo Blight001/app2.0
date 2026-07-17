@@ -65,6 +65,25 @@ test('counter rollback is treated as a new counter epoch', () => {
   );
 });
 
+test('idle snapshots with null connections are valid and count nothing', () => {
+  const tracker = createBillableTrafficTracker();
+  // 没有浏览器走魔法端口时，Mihomo 的 Go nil slice 会把 connections
+  // 序列化成 null；这是合法空闲响应，不能触发“格式无效”并停掉 Clash。
+  assert.deepEqual(
+    tracker.sample({ uploadTotal: 0, downloadTotal: 0, connections: null }),
+    { upload: 0, download: 0 },
+  );
+  tracker.sample({ connections: [connection('proxy', ['美国 01'], 100, 200)] });
+  assert.deepEqual(
+    tracker.sample({ uploadTotal: 300, downloadTotal: 500, connections: null }),
+    { upload: 0, download: 0 },
+  );
+  assert.deepEqual(
+    tracker.sample({ connections: [connection('proxy', ['美国 01'], 40, 90)] }),
+    { upload: 40, download: 90 },
+  );
+});
+
 test('invalid snapshots fail instead of resetting counters and double counting', () => {
   const tracker = createBillableTrafficTracker();
   tracker.sample({ connections: [connection('proxy', ['美国 01'], 100, 200)] });

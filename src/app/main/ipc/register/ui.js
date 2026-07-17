@@ -821,8 +821,20 @@ function registerUiIPC(ctx) {
     } catch (_) {}
   });
 
-  ipcMain.handle('focus-sidebar-input', async (event) => {
+  ipcMain.handle('focus-sidebar-input', async (event, request = {}) => {
     try {
+      // Pointer entry/movement is used to repair the native Chromium wheel
+      // target, but hover must not take focus away from an open account-center
+      // BrowserWindow. A real sidebar click is marked explicit and continues
+      // through the normal focus/blur dismissal path.
+      const passiveInteraction = request?.interaction === 'passive';
+      const accountCenterPopupOpen = accountCenterPopupWindow
+        && !accountCenterPopupWindow.isDestroyed?.()
+        && !accountCenterPopupDismissing;
+      if (passiveInteraction && accountCenterPopupOpen) {
+        return { ok: true, skipped: true, reason: 'account-center-popup-open' };
+      }
+
       const mainWindow = ui?.getMainWindow?.();
       const sideView = typeof ui?.getSideView === 'function' ? ui.getSideView() : null;
       const sideWc = (sideView?.webContents && !sideView.webContents.isDestroyed?.())

@@ -636,28 +636,34 @@ function createTabManager(deps = {}) {
     };
   }
 
-// 把网络魔法代理应用到单个已打开的浏览器：记住魔法端口选择；魔法运行中
-// 则立即设置代理并自动重启该浏览器，未运行则等开启魔法时再生效。
-  async function applyNetworkMagicToTab(tabId) {
+// 把网络魔法代理应用到/移出单个已打开的浏览器：记住魔法端口选择；魔法
+// 运行中则立即切换代理并自动重启该浏览器，未运行则等开启魔法时再生效。
+  async function applyNetworkMagicToTab(tabId, enabled = true) {
     const tabs = resolveTabs();
     const tab = tabs.get(String(tabId || ''));
     if (!tab) return { ok: false, error: '浏览器窗口不存在' };
     const previousProxy = tab.browserSettings?.proxy && typeof tab.browserSettings.proxy === 'object'
       ? tab.browserSettings.proxy
       : {};
-    tab.browserSettings = { ...(tab.browserSettings || {}), proxy: { ...previousProxy, mode: 'magic' } };
+    const wasMagicApplied = tab.networkMagicApplied === true;
+    tab.browserSettings = {
+      ...(tab.browserSettings || {}),
+      proxy: { ...previousProxy, mode: enabled ? 'magic' : 'default' },
+    };
     tabs.set(tab.id, tab);
     const clashMiniStatus = typeof getClashMiniStatus === 'function' ? getClashMiniStatus() : null;
     const magicRunning = clashMiniStatus?.running === true && clashMiniStatus?.enabled === true;
-    if (!magicRunning) {
+    // 魔法未运行时只需记住选择；例外：关闭一个已被接管的浏览器要立即还原直连。
+    if (!magicRunning && (enabled || !wasMagicApplied)) {
+      tab.networkMagicApplied = false;
       updateTabs(true);
       return { ok: true, magicRunning: false, restarted: false };
     }
-    const result = await applyClashMiniBrowserProxy(true, { onlyTabId: tab.id });
+    const result = await applyClashMiniBrowserProxy(enabled, { onlyTabId: tab.id });
     if (!result?.ok) {
-      return { ok: false, magicRunning: true, error: result?.failures?.[0]?.message || '应用魔法代理失败' };
+      return { ok: false, magicRunning, error: result?.failures?.[0]?.message || (enabled ? '应用魔法代理失败' : '关闭魔法代理失败') };
     }
-    return { ok: true, magicRunning: true, restarted: Number(result.updated || 0) > 0 };
+    return { ok: true, magicRunning, restarted: Number(result.updated || 0) > 0 };
   }
 
 // 设置/更新/持久化：toggleSidebar的具体业务逻辑。

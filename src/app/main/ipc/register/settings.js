@@ -859,9 +859,10 @@ function registerSettingsIPC(ctx) {
     }
   });
 
-  // 把网络魔法代理应用到单个浏览器（记录持久化 + 已打开则设代理并自动重启）。
+  // 把网络魔法代理应用到/移出单个浏览器（记录持久化 + 已打开则切换代理并自动重启）。
   ipcMain.handle('apply-network-magic-to-browser', async (_event, payload = {}) => {
     try {
+      const enabled = payload?.enabled !== false;
       const history = syncOpenTabsToBrowserHistory(ui);
       const tabs = Array.from(ui?.getTabs?.().values?.() || []);
       const historyId = String(payload?.historyId || '').trim();
@@ -877,7 +878,7 @@ function registerSettingsIPC(ctx) {
           ...(record.settings && typeof record.settings === 'object' ? record.settings : {}),
           proxy: {
             ...(record.settings?.proxy && typeof record.settings.proxy === 'object' ? record.settings.proxy : {}),
-            mode: 'magic',
+            mode: enabled ? 'magic' : 'default',
           },
         });
         if (!writeBrowserHistorySafe(history)) throw new Error('魔法代理选择未能写入本地配置');
@@ -887,12 +888,15 @@ function registerSettingsIPC(ctx) {
       }
       let applyResult = null;
       if (tabId && typeof ui?.applyNetworkMagicToTab === 'function') {
-        applyResult = await ui.applyNetworkMagicToTab(tabId);
-        if (applyResult && applyResult.ok !== true) throw new Error(applyResult.error || '应用魔法代理失败');
+        applyResult = await ui.applyNetworkMagicToTab(tabId, enabled);
+        if (applyResult && applyResult.ok !== true) {
+          throw new Error(applyResult.error || (enabled ? '应用魔法代理失败' : '关闭魔法代理失败'));
+        }
       }
       ui.sendToSide?.('browser-history-changed');
       return {
         ok: true,
+        enabled,
         historyId: record?.id || '',
         tabId,
         name: record?.name || '',

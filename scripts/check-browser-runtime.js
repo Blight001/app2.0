@@ -833,6 +833,10 @@ try {
   assert.equal(magicApplied.magicRunning, false);
   assert.equal(magicApplied.restarted, false);
   assert.equal(magicTabs.get('magic-custom').browserSettings.proxy.mode, 'magic');
+  // 魔法按钮是开关：再次调用可关闭并把代理模式还原为默认。
+  const magicRemoved = await magicManager.applyNetworkMagicToTab('magic-custom', false);
+  assert.equal(magicRemoved.ok, true);
+  assert.equal(magicTabs.get('magic-custom').browserSettings.proxy.mode, 'default');
   const magicMissing = await magicManager.applyNetworkMagicToTab('missing-tab');
   assert.equal(magicMissing.ok, false);
   console.log('browser runtime checks passed');

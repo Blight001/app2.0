@@ -19,6 +19,10 @@ const accountControllerSource = fs.readFileSync(
   path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/account-auth.js'),
   'utf8',
 );
+const sidebarInputSource = fs.readFileSync(
+  path.join(__dirname, '../src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/announcements.js'),
+  'utf8',
+);
 
 test('个人中心浮窗失焦后自动关闭', () => {
   const blurHandlerStart = source.indexOf("popup.on('blur'");
@@ -72,4 +76,11 @@ test('主窗口和侧边栏点击其它区域时显式通知浮窗收起', () =>
   assert.match(accountControllerSource, /!isStandaloneAccountCenterPopup[\s\S]*pointerdown[\s\S]*dismiss-account-center-popup/);
   assert.match(source, /ipcMain\.on\('dismiss-account-center-popup'/);
   assert.match(source, /browser-window-focus/);
+});
+
+test('鼠标仅悬停侧边栏时不会让个人中心浮窗失焦', () => {
+  assert.match(sidebarInputSource, /interaction:\s*force \? 'explicit' : 'passive'/);
+  assert.match(source, /passiveInteraction && accountCenterPopupOpen/);
+  assert.match(source, /reason:\s*'account-center-popup-open'/);
+  assert.match(sidebarInputSource, /accountCenterPopup[^']*'\) === '1'\) return/);
 });
