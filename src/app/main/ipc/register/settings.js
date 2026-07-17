@@ -236,6 +236,8 @@ function serializeBrowserHistory(history, ui) {
         tabId: openTab ? String(openTab.id || '') : '',
         isOpen: !!openTab,
         isActive: !!openTab && String(openTab.id || '') === activeTabId,
+        networkMagicSelected: record?.settings?.proxy?.mode === 'magic',
+        networkMagicActive: !!openTab && openTab.networkMagicApplied === true,
       };
     })
     .sort((left, right) => Number(right.lastOpenedAt || 0) - Number(left.lastOpenedAt || 0));
@@ -832,6 +834,72 @@ function registerSettingsIPC(ctx) {
   ipcMain.handle('open-browser-history', async (_event, payload = {}) => {
     try {
       return await openBrowserHistoryRecord(ui, payload?.historyId);
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
+
+  // 开启网络魔法后由侧边栏调用：返回当前激活浏览器及其是否已选择魔法端口代理。
+  ipcMain.handle('get-network-magic-active-browser', async () => {
+    try {
+      const activeTabId = String(typeof ui?.getActiveTabId === 'function' ? ui.getActiveTabId() || '' : '');
+      const tab = activeTabId ? ui?.getTabs?.()?.get?.(activeTabId) : null;
+      if (!tab) return { ok: true, tab: null };
+      return {
+        ok: true,
+        tab: {
+          id: String(tab.id || ''),
+          name: String(tab.fixedTitle || tab.runtimeTitle || '').trim() || '新建窗口',
+          historyId: String(tab.browserHistoryId || ''),
+          magicSelected: tab.browserSettings?.proxy?.mode === 'magic',
+        },
+      };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error), tab: null };
+    }
+  });
+
+  // 把网络魔法代理应用到单个浏览器（记录持久化 + 已打开则设代理并自动重启）。
+  ipcMain.handle('apply-network-magic-to-browser', async (_event, payload = {}) => {
+    try {
+      const history = syncOpenTabsToBrowserHistory(ui);
+      const tabs = Array.from(ui?.getTabs?.().values?.() || []);
+      const historyId = String(payload?.historyId || '').trim();
+      let tabId = String(payload?.tabId || '').trim();
+      let record = historyId ? history.find((item) => item.id === historyId) : null;
+      if (!record && tabId) {
+        const tab = tabs.find((item) => String(item?.id || '') === tabId);
+        record = history.find((item) => item.id === String(tab?.browserHistoryId || '').trim()) || null;
+      }
+      if (!record && !tabId) throw new Error('浏览器记录不存在');
+      if (record) {
+        record.settings = normalizeAiFreeBrowserSettings({
+          ...(record.settings && typeof record.settings === 'object' ? record.settings : {}),
+          proxy: {
+            ...(record.settings?.proxy && typeof record.settings.proxy === 'object' ? record.settings.proxy : {}),
+            mode: 'magic',
+          },
+        });
+        if (!writeBrowserHistorySafe(history)) throw new Error('魔法代理选择未能写入本地配置');
+        if (!tabId) {
+          tabId = String(tabs.find((tab) => String(tab?.browserHistoryId || '') === record.id)?.id || '');
+        }
+      }
+      let applyResult = null;
+      if (tabId && typeof ui?.applyNetworkMagicToTab === 'function') {
+        applyResult = await ui.applyNetworkMagicToTab(tabId);
+        if (applyResult && applyResult.ok !== true) throw new Error(applyResult.error || '应用魔法代理失败');
+      }
+      ui.sendToSide?.('browser-history-changed');
+      return {
+        ok: true,
+        historyId: record?.id || '',
+        tabId,
+        name: record?.name || '',
+        isOpen: !!tabId,
+        magicRunning: applyResult ? applyResult.magicRunning === true : null,
+        restarted: applyResult?.restarted === true,
+      };
     } catch (error) {
       return { ok: false, error: error?.message || String(error) };
     }

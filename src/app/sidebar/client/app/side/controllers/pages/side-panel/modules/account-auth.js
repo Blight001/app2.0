@@ -167,7 +167,11 @@ function renderVipPermissionComparison(items = [], tiers = []) {
   const container = safeGetEl('vip-permission-rows');
   const table = safeGetEl('vip-permission-table');
   const tierList = Array.isArray(tiers) ? tiers : [];
-  const hasComparison = Boolean(container && Array.isArray(items) && items.length && tierList.length);
+  const comparisonItems = Array.isArray(items) ? items.filter((item) => (
+    item?.code !== 'weekly_wool_quota'
+    || tierList.some((tier) => Number(tier?.weekly_wool_quota || 0) > 0)
+  )) : [];
+  const hasComparison = Boolean(container && comparisonItems.length && tierList.length);
   if (table) table.hidden = !hasComparison;
   if (!hasComparison) {
     container?.replaceChildren();
@@ -183,7 +187,7 @@ function renderVipPermissionComparison(items = [], tiers = []) {
     }));
     applyVipComparisonColumns(head, tierList.length);
   }
-  container.replaceChildren(...items.map((item) => {
+  container.replaceChildren(...comparisonItems.map((item) => {
     const row = document.createElement('div');
     row.className = 'vip-permission-row';
     const name = document.createElement('span');

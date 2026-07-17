@@ -779,10 +779,12 @@ try {
   });
   assert.equal(browserClickHandlers.has('browser-clicked'), false, '浏览器点击不得注册侧栏回收链路');
 
+  // 网络魔法只作用于选择了魔法端口代理（proxy.mode === 'magic'）的浏览器；
+  // 自定义/直连代理的浏览器不得被魔法开关接管。
   const magicTabs = new Map([
-    ['magic-direct', {
-      id: 'magic-direct',
-      browserSettings: { proxy: { mode: 'none' } },
+    ['magic-selected', {
+      id: 'magic-selected',
+      browserSettings: { proxy: { mode: 'magic' } },
     }],
     ['magic-custom', {
       id: 'magic-custom',
@@ -814,18 +816,25 @@ try {
     logger: { warn() {}, error() {} },
   });
   const magicEnabled = await magicManager.applyClashMiniBrowserProxy(true);
-  assert.equal(magicEnabled.updated, 2);
-  const enabledProxyServers = Array.from(magicInstances.values()).map((instance) => instance.profile.proxyServer);
-  assert.ok(enabledProxyServers.every((server) => /^http:\/\/127\.0\.0\.1:\d+$/.test(server)));
-  assert.equal(new Set(enabledProxyServers).size, 1);
-  assert.ok(magicGeoLookups.slice(0, 2).every((server) => server === enabledProxyServers[0]));
+  assert.equal(magicEnabled.updated, 1, '开启魔法只应更新选择了魔法端口的浏览器');
+  const magicSelectedProxy = magicInstances.get('magic-selected').profile.proxyServer;
+  assert.ok(/^http:\/\/127\.0\.0\.1:\d+$/.test(magicSelectedProxy));
+  assert.equal(magicInstances.get('magic-custom').profile.proxyServer, undefined, '未选择魔法端口的浏览器不得被接管');
+  assert.deepEqual(magicGeoLookups, [magicSelectedProxy]);
   const magicDisabled = await magicManager.applyClashMiniBrowserProxy(false);
-  assert.equal(magicDisabled.updated, 2);
-  assert.ok(Array.from(magicInstances.values()).every((instance) => instance.profile.proxyServer === ''));
-  assert.ok(magicGeoLookups.slice(2).every((server) => server === ''));
-  assert.deepEqual(magicRestarts.map((item) => item.proxyServer), [
-    enabledProxyServers[0], enabledProxyServers[0], '', '',
-  ]);
+  assert.equal(magicDisabled.updated, 1);
+  assert.equal(magicInstances.get('magic-selected').profile.proxyServer, '');
+  assert.equal(magicInstances.get('magic-custom').profile.proxyServer, undefined);
+  assert.deepEqual(magicRestarts.map((item) => item.id), ['magic-selected', 'magic-selected']);
+  assert.deepEqual(magicRestarts.map((item) => item.proxyServer), [magicSelectedProxy, '']);
+  // 单浏览器魔法应用：记住魔法端口选择；测试环境魔法未运行，不触发重启。
+  const magicApplied = await magicManager.applyNetworkMagicToTab('magic-custom');
+  assert.equal(magicApplied.ok, true);
+  assert.equal(magicApplied.magicRunning, false);
+  assert.equal(magicApplied.restarted, false);
+  assert.equal(magicTabs.get('magic-custom').browserSettings.proxy.mode, 'magic');
+  const magicMissing = await magicManager.applyNetworkMagicToTab('missing-tab');
+  assert.equal(magicMissing.ok, false);
   console.log('browser runtime checks passed');
 } finally {
   fs.rmSync(root, { recursive: true, force: true });

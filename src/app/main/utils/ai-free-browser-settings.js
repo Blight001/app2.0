@@ -95,7 +95,8 @@ function normalizeAiFreeBrowserSettings(input = {}) {
     browserVersion: text(source.browserVersion, '', 30).replace(/[^0-9.]/g, ''),
     kernelVersion: text(source.kernelVersion, 'auto', 60),
     proxy: {
-      mode: pick(proxy.mode, ['default', 'none', 'custom'], defaults.proxy.mode),
+      // magic = 使用软件网络魔法的本地混合端口；仅当网络魔法开启时生效。
+      mode: pick(proxy.mode, ['default', 'none', 'custom', 'magic'], defaults.proxy.mode),
       protocol: pick(proxy.protocol, ['http', 'https', 'socks4', 'socks5'], defaults.proxy.protocol),
       host: text(proxy.host, '', 255),
       port: proxy.port === '' || proxy.port == null ? '' : num(proxy.port, '', 1, 65535, true),

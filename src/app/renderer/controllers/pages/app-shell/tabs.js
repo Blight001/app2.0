@@ -623,6 +623,7 @@ function formatProxySetting(proxy = {}, networkMagicEnabled = false) {
   const mode = String(proxy.mode || 'default');
   let value = settingLabel(mode, {
     default: '默认',
+    magic: '软件魔法端口',
     none: '不使用浏览器自定义代理',
     custom: '自定义',
   });
@@ -858,6 +859,7 @@ function createTabElement(tab) {
     'ai-browser-connected',
     Boolean(aiConnectedBrowserProfileId) && String(tab.id) === aiConnectedBrowserProfileId,
   );
+  tabElement.classList.toggle('network-magic', tab?.networkMagicEnabled === true);
 
   tabElement.appendChild(createAiBrowserParticleLayer(tab.id));
 
@@ -990,6 +992,7 @@ function syncTabElement(tabElement, tab) {
     'ai-browser-connected',
     Boolean(aiConnectedBrowserProfileId) && String(tab.id) === aiConnectedBrowserProfileId,
   );
+  tabElement.classList.toggle('network-magic', tab?.networkMagicEnabled === true);
   const runtimeBadge = tabElement.querySelector('.tab-runtime-badge');
   const crashed = tab?.runtimeType === 'chromium' && tab?.runtimeStatus === 'crashed';
   if (runtimeBadge && !crashed) {

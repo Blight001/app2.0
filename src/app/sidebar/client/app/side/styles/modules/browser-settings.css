@@ -75,6 +75,12 @@
 .browser-settings-dialog-close:hover { color: #fff; background: rgba(255, 255, 255, .09); }
 .browser-settings-dialog-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 12px; }
 .browser-settings-dialog-body .vb-stage-group { margin: 0; }
+.browser-record-edit-fields { margin: 0 0 12px; padding: 14px 16px; border: 1px solid rgba(76, 96, 128, .4); border-radius: var(--r-lg); background: rgba(20, 22, 28, .7); }
+.browser-record-edit-fields[hidden] { display: none !important; }
+.browser-record-edit-fields h3 { margin: 0 0 10px; color: #8fb3ff; font-size: 13px; }
+.browser-record-name-field { display: flex; align-items: center; gap: 12px; color: #d6dfed; font-size: 12px; font-weight: 600; }
+.browser-record-name-field span { flex: 0 0 88px; }
+.browser-record-name-field input { flex: 1 1 auto; min-width: 0; }
 .browser-settings-dialog-footer { flex: 0 0 auto; padding: 0 12px 11px; border-top: 1px solid rgba(91, 116, 153, .24); background: rgba(13, 18, 27, .72); }
 .browser-settings-dialog-footer .settings-apply-options { margin-top: 10px; }
 body.browser-settings-dialog-open { overflow: hidden; }
@@ -130,12 +136,16 @@ body.browser-settings-dialog-open { overflow: hidden; }
 .browser-history-actions { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: clamp(3px, 1vw, 5px); }
 .browser-history-action { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 27px; padding: 0 clamp(5px, 1.5vw, 8px); border: 1px solid rgba(82, 105, 139, .48); border-radius: 6px; color: #b8c5d8; background: rgba(30, 39, 54, .86); font: inherit; font-size: 10px; white-space: nowrap; cursor: pointer; transition: border-color .15s ease, color .15s ease, background .15s ease, transform .15s ease, box-shadow .15s ease; }
 .browser-history-action:hover { border-color: var(--brand); color: #fff; transform: translateY(-1px); box-shadow: 0 3px 8px rgba(0, 0, 0, .18); }
+.browser-history-edit { border-color: rgba(77, 156, 255, .46); color: #a9ceff; }
 .browser-history-action:active { transform: scale(.94); }
 .browser-history-action:focus-visible { outline: 2px solid rgba(77, 156, 255, .68); outline-offset: 2px; }
 .browser-history-action.is-processing { cursor: wait; }
 .browser-history-action.is-processing::before { width: 8px; height: 8px; content: ''; border: 1.5px solid rgba(184, 197, 216, .34); border-top-color: currentColor; border-radius: 50%; animation: browser-history-refresh-spin .68s linear infinite; }
 .browser-history-delete { border-color: rgba(210, 83, 83, .42); color: #e6a0a0; }
 .browser-history-delete:hover { border-color: #d75c5c; color: #fff; background: rgba(151, 45, 45, .72); }
+.browser-history-magic { border-color: rgba(168, 85, 247, .46); color: #d7b6ff; }
+.browser-history-magic:hover { border-color: #a855f7; color: #fff; background: rgba(107, 33, 168, .6); }
+.browser-history-magic.is-applied { border-color: rgba(168, 85, 247, .85); color: #f1e4ff; background: linear-gradient(120deg, rgba(107, 33, 168, .72), rgba(147, 51, 234, .5)); box-shadow: 0 0 7px rgba(168, 85, 247, .35); }
 .browser-history-name-input { width: 100%; min-height: 28px !important; padding: 4px 7px !important; }
 .browser-history-item.is-selected .browser-history-name { color: #ff8f8f; }
 .browser-history-item.is-selected .browser-history-name::before { background: #f04444; box-shadow: 0 0 0 2px rgba(240, 68, 68, .24); }
@@ -178,10 +188,12 @@ body.browser-settings-dialog-open { overflow: hidden; }
 .settings-apply-options label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .settings-apply-options input { accent-color: #4d9cff; }
 .settings-actions { display: flex; justify-content: flex-end; gap: 9px; margin: 14px 4px 0; }
-.settings-primary-btn, .settings-secondary-btn { appearance: none; min-height: 36px; padding: 0 15px; border-radius: var(--r-md); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.settings-primary-btn, .settings-secondary-btn, .settings-danger-btn { appearance: none; min-height: 36px; padding: 0 15px; border-radius: var(--r-md); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
 .settings-primary-btn { border: 0; color: #fff; background: var(--brand-grad); box-shadow: var(--brand-shadow); }
 .settings-secondary-btn { border: 1px solid rgba(91, 116, 153, .52); color: #bcc8da; background: rgba(29, 38, 53, .8); }
-.settings-primary-btn:disabled, .settings-secondary-btn:disabled { opacity: .55; cursor: wait; }
+.settings-danger-btn { margin-right: auto; border: 1px solid rgba(210, 83, 83, .56); color: #f0a2a2; background: rgba(111, 32, 32, .34); }
+.settings-danger-btn:hover { border-color: #dc6262; color: #fff; background: rgba(151, 45, 45, .72); }
+.settings-primary-btn:disabled, .settings-secondary-btn:disabled, .settings-danger-btn:disabled { opacity: .55; cursor: wait; }
 .settings-status { min-height: 18px; margin: 10px 6px 0; color: #82c5ff; font-size: 11px; text-align: right; }
 .settings-status.is-error { color: #ff8f99; }
 .settings-status.is-success { color: #72d6ad; }
@@ -242,6 +254,9 @@ html.theme-light .browser-settings-dialog-header { border-color: rgba(78, 116, 1
 html.theme-light .browser-settings-dialog-header h2 { color: #203448; }
 html.theme-light .browser-settings-dialog-close { color: #6d8096; background: #f2f6fa; }
 html.theme-light .browser-settings-dialog-footer { border-color: rgba(78, 116, 166, .14); background: #f7f9fc; }
+html.theme-light .browser-record-edit-fields { border-color: rgba(86, 121, 165, .2); background: rgba(247, 250, 254, .82); }
+html.theme-light .browser-record-edit-fields h3 { color: #3478c7; }
+html.theme-light .browser-record-name-field { color: #31485f; }
 html.theme-light .settings-section { border-color: rgba(86, 121, 165, .2); background: rgba(255, 255, 255, .82); color: #597087; }
 html.theme-light .settings-network-tools { border-color: rgba(86, 121, 165, .2); background: linear-gradient(145deg, rgba(250, 252, 255, .96), rgba(244, 248, 253, .96)); box-shadow: var(--card-shadow); }
 html.theme-light .settings-network-tools-heading h2 { color: #253b54; }
@@ -254,7 +269,11 @@ html.theme-light .browser-history-heading h2, html.theme-light .browser-history-
 html.theme-light .browser-history-account-meta { color: #657d96; }
 html.theme-light .browser-history-auto-delete { color: #a86418; }
 html.theme-light .browser-history-refresh, html.theme-light .browser-history-action { border-color: rgba(88, 126, 173, .24); color: #48647f; background: rgba(245, 249, 253, .96); }
+html.theme-light .browser-history-edit { border-color: rgba(52, 120, 199, .34); color: #3478c7; }
 html.theme-light .browser-history-delete { border-color: rgba(190, 62, 62, .3); color: #b34545; }
+html.theme-light .browser-history-magic { border-color: rgba(147, 51, 234, .32); color: #7e3ab8; }
+html.theme-light .browser-history-magic:hover { border-color: #9333ea; color: #fff; background: rgba(147, 51, 234, .68); }
+html.theme-light .browser-history-magic.is-applied { border-color: rgba(147, 51, 234, .6); color: #5b1d96; background: linear-gradient(120deg, rgba(196, 145, 253, .4), rgba(216, 180, 254, .26)); box-shadow: 0 0 6px rgba(147, 51, 234, .2); }
 html.theme-light .browser-history-item { border-color: rgba(88, 126, 173, .2); background: rgba(247, 250, 254, .82); }
 html.theme-light .browser-history-item.is-open { border-color: rgba(64, 132, 215, .28); background: rgba(64, 132, 215, .1); }
 html.theme-light .browser-history-item.is-active { border-color: rgba(47, 151, 78, .3); background: rgba(47, 151, 78, .11); }
@@ -276,6 +295,7 @@ html.theme-light .settings-field input, html.theme-light .settings-field select,
 html.theme-light .settings-field input:focus, html.theme-light .settings-field select:focus, html.theme-light .settings-field textarea:focus { background: #fff; }
 html.theme-light .settings-apply-options { color: #5f748c; }
 html.theme-light .settings-secondary-btn { border-color: rgba(88, 126, 173, .26); color: #48647f; background: rgba(245, 249, 253, .96); }
+html.theme-light .settings-danger-btn { border-color: rgba(190, 62, 62, .32); color: #b34545; background: rgba(190, 62, 62, .08); }
 
 /* ================= 紧凑布局（默认窗口，侧栏 <520px） =================
    标签改为堆叠在控件上方，避免 88px 标签把分段控件/输入框挤爆。 */
@@ -294,6 +314,9 @@ html.theme-light .settings-secondary-btn { border-color: rgba(88, 126, 173, .26)
   /* 操作按钮铺满一行，避免三个按钮挤在右侧 */
   .settings-actions { flex-wrap: wrap; }
   .settings-actions button { flex: 1 1 auto; }
+  .settings-actions .settings-danger-btn { flex-basis: 100%; margin-right: 0; }
+  .browser-record-name-field { align-items: stretch; flex-direction: column; gap: 6px; }
+  .browser-record-name-field span { flex-basis: auto; }
   .browser-default-settings-btn { max-width: 150px; padding: 0 9px; font-size: 10px; }
   .browser-settings-dialog { padding: 7px; }
   .browser-settings-dialog-panel { width: calc(100vw - 14px); max-height: calc(100vh - 14px); }

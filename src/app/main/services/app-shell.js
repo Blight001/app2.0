@@ -517,6 +517,9 @@ function createAppShell(deps = {}) {
           applyClashMiniBrowserProxy: typeof deps.applyClashMiniBrowserProxy === 'function'
             ? deps.applyClashMiniBrowserProxy
             : null,
+          applyNetworkMagicToTab: typeof deps.applyNetworkMagicToTab === 'function'
+            ? deps.applyNetworkMagicToTab
+            : null,
           browserRuntimeManager: deps.browserRuntimeManager || null,
         },
         auth: resolveAuth(),

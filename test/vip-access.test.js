@@ -83,6 +83,8 @@ test('个人中心提供服务器驱动的动态会员套餐弹窗', () => {
   assert.match(accountUi, /vipTierCatalog\.map/);
   assert.match(accountUi, /item\?\.tiers\?\.\[tier\.tier\]/);
   assert.match(accountUi, /\^\[a-z\]\[a-z0-9_-\]/);
+  assert.match(accountUi, /item\?\.code !== 'weekly_wool_quota'/);
+  assert.doesNotMatch(html, /每周羊毛额度/);
   assert.match(accountUi, /table\.hidden = !hasComparison/);
   assert.match(accountUi, /tabs\.hidden = vipTierCatalog\.length === 0/);
   assert.match(accountUi, /list\.hidden = plans\.length === 0/);

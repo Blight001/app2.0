@@ -31,6 +31,8 @@ function resolveChromiumExtensionPaths(browserSettings = {}, extensionManager = 
 function resolveConfiguredBrowserProxy(browserSettings = {}) {
   const proxy = browserSettings.proxy && typeof browserSettings.proxy === 'object' ? browserSettings.proxy : {};
   if (proxy.mode === 'default') return null;
+  // 魔法端口代理由 Clash Mini 状态决定，不在这里解析；魔法未开启时直连。
+  if (proxy.mode === 'magic') return null;
   if (proxy.mode === 'none') return { enabled: false };
   const host = String(proxy.host || '').trim();
   const port = Number(proxy.port);
@@ -530,9 +532,19 @@ function createTabManager(deps = {}) {
     };
   }
 
+// 判断浏览器是否选择了软件魔法端口代理（proxy.mode === 'magic'）。
+  function isTabMagicSelected(tab) {
+    return tab?.browserSettings?.proxy?.mode === 'magic';
+  }
+
 // 设置/更新/持久化：applyClashMiniBrowserProxy的具体业务逻辑。
+// 网络魔法不再强制接管所有浏览器：只同步选择了魔法端口代理的浏览器；
+// options.onlyTabId 用于“把魔法应用到单个浏览器”时定点同步。
   async function applyClashMiniBrowserProxy(enabled = true, options = {}) {
-    const entries = Array.from(resolveTabs().values());
+    const targetTabId = String(options?.onlyTabId || '').trim();
+    const entries = Array.from(resolveTabs().values()).filter((tab) => (
+      targetTabId ? String(tab?.id || '') === targetTabId : isTabMagicSelected(tab)
+    ));
     const browserProxy = getBrowserProxyEndpoint();
     const failures = [];
     const forceProfileRefresh = options?.forceProfileRefresh === true;
@@ -624,6 +636,30 @@ function createTabManager(deps = {}) {
     };
   }
 
+// 把网络魔法代理应用到单个已打开的浏览器：记住魔法端口选择；魔法运行中
+// 则立即设置代理并自动重启该浏览器，未运行则等开启魔法时再生效。
+  async function applyNetworkMagicToTab(tabId) {
+    const tabs = resolveTabs();
+    const tab = tabs.get(String(tabId || ''));
+    if (!tab) return { ok: false, error: '浏览器窗口不存在' };
+    const previousProxy = tab.browserSettings?.proxy && typeof tab.browserSettings.proxy === 'object'
+      ? tab.browserSettings.proxy
+      : {};
+    tab.browserSettings = { ...(tab.browserSettings || {}), proxy: { ...previousProxy, mode: 'magic' } };
+    tabs.set(tab.id, tab);
+    const clashMiniStatus = typeof getClashMiniStatus === 'function' ? getClashMiniStatus() : null;
+    const magicRunning = clashMiniStatus?.running === true && clashMiniStatus?.enabled === true;
+    if (!magicRunning) {
+      updateTabs(true);
+      return { ok: true, magicRunning: false, restarted: false };
+    }
+    const result = await applyClashMiniBrowserProxy(true, { onlyTabId: tab.id });
+    if (!result?.ok) {
+      return { ok: false, magicRunning: true, error: result?.failures?.[0]?.message || '应用魔法代理失败' };
+    }
+    return { ok: true, magicRunning: true, restarted: Number(result.updated || 0) > 0 };
+  }
+
 // 设置/更新/持久化：toggleSidebar的具体业务逻辑。
   function toggleSidebar() {
     return toggleSidebarVisibility({
@@ -677,7 +713,10 @@ function createTabManager(deps = {}) {
     };
     const browserSettings = { ...rawBrowserSettings, ...normalizeAiFreeBrowserSettings(rawBrowserSettings) };
     const clashMiniStatus = typeof getClashMiniStatus === 'function' ? getClashMiniStatus() : null;
-    const shouldApplyClashMiniProxy = clashMiniStatus?.running === true && clashMiniStatus?.enabled === true;
+    // 只有选择了魔法端口代理的浏览器才在启动时走 Clash Mini。
+    const shouldApplyClashMiniProxy = browserSettings?.proxy?.mode === 'magic'
+      && clashMiniStatus?.running === true
+      && clashMiniStatus?.enabled === true;
     const clashMiniProxy = shouldApplyClashMiniProxy && typeof getClashMiniProxyEndpoint === 'function'
       ? getClashMiniProxyEndpoint(clashMiniStatus.coreDir || (typeof getClashMiniRuntimeRoot === 'function' ? getClashMiniRuntimeRoot() : ''))
       : null;
@@ -1029,7 +1068,8 @@ function createTabManager(deps = {}) {
       const configuredProxy = resolveConfiguredBrowserProxy(normalized);
       const clashStatus = typeof getClashMiniStatus === 'function' ? getClashMiniStatus() : null;
       const globalMagicEnabled = clashStatus?.running === true && clashStatus?.enabled === true;
-      const effectiveProxy = globalMagicEnabled
+      const magicSelected = normalized.proxy?.mode === 'magic';
+      const effectiveProxy = globalMagicEnabled && magicSelected
         ? (getBrowserProxyEndpoint() || { enabled: false })
         : (configuredProxy || { enabled: false });
       const browserProfile = await resolveTabBrowserProfile({
@@ -1054,6 +1094,7 @@ function createTabManager(deps = {}) {
         instance.profile.proxyServer = effectiveProxy?.enabled ? effectiveProxy.server : '';
         instance.profile.proxyBypassList = effectiveProxy?.enabled ? (effectiveProxy.bypassRules || '') : '';
         instance.profile.extraArgs = resolveChromiumExtraArgs(normalized);
+        tab.networkMagicApplied = globalMagicEnabled && magicSelected && effectiveProxy?.enabled === true;
       }
       const configuredCookies = parseCookieJson(normalized);
       if (configuredCookies.length && typeof browserRuntimeManager?.setCookies === 'function') {
@@ -1110,6 +1151,7 @@ function createTabManager(deps = {}) {
     addTab,
     openTutorialTab,
     applyClashMiniBrowserProxy,
+    applyNetworkMagicToTab,
     setTabBrowserSettings,
     refreshBrowsersAfterExtensionChange,
     switchTab,

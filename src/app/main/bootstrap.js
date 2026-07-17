@@ -135,6 +135,8 @@ global.__APP_SESSION_ID__ = `${Date.now()}-${Math.random().toString(16).slice(2,
 
 let addTab;
 let openTutorialTab;
+let applyClashMiniBrowserProxy;
+let applyNetworkMagicToTab;
 let switchTab;
 let closeTab;
 let reorderTab;
@@ -544,6 +546,7 @@ const {
   addTab,
   openTutorialTab,
   applyClashMiniBrowserProxy,
+  applyNetworkMagicToTab,
   switchTab,
   closeTab,
   reorderTab,
@@ -557,6 +560,7 @@ const {
 } = tabManager);
 
 appShellDeps.applyClashMiniBrowserProxy = applyClashMiniBrowserProxy;
+appShellDeps.applyNetworkMagicToTab = applyNetworkMagicToTab;
 
 //////////////////////////////////////////////////////////////////////////////////////////启动逻辑
 registerAppLifecycle({
