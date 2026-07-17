@@ -31,7 +31,6 @@ function createAppShell(deps = {}) {
     stopClashMiniProcess,
     getStorePath,
     getServerBase,
-    getSideUrl,
     getTcpConfig,
     setRuntimeTcpConfig,
     setRuntimeServerBase,
@@ -183,11 +182,6 @@ function createAppShell(deps = {}) {
       return getControlPanelWindow();
     }
     return controlPanelWindow;
-  };
-  const resolveSidebarRemoteUrl = () => {
-    const raw = typeof getSideUrl === 'function' ? getSideUrl() : '';
-    const normalized = String(raw || '').trim();
-    return normalized || 'http://127.0.0.1:8787/control-panel/';
   };
 // 格式化/规范化：isControlPanelModeEnabled的具体业务逻辑。
   const isControlPanelModeEnabled = () => (
@@ -769,25 +763,15 @@ function createAppShell(deps = {}) {
       else logger.log?.(message);
     });
 
-    // 优先加载本地内置的侧边栏页面（file:// 直接嵌入，无需端口/远程服务），
-    // 仅当本地文件缺失或加载失败时才回退到远程地址，避免网络波动导致侧边栏加载不出来。
-    const loadSidebarRemoteFallback = (reason) => {
-      const sidebarRemoteUrl = resolveSidebarRemoteUrl();
-      logger.warn?.('[启动] 回退加载远程侧边栏:', reason || '', '->', sidebarRemoteUrl);
-      sideView.webContents.loadURL(sidebarRemoteUrl).catch((error) => {
-        logger.warn?.('[启动] 远程侧边栏加载失败:', error?.message || error);
-      });
-    };
-
-    const forceRemoteSidebar = String(process.env.SIDEBAR_MODE || '').trim().toLowerCase() === 'remote';
-    const sidebarLocalPath = forceRemoteSidebar ? null : resolveControlPanelHtmlPath();
+    // 侧边栏页面内置于 src/app/sidebar/，file:// 直接嵌入，无需端口/远程服务。
+    const sidebarLocalPath = resolveControlPanelHtmlPath();
     if (sidebarLocalPath) {
       logger.log?.('[启动] 加载本地侧边栏:', sidebarLocalPath);
       sideView.webContents.loadFile(sidebarLocalPath).catch((error) => {
-        loadSidebarRemoteFallback(`本地侧边栏加载失败: ${error?.message || error}`);
+        logger.error?.('[启动] 本地侧边栏加载失败:', error?.message || error);
       });
     } else {
-      loadSidebarRemoteFallback(forceRemoteSidebar ? 'SIDEBAR_MODE=remote' : '未找到本地 src/app/sidebar/index.html');
+      logger.error?.('[启动] 未找到本地 src/app/sidebar/index.html，侧边栏无法加载');
     }
     sideView.webContents.on('did-start-loading', () => {
       sideAnnouncementReady = false;

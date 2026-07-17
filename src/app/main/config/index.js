@@ -344,11 +344,6 @@ function getServerBase() {
   return '';
 }
 
-// 侧边栏已内置；此地址仅作为本地页面加载失败时的固定回退。
-function getSideUrl() {
-  return 'http://127.0.0.1:8787/control-panel/';
-}
-
 // 网络诊断配置
 const NETWORK_DIAG_CONFIG = {
   CONNECTION_TIMEOUT: 30000, // 连接超时时间 (30秒)
@@ -491,7 +486,6 @@ module.exports = {
   initializeCoreDirectory,
   getTcpConfig,
   getServerBase,
-  getSideUrl,
 };
 
 
