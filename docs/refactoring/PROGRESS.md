@@ -26,7 +26,11 @@
 
 - [ ] bootstrap.js 收缩为 ≤250 行 composition root
 - [ ] AppContext / 统一错误类型 / 集中路径解析 / 结构化日志
-- [ ] contracts + payload 校验 + 窄化 preload + 可释放 IPC 注册器
+- [~] contracts + payload 校验 + 窄化 preload + 可释放 IPC 注册器：
+  - [x] contracts/ipc-channels.js 通道注册表（105 invoke + 24 event + 50 push）+ 双向一致契约测试 + 单通道单注册校验
+  - [x] ipc/registry.js 可释放注册器（未登记抛错/同实例重复抛错/dispose 精确释放），7 个 register 模块全迁移，monkeypatch 去重补丁已删除；顺带修复被补丁掩盖的真实冲突（get-app-console-history 双注册）
+  - [x] preload 白名单适配层（迁移期未登记告警不阻断；沙箱窗口降级放行）——上线即抓出 19 个间接发送的漏登记 push 通道并补齐，实机告警清零
+  - [ ] payload 运行时校验（schema）——随阶段 3 各域整改逐域补
 - [ ] 混合 JS/TS 构建链
 
 ## 阶段 3：逐域整改主进程
@@ -58,3 +62,4 @@
 |---|---|
 | 2026-07-17 | 前置安全清理 6 提交完成；阶段 0 启动：IPC/运行时契约清点完成，流程记录与功能矩阵初版建立 |
 | 2026-07-17 | 阶段 1 主体落地：ESLint/checkJs/guardrails 基线门禁 + verify + 分层测试目录 + 首个 Electron 集成测试（180 用例 179 过 1 skip）。护栏顺带查出并修复 3 处正确性问题（重复键 ×2、空 try-catch 不可达 ×1） |
+| 2026-07-17 | 阶段 2A/2B/2C：IPC 契约注册表 + 可释放注册器（废除 monkeypatch 去重）+ preload 白名单。fail-fast 暴露并修复 get-app-console-history 真实双注册；白名单抓出 19 个漏登记 push 通道。npm start 实机验证 0 handler 错误 0 preload 告警；verify 189 用例全绿 |

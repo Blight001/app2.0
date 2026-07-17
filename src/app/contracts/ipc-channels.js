@@ -143,6 +143,27 @@ const EVENT_CHANNELS = [
 ];
 
 const PUSH_CHANNELS = [
+  // 下面一组经间接写法发送（sendToSide?.() 可选链 / 三元选择通道名 / 捕获的
+  // webContents 变量），静态扫描不易命中，由 preload 白名单告警核实后登记。
+  { channel: 'account-session-updated', kind: 'push', domain: 'account' },
+  { channel: 'app-shutting-down', kind: 'push', domain: 'ui' },
+  { channel: 'app-update-activated', kind: 'push', domain: 'updates' },
+  { channel: 'app-update-complete', kind: 'push', domain: 'updates' },
+  { channel: 'app-update-error', kind: 'push', domain: 'updates' },
+  { channel: 'app-update-progress', kind: 'push', domain: 'updates' },
+  { channel: 'app-update-skip', kind: 'push', domain: 'updates' },
+  { channel: 'browser-data-clear-confirm-request', kind: 'push', domain: 'browser' },
+  { channel: 'browser-history-changed', kind: 'push', domain: 'browser' },
+  { channel: 'clash-mini-latency-progress', kind: 'push', domain: 'network' },
+  { channel: 'clash-mini-runtime-failed', kind: 'push', domain: 'network' },
+  { channel: 'clash-mini-status', kind: 'push', domain: 'network' },
+  { channel: 'license-credentials-updated', kind: 'push', domain: 'license' },
+  { channel: 'proxy-traffic-exhausted', kind: 'push', domain: 'network' },
+  { channel: 'proxy-traffic-quota', kind: 'push', domain: 'network' },
+  { channel: 'server-message', kind: 'push', domain: 'ui' },
+  { channel: 'sidebar-collapse', kind: 'push', domain: 'ui' },
+  { channel: 'sidebar-expand', kind: 'push', domain: 'ui' },
+  { channel: 'vip-access-required', kind: 'push', domain: 'license' },
   { channel: 'account-list-updated', kind: 'push', domain: 'account' },
   { channel: 'account-popup-dismiss', kind: 'push', domain: 'account' },
   { channel: 'account-popup-snapshot', kind: 'push', domain: 'account' },
