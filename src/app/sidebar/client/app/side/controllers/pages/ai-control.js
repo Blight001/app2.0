@@ -3,7 +3,7 @@
     messages: [],
     sessionList: [],
     currentSession: null,
-    currentBrowserId: '',
+    currentBrowserIds: [],
     browserConnectionProfileById: {},
     browserConnectionsLoading: false,
     currentCardId: '',
@@ -43,12 +43,42 @@
   };
   const el = (id) => document.getElementById(id);
 
+  function normalizeBrowserIds(list) {
+    return [...new Set((Array.isArray(list) ? list : [])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean))];
+  }
+
+  function sessionBrowserIds(session) {
+    return normalizeBrowserIds(Array.isArray(session?.browserConnectionIds)
+      ? session.browserConnectionIds
+      : (session?.browserConnectionId ? [session.browserConnectionId] : []));
+  }
+
+  function getSelectBrowserIds(select) {
+    return Array.from(select?.selectedOptions || [])
+      .map((option) => String(option.value || ''))
+      .filter(Boolean);
+  }
+
+  function setSelectBrowserIds(select, ids) {
+    if (!select) return;
+    const wanted = new Set(normalizeBrowserIds(ids));
+    Array.from(select.options).forEach((option) => {
+      option.selected = Boolean(option.value) && wanted.has(option.value);
+    });
+  }
+
   function notifyBrowserSelection() {
-    const connectionId = String(state.currentBrowserId || '');
-    const profileId = String(state.browserConnectionProfileById[connectionId] || '');
+    const connectionIds = normalizeBrowserIds(state.currentBrowserIds);
+    const profileIds = normalizeBrowserIds(
+      connectionIds.map((id) => String(state.browserConnectionProfileById[id] || '')),
+    );
     window.electronAPI?.send?.('ai-control-browser-selection-changed', {
-      connectionId,
-      profileId,
+      connectionId: connectionIds[0] || '',
+      connectionIds,
+      profileId: profileIds[0] || '',
+      profileIds,
     });
   }
 
@@ -106,6 +136,7 @@
       titleGenerated: session?.titleGenerated === true,
       modelId: String(session?.modelId || ''),
       browserConnectionId: String(session?.browserConnectionId || ''),
+      browserConnectionIds: sessionBrowserIds(session),
       automationCardId: String(session?.automationCardId || ''),
       preview: String(session?.preview || ''),
       messageCount: messages.length,
@@ -664,11 +695,22 @@
     trigger.disabled = disabled;
 
     const options = Array.from(select.options || []);
-    const selected = options.find((opt) => opt.selected) || options[0] || null;
-    valueEl.textContent = optionDisplayText(selected);
-    if (shell.dataset.aiSelect === 'browser') {
-      shell.classList.toggle('has-selection', Boolean(select.value || state.currentCardId));
-      trigger.title = selected?.textContent || '未连接浏览器';
+    const isBrowserSelect = shell.dataset.aiSelect === 'browser';
+    if (isBrowserSelect) {
+      // 浏览器下拉是多选：按已勾选数量显示，未选中时回退到占位提示文案。
+      const selectedOptions = options.filter((opt) => opt.selected && opt.value);
+      const placeholder = options.find((opt) => !opt.value)?.textContent || '不连接浏览器';
+      const displayText = selectedOptions.length > 1
+        ? `已选 ${selectedOptions.length} 个浏览器`
+        : (selectedOptions[0]?.textContent || placeholder);
+      valueEl.textContent = displayText;
+      shell.classList.toggle('has-selection', Boolean(selectedOptions.length || state.currentCardId));
+      trigger.title = selectedOptions.length
+        ? selectedOptions.map((opt) => opt.title || opt.textContent).join('、')
+        : '未连接浏览器';
+    } else {
+      const selected = options.find((opt) => opt.selected) || options[0] || null;
+      valueEl.textContent = optionDisplayText(selected);
     }
 
     const activeBrowserSetting = shell.dataset.aiSelect === 'browser'
@@ -681,6 +723,11 @@
       ? menu.querySelector('#ai-browser-mcp-call-limit')
       : null;
     if (existingMcpInput) state.mcpCallLimitDraft = existingMcpInput.value;
+    // 多选勾选后重建菜单会丢焦点，记录当前项以便重建后恢复。
+    const focusedOptionValue = document.activeElement?.classList?.contains('ai-select-option')
+      && menu.contains(document.activeElement)
+      ? String(document.activeElement.dataset.value ?? '')
+      : null;
     menu.innerHTML = '';
     if (shell.dataset.aiSelect === 'browser') {
       appendBrowserMcpSetting(menu);
@@ -689,13 +736,18 @@
       browserLabel.textContent = '目标浏览器';
       menu.appendChild(browserLabel);
     }
+    const anyBrowserSelected = isBrowserSelect && options.some((opt) => opt.selected && opt.value);
     options.forEach((option) => {
       const item = document.createElement('button');
       item.type = 'button';
       item.className = 'ai-select-option';
       item.role = 'option';
       item.dataset.value = option.value;
-      item.setAttribute('aria-selected', option.selected ? 'true' : 'false');
+      // 多选浏览器：空值项代表「不连接浏览器」，仅在没有任何勾选时视为选中。
+      const optionSelected = isBrowserSelect && !option.value
+        ? !anyBrowserSelected
+        : option.selected;
+      item.setAttribute('aria-selected', optionSelected ? 'true' : 'false');
       if (option.disabled) {
         item.disabled = true;
         item.setAttribute('aria-disabled', 'true');
@@ -718,6 +770,18 @@
         event.preventDefault();
         if (item.disabled) return;
         const next = String(item.dataset.value ?? '');
+        if (isBrowserSelect) {
+          // 多选切换：点浏览器项在勾选/取消间切换，点「不连接浏览器」清空全部；
+          // 菜单保持打开，方便连续勾选多个浏览器。
+          if (!next) {
+            options.forEach((opt) => { opt.selected = false; });
+          } else {
+            const target = options.find((opt) => opt.value === next);
+            if (target) target.selected = !target.selected;
+          }
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          return;
+        }
         if (select.value !== next) {
           select.value = next;
           select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -752,6 +816,11 @@
     if (shell.dataset.aiSelect === 'browser') {
       appendAutomationCardSetting(menu);
       updateBrowserMenuAvailableHeight(shell);
+    }
+    if (focusedOptionValue !== null && shell.classList.contains('open')) {
+      Array.from(menu.querySelectorAll('.ai-select-option'))
+        .find((item) => String(item.dataset.value ?? '') === focusedOptionValue)
+        ?.focus?.();
     }
   }
 
@@ -1069,7 +1138,8 @@
         title: '新对话',
         titleGenerated: false,
         modelId,
-        browserConnectionId: state.currentBrowserId,
+        browserConnectionId: state.currentBrowserIds[0] || '',
+        browserConnectionIds: [...state.currentBrowserIds],
         automationCardId: state.currentCardId,
         messages: [],
         createdAt: Date.now(),
@@ -1082,7 +1152,8 @@
       title: state.currentSession.title || '新对话',
       titleGenerated: state.currentSession.titleGenerated === true,
       modelId,
-      browserConnectionId: state.currentBrowserId,
+      browserConnectionId: state.currentBrowserIds[0] || '',
+      browserConnectionIds: [...state.currentBrowserIds],
       automationCardId: state.currentCardId,
       messages: currentMessages(),
       createdAt: state.currentSession.createdAt || Date.now(),
@@ -1131,7 +1202,8 @@
   function applySession(session) {
     state.currentSession = session || null;
     state.messages = Array.isArray(session?.messages) ? [...session.messages] : [];
-    state.currentBrowserId = String(session?.browserConnectionId || state.currentBrowserId || '');
+    const restoredIds = sessionBrowserIds(session);
+    if (restoredIds.length) state.currentBrowserIds = restoredIds;
     const sessionCardId = String(session?.automationCardId || '').trim();
     if (sessionCardId) {
       state.currentCardId = sessionCardId;
@@ -1139,10 +1211,15 @@
     }
     const browserSelect = el('ai-chat-browser');
     if (browserSelect) {
-      const exists = Array.from(browserSelect.options).some((opt) => opt.value === state.currentBrowserId);
-      browserSelect.value = exists ? state.currentBrowserId : '';
-      if (!exists) state.currentBrowserId = '';
-      if (state.currentBrowserId) state.browserSelectionExplicitlyDisabled = false;
+      const available = new Set(Array.from(browserSelect.options)
+        .map((opt) => opt.value)
+        .filter(Boolean));
+      // 连接列表尚未加载时不过滤，等 loadBrowserConnections 恢复会话勾选。
+      if (available.size) {
+        state.currentBrowserIds = state.currentBrowserIds.filter((id) => available.has(id));
+      }
+      setSelectBrowserIds(browserSelect, state.currentBrowserIds);
+      if (state.currentBrowserIds.length) state.browserSelectionExplicitlyDisabled = false;
       syncSelectUi(browserSelect);
     }
     notifyBrowserSelection();
@@ -1304,7 +1381,8 @@
       title: '新对话',
       titleGenerated: false,
       modelId: String(el('ai-chat-model')?.value || ''),
-      browserConnectionId: state.currentBrowserId,
+      browserConnectionId: state.currentBrowserIds[0] || '',
+      browserConnectionIds: [...state.currentBrowserIds],
       automationCardId: state.currentCardId,
       messages: [],
       createdAt: Date.now(),
@@ -1327,7 +1405,8 @@
       title: '新对话',
       titleGenerated: false,
       modelId: String(el('ai-chat-model')?.value || ''),
-      browserConnectionId: state.currentBrowserId,
+      browserConnectionId: state.currentBrowserIds[0] || '',
+      browserConnectionIds: [...state.currentBrowserIds],
       automationCardId: state.currentCardId,
       messages: state.messages,
       createdAt: Date.now(),
@@ -2036,8 +2115,9 @@
     const welcome = document.createElement('div');
     welcome.className = 'ai-chat-welcome';
     const card = selectedAutomationCard();
-    const browserText = state.currentBrowserId
-      ? `已连接浏览器${card ? `，当前卡片为“${card.name}”` : ''}，AI 将在所选浏览器中执行操作。`
+    const browserCount = state.currentBrowserIds.length;
+    const browserText = browserCount
+      ? `已连接 ${browserCount} 个浏览器${card ? `，当前卡片为“${card.name}”` : ''}，AI 将在所选浏览器中执行操作${browserCount > 1 ? '，可按浏览器名称分开控制' : ''}。`
       : (card
         ? `当前卡片为“${card.name}”，但未连接浏览器，将进行普通对话。`
         : '当前未连接浏览器，将进行普通对话。');
@@ -2190,7 +2270,7 @@
     const select = el('ai-chat-browser');
     if (!select || !window.electronAPI?.invoke || state.browserConnectionsLoading) return;
     state.browserConnectionsLoading = true;
-    const previous = select.value || state.currentBrowserId;
+    const previousIds = normalizeBrowserIds([...getSelectBrowserIds(select), ...state.currentBrowserIds]);
     try {
       const result = await window.electronAPI.invoke('ai-control-get-browser-connections');
       if (!result?.ok) throw new Error(result?.message || '浏览器连接读取失败');
@@ -2208,30 +2288,32 @@
         option.title = browserName;
         select.appendChild(option);
       });
-      const previousExists = Boolean(previous)
-        && connections.some((item) => String(item.id) === previous);
+      const availableIds = new Set(connections.map((item) => String(item.id || '')));
+      const survivingIds = previousIds.filter((id) => availableIds.has(id));
       const firstConnectionId = String(connections[0]?.id || '');
-      const nextBrowserId = previousExists
-        ? previous
-        : (state.browserSelectionExplicitlyDisabled ? '' : firstConnectionId);
-      const selectionChanged = state.currentBrowserId !== nextBrowserId;
-      select.value = nextBrowserId;
-      state.currentBrowserId = select.value;
-      if (state.currentBrowserId) state.browserSelectionExplicitlyDisabled = false;
+      const nextBrowserIds = survivingIds.length
+        ? survivingIds
+        : (state.browserSelectionExplicitlyDisabled || !firstConnectionId ? [] : [firstConnectionId]);
+      const selectionChanged = nextBrowserIds.join(',') !== state.currentBrowserIds.join(',');
+      setSelectBrowserIds(select, nextBrowserIds);
+      state.currentBrowserIds = nextBrowserIds;
+      if (state.currentBrowserIds.length) state.browserSelectionExplicitlyDisabled = false;
       if (state.currentSession && !currentMessages().length) {
-        state.currentSession.browserConnectionId = state.currentBrowserId;
+        state.currentSession.browserConnectionId = state.currentBrowserIds[0] || '';
+        state.currentSession.browserConnectionIds = [...state.currentBrowserIds];
       }
-      select.title = connections.length ? `已连接 ${connections.length} 个浏览器插件` : '未发现浏览器插件，请确认扩展和 AI-FREE 已启动';
+      select.title = connections.length ? `已连接 ${connections.length} 个浏览器插件，可多选分开控制` : '未发现浏览器插件，请确认扩展和 AI-FREE 已启动';
       syncSelectUi(select);
       notifyBrowserSelection();
       if (selectionChanged && !currentMessages().length) renderWelcome();
     } catch (error) {
-      const selectionChanged = Boolean(state.currentBrowserId);
+      const selectionChanged = Boolean(state.currentBrowserIds.length);
       select.innerHTML = '<option value="">未发现浏览器插件</option>';
-      state.currentBrowserId = '';
+      state.currentBrowserIds = [];
       state.browserConnectionProfileById = {};
       if (state.currentSession && !currentMessages().length) {
         state.currentSession.browserConnectionId = '';
+        state.currentSession.browserConnectionIds = [];
       }
       syncSelectUi(select);
       notifyBrowserSelection();
@@ -2494,7 +2576,8 @@
         modelId: select.value,
         messages,
         quota: useCustomApi ? null : state.quota,
-        browserConnectionId: state.currentBrowserId,
+        browserConnectionId: state.currentBrowserIds[0] || '',
+        browserConnectionIds: [...state.currentBrowserIds],
         automationCardId: state.currentCardId,
         stream: true,
         requestId,
@@ -2541,7 +2624,8 @@
       renderQuota(useCustomApi ? state.quota : (result.quota || state.quota));
       if (state.currentSession) {
         state.currentSession.modelId = select.value;
-        state.currentSession.browserConnectionId = state.currentBrowserId;
+        state.currentSession.browserConnectionId = state.currentBrowserIds[0] || '';
+        state.currentSession.browserConnectionIds = [...state.currentBrowserIds];
         state.currentSession.automationCardId = state.currentCardId;
         if (!state.currentSession.title || state.currentSession.title === '新对话') {
           state.currentSession.title = provisionalTitle(content);
@@ -2649,10 +2733,11 @@
       button.addEventListener('click', closeCustomApiDialog);
     });
     el('ai-chat-browser')?.addEventListener('change', (event) => {
-      state.currentBrowserId = String(event.target?.value || '');
-      state.browserSelectionExplicitlyDisabled = !state.currentBrowserId;
+      state.currentBrowserIds = getSelectBrowserIds(event.target);
+      state.browserSelectionExplicitlyDisabled = !state.currentBrowserIds.length;
       if (state.currentSession) {
-        state.currentSession.browserConnectionId = state.currentBrowserId;
+        state.currentSession.browserConnectionId = state.currentBrowserIds[0] || '';
+        state.currentSession.browserConnectionIds = [...state.currentBrowserIds];
         if (currentMessages().length) void persistCurrentSession();
       }
       if (!currentMessages().length) renderWelcome();

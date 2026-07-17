@@ -431,9 +431,15 @@ function registerAppLifecycle(deps = {}) {
 
     ipcMain.on('ai-control-browser-selection-changed', (_event, input = {}) => {
       const profileId = String(input?.profileId || '').trim();
+      const profileIds = [...new Set((Array.isArray(input?.profileIds) ? input.profileIds : [profileId])
+        .map((value) => String(value || '').trim())
+        .filter(Boolean))];
       const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
       if (!mainWindow || mainWindow.isDestroyed?.() || mainWindow.webContents?.isDestroyed?.()) return;
-      mainWindow.webContents.send('ai-control-browser-selection-changed', { profileId });
+      mainWindow.webContents.send('ai-control-browser-selection-changed', {
+        profileId: profileIds[0] || '',
+        profileIds,
+      });
     });
 
     ipcMain.handle('ai-control-select-automation-card', async (_event, input = {}) => {
@@ -651,7 +657,13 @@ function registerAppLifecycle(deps = {}) {
             return { ok: false, message: 'AI 对话额度已用尽，请联系管理员', quota };
           }
         }
-        const connectionId = String(input.browserConnectionId || '').trim();
+        // 多选：browserConnectionIds 优先；仍兼容旧版单个 browserConnectionId。
+        const rawConnectionIds = Array.isArray(input.browserConnectionIds)
+          ? input.browserConnectionIds
+          : (input.browserConnectionId ? [input.browserConnectionId] : []);
+        const connectionIds = [...new Set(rawConnectionIds
+          .map((value) => String(value || '').trim())
+          .filter(Boolean))];
         const automationCardId = String(input.automationCardId || '').trim();
         const disableTools = input.disableTools === true;
         const useStream = input.stream === true;
@@ -670,10 +682,39 @@ function registerAppLifecycle(deps = {}) {
           _event.sender.send('ai-control-chat-event', { requestId, ...payload });
         };
         const bridge = deps.browserAutomationBridge;
-        const connection = !disableTools && connectionId ? bridge?.getConnection?.(connectionId) : null;
-        if (!disableTools && connectionId && !connection) {
-          return { ok: false, message: '所选浏览器插件已离线，请刷新后重新选择' };
+        let connections = [];
+        if (!disableTools && connectionIds.length) {
+          for (const id of connectionIds) {
+            const found = bridge?.getConnection?.(id);
+            if (!found) {
+              return { ok: false, message: '所选浏览器插件已离线，请刷新后重新选择' };
+            }
+            connections.push(found);
+          }
+          // 用主窗口浏览器名称覆盖插件默认名，让 AI 能按用户看到的名称路由。
+          try {
+            connections = enrichBrowserConnectionNames(
+              connections,
+              typeof deps.getTabs === 'function' ? deps.getTabs() : [],
+              deps.browserRuntimeManager?.listStates?.() || [],
+            );
+          } catch (_) {}
         }
+        const findConnectionByRef = (ref) => {
+          const wanted = String(ref || '').trim();
+          if (!wanted) return null;
+          const byId = connections.find((item) => String(item.id) === wanted);
+          if (byId) return byId;
+          const lower = wanted.toLowerCase();
+          const byName = connections.filter((item) => String(item.name || '').trim().toLowerCase() === lower
+            || String(item.pluginName || '').trim().toLowerCase() === lower);
+          // 同名浏览器无法按名称区分，返回歧义标记让模型改用连接 ID。
+          if (byName.length > 1) return { ambiguous: true, ref: wanted };
+          return byName[0] || null;
+        };
+        const describeConnections = () => connections
+          .map((item) => `“${String(item.name || 'AI自动化浏览器')}”（browser_id: ${item.id}）`)
+          .join('、');
 
         let selectedAutomationCard = null;
         if (!disableTools && automationCardId) {
@@ -686,23 +727,64 @@ function registerAppLifecycle(deps = {}) {
 
         const windowTools = disableTools ? null : getAiBrowserWindowTools();
         // 插件工具若与默认窗口工具重名，以本地窗口工具为准（派发时本地优先）。
-        const connectionToolDefs = (connection?.tools || [])
-          .filter((tool) => !windowTools?.has(String(tool?.name || '')));
+        // 多个浏览器的工具目录按名称去重（同一插件工具集一致），并注入 browser_id
+        // 路由参数，让 AI 能按连接 ID 或浏览器名称分开控制。
+        const multiBrowser = connections.length > 1;
+        const withBrowserRouteParam = (tool) => {
+          const schema = tool?.input_schema && typeof tool.input_schema === 'object'
+            ? tool.input_schema
+            : { type: 'object', properties: {} };
+          return {
+            ...tool,
+            input_schema: {
+              ...schema,
+              properties: {
+                ...(schema.properties && typeof schema.properties === 'object' ? schema.properties : {}),
+                browser_id: {
+                  type: 'string',
+                  description: '目标浏览器：填所选浏览器的连接 ID 或名称。当前已选择多个浏览器，每次调用都必须指定，不同浏览器的标签页与页面状态相互独立。',
+                },
+              },
+            },
+          };
+        };
+        const seenToolNames = new Set();
+        const connectionToolDefs = [];
+        for (const item of connections) {
+          for (const tool of (Array.isArray(item.tools) ? item.tools : [])) {
+            const toolName = String(tool?.name || '');
+            if (!toolName || windowTools?.has(toolName) || seenToolNames.has(toolName)) continue;
+            seenToolNames.add(toolName);
+            connectionToolDefs.push(multiBrowser ? withBrowserRouteParam(tool) : tool);
+          }
+        }
         const tools = [...(windowTools?.tools || []), ...connectionToolDefs];
         const selectedAutomationCardName = String(
           selectedAutomationCard?.cardName || selectedAutomationCard?.cardData?.name || automationCardId,
         ).replace(/[\r\n\t]+/g, ' ').trim().slice(0, 120);
         const selectedAutomationCardId = automationCardId.slice(0, 200);
-        const cardContextMessage = selectedAutomationCard && connection
+        const cardContextMessage = selectedAutomationCard && connections.length
           ? {
             role: 'system',
             content: `AI 控制当前选中的自动化卡片名称为 ${JSON.stringify(selectedAutomationCardName)}，ID 为 ${JSON.stringify(selectedAutomationCardId)}。当用户要求查看、修改或运行当前卡片时，优先通过 manage_card 使用该 ID；不要擅自改用其他卡片。`,
             ai_free_card_context: true,
           }
           : null;
-        let modelMessages = limitAiControlMessages(cardContextMessage
-          ? [cardContextMessage, ...initialMessages]
-          : [...initialMessages]);
+        const browserContextMessage = multiBrowser
+          ? {
+            role: 'system',
+            content: `AI 控制当前同时连接了 ${connections.length} 个浏览器：${describeConnections()}。`
+              + '调用浏览器插件工具（browser_tab/browser_observe/browser_action/browser_wait/manage_card/save_cookies 等）时，'
+              + '必须通过 browser_id 参数指定目标浏览器（填连接 ID 或浏览器名称）。'
+              + '不同浏览器的标签页、页面状态与登录会话相互独立；用户提到某个浏览器名称时，就在对应浏览器上执行操作。',
+            ai_free_card_context: true,
+          }
+          : null;
+        let modelMessages = limitAiControlMessages([
+          ...(browserContextMessage ? [browserContextMessage] : []),
+          ...(cardContextMessage ? [cardContextMessage] : []),
+          ...initialMessages,
+        ]);
         const compactToolValue = (value) => {
           let serialized = '';
           try { serialized = JSON.stringify(value ?? null); } catch (_) { serialized = String(value ?? ''); }
@@ -895,7 +977,7 @@ function registerAppLifecycle(deps = {}) {
           const needsPluginConnection = toolCalls.some(
             (call) => !windowTools?.has(String(call?.function?.name || '').trim()),
           );
-          if (needsPluginConnection && (!connection || !bridge?.dispatch)) {
+          if (needsPluginConnection && (!connections.length || !bridge?.dispatch)) {
             return finishAfterToolFailure('模型请求了浏览器插件工具，但当前没有选择可用的浏览器插件');
           }
 
@@ -945,14 +1027,46 @@ function registerAppLifecycle(deps = {}) {
               if (windowTools?.has(toolName)) {
                 toolResult = await waitForAbort(windowTools.execute(toolName, args));
               } else {
-                const requestedSeconds = Number(args?.timeout_seconds || 0);
-                const isCardRun = toolName === 'manage_card'
-                  && String(args?.action || '').trim().toLowerCase() === 'run';
-                toolResult = await waitForAbort(bridge.dispatch(connection.id, toolName, args, {
-                  timeoutMs: requestedSeconds > 0
-                    ? Math.min(1800, Math.max(1, requestedSeconds)) * 1000
-                    : (isCardRun ? 900000 : 180000),
-                }));
+                // 多浏览器时按 browser_id（连接 ID 或名称）路由到具体浏览器；
+                // 路由失败作为可恢复的工具错误返回，让模型自行纠正参数。
+                const routeRef = String(args?.browser_id ?? args?.browser_name ?? args?.browser ?? '').trim();
+                let targetConnection = null;
+                let routeError = '';
+                if (routeRef) {
+                  targetConnection = findConnectionByRef(routeRef);
+                  if (targetConnection?.ambiguous) {
+                    targetConnection = null;
+                    routeError = `存在多个名为 ${JSON.stringify(routeRef)} 的浏览器，请改用 browser_id 传连接 ID：${describeConnections()}`;
+                  } else if (!targetConnection) {
+                    routeError = `未找到名为 ${JSON.stringify(routeRef)} 的浏览器连接，可用浏览器：${describeConnections()}`;
+                  }
+                } else if (connections.length === 1) {
+                  targetConnection = connections[0];
+                } else {
+                  routeError = `当前选择了 ${connections.length} 个浏览器，请通过 browser_id 参数指定目标浏览器（连接 ID 或名称），可用浏览器：${describeConnections()}`;
+                }
+                if (routeError) {
+                  toolResult = {
+                    success: false,
+                    error: routeError,
+                    errorCode: 'BROWSER_ROUTE_NOT_FOUND',
+                    phase: 'tool_route',
+                    tool: toolName,
+                  };
+                } else {
+                  const dispatchArgs = { ...args };
+                  delete dispatchArgs.browser_id;
+                  delete dispatchArgs.browser_name;
+                  delete dispatchArgs.browser;
+                  const requestedSeconds = Number(args?.timeout_seconds || 0);
+                  const isCardRun = toolName === 'manage_card'
+                    && String(args?.action || '').trim().toLowerCase() === 'run';
+                  toolResult = await waitForAbort(bridge.dispatch(targetConnection.id, toolName, dispatchArgs, {
+                    timeoutMs: requestedSeconds > 0
+                      ? Math.min(1800, Math.max(1, requestedSeconds)) * 1000
+                      : (isCardRun ? 900000 : 180000),
+                  }));
+                }
               }
             } catch (error) {
               if (isStopped(error)) return buildStoppedResult();

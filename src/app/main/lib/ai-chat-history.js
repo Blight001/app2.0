@@ -128,17 +128,26 @@ function previewFromMessages(messages) {
   return String(firstUser.content).replace(/\s+/g, ' ').trim().slice(0, 80);
 }
 
+function normalizeBrowserConnectionIds(raw = {}) {
+  const list = Array.isArray(raw.browserConnectionIds)
+    ? raw.browserConnectionIds
+    : (raw.browserConnectionId ? [raw.browserConnectionId] : []);
+  return [...new Set(list.map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
 function normalizeSession(raw = {}) {
   const id = String(raw.id || '').trim() || crypto.randomUUID();
   const messages = sanitizeMessages(raw.messages);
   const title = String(raw.title || '').trim() || '新对话';
   const now = Date.now();
+  const browserConnectionIds = normalizeBrowserConnectionIds(raw);
   return {
     id,
     title: title.slice(0, 40),
     titleGenerated: raw.titleGenerated === true,
     modelId: String(raw.modelId || '').trim(),
-    browserConnectionId: String(raw.browserConnectionId || '').trim(),
+    browserConnectionId: browserConnectionIds[0] || '',
+    browserConnectionIds,
     automationCardId: String(raw.automationCardId || '').trim(),
     messages,
     preview: String(raw.preview || previewFromMessages(messages) || '').slice(0, 80),
@@ -154,6 +163,7 @@ function sessionSummary(session) {
     titleGenerated: session.titleGenerated === true,
     modelId: session.modelId || '',
     browserConnectionId: session.browserConnectionId || '',
+    browserConnectionIds: Array.isArray(session.browserConnectionIds) ? session.browserConnectionIds : [],
     automationCardId: session.automationCardId || '',
     preview: session.preview || '',
     messageCount: Array.isArray(session.messages) ? session.messages.length : 0,
@@ -290,6 +300,7 @@ function createSession(credentials, partial = {}) {
     titleGenerated: false,
     modelId: partial.modelId || '',
     browserConnectionId: partial.browserConnectionId || '',
+    browserConnectionIds: Array.isArray(partial.browserConnectionIds) ? partial.browserConnectionIds : [],
     automationCardId: partial.automationCardId || '',
     messages: [],
     createdAt: Date.now(),

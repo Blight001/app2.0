@@ -37,13 +37,15 @@ const appShellUpdateState = {
   activated: false,
   version: '',
 };
-let aiConnectedBrowserProfileId = '';
+let aiConnectedBrowserProfileIds = new Set();
+
+function isAiConnectedBrowserProfile(tabId) {
+  return aiConnectedBrowserProfileIds.has(String(tabId));
+}
 
 function syncAiConnectedBrowserHighlight() {
   for (const [tabId, tabElement] of tabElementById.entries()) {
-    const isConnected = Boolean(aiConnectedBrowserProfileId)
-      && tabId === aiConnectedBrowserProfileId;
-    tabElement.classList.toggle('ai-browser-connected', isConnected);
+    tabElement.classList.toggle('ai-browser-connected', isAiConnectedBrowserProfile(tabId));
   }
 }
 
@@ -110,7 +112,10 @@ if (IPC && typeof IPC.on === 'function') {
   IPC.on('app-update-error', () => resetAppShellUpdateProgress());
   IPC.on('app-update-skip', () => resetAppShellUpdateProgress());
   IPC.on('ai-control-browser-selection-changed', (payload = {}) => {
-    aiConnectedBrowserProfileId = String(payload?.profileId || '');
+    const ids = Array.isArray(payload?.profileIds)
+      ? payload.profileIds
+      : (payload?.profileId ? [payload.profileId] : []);
+    aiConnectedBrowserProfileIds = new Set(ids.map((id) => String(id || '')).filter(Boolean));
     syncAiConnectedBrowserHighlight();
   });
 }
@@ -857,7 +862,7 @@ function createTabElement(tab) {
   tabElement.dataset.browserHistoryId = String(tab?.browserHistoryId || '');
   tabElement.classList.toggle(
     'ai-browser-connected',
-    Boolean(aiConnectedBrowserProfileId) && String(tab.id) === aiConnectedBrowserProfileId,
+    isAiConnectedBrowserProfile(tab.id),
   );
   tabElement.classList.toggle('network-magic', tab?.networkMagicEnabled === true);
 
@@ -990,7 +995,7 @@ function syncTabElement(tabElement, tab) {
   tabElement.dataset.runtimeStatus = String(tab?.runtimeStatus || 'starting');
   tabElement.classList.toggle(
     'ai-browser-connected',
-    Boolean(aiConnectedBrowserProfileId) && String(tab.id) === aiConnectedBrowserProfileId,
+    isAiConnectedBrowserProfile(tab.id),
   );
   tabElement.classList.toggle('network-magic', tab?.networkMagicEnabled === true);
   const runtimeBadge = tabElement.querySelector('.tab-runtime-badge');
