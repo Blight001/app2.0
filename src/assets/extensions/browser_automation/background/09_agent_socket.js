@@ -4,6 +4,12 @@
 
 const AGENT_KEEPALIVE_ALARM = 'agent-keepalive';
 const AGENT_VERSION = '1.0.0';
+const APP_BROWSER_TOKEN_HEADER = 'X-AI-Free-Browser-Token';
+const APP_BROWSER_PID_HEADER = 'X-AI-Free-Browser-Pid';
+
+function getAppBrowserToken() {
+    return String(globalThis.AI_FREE_BROWSER_ENVIRONMENT?.appBrowserToken || '').trim();
+}
 
 // Protocol event names (kept for server compatibility)
 const DEVICE_ENROLL = 'device:register';
@@ -14,6 +20,7 @@ let agentStatus = 'disconnected'; // disconnected | connecting | connected | enr
 let agentBoundAiConfigId = null;
 let agentCurrentId = null;
 let agentMachineId = null;
+let agentBrowserProcessId = 0;
 let agentConnectPromise = null;
 let agentLastErrorReason = ''; // 最近一次 error 状态的原因，便于 UI 显示详细提示
 const agentTaskOutcomes = new Map();
@@ -594,6 +601,9 @@ function parseAiConfigId(raw) {
 }
 
 async function getAgentBrowserProcessId() {
+    if (agentBrowserProcessId) {
+        return agentBrowserProcessId;
+    }
     if (!chrome.processes || typeof chrome.processes.getProcessInfo !== 'function') {
         return 0;
     }
@@ -602,7 +612,8 @@ async function getAgentBrowserProcessId() {
         const processes = Array.isArray(processInfo) ? processInfo : Object.values(processInfo || {});
         const browserProcess = processes
             .find((process) => String(process && process.type || '').toLowerCase() === 'browser');
-        return Number(browserProcess && browserProcess.osProcessId || 0) || 0;
+        agentBrowserProcessId = Number(browserProcess && browserProcess.osProcessId || 0) || 0;
+        return agentBrowserProcessId;
     } catch (_error) {
         return 0;
     }
@@ -676,6 +687,10 @@ class LocalAutomationBridgeSocket {
 
     async request(path, options = {}) {
         const headers = { ...(options.headers || {}) };
+        const appBrowserToken = getAppBrowserToken();
+        if (!appBrowserToken) throw new Error('当前扩展不在 AI-FREE 受信浏览器环境中');
+        headers[APP_BROWSER_TOKEN_HEADER] = appBrowserToken;
+        headers[APP_BROWSER_PID_HEADER] = String(await getAgentBrowserProcessId());
         if (this.token) headers['X-Bridge-Token'] = this.token;
         if (options.body != null) headers['Content-Type'] = 'application/json';
         const suffix = this.connectionId ? `${path.includes('?') ? '&' : '?'}connection_id=${encodeURIComponent(this.connectionId)}` : '';
@@ -711,7 +726,11 @@ class LocalAutomationBridgeSocket {
             const url = `${this.baseUrl}/v1/disconnect?connection_id=${encodeURIComponent(connectionId)}`;
             void fetch(url, {
                 method: 'POST',
-                headers: { 'X-Bridge-Token': token },
+                headers: {
+                    'X-Bridge-Token': token,
+                    [APP_BROWSER_TOKEN_HEADER]: getAppBrowserToken(),
+                    [APP_BROWSER_PID_HEADER]: String(agentBrowserProcessId || 0)
+                },
                 keepalive: true
             }).catch(() => {});
         }
@@ -789,6 +808,10 @@ async function requestSoftwareCardCache(path, options = {}) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
             const headers = { ...(options.headers || {}) };
+            const appBrowserToken = getAppBrowserToken();
+            if (!appBrowserToken) throw new Error('当前扩展不在 AI-FREE 受信浏览器环境中');
+            headers[APP_BROWSER_TOKEN_HEADER] = appBrowserToken;
+            headers[APP_BROWSER_PID_HEADER] = String(await getAgentBrowserProcessId());
             if (options.body != null) headers['Content-Type'] = 'application/json';
             const response = await fetch(`${baseUrl}${path}`, {
                 ...options,
@@ -840,6 +863,10 @@ async function agentDoConnect() {
         return;
     }
     if (settings.offlineMode) {
+        return;
+    }
+    if (!getAppBrowserToken()) {
+        setAgentStatus('error', '仅允许在 AI-FREE 软件内置浏览器中连接 MCP');
         return;
     }
 
@@ -1475,7 +1502,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
                     try {
                         const base = trimUrl(settings.localBridgeUrl);
                         const start = Date.now();
-                        const res = await fetch(`${base}/health`, { signal: AbortSignal.timeout(5000) });
+                        const res = await fetch(`${base}/health`, {
+                            headers: {
+                                [APP_BROWSER_TOKEN_HEADER]: getAppBrowserToken(),
+                                [APP_BROWSER_PID_HEADER]: String(await getAgentBrowserProcessId())
+                            },
+                            signal: AbortSignal.timeout(5000)
+                        });
                         http = { ok: true, status: res.status, ms: Date.now() - start };
                     } catch (error) {
                         http = { ok: false, error: error && error.message ? error.message : String(error) };

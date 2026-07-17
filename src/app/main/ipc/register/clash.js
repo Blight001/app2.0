@@ -26,7 +26,7 @@ const {
 const { createProxyTrafficMonitor } = require('./proxy-traffic-monitor');
 
 function registerClashIPC(ctx) {
-  const { httpClient, ui, licenseCache } = ctx;
+  const { httpClient, ui, licenseCache, computeDeviceId } = ctx;
   try {
     if (typeof setRuntimeLicenseCache === 'function') {
       setRuntimeLicenseCache(licenseCache);
@@ -124,7 +124,7 @@ function registerClashIPC(ctx) {
     try {
       const credentials = readCredentials();
       const key = String(credentials?.key || '').trim();
-      const deviceId = String(credentials?.deviceId || '').trim();
+      const deviceId = String(await computeDeviceId() || '').trim();
       if (!key || !deviceId) return { ok: false, message: '请先在个人中心登录账号' };
       return await httpClient.getProxyTrafficQuota(key, deviceId);
     } catch (error) {
@@ -136,7 +136,7 @@ function registerClashIPC(ctx) {
     try {
       const credentials = readCredentials();
       const key = String(credentials?.key || '').trim();
-      const deviceId = String(credentials?.deviceId || '').trim();
+      const deviceId = String(await computeDeviceId() || '').trim();
       const code = String(input.code || '').trim();
       if (!key || !deviceId) return { ok: false, message: '请先在个人中心登录账号' };
       if (!code) return { ok: false, message: '请输入流量礼品码' };

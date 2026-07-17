@@ -9,6 +9,9 @@ const STORE_FIELD = 'extensionManager';
 const BUILTIN_TRANSLATE_ID = 'builtin-transform';
 const BUILTIN_REMOVE_WATERMARK_ID = 'builtin-remove-watermark';
 const COMPAT_CACHE_DIR_NAME = 'extension-runtime-compat';
+const PROTECTED_RUNTIME_DIR_NAME = 'protected-extension-runtime';
+const BROWSER_AUTOMATION_DIR_NAME = 'browser_automation';
+const BROWSER_AUTOMATION_ENV_FILE = 'background/00_environment.js';
 // Chromium reserves extension files/directories beginning with "_". Keep the
 // software-generated shim name ordinary so the original plugin remains untouched.
 const COMPAT_SHIM_FILE = 'electron-extension-compat.js';
@@ -62,6 +65,7 @@ function createExtensionManager(deps = {}) {
     applyPluginSettings = null,
     sendToSide = null,
     onPluginStateChanged = null,
+    getBrowserAutomationAccessToken = null,
   } = deps;
 
   let state = {
@@ -78,6 +82,8 @@ function createExtensionManager(deps = {}) {
   let refreshQueued = false;
   let watcherRootsKey = '';
   let extensionWatchers = [];
+  let protectedAutomationSignature = '';
+  let protectedAutomationPath = '';
 
   function normalizeAbsolutePath(value) {
     try {
@@ -1200,6 +1206,77 @@ function createExtensionManager(deps = {}) {
     } catch (_) {}
   }
 
+  function resolveProtectedRuntimeRoot() {
+    try {
+      if (app && typeof app.getPath === 'function') {
+        return path.join(app.getPath('userData'), PROTECTED_RUNTIME_DIR_NAME);
+      }
+    } catch (_) {}
+    return path.join(process.cwd(), `.${PROTECTED_RUNTIME_DIR_NAME}`);
+  }
+
+  function isBuiltinBrowserAutomationPlugin(plugin) {
+    return plugin?.builtin === true
+      && path.basename(String(plugin.path || '')).toLowerCase() === BROWSER_AUTOMATION_DIR_NAME;
+  }
+
+  function prepareProtectedBrowserAutomationPath(plugin) {
+    const sourcePath = normalizeAbsolutePath(plugin?.path);
+    const accessToken = typeof getBrowserAutomationAccessToken === 'function'
+      ? String(getBrowserAutomationAccessToken() || '').trim()
+      : '';
+    // 独立复用 extension-manager 的脚本/测试没有桥接密钥时保持原行为；
+    // 正式应用始终注入 getter，并且绝不把密钥写回 sourcePath。
+    if (!sourcePath || !accessToken) return sourcePath;
+
+    const runtimeRoot = resolveProtectedRuntimeRoot();
+    const runtimePath = path.join(runtimeRoot, BROWSER_AUTOMATION_DIR_NAME);
+    const signature = hashId([
+      sourcePath,
+      plugin?.runtimeSignature || '',
+      accessToken,
+      'protected-browser-automation-v1',
+    ].join('|'));
+    if (
+      protectedAutomationSignature === signature
+      && protectedAutomationPath === runtimePath
+      && fs.existsSync(path.join(runtimePath, 'manifest.json'))
+    ) {
+      return runtimePath;
+    }
+
+    try {
+      fs.mkdirSync(runtimeRoot, { recursive: true });
+      if (fs.existsSync(runtimePath)) {
+        if (!isPathInside(runtimeRoot, runtimePath)) {
+          throw new Error('受保护插件运行目录校验失败');
+        }
+        fs.rmSync(runtimePath, { recursive: true, force: true });
+      }
+      copyDirectoryRecursive(sourcePath, runtimePath);
+      const environmentPath = path.join(runtimePath, BROWSER_AUTOMATION_ENV_FILE);
+      const environmentSource = [
+        '// 由 AI-FREE 主进程生成；软件重启后此临时凭据立即失效。',
+        `globalThis.AI_FREE_BROWSER_ENVIRONMENT = Object.freeze(${JSON.stringify({
+          protectedRuntime: true,
+          appBrowserToken: accessToken,
+        })});`,
+        '',
+      ].join('\n');
+      fs.writeFileSync(environmentPath, environmentSource, { encoding: 'utf8', mode: 0o600 });
+      protectedAutomationSignature = signature;
+      protectedAutomationPath = runtimePath;
+      logger.log?.('[Extensions] 已创建仅限当前软件进程使用的自动化插件运行副本');
+      return runtimePath;
+    } catch (error) {
+      protectedAutomationSignature = '';
+      protectedAutomationPath = '';
+      // 不能回退到未注入认证的源扩展；源扩展虽会自锁，但直接不加载更清晰。
+      logger.error?.('[Extensions] 创建受保护自动化插件副本失败:', error?.message || error);
+      return '';
+    }
+  }
+
   function getPluginMaps(plugins = []) {
     const byId = new Map();
     const byPath = new Map();
@@ -1403,7 +1480,11 @@ function createExtensionManager(deps = {}) {
     const paths = [];
     for (const plugin of state.plugins) {
       if (plugin?.enabled !== true || plugin?.missing === true) continue;
-      const pluginPath = normalizeAbsolutePath(plugin.path);
+      const pluginPath = normalizeAbsolutePath(
+        isBuiltinBrowserAutomationPlugin(plugin)
+          ? prepareProtectedBrowserAutomationPath(plugin)
+          : plugin.path,
+      );
       if (!pluginPath || seen.has(pluginPath)) continue;
       try {
         if (!fs.existsSync(path.join(pluginPath, 'manifest.json'))) continue;

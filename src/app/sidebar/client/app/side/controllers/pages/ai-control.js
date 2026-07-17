@@ -4,6 +4,8 @@
     sessionList: [],
     currentSession: null,
     currentBrowserIds: [],
+    availableBrowserIds: [],
+    browserConnectionsInitialized: false,
     browserConnectionProfileById: {},
     browserConnectionsLoading: false,
     currentCardId: '',
@@ -14,6 +16,7 @@
     automationCardsQueuedPreferredId: '',
     automationCardsError: '',
     browserSelectionExplicitlyDisabled: false,
+    browserSelectionTouched: false,
     accountAuthenticated: false,
     vipActive: false,
     loading: false,
@@ -1203,7 +1206,11 @@
     state.currentSession = session || null;
     state.messages = Array.isArray(session?.messages) ? [...session.messages] : [];
     const restoredIds = sessionBrowserIds(session);
-    if (restoredIds.length) state.currentBrowserIds = restoredIds;
+    if (restoredIds.length) {
+      state.currentBrowserIds = restoredIds;
+      // 会话里带了明确的浏览器选择，视为用户已手动选择，不再默认全选。
+      state.browserSelectionTouched = true;
+    }
     const sessionCardId = String(session?.automationCardId || '').trim();
     if (sessionCardId) {
       state.currentCardId = sessionCardId;
@@ -2288,12 +2295,25 @@
         option.title = browserName;
         select.appendChild(option);
       });
-      const availableIds = new Set(connections.map((item) => String(item.id || '')));
+      const allConnectionIds = normalizeBrowserIds(connections.map((item) => String(item.id || '')));
+      const availableIds = new Set(allConnectionIds);
       const survivingIds = previousIds.filter((id) => availableIds.has(id));
-      const firstConnectionId = String(connections[0]?.id || '');
-      const nextBrowserIds = survivingIds.length
+      const previouslyAvailableIds = new Set(state.availableBrowserIds);
+      const newlyConnectedIds = state.browserConnectionsInitialized
+        ? allConnectionIds.filter((id) => !previouslyAvailableIds.has(id))
+        : [];
+      // 首次加载默认全选；之后保留旧浏览器的手动选择，并自动勾选刚打开的浏览器。
+      // 用户明确选择“不连接浏览器”后不再自动选择。
+      const initialBrowserIds = state.browserSelectionTouched && survivingIds.length
         ? survivingIds
-        : (state.browserSelectionExplicitlyDisabled || !firstConnectionId ? [] : [firstConnectionId]);
+        : allConnectionIds;
+      const nextBrowserIds = state.browserSelectionExplicitlyDisabled
+        ? []
+        : (state.browserConnectionsInitialized
+          ? normalizeBrowserIds([...survivingIds, ...newlyConnectedIds])
+          : initialBrowserIds);
+      state.availableBrowserIds = allConnectionIds;
+      state.browserConnectionsInitialized = true;
       const selectionChanged = nextBrowserIds.join(',') !== state.currentBrowserIds.join(',');
       setSelectBrowserIds(select, nextBrowserIds);
       state.currentBrowserIds = nextBrowserIds;
@@ -2310,6 +2330,8 @@
       const selectionChanged = Boolean(state.currentBrowserIds.length);
       select.innerHTML = '<option value="">未发现浏览器插件</option>';
       state.currentBrowserIds = [];
+      state.availableBrowserIds = [];
+      state.browserConnectionsInitialized = false;
       state.browserConnectionProfileById = {};
       if (state.currentSession && !currentMessages().length) {
         state.currentSession.browserConnectionId = '';
@@ -2734,6 +2756,7 @@
     });
     el('ai-chat-browser')?.addEventListener('change', (event) => {
       state.currentBrowserIds = getSelectBrowserIds(event.target);
+      state.browserSelectionTouched = true;
       state.browserSelectionExplicitlyDisabled = !state.currentBrowserIds.length;
       if (state.currentSession) {
         state.currentSession.browserConnectionId = state.currentBrowserIds[0] || '';

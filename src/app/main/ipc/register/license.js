@@ -14,6 +14,7 @@ const {
   resolveDreamTargetUrl: resolveConfiguredDreamTargetUrl,
 } = require('../../utils/account-records');
 const { setLicenseRuntimeConfig } = require('../../utils/runtime-config');
+const { markVipServerVerified } = require('../../utils/vip-access');
 const {
   buildUnboundCredentialRecord,
   normalizeLicenseBinding,
@@ -371,6 +372,7 @@ function registerLicenseIPC(ctx) {
 
       if (isValid) {
         try {
+          const verifiedResult = markVipServerVerified(r);
           const { normalizeValidationRuntimeConfig } = require('../../lib/http-client');
           const runtimeConfig = normalizeValidationRuntimeConfig(r);
           const runtimeConnection = resolveRuntimeConnectionConfig(runtimeConfig);
@@ -408,7 +410,7 @@ function registerLicenseIPC(ctx) {
               validated: true,
               bound: true,
               licenseValidated: true,
-              result: r,
+              result: verifiedResult,
               canSelfUnbind: bindingInfo.canSelfUnbind,
               remainingUnbindTimes: bindingInfo.remainingUnbindTimes,
               maxUnbindTimes: bindingInfo.maxUnbindTimes,

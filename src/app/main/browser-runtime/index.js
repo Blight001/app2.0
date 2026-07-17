@@ -43,6 +43,16 @@ class BrowserRuntimeManager {
   async stopAll(options) { return this.chromium.stopAll(options); }
   getState(profileId) { return this.store.getState(profileId); }
   listStates() { return this.store.listStates(); }
+  isManagedBrowserProcess(processId) {
+    const pid = Number(processId || 0) || 0;
+    if (!pid) return false;
+    for (const instance of this.chromium.instances.values()) {
+      if (Number(instance?.child?.pid || 0) === pid && instance.child.exitCode === null) {
+        return true;
+      }
+    }
+    return false;
+  }
   deleteProfile(profileId) { return this.store.deleteProfile(profileId); }
   async deleteProfileAsync(profileId) {
     if (typeof this.store.deleteProfileAsync === 'function') {

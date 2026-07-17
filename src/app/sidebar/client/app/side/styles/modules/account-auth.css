@@ -935,6 +935,19 @@ html.account-center-popup .account-center-dialog-body {
   cursor: wait;
 }
 
+.sidebar-auth-device-login {
+  padding: 3px 0;
+  border: 0;
+  color: #78b8f5;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sidebar-auth-device-login:hover { color: #a5d2ff; }
+.sidebar-auth-device-login:disabled { opacity: .65; cursor: wait; }
+
 .sidebar-auth-status {
   min-height: 18px;
   color: #91a4bd;
@@ -1072,6 +1085,8 @@ html.theme-light .sidebar-auth-mode-switch {
   color: #2676bd;
 }
 html.theme-light .sidebar-auth-mode-switch:hover { color: #155f9f; }
+html.theme-light .sidebar-auth-device-login { color: #2676bd; }
+html.theme-light .sidebar-auth-device-login:hover { color: #155f9f; }
 html.theme-light .sidebar-auth-field label { color: #5a6c80; }
 html.theme-light .sidebar-auth-field input { border-color: rgba(90, 129, 179, .24); color: #1f3044; background: #fff; }
 html.theme-light .sidebar-auth-field input::placeholder { color: #94a0af; }

@@ -193,6 +193,7 @@ const logger = createLogger({ getSideWebContents: () => (appRuntime.getSideView(
 const browserAutomationBridge = createBrowserAutomationBridge({
   logger: console,
   cardCacheDir: path.join(app.getPath('userData'), 'extensions', 'browser_automation'),
+  isAllowedBrowserProcess: (processId) => browserRuntimeManager.isManagedBrowserProcess(processId),
 });
 app.whenReady().then(() => browserAutomationBridge.start()).catch((error) => {
   console.error('[AutomationBridge] 启动失败:', error?.message || error);
@@ -309,6 +310,7 @@ const extensionManager = createExtensionManager({
   getActiveTabId: appRuntime.getActiveTabId,
   applyPluginSettings,
   sendToSide,
+  getBrowserAutomationAccessToken: () => browserAutomationBridge.getAppBrowserToken(),
   onPluginStateChanged: async (change) => {
     if (!tabManager || typeof tabManager.refreshBrowsersAfterExtensionChange !== 'function') {
       return { ok: true, total: 0, chromiumRestarted: 0 };

@@ -129,6 +129,12 @@ window.redirectToSidebarAccountLogin = redirectToSidebarAccountLogin;
 function resolveSidebarVipState(session = {}) {
   const sources = [session.validation?.result, session.validation, session.result, session, session.account]
     .filter((item) => item && typeof item === 'object');
+  const verification = sources.find((source) => source.vip_server_verified === true);
+  const verifiedAt = Date.parse(String(verification?.vip_verified_at || ''));
+  const now = Date.now();
+  const serverVerified = Number.isFinite(verifiedAt)
+    && verifiedAt <= now + 60 * 1000
+    && now - verifiedAt <= 10 * 60 * 1000;
   let enabled = false;
   let statusResolved = false;
   let expiryDate = '';
@@ -147,7 +153,8 @@ function resolveSidebarVipState(session = {}) {
     if (/^[a-z][a-z0-9_-]{1,31}$/.test(candidateTier)) tier = candidateTier;
   }
   const expiresAt = expiryDate ? Date.parse(expiryDate.includes('T') ? expiryDate : expiryDate.replace(' ', 'T')) : null;
-  const active = enabled && (expiresAt === null || (Number.isFinite(expiresAt) && expiresAt > Date.now()));
+  const active = serverVerified && enabled
+    && (expiresAt === null || (Number.isFinite(expiresAt) && expiresAt > now));
   return { active, tier: active ? tier : null, expiryDate, permanent: active && !expiryDate };
 }
 
@@ -589,6 +596,33 @@ async function submitSidebarAccountAuth() {
   }
 }
 
+async function submitSidebarDeviceLogin() {
+  const button = safeGetEl('sidebar-device-login');
+  if (!button || button.dataset.busy === '1') return;
+  const originalText = button.textContent;
+  button.dataset.busy = '1';
+  button.disabled = true;
+  button.textContent = '正在识别本机设备...';
+  setSidebarAuthStatus('正在使用本机设备号找回账号...');
+  try {
+    const response = await invokeSidebarAccountAuth({ mode: 'device' });
+    if (!response?.ok) throw new Error(response?.message || '设备号登录失败');
+    renderSidebarAccountSession({
+      authenticated: true,
+      username: String(response.account?.username || '').trim(),
+      platformName: response.platformName || '',
+      account: response.account || {},
+      validation: response.validation || {},
+    });
+  } catch (error) {
+    setSidebarAuthStatus(error?.message || String(error), 'error');
+  } finally {
+    button.dataset.busy = '0';
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
 async function logoutSidebarAccount() {
   const button = safeGetEl('account-logout-btn');
   if (!button || button.dataset.busy === '1') return;
@@ -752,6 +786,7 @@ function bindSidebarAccountAuth() {
   safeGetEl('account-profile-menu')?.addEventListener('click', (event) => event.stopPropagation());
   document.addEventListener('click', closeAccountProfileMenu);
   safeGetEl('sidebar-auth-submit')?.addEventListener('click', submitSidebarAccountAuth);
+  safeGetEl('sidebar-device-login')?.addEventListener('click', submitSidebarDeviceLogin);
   safeGetEl('account-logout-btn')?.addEventListener('click', logoutSidebarAccount);
   safeGetEl('account-vip-card')?.addEventListener('click', openVipAccountCenter);
   safeGetEl('unified-redeem-gift')?.addEventListener('click', redeemUnifiedGiftCode);

@@ -12,16 +12,20 @@ const html = fs.readFileSync(
   'utf8',
 );
 
-test('AI 控制在有可用浏览器时默认选择第一个连接', () => {
-  assert.match(source, /const firstConnectionId = String\(connections\[0\]\?\.id \|\| ''\)/);
-  assert.match(
-    source,
-    /state\.browserSelectionExplicitlyDisabled \? '' : firstConnectionId/,
-  );
+test('AI 控制首次加载时默认勾选全部可用浏览器', () => {
+  assert.match(source, /const initialBrowserIds = state\.browserSelectionTouched && survivingIds\.length/);
+  assert.match(source, /: allConnectionIds;/);
+});
+
+test('AI 控制自动勾选刚打开的浏览器并保留旧浏览器的手动选择', () => {
+  assert.match(source, /const newlyConnectedIds = state\.browserConnectionsInitialized/);
+  assert.match(source, /allConnectionIds\.filter\(\(id\) => !previouslyAvailableIds\.has\(id\)\)/);
+  assert.match(source, /normalizeBrowserIds\(\[\.\.\.survivingIds, \.\.\.newlyConnectedIds\]\)/);
 });
 
 test('用户仍可手动选择不连接浏览器', () => {
-  assert.match(source, /state\.browserSelectionExplicitlyDisabled = !state\.currentBrowserId/);
+  assert.match(source, /state\.browserSelectionExplicitlyDisabled = !state\.currentBrowserIds\.length/);
+  assert.match(source, /const nextBrowserIds = state\.browserSelectionExplicitlyDisabled\s*\? \[\]/);
   assert.match(source, /<option value="">不连接浏览器<\/option>/);
 });
 

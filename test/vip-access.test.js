@@ -7,16 +7,38 @@ const path = require('node:path');
 const test = require('node:test');
 
 const { createTabManager } = require('../src/app/main/services/tab-manager');
-const { FREE_BROWSER_WINDOW_LIMIT, resolveVipAccess } = require('../src/app/main/utils/vip-access');
+const {
+  FREE_BROWSER_WINDOW_LIMIT,
+  clearVipServerVerification,
+  markVipServerVerified,
+  resolveVipAccess,
+} = require('../src/app/main/utils/vip-access');
 const root = path.join(__dirname, '..');
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
 test('VIP 状态支持永久、有效期和过期判断', () => {
   const now = Date.parse('2026-01-01T00:00:00');
-  assert.equal(resolveVipAccess({ account: { is_vip: 1, vip_expiry_date: null } }, now).isVip, true);
-  assert.equal(resolveVipAccess({ validation: { is_vip: true, vip_expiry_date: '2026-02-01 00:00:00' } }, now).isVip, true);
-  assert.equal(resolveVipAccess({ validation: { is_vip: true, vip_expiry_date: '2025-12-01 00:00:00' } }, now).isVip, false);
-  assert.equal(resolveVipAccess({ account: { is_vip: true }, validation: { is_vip: false } }, now).isVip, false);
+  const verified = (value) => markVipServerVerified(value, now);
+  assert.equal(resolveVipAccess({ account: verified({ is_vip: 1, vip_expiry_date: null }) }, now).isVip, true);
+  assert.equal(resolveVipAccess({ validation: verified({ is_vip: true, vip_expiry_date: '2026-02-01 00:00:00' }) }, now).isVip, true);
+  assert.equal(resolveVipAccess({ validation: verified({ is_vip: true, vip_expiry_date: '2025-12-01 00:00:00' }) }, now).isVip, false);
+  assert.equal(resolveVipAccess({ account: verified({ is_vip: true }), validation: { is_vip: false } }, now).isVip, false);
+});
+
+test('手工篡改本地 VIP 字段不能形成服务端验证状态', () => {
+  const now = Date.parse('2026-01-01T00:00:00');
+  const forged = {
+    account: { is_vip: true, vip_expiry_date: null },
+    validation: { is_vip: true, vip_active: true },
+  };
+  assert.equal(resolveVipAccess(forged, now).isVip, false);
+  const stale = markVipServerVerified({ is_vip: true }, now - (11 * 60 * 1000));
+  assert.equal(resolveVipAccess(stale, now).isVip, false);
+  const previouslyVerified = {
+    result: markVipServerVerified({ is_vip: true }, now),
+    is_vip: true,
+  };
+  assert.equal(resolveVipAccess(clearVipServerVerification(previouslyVerified), now).isVip, false);
 });
 
 test('普通用户打开第六个独立浏览器时由主进程拦截', async () => {
@@ -65,7 +87,16 @@ test('自定义插件和自定义模型同时具备界面锁与主进程 VIP 门
   assert.match(modelUi, /openVipAccountCenter/);
   assert.match(pluginIpc, /createVipRequiredResult\('导入自定义插件'\)/);
   assert.match(settingsIpc, /createVipRequiredResult\('自定义模型'\)/);
-  assert.match(lifecycle, /useCustomApi && !resolveVipAccess\(credentials\)\.isVip/);
+  assert.match(lifecycle, /useCustomApi && !resolveVipAccess\(licenseCache\?\.getSnapshot/);
+});
+
+test('启动恢复先在线验证会员并定时安全刷新', () => {
+  const lifecycle = read('src/app/main/services/app-lifecycle.js');
+  assert.match(lifecycle, /await httpClient\.validateKey\(credentials\.key, credentials\.deviceId\)/);
+  assert.match(lifecycle, /clearVipServerVerification\(credentials\.validation\)/);
+  assert.match(lifecycle, /refreshStoredMembership\(credentials, 'startup'\)/);
+  assert.match(lifecycle, /5 \* 60 \* 1000/);
+  assert.doesNotMatch(lifecycle, /resolveVipAccess\(credentials\)\.isVip/);
 });
 
 test('个人中心提供服务器驱动的动态会员套餐弹窗', () => {

@@ -2757,6 +2757,22 @@ async function loadLocalCardCacheState() {
     return { items: [], selectedId: '', persistPending };
 }
 
+let softwareCardCacheBrowserProcessId = 0;
+
+async function getSoftwareCardCacheBrowserProcessId() {
+    if (softwareCardCacheBrowserProcessId) return softwareCardCacheBrowserProcessId;
+    if (!chrome.processes || typeof chrome.processes.getProcessInfo !== 'function') return 0;
+    try {
+        const processInfo = await chrome.processes.getProcessInfo([], false);
+        const processes = Array.isArray(processInfo) ? processInfo : Object.values(processInfo || {});
+        const browserProcess = processes.find((process) => String(process?.type || '').toLowerCase() === 'browser');
+        softwareCardCacheBrowserProcessId = Number(browserProcess?.osProcessId || 0) || 0;
+        return softwareCardCacheBrowserProcessId;
+    } catch (_error) {
+        return 0;
+    }
+}
+
 async function requestSoftwareCardCacheDirect(path, options = {}) {
     const stored = await chrome.storage.local.get('agent-settings');
     const settings = stored && stored['agent-settings'] && typeof stored['agent-settings'] === 'object'
@@ -2764,6 +2780,10 @@ async function requestSoftwareCardCacheDirect(path, options = {}) {
         : {};
     const baseUrl = String(settings.localBridgeUrl || 'http://127.0.0.1:18765').replace(/\/+$/, '');
     const headers = { ...(options.headers || {}) };
+    const appBrowserToken = String(globalThis.AI_FREE_BROWSER_ENVIRONMENT?.appBrowserToken || '').trim();
+    if (!appBrowserToken) throw new Error('此插件仅允许在 AI-FREE 软件内置浏览器中使用');
+    headers['X-AI-Free-Browser-Token'] = appBrowserToken;
+    headers['X-AI-Free-Browser-Pid'] = String(await getSoftwareCardCacheBrowserProcessId());
     if (options.body != null) headers['Content-Type'] = 'application/json';
     const response = await fetch(`${baseUrl}${path}`, {
         ...options,

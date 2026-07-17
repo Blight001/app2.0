@@ -6,6 +6,8 @@ const path = require('path');
 const DEFAULT_PORT = 18765;
 const CONNECTION_TTL_MS = 3000;
 const MAX_BODY_BYTES = 5 * 1024 * 1024;
+const APP_BROWSER_TOKEN_HEADER = 'x-ai-free-browser-token';
+const APP_BROWSER_PID_HEADER = 'x-ai-free-browser-pid';
 const CARD_CACHE_SCHEMA_VERSION = 1;
 const CARD_CACHE_FILE_NAME = 'automation-cards.json';
 
@@ -98,11 +100,19 @@ function jsonResponse(res, statusCode, payload) {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': body.length,
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Bridge-Token',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Bridge-Token, X-AI-Free-Browser-Token, X-AI-Free-Browser-Pid',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
     'Cache-Control': 'no-store',
   });
   res.end(body);
+}
+
+function constantTimeTokenEquals(actual, expected) {
+  const actualBuffer = Buffer.from(String(actual || ''), 'utf8');
+  const expectedBuffer = Buffer.from(String(expected || ''), 'utf8');
+  return actualBuffer.length > 0
+    && actualBuffer.length === expectedBuffer.length
+    && crypto.timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
 async function readJson(req) {
@@ -125,7 +135,30 @@ function createBrowserAutomationBridge(options = {}) {
   const pendingTasks = new Map();
   const cardCacheStore = createCardCacheStore({ dataDir: options.cardCacheDir });
   const connectionTtlMs = Math.max(1000, Number(options.connectionTtlMs) || CONNECTION_TTL_MS);
+  // 该随机值仅注入软件生成的临时扩展副本，不写回安装包中的源扩展。
+  // 软件重启后自动轮换，旧副本立即失效。
+  const appBrowserToken = String(options.appBrowserToken || crypto.randomBytes(32).toString('hex'));
+  const isAllowedBrowserProcess = typeof options.isAllowedBrowserProcess === 'function'
+    ? options.isAllowedBrowserProcess
+    : null;
   let server = null;
+
+  function hasValidAppBrowserToken(req) {
+    return constantTimeTokenEquals(req.headers[APP_BROWSER_TOKEN_HEADER], appBrowserToken);
+  }
+
+  function isManagedBrowserProcess(browserProcessId) {
+    const pid = Number(browserProcessId || 0) || 0;
+    if (!pid) return false;
+    // 单元使用者可以不提供进程判定器；正式应用始终注入 Chromium Runtime
+    // 的活动子进程白名单。
+    if (!isAllowedBrowserProcess) return true;
+    try {
+      return isAllowedBrowserProcess(pid) === true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   function removeConnection(id, reason = '浏览器插件已断开') {
     const connectionId = String(id || '').trim();
@@ -171,6 +204,7 @@ function createBrowserAutomationBridge(options = {}) {
     const token = String(req.headers['x-bridge-token'] || url.searchParams.get('token') || '').trim();
     const connection = connections.get(id);
     if (!connection || !token || token !== connection.token) return null;
+    if (Number(req.headers[APP_BROWSER_PID_HEADER] || 0) !== connection.browserProcessId) return null;
     connection.lastSeenAt = Date.now();
     return connection;
   }
@@ -181,6 +215,13 @@ function createBrowserAutomationBridge(options = {}) {
       return jsonResponse(res, 403, { ok: false, message: '仅允许浏览器扩展连接本机桥接' });
     }
     if (req.method === 'OPTIONS') return jsonResponse(res, 204, {});
+    if (!hasValidAppBrowserToken(req)) {
+      return jsonResponse(res, 403, { ok: false, message: '当前插件不属于 AI-FREE 受信浏览器环境' });
+    }
+    const requestBrowserProcessId = Number(req.headers[APP_BROWSER_PID_HEADER] || 0) || 0;
+    if (!isManagedBrowserProcess(requestBrowserProcessId)) {
+      return jsonResponse(res, 403, { ok: false, message: '请求并非来自 AI-FREE 当前托管的内置浏览器' });
+    }
     const url = new URL(req.url, `http://${host}:${port}`);
     try {
       if (req.method === 'GET' && url.pathname === '/health') {
@@ -192,10 +233,15 @@ function createBrowserAutomationBridge(options = {}) {
         const data = await readJson(req);
         const instanceId = String(data.instanceId || data.id || '').trim();
         const sessionId = String(data.sessionId || '').trim();
+        const browserProcessId = Number(data.browserProcessId || 0) || 0;
+        if (browserProcessId !== requestBrowserProcessId || !isManagedBrowserProcess(browserProcessId)) {
+          logger.warn?.(`[AutomationBridge] 已拒绝非受管浏览器进程连接: PID ${browserProcessId || 'unknown'}`);
+          return jsonResponse(res, 403, { ok: false, message: '仅允许 AI-FREE 当前托管的内置浏览器连接 MCP' });
+        }
         for (const existing of connections.values()) {
           if (instanceId && sessionId && existing.instanceId === instanceId && existing.sessionId === sessionId) {
             existing.name = String(data.name || existing.name || 'AI自动化浏览器').trim();
-            existing.browserProcessId = Number(data.browserProcessId || existing.browserProcessId || 0) || 0;
+            existing.browserProcessId = browserProcessId;
             existing.platform = String(data.platform || existing.platform || 'browser-extension').trim();
             existing.version = String(data.version || existing.version || '').trim();
             existing.tools = Array.isArray(data.toolDefs) ? data.toolDefs : existing.tools;
@@ -223,7 +269,7 @@ function createBrowserAutomationBridge(options = {}) {
           token,
           instanceId: instanceId || id,
           sessionId,
-          browserProcessId: Number(data.browserProcessId || 0) || 0,
+          browserProcessId,
           name: String(data.name || 'AI自动化浏览器').trim(),
           platform: String(data.platform || 'browser-extension').trim(),
           version: String(data.version || '').trim(),
@@ -382,6 +428,7 @@ function createBrowserAutomationBridge(options = {}) {
     listConnections,
     selectCard,
     setCardCacheState,
+    getAppBrowserToken: () => appBrowserToken,
     start,
     stop,
     host,
@@ -391,11 +438,14 @@ function createBrowserAutomationBridge(options = {}) {
 }
 
 module.exports = {
+  APP_BROWSER_PID_HEADER,
+  APP_BROWSER_TOKEN_HEADER,
   CARD_CACHE_FILE_NAME,
   CONNECTION_TTL_MS,
   DEFAULT_PORT,
   createBrowserAutomationBridge,
   createCardCacheStore,
+  constantTimeTokenEquals,
   normalizeCardCacheState,
   normalizeBrowserToolOutcome,
 };

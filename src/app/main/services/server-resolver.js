@@ -260,7 +260,9 @@ function createServerResolver(deps = {}) {
   }
 
   async function authenticateAccount(payload = {}) {
-    return requestAccountService(payload.mode === 'register' ? 'register' : 'login', payload);
+    const mode = String(payload.mode || '').trim().toLowerCase();
+    const action = mode === 'register' ? 'register' : (mode === 'device' ? 'device-login' : 'login');
+    return requestAccountService(action, payload);
   }
 
   function applyResolvedConfigToStore({ resolved }) {

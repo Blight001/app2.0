@@ -14,6 +14,7 @@ const {
   resolveCurrentAccountType,
 } = require('../utils/normalizers');
 const { sanitizeUserFacingMessage } = require('../utils/messages');
+const { markVipServerVerified } = require('../utils/vip-access');
 const { registerRequestHeaderTransformer } = require('../utils/session-request-headers');
 const {
   extractNestedText,
@@ -529,7 +530,7 @@ function createAuthCookie({ serverBase: serverBaseInput, httpClient: injectedHtt
 
       const normalizedKey = String(key || '').trim();
       const normalizedDeviceId = String(deviceId || '').trim();
-      const payload = source && typeof source === 'object' ? source : {};
+      const payload = markVipServerVerified(source && typeof source === 'object' ? source : {});
       const normalizedUsage = normalizeLicenseUsage(payload) || {};
       const currentAccountType = String(
         payload.currentAccountType

@@ -19,7 +19,12 @@ const {
 } = require('../utils/ai-control-settings');
 const { sendCustomAIControlMessage } = require('./custom-ai-api');
 const { createAiBrowserWindowTools } = require('./ai-browser-window-tools');
-const { createVipRequiredResult, resolveVipAccess } = require('../utils/vip-access');
+const {
+  clearVipServerVerification,
+  createVipRequiredResult,
+  markVipServerVerified,
+  resolveVipAccess,
+} = require('../utils/vip-access');
 const {
   MAX_AI_CONTROL_MESSAGES,
   limitAiControlMessages,
@@ -286,7 +291,7 @@ function registerAppLifecycle(deps = {}) {
         const key = String(credentials.key || '').trim();
         const deviceId = String(credentials.deviceId || '').trim();
         const customApi = getCustomAiApiConfig(store);
-        const hasVipAccess = resolveVipAccess(credentials).isVip;
+        const hasVipAccess = resolveVipAccess(licenseCache?.getSnapshot?.() || {}).isVip;
         const customModel = hasVipAccess && isCustomAiApiConfigured(customApi)
           ? {
             id: CUSTOM_AI_MODEL_ID,
@@ -346,7 +351,7 @@ function registerAppLifecycle(deps = {}) {
       try {
         const credentials = readStoreConfigSafe()?.userCredentials || {};
         const key = String(credentials.key || '').trim();
-        const deviceId = String(credentials.deviceId || '').trim();
+        const deviceId = String(await computeDeviceId() || '').trim();
         const code = String(input.code || '').trim();
         if (!key || !deviceId) return { ok: false, message: '请先在个人中心登录账号' };
         if (!code) return { ok: false, message: '请输入礼品码' };
@@ -481,7 +486,7 @@ function registerAppLifecycle(deps = {}) {
         const currentStore = readStoreConfigSafe() || {};
         const credentials = normalizeAccountSession(currentStore.userCredentials || {});
         const key = String(credentials.key || '').trim();
-        const deviceId = String(credentials.deviceId || '').trim();
+        const deviceId = String(await computeDeviceId() || '').trim();
         const code = String(input.code || '').trim();
         if (!key || !deviceId) return { ok: false, message: '请先在个人中心登录账号' };
         if (!code) return { ok: false, message: '请输入礼品码' };
@@ -492,24 +497,24 @@ function registerAppLifecycle(deps = {}) {
         const redeemed = await httpClient.redeemVipGiftCode(key, deviceId, code);
         if (!redeemed?.ok) return redeemed;
 
-        let validation = {
+        let validation = markVipServerVerified({
           ...(credentials.validation || {}),
           is_vip: true,
           vip_active: true,
           vip_tier: redeemed.vip_tier || 'vip',
           vip_expiry_date: redeemed.vip_expiry_date || null,
-        };
+        });
         if (typeof httpClient.validateKey === 'function') {
           const refreshed = await httpClient.validateKey(key, deviceId);
-          if (refreshed?.valid === true || refreshed?.ok === true) validation = refreshed;
+          if (refreshed?.valid === true) validation = markVipServerVerified(refreshed);
         }
-        const account = {
+        const account = markVipServerVerified({
           ...(credentials.account || {}),
           is_vip: true,
           vip_active: true,
           vip_tier: validation.vip_tier || redeemed.vip_tier || 'vip',
           vip_expiry_date: validation.vip_expiry_date ?? redeemed.vip_expiry_date ?? null,
-        };
+        });
         const storedSession = buildStoredAccountSession({
           current: currentStore.userCredentials || {},
           username: credentials.username,
@@ -549,7 +554,7 @@ function registerAppLifecycle(deps = {}) {
       try {
         const credentials = readStoreConfigSafe()?.userCredentials || {};
         const key = String(credentials.key || '').trim();
-        const deviceId = String(credentials.deviceId || '').trim();
+        const deviceId = String(await computeDeviceId() || '').trim();
         const code = String(input.code || '').trim();
         if (!key || !deviceId) return { ok: false, message: '请先在个人中心登录账号' };
         if (!code) return { ok: false, message: '请输入礼品码' };
@@ -636,7 +641,7 @@ function registerAppLifecycle(deps = {}) {
         const modelId = String(input.modelId || '').trim();
         const useCustomApi = isCustomAiModelId(modelId);
         const customApi = getCustomAiApiConfig(store);
-        if (useCustomApi && !resolveVipAccess(credentials).isVip) {
+        if (useCustomApi && !resolveVipAccess(licenseCache?.getSnapshot?.() || {}).isVip) {
           return createVipRequiredResult('自定义模型');
         }
         if (useCustomApi && !isCustomAiApiConfigured(customApi)) {
@@ -1185,13 +1190,19 @@ function registerAppLifecycle(deps = {}) {
         if (typeof deps.authenticateAccount !== 'function') {
           return { ok: false, message: '账号服务未就绪' };
         }
-        const username = String(input.username || '').trim();
+        let username = String(input.username || '').trim();
         const password = String(input.password || '');
-        const mode = input.mode === 'register' ? 'register' : 'login';
-        if (!username || !password) {
+        const requestedMode = String(input.mode || '').trim().toLowerCase();
+        const mode = requestedMode === 'register' ? 'register' : (requestedMode === 'device' ? 'device' : 'login');
+        if (mode !== 'device' && (!username || !password)) {
           return { ok: false, message: '请输入用户名和密码' };
         }
-        const deviceId = String(input.deviceId || '').trim() || await computeDeviceId();
+        // Authentication always uses the single packaged machine-id helper.
+        // Never trust a renderer-supplied value or derive an ID from a NIC/disk.
+        const deviceId = String(await computeDeviceId() || '').trim();
+        if (!deviceId || deviceId === '获取失败') {
+          return { ok: false, message: '无法读取本机设备号，请重启软件后重试' };
+        }
         const authenticated = await deps.authenticateAccount({
           mode,
           username,
@@ -1207,13 +1218,21 @@ function registerAppLifecycle(deps = {}) {
           };
         }
 
+        username = String(authenticated.account?.username || username).trim();
+        if (!username) {
+          return { ok: false, message: '登录响应缺少账号信息' };
+        }
+
         const key = String(authenticated.credential || '').trim();
         if (!key) {
           return { ok: false, message: '登录响应缺少内部凭据' };
         }
-        const validation = authenticated.validation && typeof authenticated.validation === 'object'
-          ? authenticated.validation
-          : {};
+        const validation = markVipServerVerified(
+          authenticated.validation && typeof authenticated.validation === 'object'
+            ? authenticated.validation
+            : {},
+        );
+        const authenticatedAccount = markVipServerVerified(authenticated.account || {});
         const resolved = {
           ...authenticated,
           ...validation,
@@ -1257,7 +1276,7 @@ function registerAppLifecycle(deps = {}) {
           platformName: String(resolved.platformName || '').trim(),
           serverBase: String(resolved.serverBase || '').trim(),
           serverMode: getServerMode(),
-          account: authenticated.account || {},
+          account: authenticatedAccount,
           validation: resolved,
         });
         writeStoreConfigSafe({
@@ -1299,20 +1318,20 @@ function registerAppLifecycle(deps = {}) {
           key,
           deviceId,
           username,
-          account: authenticated.account || {},
+          account: authenticatedAccount,
           validation: validationState,
         });
         deps.sendToSide?.('account-session-updated', {
           authenticated: true,
           username,
           platformName: String(resolved.platformName || '').trim(),
-          account: authenticated.account || {},
+          account: authenticatedAccount,
           validation: validationState,
         });
         return {
           ok: true,
-          message: mode === 'register' ? '注册成功' : '登录成功',
-          account: authenticated.account || {},
+          message: mode === 'register' ? '注册成功' : (mode === 'device' ? '设备号登录成功' : '登录成功'),
+          account: authenticatedAccount,
           platformName: resolved.platformName,
           validation: validationState,
         };
@@ -1456,6 +1475,77 @@ function registerAppLifecycle(deps = {}) {
       }
     });
 
+    let membershipRefreshInFlight = null;
+    const refreshStoredMembership = async (credentials, reason = 'startup') => {
+      if (membershipRefreshInFlight) return membershipRefreshInFlight;
+      membershipRefreshInFlight = (async () => {
+        const httpClient = getGlobalHttpClient?.();
+        if (httpClient && Object.prototype.hasOwnProperty.call(httpClient, 'runtimeServerBase')) {
+          httpClient.runtimeServerBase = String(credentials.serverBase || '').trim().replace(/\/+$/, '');
+        }
+        const response = httpClient && typeof httpClient.validateKey === 'function'
+          ? await httpClient.validateKey(credentials.key, credentials.deviceId)
+          : null;
+        const verified = response?.valid === true;
+        const validation = verified
+          ? markVipServerVerified(response)
+          : clearVipServerVerification(credentials.validation);
+        const account = verified
+          ? markVipServerVerified({
+            ...credentials.account,
+            is_vip: response.is_vip === true,
+            vip_active: response.vip_active === true || response.is_vip === true,
+            vip_tier: response.vip_tier || null,
+            vip_expiry_date: response.vip_expiry_date || null,
+          })
+          : clearVipServerVerification(credentials.account);
+        const currentStore = readStoreConfigSafe();
+        const storedSession = buildStoredAccountSession({
+          current: currentStore?.userCredentials || {},
+          username: credentials.username,
+          key: credentials.key,
+          deviceId: credentials.deviceId,
+          platformName: credentials.platformName,
+          serverBase: credentials.serverBase,
+          serverMode: credentials.serverMode,
+          account,
+          validation,
+          authenticatedAt: credentials.authenticatedAt,
+        });
+        writeStoreConfigSafe({ ...currentStore, userCredentials: storedSession });
+        licenseCache?.setCredentials?.({ key: credentials.key, deviceId: credentials.deviceId });
+        licenseCache?.setValidationState?.({
+          key: credentials.key,
+          deviceId: credentials.deviceId,
+          validated: verified,
+          bound: verified,
+          licenseValidated: verified,
+          result: validation,
+          message: verified ? '会员状态已由服务器验证' : '会员状态在线验证失败，已安全降级',
+        });
+        setLicenseRuntimeConfig(licenseCache, validation);
+        licenseCache?.setRuntimeConfig?.({ autoValidatePending: false });
+        if (reason !== 'startup') {
+          deps.sendToSide?.('account-session-updated', {
+            authenticated: true,
+            username: credentials.username,
+            platformName: credentials.platformName,
+            account,
+            validation,
+          });
+        }
+        if (!verified) {
+          logger.warn?.('[会员] 在线验证失败，本地 VIP 权限已关闭:', response?.message || response?.error || '服务不可用');
+        }
+        return { verified, validation, account };
+      })();
+      try {
+        return await membershipRefreshInFlight;
+      } finally {
+        membershipRefreshInFlight = null;
+      }
+    };
+
     try {
       const credentials = normalizeAccountSession(readStoreConfigSafe()?.userCredentials || {});
       const currentServerMode = getServerMode();
@@ -1464,7 +1554,6 @@ function registerAppLifecycle(deps = {}) {
         && credentials.serverMode === currentServerMode
         && isServerBaseAllowedForMode(credentials.serverBase, currentServerMode)
       ) {
-        licenseCache?.setCredentials?.({ key: credentials.key, deviceId: credentials.deviceId });
         deps.applyResolvedConfigToStore?.({
           resolved: {
             ...credentials.validation,
@@ -1472,18 +1561,17 @@ function registerAppLifecycle(deps = {}) {
             platformName: credentials.platformName,
           },
         });
-        licenseCache?.setValidationState?.({
-          key: credentials.key,
-          deviceId: credentials.deviceId,
-          validated: true,
-          bound: true,
-          licenseValidated: true,
-          result: credentials.validation,
-          message: '账号登录状态已恢复',
-        });
-        setLicenseRuntimeConfig(licenseCache, credentials.validation);
-        licenseCache?.setRuntimeConfig?.({ autoValidatePending: false });
-        logger.log?.('[账号] 已恢复账号登录状态:', credentials.username);
+        const refreshed = await refreshStoredMembership(credentials, 'startup');
+        logger.log?.('[账号] 已恢复账号登录状态:', credentials.username, refreshed?.verified ? '(会员已在线验证)' : '(会员安全降级)');
+        const refreshTimer = setInterval(() => {
+          const current = normalizeAccountSession(readStoreConfigSafe()?.userCredentials || {});
+          if (current.authenticated) {
+            void refreshStoredMembership(current, 'periodic').catch((error) => {
+              logger.warn?.('[会员] 定时验证失败:', error?.message || error);
+            });
+          }
+        }, 5 * 60 * 1000);
+        refreshTimer.unref?.();
       } else if (credentials.authenticated) {
         logger.log?.(`[账号] 已忽略 ${credentials.serverMode} 模式的历史登录状态，当前为 ${currentServerMode} 模式`);
       }
