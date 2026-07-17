@@ -529,9 +529,13 @@ async function executePageAction(tabId, action) {
             if (actionType === 'wait') {
                 if (selector) {
                     const hidden = payload.hidden === true;
-                    const result = await waitForElement(selector, timeoutMs, intervalMs, !hidden);
+                    const result = payload.singleProbe === true
+                        ? (hidden ? !pickElement(selector, payload.nth || 0) : pickElement(selector, payload.nth || 0))
+                        : await waitForElement(selector, timeoutMs, intervalMs, !hidden);
                     if (hidden) {
-                        return { success: true };
+                        return result
+                            ? { success: true }
+                            : { success: false, error: `等待元素消失超时: ${selector}`, code: 'WAIT_TIMEOUT' };
                     }
                     if (!result) {
                         return { success: false, error: `等待元素超时: ${selector}`, code: 'WAIT_TIMEOUT' };
@@ -540,6 +544,12 @@ async function executePageAction(tabId, action) {
                 }
 
                 if (waitForText) {
+                    if (payload.singleProbe === true) {
+                        const visible = queryElements(`text=${waitForText}`).some(isVisible);
+                        return visible
+                            ? { success: true }
+                            : { success: false, error: `等待文本超时: ${waitForText}`, code: 'WAIT_TIMEOUT' };
+                    }
                     const deadline = Date.now() + Math.max(0, timeoutMs);
                     while (Date.now() <= deadline) {
                         const visible = queryElements(`text=${waitForText}`).some(isVisible);
@@ -552,6 +562,12 @@ async function executePageAction(tabId, action) {
                 }
 
                 if (waitForElementHidden) {
+                    if (payload.singleProbe === true) {
+                        const visible = queryElements(waitForElementHidden).some(isVisible);
+                        return !visible
+                            ? { success: true }
+                            : { success: false, error: `等待元素消失超时: ${waitForElementHidden}`, code: 'WAIT_TIMEOUT' };
+                    }
                     const deadline = Date.now() + Math.max(0, timeoutMs);
                     while (Date.now() <= deadline) {
                         const visible = queryElements(waitForElementHidden).some(isVisible);
@@ -564,6 +580,12 @@ async function executePageAction(tabId, action) {
                 }
 
                 if (waitForTextHidden) {
+                    if (payload.singleProbe === true) {
+                        const visible = queryElements(`text=${waitForTextHidden}`).some(isVisible);
+                        return !visible
+                            ? { success: true }
+                            : { success: false, error: `等待文本消失超时: ${waitForTextHidden}`, code: 'WAIT_TIMEOUT' };
+                    }
                     const deadline = Date.now() + Math.max(0, timeoutMs);
                     while (Date.now() <= deadline) {
                         const visible = queryElements(`text=${waitForTextHidden}`).some(isVisible);
@@ -641,6 +663,75 @@ async function executePageAction(tabId, action) {
     return result && result.result ? result.result : result;
 }
 
+async function executeNavigationAwareWait(tabId, action = {}, dependencies = {}) {
+    const probePageAction = typeof dependencies.executePageAction === 'function'
+        ? dependencies.executePageAction
+        : executePageAction;
+    const getTab = typeof dependencies.getTab === 'function'
+        ? dependencies.getTab
+        : (id) => chrome.tabs.get(id).catch(() => null);
+    const delay = typeof dependencies.sleep === 'function'
+        ? dependencies.sleep
+        : sleep;
+    const hasPageCondition = !!String(
+        action.selector
+        || action.waitForText
+        || action.waitForElementHidden
+        || action.waitForTextHidden
+        || ''
+    ).trim();
+    const timeoutMs = Math.max(0, Number(action.timeoutMs) || 0);
+    if (!hasPageCondition) {
+        // 纯延时应由后台计时，避免页面在延时期间导航导致注入脚本上下文被销毁。
+        await delay(timeoutMs);
+        return { success: true, waitedMs: timeoutMs };
+    }
+
+    const intervalMs = Math.max(50, Number(action.intervalMs) || 200);
+    const deadline = Date.now() + timeoutMs;
+    let lastResult = null;
+
+    do {
+        const currentTab = await getTab(tabId);
+        if (!currentTab) {
+            return { success: false, error: '等待期间目标标签页已关闭', code: 'TAB_NOT_FOUND' };
+        }
+
+        try {
+            const probeResult = await probePageAction(tabId, {
+                ...action,
+                timeoutMs: 0,
+                intervalMs: 0,
+                singleProbe: true
+            });
+            if (probeResult?.success === true) {
+                return probeResult;
+            }
+            lastResult = probeResult;
+        } catch (error) {
+            // 点击触发跨文档导航时，注入旧文档的脚本上下文会被销毁。
+            // 在总超时内忽略这次瞬时错误，下一轮会自动注入当前最新文档。
+            lastResult = {
+                success: false,
+                error: String(error?.message || error || '页面暂时不可访问'),
+                code: 'WAIT_DOCUMENT_CHANGED'
+            };
+        }
+
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) {
+            break;
+        }
+        await delay(Math.min(intervalMs, remainingMs));
+    } while (Date.now() <= deadline);
+
+    return {
+        success: false,
+        error: String(lastResult?.error || `等待条件超时（${timeoutMs}ms）`),
+        code: 'WAIT_TIMEOUT'
+    };
+}
+
 async function collectTabCookieSnapshot(tabId) {
     const currentTab = await chrome.tabs.get(tabId).catch(() => null);
     const pageSnapshot = await readPageSnapshot(tabId).catch(() => null);
@@ -666,6 +757,11 @@ async function collectTabCookieSnapshot(tabId) {
         cookies,
         browserStorage
     });
+}
+
+// 仅供 Node 回归测试使用；扩展 service worker 中没有 CommonJS module。
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { executeNavigationAwareWait };
 }
 
 

@@ -148,6 +148,27 @@ function buildRunFlowPlan(cardData = {}) {
     };
 }
 
+function resolveCardEntryNavigation(cardData = {}, context = {}) {
+    const steps = Array.isArray(cardData.steps) ? cardData.steps : [];
+    const flowPlan = buildRunFlowPlan(cardData);
+    const firstStepId = getRunStepId(steps[0] || {}, 0);
+    const startIndex = flowPlan.enabled === true && firstStepId !== '__auto_navigate_start'
+        ? flowPlan.startIndex
+        : 0;
+    const startStep = steps[startIndex] && typeof steps[startIndex] === 'object'
+        ? steps[startIndex]
+        : null;
+    const startStepUrl = String(startStep?.type || '').trim().toLowerCase() === 'navigate'
+        ? startStep.url
+        : '';
+    const resolvedUrl = normalizeTargetUrl(resolveTemplate(startStepUrl || cardData.website || '', context));
+
+    return {
+        url: /^https?:\/\//i.test(String(resolvedUrl || '')) ? resolvedUrl : '',
+        timeoutMs: Math.max(1000, Number(startStep?.timeout || 15000) || 15000)
+    };
+}
+
 function resolveRunFlowNextIndex(plan, steps = [], currentIndex = 0, outcome = 'next') {
     const fallback = currentIndex + 1;
     if (!plan || plan.enabled !== true) {
@@ -436,7 +457,22 @@ async function runStandaloneCard(payload = {}) {
         email: providedEmail
     };
 
-    const tab = await getOrFindActiveTab(cardData.website || '');
+    const requestedTabId = Number(payload.tab_id ?? payload.tabId ?? 0) || 0;
+    let tab = requestedTabId > 0
+        ? await resolveAutomationTargetTab({ tab_id: requestedTabId })
+        : await getOrFindActiveTab(cardData.website || '');
+    if (!tab) {
+        const entryNavigation = resolveCardEntryNavigation(cardData, context);
+        if (!entryNavigation.url) {
+            const missingEntryError = new Error('卡片执行失败：未找到可用的当前标签页，且卡片缺少可用于新建标签页的 http/https 入口地址');
+            missingEntryError.code = 'MISSING_URL';
+            throw missingEntryError;
+        }
+        tab = await chrome.tabs.create({ url: entryNavigation.url, active: true });
+        await rememberAutomationTargetTab(tab.id);
+        await waitForTabComplete(tab.id, entryNavigation.timeoutMs);
+        tab = await chrome.tabs.get(tab.id);
+    }
     if (!tab || !Number.isFinite(Number(tab.id || 0))) {
         throw new Error('卡片执行失败：未找到可用的当前标签页');
     }
@@ -926,13 +962,13 @@ async function runStandaloneCard(payload = {}) {
 
         if (stepType === 'wait') {
             try {
-                const waitResult = await executePageAction(tabId, {
+                const waitResult = await executeNavigationAwareWait(tabId, {
                     ...actionPayload,
                     type: 'wait',
                     hidden: step.wait_for_element_hidden ? true : false,
                     selector: resolvedSelector,
                     timeoutMs: Number(step.timeout || step.wait_ms || step.waitMs || 3000),
-                    intervalMs: Number(step.wait_for_element_interval_ms || 200)
+                    intervalMs: Number(step.wait_for_element_interval_ms || step.poll_interval_ms || 200)
                 });
                 if (!waitResult || waitResult.success !== true) {
                     const waitError = new Error(waitResult?.error || `等待步骤失败: ${stepName}`);

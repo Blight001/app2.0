@@ -313,10 +313,10 @@ index 0000000000000000000000000000000000000000..307b59bb1272e1f5cf6a76028b2994ee
 +
 +  void DocumentOnLoadCompletedInPrimaryMainFrame() override {
 +    if (finished_ || !web_contents()) return;
-+    // Native foreground/focus remains under browser-host control. Focus the
-+    // current Aura WebContents after a renderer swap so Blink receives the
-+    // existing native focus without trying to activate the WS_CHILD widget.
-+    web_contents()->Focus();
++    // Navigation completion is not a user focus request. In embedded mode,
++    // WebContents::Focus() can move Win32 keyboard focus away from Electron's
++    // sidebar even though the navigation was initiated asynchronously. Keep
++    // the current native target; an actual browser click restores page focus.
 +    base::DictValue result;
 +    result.Set("url", web_contents()->GetLastCommittedURL().spec());
 +    result.Set("title", base::UTF16ToUTF8(web_contents()->GetTitle()));

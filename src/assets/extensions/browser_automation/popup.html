@@ -104,6 +104,7 @@
             <div class="sidebar-section__head sidebar-section__head--canvas">
               <h3 class="sidebar-section__title">自动化步骤</h3>
               <div class="sidebar-flow-zoom-controls" aria-label="画布缩放">
+                <button id="sidebar-flow-auto-layout" class="button-secondary" type="button" title="按流程连线自动重新排列节点">自动排版</button>
                 <button id="sidebar-flow-zoom-out" class="button-secondary" type="button" aria-label="缩小画布">−</button>
                 <button id="sidebar-flow-zoom-reset" class="button-secondary" type="button">100%</button>
                 <button id="sidebar-flow-zoom-in" class="button-secondary" type="button" aria-label="放大画布">+</button>
@@ -124,7 +125,7 @@
                 <button id="sidebar-flow-delete-selection" type="button" role="menuitem">删除选中节点</button>
               </div>
             </div>
-            <div class="sidebar-flow-hint">单击选择节点，Ctrl/Shift 点击多选；拖动选中节点可整体移动，右键可删除。按住 A 节点端点拖到 B 节点端点后松开即可连线；判断分支右侧有两个固定输出端点。</div>
+            <div class="sidebar-flow-hint">单击选择节点，Ctrl/Shift 点击多选；拖动选中节点可整体移动，右键可删除。按住 A 节点端点拖到 B 节点端点后松开即可连线；判断分支右侧有两个固定输出端点。点「自动排版」可按连线一键梳理布局。</div>
             <div id="sidebar-step-palette" class="sidebar-step-palette" aria-label="步骤组件">
               <button type="button" draggable="true" data-step-template-type="navigate">访问网页</button>
               <button type="button" draggable="true" data-step-template-type="click">点击元素</button>
@@ -155,7 +156,7 @@
           <div class="field-actions field-actions--left card-toolbar">
             <button id="open-card-data-import" class="button-secondary button-import" type="button" aria-haspopup="dialog" aria-expanded="false">导入卡片</button>
             <button id="export-card" class="button-secondary button-export" type="button">导出卡片</button>
-            <button id="delete-card" class="button-secondary button-delete" type="button">删除选中卡片</button>
+            <button id="delete-card" class="button-secondary button-delete" type="button" aria-haspopup="dialog" aria-expanded="false">删除选中卡片</button>
             <button id="open-card-sidebar" class="button-secondary button-sidebar" type="button">打开侧边栏</button>
           </div>
           <div class="field-actions field-actions--left card-toolbar">
@@ -190,6 +191,19 @@
           <div class="card-data-import-modal__actions">
             <button id="card-data-export-copy" class="button-secondary" type="button">复制</button>
             <button id="card-data-export-done" class="button-primary" type="button">完成</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="delete-card-confirm-modal" class="cookie-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-card-confirm-title" hidden>
+        <div class="cookie-confirm-modal__backdrop" data-delete-card-confirm-dismiss></div>
+        <div class="cookie-confirm-modal__dialog" tabindex="-1">
+          <div class="cookie-confirm-modal__icon" aria-hidden="true">!</div>
+          <h3 id="delete-card-confirm-title">确认删除选中卡片？</h3>
+          <p id="delete-card-confirm-message">删除后无法恢复，确定要删除当前选中的自动化卡片吗？</p>
+          <div class="cookie-confirm-modal__actions">
+            <button id="delete-card-confirm-cancel" class="button-secondary" type="button">取消</button>
+            <button id="delete-card-confirm-submit" class="cookie-action-btn cookie-action-btn--red" type="button">确认删除</button>
           </div>
         </div>
       </div>

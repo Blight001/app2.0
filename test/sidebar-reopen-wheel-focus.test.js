@@ -69,9 +69,23 @@ test('sidebar repairs native wheel focus when pointer input returns', () => {
     __dirname,
     '../src/app/main/ipc/register/ui.js',
   ), 'utf8');
+  const tabManager = fs.readFileSync(path.join(
+    __dirname,
+    '../src/app/main/services/tab-manager.js',
+  ), 'utf8');
+  const chromiumBridgePatch = fs.readFileSync(path.join(
+    __dirname,
+    '../native/chromium-fork/patches/0003-ai-free-runtime-pipe.patch',
+  ), 'utf8');
 
   assert.match(announcements, /document\.addEventListener\('pointermove'/);
+  assert.match(announcements, /document\.addEventListener\('pointerenter'/);
+  assert.match(announcements, /document\.addEventListener\('pointerdown',[\s\S]*requestSidebarInputFocus\(true\)/);
+  assert.match(announcements, /document\.addEventListener\('focusin'/);
   assert.match(announcements, /invoke\('focus-sidebar-input'\)/);
   assert.match(bindings, /initSidebarInputRouting\(\)/);
   assert.match(uiIpc, /mainWindow\.webContents\.focus\(\)[\s\S]*sideWc\.focus\(\)/);
+  assert.doesNotMatch(uiIpc, /if \(!sideWc\.isFocused/);
+  assert.match(tabManager, /mainWindow\.webContents\.focus\?\.\(\)[\s\S]*webContents\.focus\(\)/);
+  assert.doesNotMatch(chromiumBridgePatch, /^\+\s*web_contents\(\)->Focus\(\);/m);
 });

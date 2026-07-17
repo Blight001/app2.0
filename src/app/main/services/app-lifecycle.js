@@ -18,6 +18,7 @@ const {
   isCustomAiModelId,
 } = require('../utils/ai-control-settings');
 const { sendCustomAIControlMessage } = require('./custom-ai-api');
+const { createAiBrowserWindowTools } = require('./ai-browser-window-tools');
 const { createVipRequiredResult, resolveVipAccess } = require('../utils/vip-access');
 const {
   MAX_AI_CONTROL_MESSAGES,
@@ -581,6 +582,24 @@ function registerAppLifecycle(deps = {}) {
     const activeAiChatRuns = new Map();
     const aiChatRunKey = (event, requestId) => `${event?.sender?.id || 0}:${String(requestId || '').trim()}`;
 
+    // 软件端默认的"外层"浏览器窗口控制工具：不依赖任何浏览器插件连接，
+    // 每次对话都会注入，让 AI 能列出/打开/新建/重命名/关闭软件的浏览器窗口。
+    let aiBrowserWindowTools = null;
+    const getAiBrowserWindowTools = () => {
+      if (aiBrowserWindowTools) return aiBrowserWindowTools;
+      if (!deps.browserWindowUi) return null;
+      try {
+        aiBrowserWindowTools = createAiBrowserWindowTools({
+          ui: deps.browserWindowUi,
+          licenseCache,
+          logger,
+        });
+      } catch (error) {
+        logger.warn?.('[AI窗口工具] 初始化失败:', error?.message || error);
+      }
+      return aiBrowserWindowTools;
+    };
+
     ipcMain.handle('ai-control-chat-insert', async (_event, input = {}) => {
       const requestId = String(input.requestId || '').trim();
       const content = String(input.content || '').trim().slice(0, 12000);
@@ -665,7 +684,11 @@ function registerAppLifecycle(deps = {}) {
           }
         }
 
-        const tools = connection?.tools || [];
+        const windowTools = disableTools ? null : getAiBrowserWindowTools();
+        // 插件工具若与默认窗口工具重名，以本地窗口工具为准（派发时本地优先）。
+        const connectionToolDefs = (connection?.tools || [])
+          .filter((tool) => !windowTools?.has(String(tool?.name || '')));
+        const tools = [...(windowTools?.tools || []), ...connectionToolDefs];
         const selectedAutomationCardName = String(
           selectedAutomationCard?.cardName || selectedAutomationCard?.cardData?.name || automationCardId,
         ).replace(/[\r\n\t]+/g, ' ').trim().slice(0, 120);
@@ -869,8 +892,11 @@ function registerAppLifecycle(deps = {}) {
             emit({ type: 'done', message: finalResult.message, quota: finalResult.quota });
             return finalResult;
           }
-          if (!connection || !bridge?.dispatch) {
-            return finishAfterToolFailure('模型请求了浏览器工具，但当前没有选择可用的浏览器插件');
+          const needsPluginConnection = toolCalls.some(
+            (call) => !windowTools?.has(String(call?.function?.name || '').trim()),
+          );
+          if (needsPluginConnection && (!connection || !bridge?.dispatch)) {
+            return finishAfterToolFailure('模型请求了浏览器插件工具，但当前没有选择可用的浏览器插件');
           }
 
           if (toolCalls.length >= MAX_AI_CONTROL_MESSAGES) {
@@ -916,14 +942,18 @@ function registerAppLifecycle(deps = {}) {
             emit({ type: 'tool_start', tool: { ...activity }, round });
             let toolResult;
             try {
-              const requestedSeconds = Number(args?.timeout_seconds || 0);
-              const isCardRun = toolName === 'manage_card'
-                && String(args?.action || '').trim().toLowerCase() === 'run';
-              toolResult = await waitForAbort(bridge.dispatch(connection.id, toolName, args, {
-                timeoutMs: requestedSeconds > 0
-                  ? Math.min(1800, Math.max(1, requestedSeconds)) * 1000
-                  : (isCardRun ? 900000 : 180000),
-              }));
+              if (windowTools?.has(toolName)) {
+                toolResult = await waitForAbort(windowTools.execute(toolName, args));
+              } else {
+                const requestedSeconds = Number(args?.timeout_seconds || 0);
+                const isCardRun = toolName === 'manage_card'
+                  && String(args?.action || '').trim().toLowerCase() === 'run';
+                toolResult = await waitForAbort(bridge.dispatch(connection.id, toolName, args, {
+                  timeoutMs: requestedSeconds > 0
+                    ? Math.min(1800, Math.max(1, requestedSeconds)) * 1000
+                    : (isCardRun ? 900000 : 180000),
+                }));
+              }
             } catch (error) {
               if (isStopped(error)) return buildStoppedResult();
               const errorMessage = String(error?.message || error || '浏览器工具执行失败').trim();

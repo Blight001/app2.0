@@ -15,6 +15,9 @@ const {
 const {
   resolveCardCacheDeleteTarget,
 } = require('../src/assets/extensions/browser_automation/background/04_cache');
+const {
+  executeNavigationAwareWait,
+} = require('../src/assets/extensions/browser_automation/background/02_sidebar_page');
 
 test('automation cards persist in the software extension directory', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-card-cache-'));
@@ -117,6 +120,73 @@ test('automation card navigation waits 15 seconds by default', () => {
 
   assert.match(runner, /waitForTabComplete\(tabId, Number\(step\.timeout \|\| 15000\)\)/);
   assert.match(socket, /navigate: 跳转 url（[^\n]+timeout 默认 15000）/);
+});
+
+test('automation card element waits survive cross-document navigation', async () => {
+  const root = path.join(__dirname, '..');
+  const pageActions = fs.readFileSync(
+    path.join(root, 'src/assets/extensions/browser_automation/background/02_sidebar_page.js'),
+    'utf8',
+  );
+  const runner = fs.readFileSync(
+    path.join(root, 'src/assets/extensions/browser_automation/background/06_automation_run.js'),
+    'utf8',
+  );
+
+  assert.match(pageActions, /async function executeNavigationAwareWait\(tabId, action = \{\}, dependencies = \{\}\)/);
+  assert.match(pageActions, /singleProbe: true/);
+  assert.match(pageActions, /WAIT_DOCUMENT_CHANGED/);
+  assert.match(pageActions, /await delay\(Math\.min\(intervalMs, remainingMs\)\)/);
+  assert.match(runner, /executeNavigationAwareWait\(tabId, \{/);
+  assert.match(runner, /step\.wait_for_element_interval_ms \|\| step\.poll_interval_ms \|\| 200/);
+
+  let probeCount = 0;
+  const result = await executeNavigationAwareWait(42, {
+    type: 'wait',
+    selector: '#identifierId',
+    timeoutMs: 1000,
+    intervalMs: 50,
+  }, {
+    getTab: async () => ({ id: 42, url: 'https://accounts.google.com/' }),
+    executePageAction: async () => {
+      probeCount += 1;
+      if (probeCount === 1) throw new Error('The frame was removed during navigation');
+      return { success: true };
+    },
+    sleep: async () => {},
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(probeCount, 2);
+
+  let delayedMs = -1;
+  const delayResult = await executeNavigationAwareWait(42, {
+    type: 'wait',
+    timeoutMs: 1500,
+  }, {
+    sleep: async (ms) => { delayedMs = ms; },
+  });
+  assert.deepEqual(delayResult, { success: true, waitedMs: 1500 });
+  assert.equal(delayedMs, 1500);
+});
+
+test('automation card run creates an entry tab when no controllable web tab exists', () => {
+  const root = path.join(__dirname, '..');
+  const runner = fs.readFileSync(
+    path.join(root, 'src/assets/extensions/browser_automation/background/06_automation_run.js'),
+    'utf8',
+  );
+  const socket = fs.readFileSync(
+    path.join(root, 'src/assets/extensions/browser_automation/background/09_agent_socket.js'),
+    'utf8',
+  );
+
+  assert.match(runner, /const requestedTabId = Number\(payload\.tab_id \?\? payload\.tabId \?\? 0\)/);
+  assert.match(runner, /const entryNavigation = resolveCardEntryNavigation\(cardData, context\)/);
+  assert.match(runner, /chrome\.tabs\.create\(\{ url: entryNavigation\.url, active: true \}\)/);
+  assert.match(runner, /await rememberAutomationTargetTab\(tab\.id\)/);
+  assert.match(runner, /await waitForTabComplete\(tab\.id, entryNavigation\.timeoutMs\)/);
+  assert.match(socket, /tab_id: Number\(payload\.tab_id \?\? payload\.tabId \?\? 0\) \|\| 0/);
 });
 
 test('automation card element lookup failures only attempt once', () => {

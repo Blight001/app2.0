@@ -36,6 +36,7 @@
   };
 
   const HISTORY_LS_PREFIX = 'ai-free.ai-chat-history.v1.';
+  const AI_CONTEXT_SUMMARY_PREFIX = '[自动压缩的早期对话]\n';
   const SEND_BUTTON_ICONS = {
     send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"></path><path d="M22 2 11 13"></path></svg>',
     stop: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"></rect></svg>',
@@ -2054,6 +2055,7 @@
     const visible = messages
       .map((message, index) => ({ message, index }))
       .filter(({ message }) => {
+        if (String(message.content || '').startsWith(AI_CONTEXT_SUMMARY_PREFIX)) return false;
         if (message.role === 'user') return true;
         if (message.role !== 'assistant') return false;
         return !!(String(message.content || '').trim()

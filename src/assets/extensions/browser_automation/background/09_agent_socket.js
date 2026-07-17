@@ -1083,6 +1083,7 @@ async function runAgentToolCommand(tool, args, taskId = null) {
                         email: payload.email || '',
                         code: payload.code || '',
                         start_step: Number(payload.start_step || payload.startStep || 0) || 0,
+                        tab_id: Number(payload.tab_id ?? payload.tabId ?? 0) || 0,
                         isLooping: false
                     });
                 } catch (runErr) {

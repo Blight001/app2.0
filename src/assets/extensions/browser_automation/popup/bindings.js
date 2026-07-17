@@ -132,6 +132,10 @@ const cardFileNameNode = document.getElementById('card-file-name');
 const cardCacheBadgeNode = document.getElementById('card-cache-badge');
 const cardCacheListNode = document.getElementById('card-cache-list');
 const deleteCardButton = document.getElementById('delete-card');
+const deleteCardConfirmModal = document.getElementById('delete-card-confirm-modal');
+const deleteCardConfirmMessage = document.getElementById('delete-card-confirm-message');
+const deleteCardConfirmCancelButton = document.getElementById('delete-card-confirm-cancel');
+const deleteCardConfirmSubmitButton = document.getElementById('delete-card-confirm-submit');
 const cardEditor = document.getElementById('card-editor');
 const loadCardToEditorButton = document.getElementById('load-card-to-editor');
 const saveCardEditorButton = document.getElementById('save-card-editor');
@@ -170,6 +174,7 @@ const sidebarStepPaletteNode = document.getElementById('sidebar-step-palette');
 const sidebarFlowZoomOutButton = document.getElementById('sidebar-flow-zoom-out');
 const sidebarFlowZoomResetButton = document.getElementById('sidebar-flow-zoom-reset');
 const sidebarFlowZoomInButton = document.getElementById('sidebar-flow-zoom-in');
+const sidebarFlowAutoLayoutButton = document.getElementById('sidebar-flow-auto-layout');
 const runControlStopButton = document.getElementById('run-control-stop');
 const sidebarStepListNode = document.getElementById('sidebar-step-list');
 const sidebarEditorMetaNode = document.getElementById('sidebar-editor-meta');
@@ -221,6 +226,7 @@ const {
     beginSidebarFlowPortDrag,
     deleteSidebarFlowEdge,
     deleteSelectedSidebarFlowNodes,
+    applySidebarFlowAutoLayout,
     beginSidebarFlowNodeDrag,
     escapeHtml,
     normalizeSidebarPopupsInput,
@@ -501,12 +507,63 @@ document.addEventListener('keydown', (event) => {
     }
 });
 
+function setDeleteCardConfirmOpen(open = false) {
+    if (!deleteCardConfirmModal) return false;
+    const shouldOpen = open === true;
+    deleteCardConfirmModal.hidden = !shouldOpen;
+    if (deleteCardButton) {
+        deleteCardButton.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+    }
+    if (shouldOpen) {
+        const selectedName = String(cardFileNameNode?.textContent || '').trim();
+        if (deleteCardConfirmMessage) {
+            const displayName = selectedName && selectedName !== '未选择卡片'
+                ? `「${selectedName}」`
+                : '当前选中的';
+            deleteCardConfirmMessage.textContent = `删除后无法恢复，确定要删除${displayName}自动化卡片吗？`;
+        }
+        const dialog = deleteCardConfirmModal.querySelector('.cookie-confirm-modal__dialog');
+        window.requestAnimationFrame(() => dialog?.focus());
+    } else {
+        deleteCardButton?.focus();
+    }
+    return shouldOpen;
+}
+
 deleteCardButton?.addEventListener('click', () => {
+    void (async () => {
+        try {
+            const state = await loadCardCacheState().catch(() => ({ items: [], selectedId: '' }));
+            const items = Array.isArray(state.items) ? state.items : [];
+            if (!items.length) {
+                showActionToast('没有可删除的自动化卡片', 'error');
+                return;
+            }
+            setDeleteCardConfirmOpen(true);
+        } catch (error) {
+            showActionToast(error && error.message ? error.message : '无法打开删除确认', 'error');
+        }
+    })();
+});
+deleteCardConfirmCancelButton?.addEventListener('click', () => setDeleteCardConfirmOpen(false));
+deleteCardConfirmModal?.addEventListener('click', (event) => {
+    if (event.target?.matches?.('[data-delete-card-confirm-dismiss]')) {
+        setDeleteCardConfirmOpen(false);
+    }
+});
+deleteCardConfirmSubmitButton?.addEventListener('click', () => {
+    setDeleteCardConfirmOpen(false);
     void deleteSelectedCardCache().then(() => {
         showActionToast('已删除选中自动化卡片', 'success');
     }).catch((error) => {
         showActionToast(error && error.message ? error.message : '删除选中卡片失败', 'error');
     });
+});
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && deleteCardConfirmModal && !deleteCardConfirmModal.hidden) {
+        event.preventDefault();
+        setDeleteCardConfirmOpen(false);
+    }
 });
 
 cardCacheListNode?.addEventListener('click', (event) => {
@@ -976,6 +1033,12 @@ document.addEventListener('keydown', (event) => {
 sidebarFlowZoomOutButton?.addEventListener('click', () => zoomSidebarFlowBy(-0.1));
 sidebarFlowZoomInButton?.addEventListener('click', () => zoomSidebarFlowBy(0.1));
 sidebarFlowZoomResetButton?.addEventListener('click', () => resetSidebarFlowView());
+sidebarFlowAutoLayoutButton?.addEventListener('click', () => {
+    const result = applySidebarFlowAutoLayout();
+    if (result) {
+        showActionToast('已按流程自动排版', 'success');
+    }
+});
 
 let sidebarPaletteDragActive = false;
 sidebarStepPaletteNode?.addEventListener('click', (event) => {

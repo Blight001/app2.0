@@ -828,18 +828,14 @@ function registerUiIPC(ctx) {
       const sideWc = (sideView?.webContents && !sideView.webContents.isDestroyed?.())
         ? sideView.webContents
         : (event.sender && !event.sender.isDestroyed?.() ? event.sender : null);
-      const sideAlreadyFocused = !!(sideWc && typeof sideWc.isFocused === 'function' && sideWc.isFocused());
 
       if (mainWindow && !mainWindow.isDestroyed?.()) {
         if (mainWindow.isMinimized?.()) {
           try { mainWindow.restore?.(); } catch (_) {}
         }
-        // 侧栏 webContents 已真正持有键盘焦点时，不要再 mainWindow.focus()，
-        // 否则容易把焦点打到 shell webContents，出现 textarea 假聚焦。
-        // 侧栏未持有焦点（常见于 Chromium 子窗口抢键）时，需要先 activate 主窗口。
-        if (!sideAlreadyFocused) {
-          try { mainWindow.focus?.(); } catch (_) {}
-        } else if (!mainWindow.isFocused?.()) {
+        // Only activate the owner when necessary. The renderer-to-renderer
+        // handoff below repairs focus inside an already foregrounded window.
+        if (!mainWindow.isFocused?.()) {
           try { mainWindow.focus?.(); } catch (_) {}
         }
       }
@@ -849,9 +845,11 @@ function registerUiIPC(ctx) {
           if (sideWc && !sideWc.isDestroyed?.()) {
             // When the embedded Chromium HWND owns the Win32 input queue,
             // BrowserWindow.focus() alone does nothing because the window is
-            // already foregrounded. Move focus through Electron's shell
+            // already foregrounded. Electron can also keep reporting the
+            // sidebar as focused after the native child stole SetFocus, so do
+            // not trust sideWc.isFocused() here. Always move through the shell
             // renderer before targeting the sidebar WebContentsView.
-            if (!sideWc.isFocused?.() && mainWindow?.webContents && !mainWindow.webContents.isDestroyed?.()) {
+            if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed?.()) {
               mainWindow.webContents.focus();
             }
             sideWc.focus();

@@ -579,6 +579,19 @@ registerAppLifecycle({
   browserRuntimeManager,
   browserAutomationBridge,
   getTabs: () => tabs,
+  // AI 默认窗口工具需要的标签页/窗口操作桥。tabManager 的函数在上方解构赋值，
+  // 用箭头包装保持晚绑定。
+  browserWindowUi: {
+    getTabs: () => tabs,
+    getActiveTabId: appRuntime.getActiveTabId,
+    addTab: (...args) => addTab(...args),
+    switchTab: (...args) => switchTab(...args),
+    closeTab: (...args) => closeTab(...args),
+    renameTab: (...args) => renameTab(...args),
+    updateTabs,
+    sendToSide,
+    browserRuntimeManager,
+  },
 
   shortcutManager,
   authenticateAccount: serverResolver.authenticateAccount,

@@ -531,10 +531,10 @@ let sidebarInputFocusLastRequestedAt = 0;
 // the pointer is already over the Electron sidebar. Repair it as soon as the
 // sidebar receives pointer movement instead of waiting for a wheel event that
 // will never reach this renderer.
-function requestSidebarInputFocus() {
+function requestSidebarInputFocus(force = false) {
   if (sidebarInputFocusPending || !window.electronAPI?.invoke) return;
   const now = Date.now();
-  if (now - sidebarInputFocusLastRequestedAt < 120) return;
+  if (!force && now - sidebarInputFocusLastRequestedAt < 120) return;
   sidebarInputFocusLastRequestedAt = now;
   sidebarInputFocusPending = true;
   void window.electronAPI.invoke('focus-sidebar-input')
@@ -545,6 +545,18 @@ function requestSidebarInputFocus() {
 }
 
 function initSidebarInputRouting() {
+  // document.hasFocus() and WebContents.isFocused() can both remain true after
+  // the separately hosted Chromium HWND receives native SetFocus. Pointer entry
+  // and real sidebar clicks therefore reclaim input without consulting either
+  // cached focus flag. The move listener remains a cheap fallback for Windows
+  // wheel routing after a native focus transition.
+  document.addEventListener('pointerenter', () => requestSidebarInputFocus(), true);
+  document.addEventListener('pointerdown', () => requestSidebarInputFocus(true), true);
+  document.addEventListener('focusin', (event) => {
+    if (event.target?.matches?.('input, textarea, select, [contenteditable="true"]')) {
+      requestSidebarInputFocus(true);
+    }
+  }, true);
   document.addEventListener('pointermove', () => {
     if (!document.hasFocus()) requestSidebarInputFocus();
   }, { passive: true });

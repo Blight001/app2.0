@@ -241,6 +241,67 @@ function serializeBrowserHistory(history, ui) {
     .sort((left, right) => Number(right.lastOpenedAt || 0) - Number(left.lastOpenedAt || 0));
 }
 
+// 打开一条浏览器窗口记录（已打开则切换激活）。被 open-browser-history IPC
+// 和 AI 默认窗口工具（services/ai-browser-window-tools）共用，改动需两边兼容。
+async function openBrowserHistoryRecord(ui, historyIdInput) {
+  const history = syncOpenTabsToBrowserHistory(ui);
+  const historyId = String(historyIdInput || '').trim();
+  const record = history.find((item) => item.id === historyId);
+  if (!record) throw new Error('浏览器历史不存在');
+  const openTab = Array.from(ui?.getTabs?.().values?.() || [])
+    .find((tab) => (
+      String(tab?.browserHistoryId || '') === historyId
+      || (!!record.profileId && String(tab?.id || '') === record.profileId)
+      || (!!record.accountId && String(tab?.accountId || '') === record.accountId)
+    ));
+  let tabId = openTab?.id;
+  if (tabId) {
+    ui.switchTab?.(tabId);
+  } else {
+    tabId = record.profileId
+      || record.accountId
+      || `browser-tab-${record.id.replace(/[^a-z0-9_-]/gi, '_')}`;
+    const openUrl = record.url || (record.accountId ? 'about:blank' : DEFAULT_BROWSER_WINDOW_URL);
+    tabId = await ui.addTab(openUrl, {
+      tabId,
+      accountId: record.accountId,
+      fixedTitle: record.name,
+      browserHistoryId: record.id,
+      runtimeType: 'chromium',
+      browserSettings: record.settings,
+      resolveProfileInBackground: true,
+      showLoadingPage: true,
+      restoreLastSession: true,
+    });
+  }
+  record.lastOpenedAt = Date.now();
+  writeBrowserHistorySafe(history);
+  ui.sendToSide?.('browser-history-changed');
+  return {
+    ok: true,
+    tabId: String(tabId || ''),
+    historyId,
+    name: record.name,
+    alreadyOpen: !!openTab?.id,
+  };
+}
+
+// 重命名一条浏览器窗口记录（同时同步已打开标签页标题）。与 rename-browser-history IPC 共用。
+function renameBrowserHistoryRecord(ui, historyIdInput, requestedName) {
+  const history = syncOpenTabsToBrowserHistory(ui);
+  const historyId = String(historyIdInput || '').trim();
+  const record = history.find((item) => item.id === historyId);
+  if (!record) throw new Error('浏览器历史不存在');
+  const name = makeUniqueBrowserName(requestedName, history, historyId);
+  record.name = name;
+  if (!writeBrowserHistorySafe(history)) throw new Error('浏览器名称未能保存');
+  const openTab = Array.from(ui?.getTabs?.().values?.() || [])
+    .find((tab) => String(tab?.browserHistoryId || '') === historyId);
+  if (openTab?.id && typeof ui?.renameTab === 'function') ui.renameTab(openTab.id, name);
+  ui.sendToSide?.('browser-history-changed');
+  return { ok: true, historyId, name, tabId: String(openTab?.id || '') };
+}
+
 function collectBrowserProfileReferences(history = [], ui = null) {
   const references = new Set();
   const remember = (value) => {
@@ -770,40 +831,7 @@ function registerSettingsIPC(ctx) {
 
   ipcMain.handle('open-browser-history', async (_event, payload = {}) => {
     try {
-      const history = syncOpenTabsToBrowserHistory(ui);
-      const historyId = String(payload?.historyId || '').trim();
-      const record = history.find((item) => item.id === historyId);
-      if (!record) throw new Error('浏览器历史不存在');
-      const openTab = Array.from(ui?.getTabs?.().values?.() || [])
-        .find((tab) => (
-          String(tab?.browserHistoryId || '') === historyId
-          || (!!record.profileId && String(tab?.id || '') === record.profileId)
-          || (!!record.accountId && String(tab?.accountId || '') === record.accountId)
-        ));
-      let tabId = openTab?.id;
-      if (tabId) {
-        ui.switchTab?.(tabId);
-      } else {
-        tabId = record.profileId
-          || record.accountId
-          || `browser-tab-${record.id.replace(/[^a-z0-9_-]/gi, '_')}`;
-        const openUrl = record.url || (record.accountId ? 'about:blank' : DEFAULT_BROWSER_WINDOW_URL);
-        tabId = await ui.addTab(openUrl, {
-          tabId,
-          accountId: record.accountId,
-          fixedTitle: record.name,
-          browserHistoryId: record.id,
-          runtimeType: 'chromium',
-          browserSettings: record.settings,
-          resolveProfileInBackground: true,
-          showLoadingPage: true,
-          restoreLastSession: true,
-        });
-      }
-      record.lastOpenedAt = Date.now();
-      writeBrowserHistorySafe(history);
-      ui.sendToSide?.('browser-history-changed');
-      return { ok: true, tabId: String(tabId || ''), historyId, name: record.name };
+      return await openBrowserHistoryRecord(ui, payload?.historyId);
     } catch (error) {
       return { ok: false, error: error?.message || String(error) };
     }
@@ -811,18 +839,7 @@ function registerSettingsIPC(ctx) {
 
   ipcMain.handle('rename-browser-history', async (_event, payload = {}) => {
     try {
-      const history = syncOpenTabsToBrowserHistory(ui);
-      const historyId = String(payload?.historyId || '').trim();
-      const record = history.find((item) => item.id === historyId);
-      if (!record) throw new Error('浏览器历史不存在');
-      const name = makeUniqueBrowserName(payload?.name, history, historyId);
-      record.name = name;
-      if (!writeBrowserHistorySafe(history)) throw new Error('浏览器名称未能保存');
-      const openTab = Array.from(ui?.getTabs?.().values?.() || [])
-        .find((tab) => String(tab?.browserHistoryId || '') === historyId);
-      if (openTab?.id && typeof ui?.renameTab === 'function') ui.renameTab(openTab.id, name);
-      ui.sendToSide?.('browser-history-changed');
-      return { ok: true, historyId, name, tabId: String(openTab?.id || '') };
+      return renameBrowserHistoryRecord(ui, payload?.historyId, payload?.name);
     } catch (error) {
       return { ok: false, error: error?.message || String(error) };
     }
@@ -1314,8 +1331,17 @@ function registerSettingsIPC(ctx) {
 }
 
 module.exports = {
+  DEFAULT_BROWSER_WINDOW_NAME,
+  DEFAULT_BROWSER_WINDOW_URL,
   buildBrowserHistoryAccountMeta,
   cleanupOrphanBrowserProfiles,
+  createBrowserHistoryId,
   makeUniqueBrowserName,
+  openBrowserHistoryRecord,
+  readBrowserHistorySafe,
   registerSettingsIPC,
+  renameBrowserHistoryRecord,
+  serializeBrowserHistory,
+  syncOpenTabsToBrowserHistory,
+  writeBrowserHistorySafe,
 };

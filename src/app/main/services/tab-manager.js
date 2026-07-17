@@ -228,6 +228,12 @@ function createTabManager(deps = {}) {
       if (mainWindow && !mainWindow.isDestroyed?.() && !mainWindow.isFocused?.()) {
         mainWindow.focus?.();
       }
+      // The external Chromium HWND is outside Electron's WebContents focus
+      // bookkeeping. Even when the sidebar is reported as focused, reset the
+      // native input target through the shell before returning to the side view.
+      if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed?.()) {
+        mainWindow.webContents.focus?.();
+      }
       webContents.focus();
       return true;
     } catch (_) {
