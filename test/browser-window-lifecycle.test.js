@@ -363,8 +363,9 @@ test('Chromium 意外关闭时同步关闭对应栏目', async () => {
 });
 
 test('软件整体退出时不由崩溃回调重复关闭栏目', async () => {
-  const previousShutdownState = global._isShuttingDown;
-  global._isShuttingDown = true;
+  const { appContext } = require('../src/app/main/runtime/app-context');
+  const previousShutdownState = appContext.isShuttingDown();
+  appContext.setShuttingDown(true);
   try {
     const chromium = new EventEmitter();
     const tabs = new Map([['browser-1', { id: 'browser-1', runtimeType: 'chromium' }]]);
@@ -388,6 +389,6 @@ test('软件整体退出时不由崩溃回调重复关闭栏目', async () => {
     assert.equal(stopped, false);
     assert.equal(tabs.has('browser-1'), true);
   } finally {
-    global._isShuttingDown = previousShutdownState;
+    appContext.setShuttingDown(previousShutdownState);
   }
 });

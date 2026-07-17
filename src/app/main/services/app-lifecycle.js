@@ -2,6 +2,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { setLicenseRuntimeConfig } = require('../utils/runtime-config');
 const { installShutdownUncaughtExceptionGuard } = require('../utils/logger');
+const { appContext } = require('../runtime/app-context');
 const {
   buildStoredAccountSession,
   normalizeAccountSession,
@@ -1596,24 +1597,21 @@ function registerAppLifecycle(deps = {}) {
   });
 
   app.on('before-quit', (event) => {
-    if (global._mainAppExiting) {
+    if (!appContext.beginMainAppExit()) {
       return;
     }
-    global._mainAppExiting = true;
     try { event.preventDefault(); } catch (_) {}
 
     void (async () => {
       logger.log?.('[退出] 主进程开始退出流程...');
-      global._isShuttingDown = true;
-      global.willQuit = true;
+      appContext.markShuttingDown();
       // Node 的 uncaughtExceptionMonitor 只能记日志，不能阻止 Electron 弹出
       // 主进程异常框；退出期需要真正接住 Mihomo 断连产生的 ECONNRESET。
       installShutdownUncaughtExceptionGuard();
       // 让仍在等待 IPC（例如 Clash Mini 启动）的侧边栏把随后到达的取消/
       // 连接重置识别为正常退出，避免在窗口关闭前弹出错误框。
       try { sendToSide?.('app-shutting-down', { reason: 'quit' }); } catch (_) {}
-      const pendingUpdateInstallTarget = String(global._pendingUpdateInstallTarget || '').trim();
-      const pendingUpdateInstallVersion = String(global._pendingUpdateInstallVersion || '').trim();
+      const { target: pendingUpdateInstallTarget, version: pendingUpdateInstallVersion } = appContext.getPendingUpdateInstall();
       const isUpdateExit = Boolean(pendingUpdateInstallTarget);
 
       const hardExitTimeoutMs = isUpdateExit ? 8000 : 20000;
@@ -1715,8 +1713,7 @@ function registerAppLifecycle(deps = {}) {
         clearTimeout(hardExitTimer);
         if (isUpdateExit) {
           const target = pendingUpdateInstallTarget;
-          global._pendingUpdateInstallTarget = '';
-          global._pendingUpdateInstallVersion = '';
+          appContext.clearPendingUpdateInstall();
           try {
             if (target) {
               logger.log?.('[退出] 发现待安装更新包，准备在退出后启动:', {

@@ -3,6 +3,7 @@ const path = require('path');
 const http = require('http');
 const https = require('https');
 const { spawn } = require('child_process');
+const { appContext } = require('../runtime/app-context');
 const { BrowserWindow, shell, app: electronApp } = require('electron');
 const extractZip = require('extract-zip');
 const tar = require('tar');
@@ -1211,8 +1212,7 @@ function createAppUpdater(deps = {}) {
         }
 
         cleanupDownloadedArchive(downloadPath, logger);
-        global._pendingUpdateInstallTarget = launchTarget;
-        global._pendingUpdateInstallVersion = version;
+        appContext.setPendingUpdateInstall({ version, target: launchTarget });
         emitUpdateEvent('app-update-complete', {
           ok: true,
           version,
@@ -1332,8 +1332,7 @@ function createAppUpdater(deps = {}) {
       }
 
       cleanupDownloadedArchive(downloadPath, logger);
-      global._pendingUpdateInstallTarget = launchTarget;
-      global._pendingUpdateInstallVersion = version;
+      appContext.setPendingUpdateInstall({ version, target: launchTarget });
       emitUpdateEvent('app-update-complete', {
         ok: true,
         version,

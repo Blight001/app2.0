@@ -1,4 +1,5 @@
 const { app } = require('electron');
+const { appContext } = require('../../runtime/app-context');
 const { createHttpClient } = require('../../lib/http-client');
 const { getStorePath } = require('../../config');
 const { summarizeUpdatePayload } = require('../../utils/update-payload');
@@ -131,7 +132,7 @@ function registerMiscIPC(ctx) {
     try {
       return {
         ok: true,
-        sessionId: global.__APP_SESSION_ID__ || '',
+        sessionId: appContext.getSessionId() || '',
       };
     } catch (error) {
       console.error('[IPC] 获取启动会话ID失败:', error);

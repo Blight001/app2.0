@@ -7,6 +7,7 @@ const { EventEmitter } = require('node:events');
 const YAML = require('yaml');
 
 const { buildChromiumArgs } = require('../src/app/main/browser-runtime/chromium-launcher');
+const { appContext } = require('../src/app/main/runtime/app-context');
 const { resolveLatencyConcurrency } = require('../src/app/main/ipc/register/clash-mini-actions');
 const {
   installShutdownUncaughtExceptionGuard,
@@ -118,19 +119,19 @@ test('app shutdown drains Chromium before terminating Clash Mini', () => {
 });
 
 test('shutdown-only connection resets are treated as expected cleanup', (t) => {
-  const previous = global._isShuttingDown;
-  t.after(() => { global._isShuttingDown = previous; });
-  global._isShuttingDown = false;
+  const previous = appContext.isShuttingDown();
+  t.after(() => { appContext.setShuttingDown(previous); });
+  appContext.setShuttingDown(false);
   assert.equal(isExpectedShutdownNetworkError(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' })), false);
-  global._isShuttingDown = true;
+  appContext.setShuttingDown(true);
   assert.equal(isExpectedShutdownNetworkError(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' })), true);
   assert.equal(isExpectedShutdownNetworkError(new Error('ordinary failure')), false);
 });
 
 test('shutdown exception guard prevents Electron-level dialogs only for ECONNRESET', (t) => {
-  const previous = global._isShuttingDown;
-  t.after(() => { global._isShuttingDown = previous; });
-  global._isShuttingDown = true;
+  const previous = appContext.isShuttingDown();
+  t.after(() => { appContext.setShuttingDown(previous); });
+  appContext.setShuttingDown(true);
   const fakeProcess = new EventEmitter();
   assert.equal(installShutdownUncaughtExceptionGuard({ processRef: fakeProcess }), true);
   assert.doesNotThrow(() => {

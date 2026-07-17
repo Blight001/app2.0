@@ -1,4 +1,5 @@
 const { createAppConsoleBridge } = require('../runtime/app-console');
+const { appContext } = require('../runtime/app-context');
 
 // 创建/初始化：createUiBridge的具体业务逻辑。
 function createUiBridge({ getSideView, getControlPanelWindow, getConsoleWindow }) {
@@ -35,8 +36,7 @@ function createUiBridge({ getSideView, getControlPanelWindow, getConsoleWindow }
 
   appConsoleBridge.install();
   // 供底层网络模块使用，刻意不回退到 console.*，避免调试专用日志泄漏到终端。
-  global.__APP_DEBUG_CONSOLE_WRITE__ = (level, args) => appConsoleBridge.pushDebugOnly(level, args);
-  global.__APP_CONSOLE_HISTORY__ = appConsoleBridge.getHistory;
+  appContext.setDebugConsoleWrite((level, args) => appConsoleBridge.pushDebugOnly(level, args));
 
 // 处理：sendToSide的具体业务逻辑。
   function sendToSide(channel, ...args) {

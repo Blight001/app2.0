@@ -1,4 +1,5 @@
 const { app: electronApp, net } = require('electron');
+const { appContext } = require('../../runtime/app-context');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
@@ -1705,7 +1706,7 @@ let clashMiniStartGeneration = 0;
 const intentionallyStoppedClashProcesses = new WeakSet();
 
 function isClashMiniStartCancelled(startGeneration) {
-  return startGeneration !== clashMiniStartGeneration || global._isShuttingDown === true;
+  return startGeneration !== clashMiniStartGeneration || appContext.isShuttingDown();
 }
 
 function buildClashMiniStartCancelledResult() {

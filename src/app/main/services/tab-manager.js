@@ -3,6 +3,7 @@ const {
   getClashMiniProxyEndpoint,
   getClashMiniRuntimeRoot,
 } = require('../ipc/register/clash-mini-core');
+const { appContext } = require('../runtime/app-context');
 const {
   normalizeAiFreeBrowserSettings,
   parseCookieJson,
@@ -352,9 +353,9 @@ function createTabManager(deps = {}) {
       // Chromium 被用户关闭、进程异常退出或嵌入窗口失效时，
       // 应同步移除对应的软件栏目。延后到当前运行时事件返回后
       // 再清理，避免在 markCrashed 的同步 emit 过程中重入 stop。
-      if (global._isShuttingDown === true) return;
+      if (appContext.isShuttingDown()) return;
       setImmediate(() => {
-        if (global._isShuttingDown === true
+        if (appContext.isShuttingDown()
           || !resolveTabs().has(tabId)
           || closingTabIds.has(tabId)) return;
         void closeTab(tabId).catch((error) => {
@@ -586,7 +587,7 @@ function createTabManager(deps = {}) {
 
     // 应用退出时由生命周期统一关闭 Chromium。此处若继续切换代理并重启实例，
     // 会和 stopAll 竞争，还可能让刚关闭的浏览器再次连到即将退出的 Mihomo。
-    if (global._isShuttingDown === true) {
+    if (appContext.isShuttingDown()) {
       return { ok: true, enabled: false, updated: 0, total: entries.length, failures, skipped: true };
     }
 
@@ -646,7 +647,7 @@ function createTabManager(deps = {}) {
         }
         instance.profile.proxyServer = nextProxyServer;
         instance.profile.proxyBypassList = nextProxyBypassList;
-        if (global._isShuttingDown === true) return false;
+        if (appContext.isShuttingDown()) return false;
         const runtimeState = await browserRuntimeManager.restart(tab.id);
         tab.runtimeStatus = runtimeState?.status || tab.runtimeStatus;
         tab.networkMagicApplied = enabled === true && !!nextProxyServer;

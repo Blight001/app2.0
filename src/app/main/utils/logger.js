@@ -1,4 +1,5 @@
 const fs = require('fs');
+const { appContext } = require('../runtime/app-context');
 const os = require('os');
 const path = require('path');
 const util = require('util');
@@ -9,7 +10,7 @@ const shutdownExceptionGuardTargets = new WeakSet();
 // Mihomo 在应用退出时会主动关闭现有代理连接。此时 Node 可能把连接重置
 // 作为未处理 rejection 上报；它只在明确的退出阶段属于预期清理。
 function isExpectedShutdownNetworkError(error) {
-  if (global._isShuttingDown !== true) return false;
+  if (!appContext.isShuttingDown()) return false;
   const code = String(error?.code || error?.cause?.code || '').trim().toUpperCase();
   const message = String(error?.message || error?.cause?.message || error || '');
   return code === 'ECONNRESET' || /\bECONNRESET\b/i.test(message);
