@@ -31,7 +31,6 @@ function createAppShell(deps = {}) {
     stopClashMiniProcess,
     getStorePath,
     getServerBase,
-    getTcpConfig,
     setRuntimeTcpConfig,
     setRuntimeServerBase,
     getDreamTargetUrl,

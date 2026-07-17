@@ -15,7 +15,7 @@ function startMainApp() {
 // 内部模块（拆分后的小单元）
 const { postJson, getJson, httpGetUniversal } = require('./lib/http');
 const { createLogger } = require('./utils/logger');
-const { DREAM_TARGET_URL, setDreamTargetUrl, getDreamTargetUrl, setRuntimeTcpConfig, setRuntimeServerBase, getCoreDir, getStorePath, initializeCoreDirectory, getServerBase, getTcpConfig } = require('./config');
+const { DREAM_TARGET_URL, setDreamTargetUrl, getDreamTargetUrl, setRuntimeTcpConfig, setRuntimeServerBase, getCoreDir, getStorePath, initializeCoreDirectory, getServerBase } = require('./config');
 const {
   extractValidationState,
   getValidationFailureMessage,
@@ -434,7 +434,6 @@ const appShellDeps = {
   stopClashMiniProcess,
   getStorePath,
   getServerBase,
-  getTcpConfig,
   getDreamTargetUrl,
   setDreamTargetUrl,
   DREAM_TARGET_URL,

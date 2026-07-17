@@ -5,6 +5,13 @@ const { isServerBaseAllowedForMode } = require('../utils/server-mode');
 
 // 集中配置与常量（可通过环境变量覆盖）
 
+// 命名遗留说明：下方 "TCP" 命名（RUNTIME_TCP_CONFIG / getTcpConfig / setRuntimeTcpConfig /
+// normalizeTcpPort / DEFAULT_TCP_TRANSPORT）为历史遗留——原 TCP 长连接通道已整体迁移为纯 HTTP。
+// 这些结构现在仅承载服务器响应下发的 address_TCP（host:port）元数据（见 services/server-resolver.js
+// 与 ipc/register/license.js），供 getServerBase() 在无显式 HTTP 地址时兜底反推 HTTP 地址；
+// DISABLE_TCP_CONNECTION / NO_TCP 环境变量是 FORCE_HTTP_COMPAT_MODE 的兼容别名，保留不删。
+// 统一改名（如 getTcpConfig → getServerEndpoint）涉及多处调用方签名，留待后续重构。
+
 // 开发环境默认配置
 let DREAM_TARGET_URL = 'https://dreamina.capcut.com/ai-tool/home?';
 let RUNTIME_TCP_CONFIG = null;

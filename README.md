@@ -222,7 +222,6 @@ app2.1/
 ## Related Documentation
 
 - [HTTP request protocol](docs/api/HTTP请求说明.md)
-- [TCP request protocol](docs/api/TCP请求说明.md)
 - [Automatic update messages](docs/api/自动更新消息说明.md)
 - [Clash Mini Geo localization specification](docs/clash-mini-geo-localization-spec.md)
 - [Chromium Fork build guide](native/chromium-fork/README.md)
