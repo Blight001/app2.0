@@ -30,7 +30,8 @@
     "build:native-host": "node scripts/build-native-host.js",
     "build": "electron-builder",
     "build:win": "node scripts/build-windows.js",
-    "build:portable": "electron-builder --win portable"
+    "build:portable": "electron-builder --win portable",
+    "test": "node --test"
   },
   "keywords": [],
   "author": "HeySure",
@@ -68,7 +69,6 @@
     },
     "files": [
       "src/**/*",
-      "!src/DEV_MAP.md",
       "!src/assets/logo.ico",
       "!src/assets/extensions/remove_watermark/**/*.map",
       "!src/assets/extensions/remove_watermark/**/*.LICENSE.txt",
