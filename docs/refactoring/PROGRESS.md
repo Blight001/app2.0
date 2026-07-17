@@ -15,12 +15,12 @@
 
 ## 阶段 1：工程和测试护栏
 
-- [ ] ESLint + 格式检查 + TypeScript checkJs + 依赖边界检查
-- [ ] `npm run verify` 聚合门禁
-- [ ] 分层测试目录（unit/contract/integration/packaging/acceptance/fixtures/helpers）
-- [ ] 有效场景重写为行为测试，删除旧扁平测试
-- [ ] scripts/check-* 断言迁入 test/
-- [ ] 行数（≤500）/函数（≤80）/复杂度（≤15）渐进门禁 + 超限存量清单
+- [x] ESLint（eslint.config.js，正确性=error / 尺寸复杂度=warn）+ TypeScript checkJs（tsconfig.json）+ 依赖边界初版（渲染层禁 require）
+- [x] `npm run verify` = check-guardrails（基线对比门禁）+ 全量测试
+- [x] 分层测试目录（test/unit|contract|integration|packaging|acceptance|fixtures|helpers + README）；注意 `node --test` 会执行 test/ 下所有 .js，helpers 必须惰性
+- [~] 有效场景重写为行为测试：首个真实 Electron 集成测试落地（integration/electron/sidebar-load.test.js，隔离 userData 探针模式）；其余旧扁平测试随阶段 3/4 各域整改迁移
+- [ ] scripts/check-* 断言迁入 test/（随各域整改进行）
+- [x] 渐进门禁 + 超限存量清单 → [stage1/over-limit-list.md](stage1/over-limit-list.md)；基线 scripts/guardrail-baseline.json：eslintErrors=2（渲染层存量 require）、>500 行文件=34、>80 行函数=120、复杂度>15=381、tsc=332。任何计数超基线即 verify 失败；整改后 `--update` 收紧
 
 ## 阶段 2：装配、类型和 IPC 基础设施
 
@@ -57,3 +57,4 @@
 | 日期 | 内容 |
 |---|---|
 | 2026-07-17 | 前置安全清理 6 提交完成；阶段 0 启动：IPC/运行时契约清点完成，流程记录与功能矩阵初版建立 |
+| 2026-07-17 | 阶段 1 主体落地：ESLint/checkJs/guardrails 基线门禁 + verify + 分层测试目录 + 首个 Electron 集成测试（180 用例 179 过 1 skip）。护栏顺带查出并修复 3 处正确性问题（重复键 ×2、空 try-catch 不可达 ×1） |

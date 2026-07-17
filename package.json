@@ -1,6 +1,6 @@
 {
   "name": "ai-free",
-  "version": "2.6.6",
+  "version": "2.6.7",
   "private": true,
   "description": "Assistant to help creators use AI more conveniently",
   "main": "src/app/main/main.js",
@@ -31,7 +31,15 @@
     "build": "electron-builder",
     "build:win": "node scripts/build-windows.js",
     "build:portable": "electron-builder --win portable",
-    "test": "node --test"
+    "test": "node --test",
+    "test:unit": "node --test \"test/unit/**/*.test.js\"",
+    "test:contract": "node --test \"test/contract/**/*.test.js\"",
+    "test:integration": "node --test \"test/integration/**/*.test.js\"",
+    "test:packaging": "node --test \"test/packaging/**/*.test.js\"",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "guardrails": "node scripts/check-guardrails.js",
+    "verify": "node scripts/check-guardrails.js && npm test"
   },
   "keywords": [],
   "author": "HeySure",
@@ -40,7 +48,9 @@
     "cross-env": "^7.0.3",
     "electron": "^40.0.0",
     "electron-builder": "^26.0.12",
-    "javascript-obfuscator": "^5.4.6"
+    "eslint": "^10.7.0",
+    "javascript-obfuscator": "^5.4.6",
+    "typescript": "^7.0.2"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
