@@ -1,5 +1,8 @@
 const { ipcMain } = require('electron');
 const { createIpcRegistry } = require('./registry');
+const { createStructuredLogger } = require('../lib/structured-log');
+
+const slog = createStructuredLogger(console, { domain: 'ipc' });
 const { registerAccountIPC } = require('./account_remember');
 const { registerClashIPC } = require('./register/clash');
 const { registerLicenseIPC } = require('./register/license');
@@ -16,6 +19,7 @@ let activeRegistry = null;
 // 监听/绑定：registerIPC的具体业务逻辑。
 function registerIPC(ctx) {
   if (activeRegistry) {
+    slog.warn('reregister', { operationDetail: '重跑 registerIPC，先释放旧注册', ...activeRegistry.stats() });
     activeRegistry.dispose();
   }
   activeRegistry = createIpcRegistry(ipcMain, { source: 'registerIPC' });
