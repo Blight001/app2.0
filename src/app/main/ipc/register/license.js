@@ -290,6 +290,26 @@ function registerLicenseIPC(ctx) {
     return null;
   };
 
+  // 羊毛平台入口的语义是“打开本次服务器下发的平台地址”。恢复 Chromium
+  // Profile 或复用已打开窗口时也必须显式导航，否则可恢复的 about:blank
+  // 会让窗口正常出现、内容区却一直空白。
+  const navigateDreamTab = async (tabId, rawTargetUrl) => {
+    const targetUrl = String(rawTargetUrl || '').trim();
+    if (!/^https?:\/\//i.test(targetUrl)) {
+      throw new Error('服务器下发的平台网址无效，请联系管理员检查目标地址');
+    }
+    try {
+      await ui.browserRuntimeManager.navigate(tabId, 'chromium', targetUrl);
+    } catch (navigationError) {
+      const message = String(navigationError?.message || '');
+      const deliveredButPending = ['NAVIGATION_TIMEOUT', 'RUNTIME_COMMAND_TIMEOUT'].includes(navigationError?.code)
+        || (navigationError?.code === 'NAVIGATION_FAILED'
+          && (/页面加载失败:\s*-3(?:\s|$)/.test(message) || /ERR_ABORTED/i.test(message)));
+      if (!deliveredButPending) throw navigationError;
+      console.warn('[open-dream-page] 目标页仍在加载或正在重定向，继续后续流程:', message);
+    }
+  };
+
   const hasPersistedDreamProfile = (accountId = '') => {
     try {
       const store = ui?.browserRuntimeManager?.store;
@@ -788,10 +808,11 @@ function registerLicenseIPC(ctx) {
 
       const activeTab = launchAccountId ? findOpenDreamTab(launchAccountId) : null;
       if (activeTab && activeTab.id) {
-        console.log('[open-dream-page] 历史账号页面已打开，直接切换标签页:', launchAccountId);
+        console.log('[open-dream-page] 历史账号页面已打开，切换并导航到目标平台:', launchAccountId);
         if (typeof ui.switchTab === 'function') {
           try { ui.switchTab(activeTab.id); } catch (_) {}
         }
+        await navigateDreamTab(activeTab.id, targetUrl);
         if (launchAccountId) {
           accountStorage.updateLastUsedTime(launchAccountId);
           try { ui.sendToSide('account-list-updated', {}); } catch (_) {}
@@ -853,25 +874,19 @@ function registerLicenseIPC(ctx) {
         accountId: launchAccountId,
         fixedTitle: browserName,
         tabTitle: browserName,
-        deferChromiumNavigation: !restorePersistedProfile,
+        // 新 Profile 直接把服务器网址作为 Chromium 启动参数。后续仍会
+        // 显式导航并注入会话，但即使 Runtime Bridge 延迟也不会停在空白页。
+        deferChromiumNavigation: false,
         restoreLastSession: restorePersistedProfile,
       });
       if (restorePersistedProfile) {
+        await navigateDreamTab(tabId, targetUrl);
         accountStorage.updateLastUsedTime(launchAccountId);
         try { ui.sendToSide?.('browser-history-changed'); } catch (_) {}
         return { ok: true, tabId, accountId: launchAccountId, restored: true };
       }
       try {
-        try {
-          await ui.browserRuntimeManager.navigate(tabId, 'chromium', targetUrl);
-        } catch (navigationError) {
-          const message = String(navigationError?.message || '');
-          const deliveredButPending = ['NAVIGATION_TIMEOUT', 'RUNTIME_COMMAND_TIMEOUT'].includes(navigationError?.code)
-            || (navigationError?.code === 'NAVIGATION_FAILED'
-              && (/页面加载失败:\s*-3(?:\s|$)/.test(message) || /ERR_ABORTED/i.test(message)));
-          if (!deliveredButPending) throw navigationError;
-          console.warn('[open-dream-page] 目标页仍在加载或正在重定向，继续注入账号会话:', message);
-        }
+        await navigateDreamTab(tabId, targetUrl);
         const importResult = await ui.browserRuntimeManager.importSession(tabId, {
           cookies: launchCookies,
           browserStorage: launchBrowserStorage,

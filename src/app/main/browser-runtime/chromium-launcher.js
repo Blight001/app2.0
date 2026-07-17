@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { ensureChromiumSandboxAccess } = require('./chromium-sandbox-access');
 
 const SESSION_FILE_PATTERN = /^(Session|Tabs)_(\d+)$/;
 
@@ -421,6 +422,7 @@ function buildChromiumArgs(options = {}) {
 
 function launchChromium(options = {}) {
   const executablePath = resolveChromiumExecutable(options);
+  ensureChromiumSandboxAccess(executablePath, options.logger);
   let launchOptions = options;
   if (options.profile?.restoreLastSession === true) {
     const recovery = prepareChromiumSessionRecovery(options.paths, options.logger);
@@ -497,6 +499,7 @@ module.exports = {
   buildChromiumArgs,
   buildChromiumEnvironment,
   captureChromiumSessionFiles,
+  ensureChromiumSandboxAccess,
   forwardChromiumOutput,
   getSystemChromiumCandidates,
   launchChromium,

@@ -3,27 +3,26 @@
 生成：`node scripts/check-guardrails.js --update`（2026-07-17）。
 存量不阻塞提交，但新增代码不得让任何计数超过基线；每整改一个文件后重新 --update 收紧基线。
 
-当前基线：eslint errors=2，>500 行文件=34，>80 行函数=120 处，复杂度>15=381 处，tsc checkJs errors=332
+当前基线：eslint errors=2，>500 行文件=33，>80 行函数=119 处，复杂度>15=380 处，tsc checkJs errors=331
 
 ## 超过 500 行的自有源码文件
 
 - `scripts/check-browser-runtime.js` — File has too many lines (822). Maximum allowed is 500.
-- `src/app/main/bootstrap.js` — File has too many lines (569). Maximum allowed is 500.
 - `src/app/main/browser-runtime/chromium-runtime.js` — File has too many lines (597). Maximum allowed is 500.
-- `src/app/main/ipc/account_remember.js` — File has too many lines (701). Maximum allowed is 500.
-- `src/app/main/ipc/register/clash-mini-core.js` — File has too many lines (1907). Maximum allowed is 500.
-- `src/app/main/ipc/register/license.js` — File has too many lines (836). Maximum allowed is 500.
-- `src/app/main/ipc/register/settings.js` — File has too many lines (1337). Maximum allowed is 500.
-- `src/app/main/ipc/register/ui.js` — File has too many lines (813). Maximum allowed is 500.
+- `src/app/main/ipc/account_remember.js` — File has too many lines (702). Maximum allowed is 500.
+- `src/app/main/ipc/register/clash-mini-core.js` — File has too many lines (1908). Maximum allowed is 500.
+- `src/app/main/ipc/register/license.js` — File has too many lines (845). Maximum allowed is 500.
+- `src/app/main/ipc/register/settings.js` — File has too many lines (1338). Maximum allowed is 500.
+- `src/app/main/ipc/register/ui.js` — File has too many lines (804). Maximum allowed is 500.
 - `src/app/main/lib/account-storage.js` — File has too many lines (611). Maximum allowed is 500.
 - `src/app/main/lib/auth-cookie.js` — File has too many lines (1033). Maximum allowed is 500.
 - `src/app/main/lib/http-client.js` — File has too many lines (503). Maximum allowed is 500.
 - `src/app/main/lib/session-storage.js` — File has too many lines (667). Maximum allowed is 500.
-- `src/app/main/services/app-lifecycle.js` — File has too many lines (1631). Maximum allowed is 500.
+- `src/app/main/services/app-lifecycle.js` — File has too many lines (1628). Maximum allowed is 500.
 - `src/app/main/services/app-shell.js` — File has too many lines (798). Maximum allowed is 500.
-- `src/app/main/services/app-updater.js` — File has too many lines (1273). Maximum allowed is 500.
+- `src/app/main/services/app-updater.js` — File has too many lines (1272). Maximum allowed is 500.
 - `src/app/main/services/extension-manager.js` — File has too many lines (1722). Maximum allowed is 500.
-- `src/app/main/services/tab-manager.js` — File has too many lines (1067). Maximum allowed is 500.
+- `src/app/main/services/tab-manager.js` — File has too many lines (1068). Maximum allowed is 500.
 - `src/app/renderer/controllers/pages/app-shell/tabs.js` — File has too many lines (1158). Maximum allowed is 500.
 - `src/app/sidebar/client/app/side/controllers/pages/ai-control.js` — File has too many lines (2850). Maximum allowed is 500.
 - `src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/account-auth.js` — File has too many lines (803). Maximum allowed is 500.

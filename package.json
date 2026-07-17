@@ -145,6 +145,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "include": "scripts/installer.nsh",
       "installerIcon": "src/assets/logo.ico",
       "uninstallerIcon": "src/assets/logo.ico",
       "installerHeaderIcon": "src/assets/logo.ico"
