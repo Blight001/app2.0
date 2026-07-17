@@ -24,27 +24,6 @@
 </head>
 <body>
   <div class="control-shell">
-    <section class="preview-card" aria-label="远程网页预览">
-      <div class="preview-card-header">
-        <div class="preview-title-wrap">
-          <div class="preview-title">远程网页预览</div>
-          <div class="preview-subtitle">加载你的控制网址，下面的面板继续沿用当前侧边栏布局与功能。</div>
-        </div>
-        <div class="preview-header-actions">
-          <button id="remote-reload-btn" class="preview-action-btn" type="button">刷新预览</button>
-        </div>
-      </div>
-      <div class="preview-toolbar">
-        <input id="remote-url-input" type="url" placeholder="https://your-domain.example/control">
-        <button id="load-remote-url-btn" class="preview-load-btn" type="button">加载网页</button>
-      </div>
-      <div class="preview-meta">
-        <span id="preview-status" class="preview-status">未加载</span>
-        <span class="preview-hint">远程页面只负责展示，按钮控制由本地 Electron 桥接执行。</span>
-      </div>
-      <iframe id="remote-preview-frame" class="remote-preview-frame" title="远程网页预览" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe>
-    </section>
-
     <nav class="tab-nav" aria-label="侧边栏栏目">
       <button class="tab-button active" type="button" data-tab="ai-control-panel" aria-controls="ai-control-panel">
         <span class="tab-button-icon" aria-hidden="true">✦</span>
@@ -522,7 +501,6 @@
   </div>
 
   <script src="./client/scripts/logo-assets.js"></script>
-  <script src="./client/scripts/config.js"></script>
   <script src="./client/scripts/control-panel.js"></script>
 
   <script src="./client/app/side/controllers/pages/side-panel/tabs.js"></script>

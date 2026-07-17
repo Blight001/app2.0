@@ -86,119 +86,6 @@ html.theme-gold .account-profile-cover {
   min-height: 0;
 }
 
-.preview-card {
-  display: none;
-  flex: 0 0 34vh;
-  min-height: 280px;
-  margin: 12px 12px 0;
-  border-radius: 18px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  background: linear-gradient(180deg, rgba(18, 24, 34, 0.96), rgba(12, 16, 22, 0.98));
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.36);
-}
-
-.preview-mode .preview-card {
-  display: flex;
-}
-
-.preview-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  padding: 16px 18px 10px;
-}
-
-.preview-title {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0.2px;
-}
-
-.preview-subtitle {
-  margin-top: 6px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: rgba(231, 236, 245, 0.74);
-}
-
-.preview-header-actions {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.preview-action-btn,
-.preview-load-btn {
-  appearance: none;
-  border: 0;
-  border-radius: 10px;
-  padding: 10px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  color: #fff;
-  background: linear-gradient(180deg, rgba(79, 151, 255, 0.96), rgba(55, 113, 214, 0.96));
-  box-shadow: 0 10px 24px rgba(35, 93, 202, 0.24);
-}
-
-.preview-action-btn:hover,
-.preview-load-btn:hover {
-  filter: brightness(1.06);
-}
-
-.preview-toolbar {
-  display: flex;
-  gap: 10px;
-  padding: 0 18px 12px;
-}
-
-.preview-toolbar input {
-  flex: 1 1 auto;
-  min-width: 0;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  background: rgba(7, 10, 16, 0.94);
-  color: #fff;
-  padding: 10px 12px;
-  outline: none;
-}
-
-.preview-toolbar input:focus {
-  border-color: rgba(84, 158, 255, 0.72);
-  box-shadow: 0 0 0 3px rgba(84, 158, 255, 0.18);
-}
-
-.preview-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-  padding: 0 18px 12px;
-  font-size: 12px;
-  line-height: 1.4;
-  color: rgba(231, 236, 245, 0.74);
-}
-
-.preview-status {
-  color: rgba(173, 224, 255, 0.95);
-}
-
-.preview-hint {
-  text-align: right;
-}
-
-.remote-preview-frame {
-  flex: 1 1 auto;
-  width: 100%;
-  border: 0;
-  background: #fff;
-  min-height: 160px;
-}
-
 .theme-toggle-btn {
   appearance: none;
   border: 1px solid rgba(77, 163, 255, 0.2);
@@ -269,66 +156,12 @@ html.theme-light .theme-icon-moon {
   height: 100%;
 }
 
-@media (max-width: 980px) {
-  .preview-card {
-    flex-basis: 300px;
-  }
-
-  .preview-card-header,
-  .preview-toolbar,
-  .preview-meta {
-    padding-left: 14px;
-    padding-right: 14px;
-  }
-
-  .preview-toolbar,
-  .preview-meta {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .preview-hint {
-    text-align: left;
-  }
-}
-
 html.theme-light body {
   background:
     radial-gradient(circle at top left, rgba(60, 115, 255, 0.12), transparent 34%),
     radial-gradient(circle at top right, rgba(33, 201, 191, 0.08), transparent 28%),
     linear-gradient(180deg, #f6f9fd 0%, #eef4fa 46%, #e9eff7 100%);
   color: #1d2c3c;
-}
-
-html.theme-light .preview-card {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 249, 253, 0.98));
-  border-color: rgba(84, 120, 165, 0.14);
-  box-shadow: 0 22px 50px rgba(27, 52, 83, 0.08);
-}
-
-html.theme-light .preview-title {
-  color: #1a2736;
-}
-
-html.theme-light .preview-subtitle,
-html.theme-light .preview-meta {
-  color: rgba(42, 60, 82, 0.72);
-}
-
-html.theme-light .preview-status {
-  color: #2a68c7;
-}
-
-html.theme-light .preview-toolbar input {
-  background: rgba(255, 255, 255, 0.9);
-  color: #1a2736;
-  border-color: rgba(86, 121, 165, 0.24);
-}
-
-html.theme-light .preview-toolbar input:focus {
-  border-color: rgba(64, 158, 255, 0.92);
-  box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.12);
-  background: #fff;
 }
 
 html.theme-light .tab-nav {
