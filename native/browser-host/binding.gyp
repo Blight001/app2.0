@@ -20,6 +20,7 @@
               "DelayLoadDLLs": ["node.exe"]
             },
             "VCCLCompilerTool": {
+              "RuntimeLibrary": 0,
               "AdditionalOptions": ["/std:c++17", "/utf-8"]
             }
           }

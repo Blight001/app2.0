@@ -12,19 +12,19 @@ const INVOKE_CHANNELS = [
   { channel: 'account-get-session', kind: 'invoke', domain: 'account', registrar: 'src/app/main/services/app-lifecycle.js' },
   { channel: 'account-logout', kind: 'invoke', domain: 'account', registrar: 'src/app/main/services/app-lifecycle.js' },
   { channel: 'ai-control-chat', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js' },
-  { channel: 'ai-control-chat-insert', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js' },
-  { channel: 'ai-control-chat-stop', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js' },
+  { channel: 'ai-control-chat-insert', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js', requestSchema: 'ai.chat-insert' },
+  { channel: 'ai-control-chat-stop', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js', requestSchema: 'ai.chat-stop' },
   { channel: 'ai-control-get-automation-cards', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js' },
   { channel: 'ai-control-get-browser-connections', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js' },
   { channel: 'ai-control-get-models', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js' },
-  { channel: 'ai-control-history-create', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js' },
-  { channel: 'ai-control-history-delete', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js' },
-  { channel: 'ai-control-history-get', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js' },
+  { channel: 'ai-control-history-create', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js', requestSchema: 'ai.history-create' },
+  { channel: 'ai-control-history-delete', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js', requestSchema: 'ai.history-id' },
+  { channel: 'ai-control-history-get', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js', requestSchema: 'ai.history-id' },
   { channel: 'ai-control-history-list', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js' },
-  { channel: 'ai-control-history-rename', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js' },
-  { channel: 'ai-control-history-save', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js' },
-  { channel: 'ai-control-redeem-gift-code', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js' },
-  { channel: 'ai-control-select-automation-card', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js' },
+  { channel: 'ai-control-history-rename', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js', requestSchema: 'ai.history-rename' },
+  { channel: 'ai-control-history-save', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js', requestSchema: 'ai.history-save' },
+  { channel: 'ai-control-redeem-gift-code', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js', requestSchema: 'ai.gift-code' },
+  { channel: 'ai-control-select-automation-card', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js', requestSchema: 'ai.card-selection' },
   { channel: 'apply-network-magic-to-browser', kind: 'invoke', domain: 'network', registrar: 'src/app/main/ipc/register/settings.js' },
   { channel: 'browser-mcp-bridge', kind: 'invoke', domain: 'browser', registrar: 'src/app/main/ipc/register/ui.js' },
   { channel: 'cleanup-orphan-browser-profiles', kind: 'invoke', domain: 'browser', registrar: 'src/app/main/ipc/register/settings.js' },
@@ -117,7 +117,7 @@ const INVOKE_CHANNELS = [
 
 const EVENT_CHANNELS = [
   { channel: 'add-tab', kind: 'event', domain: 'browser', registrar: 'src/app/main/ipc/register/ui.js' },
-  { channel: 'ai-control-browser-selection-changed', kind: 'event', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js' },
+  { channel: 'ai-control-browser-selection-changed', kind: 'event', domain: 'ai', registrar: 'src/app/main/services/app-lifecycle.js', requestSchema: 'ai.browser-selection' },
   { channel: 'app-theme-changed', kind: 'event', domain: 'ui', registrar: 'src/app/main/ipc/register/ui.js' },
   { channel: 'close-account-center-popup', kind: 'event', domain: 'account', registrar: 'src/app/main/ipc/register/ui.js' },
   { channel: 'close-browser-history-gesture-popup', kind: 'event', domain: 'browser', registrar: 'src/app/main/ipc/register/settings.js' },
@@ -200,6 +200,11 @@ const PUSH_CHANNELS = [
 const invokeSet = new Set(INVOKE_CHANNELS.map((c) => c.channel));
 const eventSet = new Set(EVENT_CHANNELS.map((c) => c.channel));
 const pushSet = new Set(PUSH_CHANNELS.map((c) => c.channel));
+const requestSchemaByChannel = new Map(
+  [...INVOKE_CHANNELS, ...EVENT_CHANNELS]
+    .filter((entry) => entry.requestSchema)
+    .map((entry) => [entry.channel, entry.requestSchema]),
+);
 
 module.exports = {
   INVOKE_CHANNELS,
@@ -208,4 +213,5 @@ module.exports = {
   isRegisteredInvoke: (channel) => invokeSet.has(channel),
   isRegisteredEvent: (channel) => eventSet.has(channel),
   isRegisteredPush: (channel) => pushSet.has(channel),
+  getRequestSchema: (channel) => requestSchemaByChannel.get(channel) || '',
 };

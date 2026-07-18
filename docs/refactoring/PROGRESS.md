@@ -34,7 +34,7 @@
   - [x] contracts/ipc-channels.js 通道注册表（105 invoke + 24 event + 50 push）+ 双向一致契约测试 + 单通道单注册校验
   - [x] ipc/registry.js 可释放注册器（未登记抛错/同实例重复抛错/dispose 精确释放），7 个 register 模块全迁移，monkeypatch 去重补丁已删除；顺带修复被补丁掩盖的真实冲突（get-app-console-history 双注册）
   - [x] preload 白名单适配层（迁移期未登记告警不阻断；沙箱窗口降级放行）——上线即抓出 19 个间接发送的漏登记 push 通道并补齐，实机告警清零
-  - [ ] payload 运行时校验（schema）——随阶段 3 各域整改逐域补
+  - [~] payload 运行时校验（schema）——集中 schema 注册/校验/兼容包装已落地；AI 域首批 9 个 invoke + 1 个 event 已接入（历史、停止/插入、礼品码、卡片与浏览器选择），完整 chat 及其余域随阶段 3 逐域补
 - [ ] 混合 JS/TS 构建链
 
 ## 阶段 3：逐域整改主进程
@@ -69,3 +69,4 @@
 | 2026-07-17 | 阶段 2A/2B/2C：IPC 契约注册表 + 可释放注册器（废除 monkeypatch 去重）+ preload 白名单。fail-fast 暴露并修复 get-app-console-history 真实双注册；白名单抓出 19 个漏登记 push 通道。npm start 实机验证 0 handler 错误 0 preload 告警；verify 189 用例全绿 |
 | 2026-07-17 | 阶段 2D-1/2D-2：AppContext 迁移全部业务性 global.*（checkJs 门禁提交前拦下一处漏 require 的 ReferenceError）；ipc-result 统一返回契约 + structured-log 结构化日志落地。verify 206 用例 205 过 1 skip；npm start 冒烟启动/退出路径无异常 |
 | 2026-07-18 | 阶段 2D-3：bootstrap 629→172 行 composition root + config/paths.js 集中路径解析。基线三降（超限文件 34→33、超限函数 120→119、复杂度 381→380）并收紧。verify 210 用例 209 过 1 skip；npm start 实机冒烟零接线错误、正常退出 |
+| 2026-07-18 | 阶段 2E-1：建立 contracts/ipc-payloads.js 运行时 schema 与无敏感值诊断，AI 历史/停止与插入/礼品码/卡片选择等 10 个通道首批接入；新增 schema 存在性、注册点接线和边界行为测试。checkJs 存量 331→328 并收紧基线；verify 218 用例 217 过 1 skip |

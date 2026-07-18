@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const packageJson = require('../package.json');
 const { resolveBindingCandidates } = require('../src/app/main/browser-runtime/chromium-window-bridge');
+const { assertStaticVCRuntime } = require('../scripts/verify-packaged-runtime');
 
 test('packaged native browser host resolves from external resources first', () => {
   const resourcesPath = path.resolve('C:/AI-FREE/resources');
@@ -31,6 +32,14 @@ test('native host and runtime logo are packaged only as external resources', () 
   assert.ok(extraResources.some((entry) => (
     entry.from === 'src/assets/logo.ico' && entry.to === 'resource/logo.ico'
   )));
+});
+
+test('native host has no external VC++ redistributable dependency', () => {
+  assert.doesNotThrow(() => assertStaticVCRuntime(
+    path.join(__dirname, '../native/browser-host/build/Release/browser_host.node'),
+  ));
+  assert.match(packageJson.scripts.build, /build:native-host/);
+  assert.match(packageJson.scripts['build:portable'], /build:native-host/);
 });
 
 test('sidebar logos use the runtime asset resolver in source and packaged apps', () => {

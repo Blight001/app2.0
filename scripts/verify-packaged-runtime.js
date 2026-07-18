@@ -38,6 +38,21 @@ function assertPeX64(filePath) {
   }
 }
 
+function assertStaticVCRuntime(filePath) {
+  const image = fs.readFileSync(filePath).toString('latin1').toLowerCase();
+  const dynamicDependencies = [
+    'msvcp140.dll',
+    'vcruntime140.dll',
+    'vcruntime140_1.dll',
+  ].filter((dll) => image.includes(dll));
+  if (dynamicDependencies.length > 0) {
+    throw new Error(
+      `Native Browser Host 仍依赖未随程序安装的 VC++ 运行库: ${dynamicDependencies.join(', ')}; `
+      + '请用 /MT 重新执行 npm run build:native-host',
+    );
+  }
+}
+
 function getFileMap(rootDir) {
   const result = new Map();
   const visit = (currentDir) => {
@@ -128,7 +143,9 @@ function verifyPackagedRuntime(options = {}) {
   const appOutDir = path.resolve(options.appOutDir || process.argv[2] || path.join(projectDir, 'appbuild', 'win-unpacked'));
   const resourcesDir = path.join(appOutDir, 'resources');
 
-  assertPeX64(path.join(resourcesDir, 'native', 'browser-host', 'browser_host.node'));
+  const nativeHostPath = path.join(resourcesDir, 'native', 'browser-host', 'browser_host.node');
+  assertPeX64(nativeHostPath);
+  assertStaticVCRuntime(nativeHostPath);
   assertPeX64(path.join(resourcesDir, 'chromium', 'ai-free-browser.exe'));
   assertFile(path.join(resourcesDir, 'chromium', 'chrome.dll'), 100 * 1024 * 1024);
 
@@ -165,4 +182,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { verifyPackagedRuntime };
+module.exports = { assertStaticVCRuntime, verifyPackagedRuntime };

@@ -33,7 +33,18 @@ class ChromiumWindowBridge {
       error.candidates = this.candidates;
       throw error;
     }
-    this.binding = require(bindingPath);
+    try {
+      this.binding = require(bindingPath);
+    } catch (cause) {
+      const error = new Error(
+        `Win32 Browser Host 加载失败: ${bindingPath}; `
+        + `${cause?.message || cause}. 请确认安装包完整且未被安全软件隔离`,
+      );
+      error.code = 'NATIVE_BROWSER_HOST_LOAD_FAILED';
+      error.bindingPath = bindingPath;
+      error.cause = cause;
+      throw error;
+    }
     return this.binding;
   }
 

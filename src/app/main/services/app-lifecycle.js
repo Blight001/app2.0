@@ -30,6 +30,10 @@ const {
   MAX_AI_CONTROL_MESSAGES,
   limitAiControlMessages,
 } = require('../lib/ai-control-message-window');
+const {
+  wrapLegacyIpcEventPayload,
+  wrapLegacyIpcPayload,
+} = require('../../contracts/ipc-payloads');
 
 const BROWSER_CONNECTION_START_MATCH_WINDOW_MS = 60 * 1000;
 
@@ -349,7 +353,7 @@ function registerAppLifecycle(deps = {}) {
       }
     });
 
-    ipcMain.handle('ai-control-redeem-gift-code', async (_event, input = {}) => {
+    ipcMain.handle('ai-control-redeem-gift-code', wrapLegacyIpcPayload('ai-control-redeem-gift-code', async (_event, input = {}) => {
       try {
         const credentials = readStoreConfigSafe()?.userCredentials || {};
         const key = String(credentials.key || '').trim();
@@ -365,7 +369,7 @@ function registerAppLifecycle(deps = {}) {
       } catch (error) {
         return { ok: false, message: error?.message || String(error) };
       }
-    });
+    }));
 
     let legacyCardImportLastAttemptAt = 0;
     async function importLegacyCardsFromConnectedBrowsers(bridge) {
@@ -436,7 +440,7 @@ function registerAppLifecycle(deps = {}) {
       }
     });
 
-    ipcMain.on('ai-control-browser-selection-changed', (_event, input = {}) => {
+    ipcMain.on('ai-control-browser-selection-changed', wrapLegacyIpcEventPayload('ai-control-browser-selection-changed', (_event, input = {}) => {
       const profileId = String(input?.profileId || '').trim();
       const profileIds = [...new Set((Array.isArray(input?.profileIds) ? input.profileIds : [profileId])
         .map((value) => String(value || '').trim())
@@ -447,9 +451,9 @@ function registerAppLifecycle(deps = {}) {
         profileId: profileIds[0] || '',
         profileIds,
       });
-    });
+    }, logger));
 
-    ipcMain.handle('ai-control-select-automation-card', async (_event, input = {}) => {
+    ipcMain.handle('ai-control-select-automation-card', wrapLegacyIpcPayload('ai-control-select-automation-card', async (_event, input = {}) => {
       try {
         const selected = deps.browserAutomationBridge?.selectCard?.(input?.id);
         if (!selected?.item) throw new Error('软件卡片库不可用');
@@ -465,7 +469,7 @@ function registerAppLifecycle(deps = {}) {
       } catch (error) {
         return { ok: false, message: error?.message || String(error) };
       }
-    });
+    }));
 
     ipcMain.handle('get-vip-plans', async () => {
       try {
@@ -613,7 +617,7 @@ function registerAppLifecycle(deps = {}) {
       return aiBrowserWindowTools;
     };
 
-    ipcMain.handle('ai-control-chat-insert', async (_event, input = {}) => {
+    ipcMain.handle('ai-control-chat-insert', wrapLegacyIpcPayload('ai-control-chat-insert', async (_event, input = {}) => {
       const requestId = String(input.requestId || '').trim();
       const content = String(input.content || '').trim().slice(0, 12000);
       if (!requestId || !content) return { ok: false, message: '缺少要插入的对话内容' };
@@ -621,16 +625,16 @@ function registerAppLifecycle(deps = {}) {
       if (!run || run.stopped) return { ok: false, message: '当前 AI 回复已经结束' };
       run.insertedMessages.push({ role: 'user', content });
       return { ok: true, queued: run.insertedMessages.length };
-    });
+    }));
 
-    ipcMain.handle('ai-control-chat-stop', async (_event, input = {}) => {
+    ipcMain.handle('ai-control-chat-stop', wrapLegacyIpcPayload('ai-control-chat-stop', async (_event, input = {}) => {
       const requestId = String(input.requestId || '').trim();
       const run = activeAiChatRuns.get(aiChatRunKey(_event, requestId));
       if (!run) return { ok: true, stopped: false };
       run.stopped = true;
       run.controller.abort();
       return { ok: true, stopped: true };
-    });
+    }));
 
     ipcMain.handle('ai-control-chat', async (_event, input = {}) => {
       let activeRun = null;
@@ -1014,6 +1018,7 @@ function registerAppLifecycle(deps = {}) {
           for (const call of toolCalls) {
             mcpCallCount += 1;
             const toolName = String(call?.function?.name || '').trim();
+            /** @type {Record<string, any>} */
             let args = {};
             try {
               args = JSON.parse(String(call?.function?.arguments || '{}'));
@@ -1145,15 +1150,15 @@ function registerAppLifecycle(deps = {}) {
       }
     });
 
-    ipcMain.handle('ai-control-history-get', async (_event, input = {}) => {
+    ipcMain.handle('ai-control-history-get', wrapLegacyIpcPayload('ai-control-history-get', async (_event, input = {}) => {
       try {
         return aiChatHistory.getSession(historyCredentials(), input?.id);
       } catch (error) {
         return { ok: false, message: error?.message || String(error) };
       }
-    });
+    }));
 
-    ipcMain.handle('ai-control-history-save', async (_event, input = {}) => {
+    ipcMain.handle('ai-control-history-save', wrapLegacyIpcPayload('ai-control-history-save', async (_event, input = {}) => {
       try {
         return aiChatHistory.saveSession(historyCredentials(), input?.session || input || {}, {
           setCurrent: input?.setCurrent !== false,
@@ -1161,31 +1166,31 @@ function registerAppLifecycle(deps = {}) {
       } catch (error) {
         return { ok: false, message: error?.message || String(error) };
       }
-    });
+    }));
 
-    ipcMain.handle('ai-control-history-delete', async (_event, input = {}) => {
+    ipcMain.handle('ai-control-history-delete', wrapLegacyIpcPayload('ai-control-history-delete', async (_event, input = {}) => {
       try {
         return aiChatHistory.deleteSession(historyCredentials(), input?.id);
       } catch (error) {
         return { ok: false, message: error?.message || String(error) };
       }
-    });
+    }));
 
-    ipcMain.handle('ai-control-history-rename', async (_event, input = {}) => {
+    ipcMain.handle('ai-control-history-rename', wrapLegacyIpcPayload('ai-control-history-rename', async (_event, input = {}) => {
       try {
         return aiChatHistory.renameSession(historyCredentials(), input?.id, input?.title);
       } catch (error) {
         return { ok: false, message: error?.message || String(error) };
       }
-    });
+    }));
 
-    ipcMain.handle('ai-control-history-create', async (_event, input = {}) => {
+    ipcMain.handle('ai-control-history-create', wrapLegacyIpcPayload('ai-control-history-create', async (_event, input = {}) => {
       try {
         return aiChatHistory.createSession(historyCredentials(), input || {});
       } catch (error) {
         return { ok: false, message: error?.message || String(error) };
       }
-    });
+    }));
 
     ipcMain.handle('account-authenticate', async (_event, input = {}) => {
       try {
@@ -1434,8 +1439,9 @@ function registerAppLifecycle(deps = {}) {
       }
     });
 
-    ipcMain.handle('license-delete-record', async (_event, { keyValue, id } = {}) => {
+    ipcMain.handle('license-delete-record', async (_event, input = {}) => {
       try {
+        const { keyValue, id } = /** @type {{ keyValue?: unknown, id?: unknown }} */ (input);
         const records = readLicenseRecordsSafe();
         const targetKey = String(keyValue || '').trim();
         const targetId = String(id || '').trim();

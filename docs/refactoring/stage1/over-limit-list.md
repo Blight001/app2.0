@@ -1,9 +1,9 @@
 # 超限存量清单（阶段 1 渐进门禁）
 
-生成：`node scripts/check-guardrails.js --update`（2026-07-17）。
+生成：`node scripts/check-guardrails.js --update`（2026-07-18）。
 存量不阻塞提交，但新增代码不得让任何计数超过基线；每整改一个文件后重新 --update 收紧基线。
 
-当前基线：eslint errors=2，>500 行文件=33，>80 行函数=119 处，复杂度>15=380 处，tsc checkJs errors=331
+当前基线：eslint errors=2，>500 行文件=33，>80 行函数=119 处，复杂度>15=380 处，tsc checkJs errors=328
 
 ## 超过 500 行的自有源码文件
 
@@ -18,7 +18,7 @@
 - `src/app/main/lib/auth-cookie.js` — File has too many lines (1033). Maximum allowed is 500.
 - `src/app/main/lib/http-client.js` — File has too many lines (503). Maximum allowed is 500.
 - `src/app/main/lib/session-storage.js` — File has too many lines (667). Maximum allowed is 500.
-- `src/app/main/services/app-lifecycle.js` — File has too many lines (1628). Maximum allowed is 500.
+- `src/app/main/services/app-lifecycle.js` — File has too many lines (1633). Maximum allowed is 500.
 - `src/app/main/services/app-shell.js` — File has too many lines (798). Maximum allowed is 500.
 - `src/app/main/services/app-updater.js` — File has too many lines (1272). Maximum allowed is 500.
 - `src/app/main/services/extension-manager.js` — File has too many lines (1722). Maximum allowed is 500.

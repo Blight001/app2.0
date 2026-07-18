@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { build, Platform } = require('electron-builder');
 const { verifyPackagedRuntime } = require('./verify-packaged-runtime');
+const { buildNativeHost } = require('./build-native-host');
 
 const projectDir = path.resolve(__dirname, '..');
 const extensionsDir = path.join(projectDir, 'src', 'assets', 'extensions');
@@ -206,6 +207,10 @@ async function main() {
     console.log('[build:win] 延后资源配置校验通过: Chromium, Clash Mini Core');
     return;
   }
+
+  // 禁止把工作区中的旧 .node 产物直接带入安装包。
+  // Electron ABI 目标和 CRT 链接方式都由当前源码在本次打包中重建。
+  buildNativeHost();
 
   // Chromium 和 Clash Core 都包含会触发签名/实时扫描的可执行文件。若交给
   // electron-builder 与其它资源并行复制，Windows 偶发返回 EBUSY/EPERM。

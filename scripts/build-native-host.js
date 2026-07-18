@@ -101,7 +101,10 @@ function runManualMsvcBuild() {
   }
 
   const compileArgs = [
-    '/nologo', '/LD', '/O2', '/EHsc', '/std:c++17', '/MD', '/utf-8',
+    // 原生宿主会被安装到可能没有 VC++ Redistributable 的 Win10 机器。
+    // 它不在 DLL 边界传递 C++ 对象，因此静态 CRT 既安全，也能避免
+    // require(.node) 因 VCRUNTIME140_1.dll 缺失而报 ERROR_MOD_NOT_FOUND。
+    '/nologo', '/LD', '/O2', '/EHsc', '/std:c++17', '/MT', '/utf-8',
     '/DNAPI_VERSION=9', '/DUNICODE', '/D_UNICODE', '/DWIN32_LEAN_AND_MEAN', '/DNOMINMAX',
     `/I${sdk.includeDir}`,
     ...sources,
@@ -118,10 +121,18 @@ function runManualMsvcBuild() {
   }
 }
 
-console.log(`[native-host] Electron target: ${electronVersion}`);
-if (findVsRoot() && findElectronSdk()) {
-  runManualMsvcBuild();
-} else if (!runNodeGyp()) {
-  throw new Error('Native Host 构建失败：未找到可用的 node-gyp 或 MSVC/Electron SDK 组合');
+function buildNativeHost() {
+  console.log(`[native-host] Electron target: ${electronVersion}`);
+  if (findVsRoot() && findElectronSdk()) {
+    runManualMsvcBuild();
+  } else if (!runNodeGyp()) {
+    throw new Error('Native Host 构建失败：未找到可用的 node-gyp 或 MSVC/Electron SDK 组合');
+  }
+  console.log(`[native-host] 构建完成: ${outputFile}`);
 }
-console.log(`[native-host] 构建完成: ${outputFile}`);
+
+if (require.main === module) {
+  buildNativeHost();
+}
+
+module.exports = { buildNativeHost };

@@ -12,6 +12,7 @@ const path = require('node:path');
 const root = path.join(__dirname, '..', '..', '..');
 const mainDir = path.join(root, 'src', 'app', 'main');
 const contracts = require(path.join(root, 'src', 'app', 'contracts', 'ipc-channels.js'));
+const { hasIpcPayloadSchema } = require(path.join(root, 'src', 'app', 'contracts', 'ipc-payloads.js'));
 
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -83,4 +84,33 @@ test('同一通道不得在 invoke 与 event 中重复登记', () => {
   const invokeNames = new Set(contracts.INVOKE_CHANNELS.map((c) => c.channel));
   const clash = contracts.EVENT_CHANNELS.map((c) => c.channel).filter((ch) => invokeNames.has(ch));
   assert.deepEqual(clash, [], `通道同时登记为 invoke 和 event: ${clash.join(', ')}`);
+});
+
+test('通道声明的 requestSchema 必须存在且能由通道名反查', () => {
+  const requestChannels = [...contracts.INVOKE_CHANNELS, ...contracts.EVENT_CHANNELS];
+  for (const entry of requestChannels) {
+    if (!entry.requestSchema) continue;
+    assert.equal(
+      hasIpcPayloadSchema(entry.requestSchema),
+      true,
+      `${entry.channel} 引用了未登记 schema: ${entry.requestSchema}`,
+    );
+    assert.equal(contracts.getRequestSchema(entry.channel), entry.requestSchema);
+  }
+});
+
+test('首批 schema 通道在注册点实际经过 payload 校验包装', () => {
+  const requestChannels = [...contracts.INVOKE_CHANNELS, ...contracts.EVENT_CHANNELS];
+  for (const entry of requestChannels) {
+    if (!entry.requestSchema) continue;
+    const registrar = path.join(root, entry.registrar);
+    const source = fs.readFileSync(registrar, 'utf8');
+    const escaped = entry.channel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const wrapper = entry.kind === 'event' ? 'wrapLegacyIpcEventPayload' : 'wrapLegacyIpcPayload';
+    assert.match(
+      source,
+      new RegExp(`${wrapper}\\(\\s*['"]${escaped}['"]`),
+      `${entry.channel} 声明了 requestSchema 但注册点未应用 ${wrapper}`,
+    );
+  }
 });
