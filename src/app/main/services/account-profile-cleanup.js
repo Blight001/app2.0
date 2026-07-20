@@ -21,6 +21,46 @@ function removeAccountBrowserHistory(accountId, deps = {}) {
 
 const cleanupInFlight = new Map();
 
+async function closeAccountTabs(accountId, deps) {
+  const tabs = typeof deps.getTabs === 'function' ? deps.getTabs() : new Map();
+  const matchedTabs = Array.from(tabs && typeof tabs.values === 'function' ? tabs.values() : [])
+    .filter((tab) => String((tab && tab.accountId) || '').trim() === accountId);
+  if (typeof deps.closeTab !== 'function') return;
+  for (const tab of matchedTabs) {
+    if (tab && tab.id) await deps.closeTab(tab.id);
+  }
+}
+
+async function stopAccountRuntime(accountId, browserRuntimeManager) {
+  if (!browserRuntimeManager || typeof browserRuntimeManager.getState !== 'function') return;
+  const state = browserRuntimeManager.getState(accountId);
+  const status = String((state && state.status) || '').toLowerCase();
+  if (state && !['stopped', 'crashed'].includes(status)) {
+    await browserRuntimeManager.stop(accountId, 'chromium', { timeoutMs: 5000 });
+  }
+}
+
+async function deleteAccountProfile(accountId, browserRuntimeManager) {
+  if (browserRuntimeManager && typeof browserRuntimeManager.deleteProfileAsync === 'function') {
+    await browserRuntimeManager.deleteProfileAsync(accountId);
+    return true;
+  }
+  if (browserRuntimeManager && typeof browserRuntimeManager.deleteProfile === 'function') {
+    await browserRuntimeManager.deleteProfile(accountId);
+    return true;
+  }
+  return false;
+}
+
+function notifyAccountProfileCleanup(accountId, sendToSide, logger) {
+  try {
+    if (typeof sendToSide === 'function') sendToSide('browser-history-changed');
+  } catch (_) {}
+  if (logger && typeof logger.log === 'function') {
+    logger.log('[AccountProfileCleanup] 已删除账号 Chromium Profile:', accountId);
+  }
+}
+
 function cleanupAccountProfile(accountId, deps = {}) {
   const normalizedAccountId = String(accountId || '').trim();
   if (!normalizedAccountId) return Promise.resolve({ ok: false, error: '缺少账号ID' });
@@ -33,38 +73,16 @@ function cleanupAccountProfile(accountId, deps = {}) {
 }
 
 async function runAccountProfileCleanup(normalizedAccountId, deps = {}) {
-
   const {
     browserRuntimeManager,
-    getTabs = () => new Map(),
-    closeTab,
     logger = console,
     sendToSide,
   } = deps;
 
   try {
-    const tabs = typeof getTabs === 'function' ? getTabs() : new Map();
-    const matchedTabs = Array.from(tabs?.values?.() || []).filter((tab) => (
-      String(tab?.accountId || '').trim() === normalizedAccountId
-    ));
-
-    for (const tab of matchedTabs) {
-      if (typeof closeTab === 'function' && tab?.id) {
-        await closeTab(tab.id);
-      }
-    }
-
-    const state = browserRuntimeManager?.getState?.(normalizedAccountId);
-    if (state && !['stopped', 'crashed'].includes(String(state.status || '').toLowerCase())) {
-      await browserRuntimeManager.stop(normalizedAccountId, 'chromium', { timeoutMs: 5000 });
-    }
-
-    if (browserRuntimeManager?.deleteProfileAsync) {
-      await browserRuntimeManager.deleteProfileAsync(normalizedAccountId);
-    } else if (browserRuntimeManager?.deleteProfile) {
-      // 兼容测试替身和旧的运行时管理器。
-      await browserRuntimeManager.deleteProfile(normalizedAccountId);
-    } else {
+    await closeAccountTabs(normalizedAccountId, deps);
+    await stopAccountRuntime(normalizedAccountId, browserRuntimeManager);
+    if (!await deleteAccountProfile(normalizedAccountId, browserRuntimeManager)) {
       return { ok: false, error: 'Chromium Profile 管理器不可用' };
     }
 
@@ -72,12 +90,14 @@ async function runAccountProfileCleanup(normalizedAccountId, deps = {}) {
       return { ok: false, error: '浏览器历史清理失败' };
     }
 
-    try { sendToSide?.('browser-history-changed'); } catch (_) {}
-    logger.log?.('[AccountProfileCleanup] 已删除账号 Chromium Profile:', normalizedAccountId);
+    notifyAccountProfileCleanup(normalizedAccountId, sendToSide, logger);
     return { ok: true, accountId: normalizedAccountId };
   } catch (error) {
-    logger.warn?.('[AccountProfileCleanup] 删除账号 Chromium Profile 失败:', normalizedAccountId, error?.message || error);
-    return { ok: false, error: error?.message || String(error) };
+    const message = error && error.message ? error.message : error;
+    if (logger && typeof logger.warn === 'function') {
+      logger.warn('[AccountProfileCleanup] 删除账号 Chromium Profile 失败:', normalizedAccountId, message);
+    }
+    return { ok: false, error: error && error.message ? error.message : String(error) };
   }
 }
 

@@ -129,53 +129,54 @@ function extFromUrl(u) {
   } catch (_) { return ''; }
 }
 
+const IMAGE_SIGNATURES = [
+  { ext: 'png', parts: [[0, [0x89, 0x50, 0x4E, 0x47]]] },
+  { ext: 'jpg', parts: [[0, [0xFF, 0xD8, 0xFF]]] },
+  { ext: 'gif', parts: [[0, [0x47, 0x49, 0x46]]] },
+  { ext: 'bmp', parts: [[0, [0x42, 0x4D]]] },
+  { ext: 'webp', parts: [[0, [0x52, 0x49, 0x46, 0x46]], [8, [0x57, 0x45, 0x42, 0x50]]] },
+  { ext: 'svg', parts: [[0, [0x3C, 0x73, 0x76, 0x67]]] },
+  { ext: 'svg', parts: [[0, [0x3C, 0x3F, 0x78, 0x6D]]] },
+  { ext: 'tiff', parts: [[0, [0x49, 0x49, 0x2A, 0x00]]] },
+  { ext: 'tiff', parts: [[0, [0x4D, 0x4D, 0x00, 0x2A]]] },
+];
+
+function bufferMatchesSignature(buffer, parts) {
+  return parts.every(([offset, bytes]) => bytes.every((byte, index) => buffer[offset + index] === byte));
+}
+
 // 从图片数据头部检测真实格式
 function detectImageFormatFromData(buffer) {
   try {
     if (!buffer || buffer.length < 4) return '';
-
-    // 检查PNG (89 50 4E 47)
-    if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
-      return 'png';
-    }
-
-    // 检查JPEG/JPG (FF D8 FF)
-    if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
-      return 'jpg';
-    }
-
-    // 检查GIF (47 49 46)
-    if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) {
-      return 'gif';
-    }
-
-    // 检查BMP (42 4D)
-    if (buffer[0] === 0x42 && buffer[1] === 0x4D) {
-      return 'bmp';
-    }
-
-    // 检查WebP (52 49 46 46 ... 57 45 42 50)
-    if (buffer.length >= 12 &&
-        buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
-        buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) {
-      return 'webp';
-    }
-
-    // 检查SVG (3C 73 76 67 或 3C 3F 78 6D)
-    if ((buffer[0] === 0x3C && buffer[1] === 0x73 && buffer[2] === 0x76 && buffer[3] === 0x67) ||
-        (buffer[0] === 0x3C && buffer[1] === 0x3F && buffer[2] === 0x78 && buffer[3] === 0x6D)) {
-      return 'svg';
-    }
-
-    // 检查TIFF (49 49 2A 00 或 4D 4D 00 2A)
-    if ((buffer[0] === 0x49 && buffer[1] === 0x49 && buffer[2] === 0x2A && buffer[3] === 0x00) ||
-        (buffer[0] === 0x4D && buffer[1] === 0x4D && buffer[2] === 0x00 && buffer[3] === 0x2A)) {
-      return 'tiff';
-    }
-
-    return '';
+    return IMAGE_SIGNATURES.find((signature) => bufferMatchesSignature(buffer, signature.parts))?.ext || '';
   } catch (_) {
     return '';
+  }
+}
+
+function getDownloadWindowState(win) {
+  let state = downloadWindowStates.get(win);
+  if (!state) {
+    state = { originalTitle: '' };
+    downloadWindowStates.set(win, state);
+  }
+  if (!state.originalTitle && typeof win.getTitle === 'function') state.originalTitle = win.getTitle() || '';
+  return state;
+}
+
+function renderActiveDownloadProgress(win, state, percent, statusText) {
+  const clamped = Math.max(0, Math.min(1, percent / 100));
+  try { win.setProgressBar(clamped); } catch (_) {}
+  const suffix = statusText ? ` · ${statusText}` : '';
+  const rounded = Math.max(0, Math.min(100, Math.round(percent)));
+  try { win.setTitle(`${state.originalTitle || 'AI-FREE'} - 下载中 ${rounded}%${suffix}`); } catch (_) {}
+}
+
+function clearWindowDownloadProgress(win, state) {
+  try { win.setProgressBar(-1); } catch (_) {}
+  if (state.originalTitle) {
+    try { win.setTitle(state.originalTitle); } catch (_) {}
   }
 }
 
@@ -232,29 +233,74 @@ function setDownloadWindowProgress(wc, percent, statusText = '') {
   if (!win) return;
 
   try {
-    let state = downloadWindowStates.get(win);
-    if (!state) {
-      state = { originalTitle: '' };
-      downloadWindowStates.set(win, state);
-    }
-
-    if (!state.originalTitle) {
-      state.originalTitle = typeof win.getTitle === 'function' ? (win.getTitle() || '') : '';
-    }
-
+    const state = getDownloadWindowState(win);
     if (typeof percent === 'number' && Number.isFinite(percent) && percent >= 0) {
-      const clamped = Math.max(0, Math.min(1, percent / 100));
-      try { win.setProgressBar(clamped); } catch (_) {}
-      const titlePrefix = '下载中';
-      const suffix = statusText ? ` · ${statusText}` : '';
-      try { win.setTitle(`${state.originalTitle || 'AI-FREE'} - ${titlePrefix} ${Math.max(0, Math.min(100, Math.round(percent)))}%${suffix}`); } catch (_) {}
+      renderActiveDownloadProgress(win, state, percent, statusText);
     } else {
-      try { win.setProgressBar(-1); } catch (_) {}
-      if (state.originalTitle) {
-        try { win.setTitle(state.originalTitle); } catch (_) {}
-      }
+      clearWindowDownloadProgress(win, state);
     }
   } catch (_) {}
+}
+
+function trackDownloadProgress(item, webContents) {
+  if (!item || typeof item.on !== 'function') return;
+  item.on('updated', () => {
+    try {
+      const received = typeof item.getReceivedBytes === 'function' ? item.getReceivedBytes() : 0;
+      const total = typeof item.getTotalBytes === 'function' ? item.getTotalBytes() : 0;
+      setDownloadWindowProgress(webContents, total > 0 ? Math.min(99.5, (received / total) * 100) : null, '正在下载');
+    } catch (_) {}
+  });
+  item.once('done', () => clearDownloadWindowProgress(webContents));
+}
+
+function getDownloadItemUrls(item) {
+  try {
+    const mainUrl = typeof item.getURL === 'function' ? item.getURL() : '';
+    const chain = typeof item.getURLChain === 'function' ? item.getURLChain() : [];
+    return [mainUrl, ...(Array.isArray(chain) ? chain : [])].filter(Boolean);
+  } catch (_) {
+    return [];
+  }
+}
+
+function applyPendingDownloadPath(item, urls) {
+  const url = urls.find((candidate) => pendingDownloadPaths.has(candidate));
+  if (!url) return false;
+  try { item.setSavePath(pendingDownloadPaths.get(url)); } catch (_) {}
+  urls.forEach((candidate) => pendingDownloadPaths.delete(candidate));
+  return true;
+}
+
+function inferDownloadExtension(item) {
+  const mainUrl = typeof item.getURL === 'function' ? item.getURL() : '';
+  const mime = typeof item.getMimeType === 'function' ? item.getMimeType() || '' : '';
+  const rawName = typeof item.getFilename === 'function' ? item.getFilename() || 'download' : 'download';
+  let ext = normalizeExt(mimeToExt(mime) || extFromUrl(mainUrl) || extFromUrl(rawName));
+  if (!ext && mime.startsWith('image/')) {
+    ext = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'tiff']
+      .find((candidate) => rawName.toLowerCase().includes(`.${candidate}`)) || 'png';
+  }
+  const fileName = isVideoMime(mime) ? crypto.randomBytes(8).toString('hex') : rawName;
+  return { ext: normalizeExt(ext), fileName };
+}
+
+async function handleWillDownload(item, webContents) {
+  trackDownloadProgress(item, webContents);
+  const urls = getDownloadItemUrls(item);
+  if (applyPendingDownloadPath(item, urls)) return;
+  const { ext, fileName } = inferDownloadExtension(item);
+  const save = await dialog.showSaveDialog({
+    title: '保存文件',
+    defaultPath: getDefaultSavePath(withExt(fileName, ext)),
+    filters: dialogFiltersByExt(ext),
+  });
+  if (save.canceled) {
+    item.cancel();
+    return;
+  }
+  item.setSavePath(save.filePath);
+  persistLastDir(path.dirname(save.filePath));
 }
 
 // 停止/关闭/清理：clearDownloadWindowProgress的具体业务逻辑。
@@ -266,94 +312,54 @@ function clearDownloadWindowProgress(wc) {
 function attachDownloadHandler(session) {
   try {
     if (!session || downloadedSessions.has(session)) return;
-    session.on('will-download', async (event, item, webContents) => {
-      try {
-        if (item && typeof item.on === 'function') {
-          item.on('updated', () => {
-            try {
-              const receivedBytes = typeof item.getReceivedBytes === 'function' ? item.getReceivedBytes() : 0;
-              const totalBytes = typeof item.getTotalBytes === 'function' ? item.getTotalBytes() : 0;
-              const percent = totalBytes > 0 ? Math.min(99.5, (receivedBytes / totalBytes) * 100) : null;
-              setDownloadWindowProgress(webContents, percent, '正在下载');
-            } catch (_) {}
-          });
-          item.once('done', (_doneEvent, state) => {
-            try {
-              clearDownloadWindowProgress(webContents);
-            } catch (_) {}
-            if (state === 'completed') {
-              return;
-            }
-          });
-        }
-
-        // 如果在触发下载前已经弹窗并记录了保存路径，则直接使用，避免再次弹窗
-        let urls = [];
-        try {
-// 处理：mainUrl的具体业务逻辑。
-          const mainUrl = (typeof item.getURL === 'function') ? item.getURL() : '';
-          if (mainUrl) urls.push(mainUrl);
-// 处理：chain的具体业务逻辑。
-          const chain = (typeof item.getURLChain === 'function') ? item.getURLChain() : [];
-          if (Array.isArray(chain)) urls = urls.concat(chain);
-        } catch (_) {}
-        let presetPath = null;
-        for (const u of urls) {
-          if (pendingDownloadPaths.has(u)) {
-            presetPath = pendingDownloadPaths.get(u);
-            break;
-          }
-        }
-        if (presetPath) {
-          try { item.setSavePath(presetPath); } catch (_) {}
-          // 清理所有相关 key，防止残留
-          try { for (const u of urls) pendingDownloadPaths.delete(u); } catch (_) {}
-          return;
-        }
-
-        // 未预设路径的情况：基于 MIME/URL 推断扩展名与过滤器
-        const mainUrl = (typeof item.getURL === 'function') ? item.getURL() : '';
-// 处理：mime的具体业务逻辑。
-        const mime = (typeof item.getMimeType === 'function') ? (item.getMimeType() || '') : '';
-// 处理：fileNameRaw的具体业务逻辑。
-        const fileNameRaw = (typeof item.getFilename === 'function') ? (item.getFilename() || 'download') : 'download';
-        let extGuess = mimeToExt(mime) || extFromUrl(mainUrl) || extFromUrl(fileNameRaw);
-        extGuess = normalizeExt(extGuess);
-
-        // 如果仍然无法确定扩展名且是图片类型，尝试从文件名中推断
-        if (!extGuess && mime && mime.startsWith('image/')) {
-          // 检查文件名是否包含常见图片扩展名
-          const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'tiff'];
-          const lowerFileName = fileNameRaw.toLowerCase();
-          for (const ext of imageExts) {
-            if (lowerFileName.includes('.' + ext)) {
-              extGuess = ext;
-              break;
-            }
-          }
-          // 如果还是无法确定，默认使用png
-          if (!extGuess) {
-            extGuess = 'png';
-          }
-        }
-        extGuess = normalizeExt(extGuess);
-
-        // 如果是视频文件，使用随机文件名
-        const fileName = isVideoMime(mime) ? withExt(crypto.randomBytes(8).toString('hex'), extGuess) : withExt(fileNameRaw, extGuess);
-        const filters = dialogFiltersByExt(extGuess);
-        const savePath = await dialog.showSaveDialog({ title: '保存文件', defaultPath: getDefaultSavePath(fileName), filters });
-        if (savePath.canceled) {
-          item.cancel();
-          return;
-        }
-        item.setSavePath(savePath.filePath);
-        try { persistLastDir(path.dirname(savePath.filePath)); } catch (_) {}
-      } catch (e) {
-        try { item.cancel(); } catch(_) {}
-      }
+    session.on('will-download', (_event, item, webContents) => {
+      void handleWillDownload(item, webContents).catch(() => {
+        try { item.cancel(); } catch (_) {}
+      });
     });
     downloadedSessions.add(session);
   } catch (_) {}
+}
+
+function normalizeDownloadOptions(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : { suggestedName: value };
+}
+
+async function saveRemoteMedia(wc, url, options) {
+  const ext = normalizeExt(options.extHint || extFromUrl(url) || mimeToExt(options.mimeHint));
+  const defaultName = withExt(crypto.randomBytes(8).toString('hex'), ext);
+  const save = await dialog.showSaveDialog({ title: '保存文件', defaultPath: getDefaultSavePath(defaultName), filters: dialogFiltersByExt(ext) });
+  if (save.canceled) return clearDownloadWindowProgress(wc);
+  persistLastDir(path.dirname(save.filePath));
+  pendingDownloadPaths.set(url, save.filePath);
+  setDownloadWindowProgress(wc, 0, '正在准备下载');
+  wc.downloadURL(url);
+}
+
+async function readLocalMedia(wc, url) {
+  setDownloadWindowProgress(wc, 0, '正在读取媒体');
+  return wc.executeJavaScript(`(async () => {
+    try {
+      const r = await fetch(${JSON.stringify(url)});
+      const b = await r.blob();
+      return { ok: true, data: Array.from(new Uint8Array(await b.arrayBuffer())), mime: b.type || '' };
+    } catch (e) { return { ok: false, error: String(e) }; }
+  })()`, true);
+}
+
+async function saveLocalMedia(wc, url, options) {
+  const response = await readLocalMedia(wc, url);
+  if (!response || !response.ok) throw new Error(response?.error || 'fetch 失败');
+  const buffer = Buffer.from(response.data);
+  const ext = normalizeExt(options.extHint || mimeToExt(response.mime) || mimeToExt(options.mimeHint))
+    || detectImageFormatFromData(buffer)
+    || 'png';
+  const defaultName = withExt(crypto.randomBytes(8).toString('hex'), ext);
+  const save = await dialog.showSaveDialog({ title: '保存媒体', defaultPath: getDefaultSavePath(defaultName), filters: dialogFiltersByExt(ext) });
+  if (save.canceled) return clearDownloadWindowProgress(wc);
+  fs.writeFileSync(save.filePath, buffer);
+  persistLastDir(path.dirname(save.filePath));
+  clearDownloadWindowProgress(wc);
 }
 
 // 处理：downloadOrSaveMedia的具体业务逻辑。
@@ -361,79 +367,12 @@ async function downloadOrSaveMedia(wc, url, suggestedNameOrOptions) {
   try {
     if (!wc || wc.isDestroyed() || !url) return;
 // 处理：opts的具体业务逻辑。
-    const opts = (suggestedNameOrOptions && typeof suggestedNameOrOptions === 'object' && !Array.isArray(suggestedNameOrOptions))
-      ? suggestedNameOrOptions
-      : { suggestedName: suggestedNameOrOptions };
-    const suggestedName = opts.suggestedName || '';
-    const extHint = opts.extHint || '';
-    const mimeHint = opts.mimeHint || '';
-
+    const options = normalizeDownloadOptions(suggestedNameOrOptions);
     attachDownloadHandler(wc.session);
     if (/^https?:/i.test(url)) {
-      // 预先弹出保存对话框（记忆上次目录），will-download 中不再弹窗
-      const extUrl = extFromUrl(url);
-      let ext = extHint || extUrl || mimeToExt(mimeHint);
-      ext = normalizeExt(ext);
-      // 使用随机字符串作为文件名
-      const randomName = crypto.randomBytes(8).toString('hex');
-      const defaultName = withExt(randomName, ext);
-      const filters = dialogFiltersByExt(ext);
-      const save = await dialog.showSaveDialog({ title: '保存文件', defaultPath: getDefaultSavePath(defaultName), filters });
-      if (save.canceled) {
-        clearDownloadWindowProgress(wc);
-        return;
-      }
-      try { persistLastDir(path.dirname(save.filePath)); } catch (_) {}
-      // 记录预设保存路径，触发下载
-      pendingDownloadPaths.set(url, save.filePath);
-      setDownloadWindowProgress(wc, 0, '正在准备下载');
-      wc.downloadURL(url);
-      return;
+      return saveRemoteMedia(wc, url, options);
     }
-    // 处理 blob:/data:/file: 等不可直接下载的 URL
-    setDownloadWindowProgress(wc, 0, '正在读取媒体');
-    const res = await wc.executeJavaScript(`(async () => {
-      try {
-        const u = ${JSON.stringify(url)};
-        const r = await fetch(u);
-        const b = await r.blob();
-        const ab = await b.arrayBuffer();
-        const arr = Array.from(new Uint8Array(ab));
-        const mime = b.type || '';
-        return { ok: true, data: arr, mime };
-      } catch (e) {
-        return { ok: false, error: String(e) };
-      }
-    })()`, true);
-    if (!res || !res.ok) throw new Error(res?.error || 'fetch 失败');
-    const buf = Buffer.from(res.data);
-
-    // 确定正确的扩展名
-    let ext = extHint || mimeToExt(res.mime) || mimeToExt(mimeHint);
-    ext = normalizeExt(ext);
-
-    // 如果仍然无法确定扩展名，尝试从图片数据中检测
-    if (!ext && buf.length > 0) {
-      ext = detectImageFormatFromData(buf);
-    }
-
-    // 如果仍然无法确定，默认使用png
-    if (!ext) {
-      ext = 'png';
-    }
-
-    // 使用随机字符串作为文件名
-    const randomName = crypto.randomBytes(8).toString('hex');
-    const defaultName = withExt(randomName, ext);
-    const filters = dialogFiltersByExt(ext);
-    const save = await dialog.showSaveDialog({ title: '保存媒体', defaultPath: getDefaultSavePath(defaultName), filters });
-    if (save.canceled) {
-      clearDownloadWindowProgress(wc);
-      return;
-    }
-    fs.writeFileSync(save.filePath, buf);
-    try { persistLastDir(path.dirname(save.filePath)); } catch (_) {}
-    clearDownloadWindowProgress(wc);
+    return saveLocalMedia(wc, url, options);
   } catch (e) {
     console.warn('保存媒体失败:', e?.message || e);
     clearDownloadWindowProgress(wc);

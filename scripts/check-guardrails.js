@@ -15,12 +15,14 @@ const root = path.join(__dirname, '..');
 const baselinePath = path.join(__dirname, 'guardrail-baseline.json');
 const overLimitDocPath = path.join(root, 'docs', 'refactoring', 'stage1', 'over-limit-list.md');
 const updateMode = process.argv.includes('--update');
+const eslintCli = path.resolve(path.dirname(require.resolve('eslint')), '..', 'bin', 'eslint.js');
+const tscCli = path.resolve(path.dirname(require.resolve('typescript')), '..', 'bin', 'tsc');
 
 function runEslint() {
   let raw;
   try {
-    raw = execFileSync('npx.cmd', ['eslint', '.', '--format', 'json'], {
-      cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, shell: true,
+    raw = execFileSync(process.execPath, [eslintCli, '.', '--format', 'json'], {
+      cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
     });
   } catch (error) {
     // eslint 有 error 级问题时退出码非 0，但 stdout 仍是完整 JSON
@@ -45,8 +47,8 @@ function runEslint() {
 
 function runTsc() {
   try {
-    execFileSync('npx.cmd', ['tsc', '--noEmit', '--pretty', 'false'], {
-      cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, shell: true,
+    execFileSync(process.execPath, [tscCli, '--noEmit', '--pretty', 'false'], {
+      cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
     });
     return 0;
   } catch (error) {
@@ -65,14 +67,15 @@ function main() {
       '# 超限存量清单（阶段 1 渐进门禁）',
       '',
       `生成：\`node scripts/check-guardrails.js --update\`（${new Date().toISOString().slice(0, 10)}）。`,
-      '存量不阻塞提交，但新增代码不得让任何计数超过基线；每整改一个文件后重新 --update 收紧基线。',
+      counts.maxLines === 0 && counts.maxLinesPerFunction === 0 && counts.complexity === 0
+        ? '最终结构债务已清零；后续任何超限都会直接超过零基线并阻塞门禁。'
+        : '存量不阻塞提交，但新增代码不得让任何计数超过基线；每整改一个文件后重新 --update 收紧基线。',
       '',
       `当前基线：eslint errors=${counts.eslintErrors}，>500 行文件=${counts.maxLines}，>80 行函数=${counts.maxLinesPerFunction} 处，复杂度>15=${counts.complexity} 处，tsc checkJs errors=${counts.tscErrors}`,
       '',
       '## 超过 500 行的自有源码文件',
       '',
       ...[...overLimitFiles.entries()].sort().map(([file, msg]) => `- \`${file}\` — ${msg}`),
-      '',
     ];
     fs.mkdirSync(path.dirname(overLimitDocPath), { recursive: true });
     fs.writeFileSync(overLimitDocPath, lines.join('\n'));

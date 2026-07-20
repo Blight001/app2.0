@@ -16,83 +16,25 @@ function pickFirstValue(...values) {
 
 function extractNestedText(source) {
   if (!source || typeof source !== 'object') return '';
-  return pickFirstText(
-    source.message,
-    source.msg,
-    source.error,
-    source.reason,
-    source.detail,
-    source.description,
-    source.error_description,
-    source.errorMessage,
-    source.data?.message,
-    source.data?.msg,
-    source.data?.error,
-    source.data?.reason,
-    source.data?.detail,
-    source.data?.description,
-    source.data?.error_description,
-    source.data?.errorMessage,
-    source.result?.message,
-    source.result?.msg,
-    source.result?.error,
-    source.result?.reason,
-    source.result?.detail,
-    source.result?.description,
-    source.result?.error_description,
-    source.result?.errorMessage,
-    source.payload?.message,
-    source.payload?.msg,
-    source.payload?.error,
-    source.payload?.reason,
-    source.payload?.detail,
-    source.payload?.description,
-    source.payload?.error_description,
-    source.payload?.errorMessage,
-    source.announcement?.message,
-    source.announcement?.msg,
-    source.announcement?.error,
-    source.announcement?.reason,
-    source.announcement?.detail,
-    source.announcement?.description,
-    source.announcement?.error_description,
-    source.announcement?.errorMessage,
-  );
+  return pickNestedFieldText(source,
+    ['message', 'msg', 'error', 'reason', 'detail', 'description', 'error_description', 'errorMessage'],
+    ['', 'data', 'result', 'payload', 'announcement']);
+}
+
+function pickNestedFieldText(source, fields, containers) {
+  for (const containerName of containers) {
+    const container = containerName ? source[containerName] : source;
+    if (!container || typeof container !== 'object') continue;
+    const value = pickFirstText(...fields.map((field) => container[field]));
+    if (value) return value;
+  }
+  return '';
 }
 
 function extractValidationState(source) {
   if (!source || typeof source !== 'object') return '';
-  const raw = pickFirstText(
-    source.code,
-    source.error_code,
-    source.errorCode,
-    source.card_state,
-    source.cardState,
-    source.state,
-    source.status,
-    source.message_type,
-    source.result?.card_state,
-    source.result?.code,
-    source.result?.error_code,
-    source.result?.errorCode,
-    source.result?.cardState,
-    source.result?.state,
-    source.result?.status,
-    source.data?.card_state,
-    source.data?.code,
-    source.data?.error_code,
-    source.data?.errorCode,
-    source.data?.cardState,
-    source.data?.state,
-    source.data?.status,
-    source.payload?.card_state,
-    source.payload?.code,
-    source.payload?.error_code,
-    source.payload?.errorCode,
-    source.payload?.cardState,
-    source.payload?.state,
-    source.payload?.status,
-  ).toLowerCase();
+  const fields = ['code', 'error_code', 'errorCode', 'card_state', 'cardState', 'state', 'status', 'message_type'];
+  const raw = pickNestedFieldText(source, fields, ['', 'result', 'data', 'payload']).toLowerCase();
 
   if (!raw) return '';
   if (['active', 'success', 'valid', 'enabled', 'normal', 'ok', 'passed', 'pass'].includes(raw)) return 'active';

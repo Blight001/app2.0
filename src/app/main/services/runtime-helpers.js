@@ -1,4 +1,35 @@
-// 创建/初始化：createRuntimeHelpers的具体业务逻辑。
+function rememberLoadedTranslateExtension(session, extension, logger, label, message) {
+  try { session.__translateExtId = extension?.id; } catch (_) {}
+  logger.log?.(message, label ? `(${label})` : '', extension?.name, extension?.id);
+}
+
+function findLoadedExtension(session) {
+  const all = session.getAllExtensions ? session.getAllExtensions() : null;
+  return all ? Object.values(all)[0] : null;
+}
+
+async function loadTranslateExtensionIntoSession(session, label, extDir, logger) {
+  if (!session?.extensions?.loadExtension) return;
+  try {
+    const extension = await session.extensions.loadExtension(extDir, { allowFileAccess: true });
+    rememberLoadedTranslateExtension(session, extension, logger, label, '[TranslateExt] 扩展已加载');
+  } catch (error) {
+    const message = error?.message || String(error);
+    if (/already loaded|exists/i.test(message)) {
+      try {
+        const extension = findLoadedExtension(session);
+        if (extension) {
+          rememberLoadedTranslateExtension(session, extension, logger, label, '[TranslateExt] 会话中已存在扩展');
+          return;
+        }
+      } catch (readError) {
+        logger.warn?.('[TranslateExt] 读取已加载扩展失败:', readError?.message || readError);
+      }
+    }
+    logger.warn?.('[TranslateExt] 扩展加载失败', label ? `(${label})` : '', message);
+  }
+}
+
 function createRuntimeHelpers(deps = {}) {
   const {
     app,
@@ -52,35 +83,8 @@ function createRuntimeHelpers(deps = {}) {
     return candidates[0] || path.join(__dirname, '../../../assets/extensions/transform');
   }
 
-// 获取/读取/解析：loadTranslateExtension的具体业务逻辑。
   async function loadTranslateExtension(session, label = '') {
-    const extDir = getTranslateExtDir();
-    if (!session || !session.extensions || !session.extensions.loadExtension) {
-      return;
-    }
-
-    try {
-      const ext = await session.extensions.loadExtension(extDir, { allowFileAccess: true });
-      try { session.__translateExtId = ext && ext.id; } catch (_) {}
-      logger.log?.('[TranslateExt] 扩展已加载', label ? `(${label})` : '', ext && ext.name, ext && ext.id);
-    } catch (error) {
-      const msg = error && (error.message || String(error));
-      if (msg && /already loaded|exists/i.test(msg)) {
-        try {
-          const all = session.getAllExtensions ? session.getAllExtensions() : null;
-          const list = all ? Object.values(all) : [];
-          if (list && list.length > 0) {
-            const ext = list[0];
-            try { session.__translateExtId = ext && ext.id; } catch (_) {}
-            logger.log?.('[TranslateExt] 会话中已存在扩展', label ? `(${label})` : '', ext && ext.name, ext && ext.id);
-            return;
-          }
-        } catch (e2) {
-          logger.warn?.('[TranslateExt] 读取已加载扩展失败:', e2?.message || e2);
-        }
-      }
-      logger.warn?.('[TranslateExt] 扩展加载失败', label ? `(${label})` : '', msg);
-    }
+    return loadTranslateExtensionIntoSession(session, label, getTranslateExtDir(), logger);
   }
 
 // 处理：computeDeviceId的具体业务逻辑。

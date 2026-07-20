@@ -52,74 +52,112 @@ function writeStore(scope, store) {
   });
 }
 
+const DEFAULT_HISTORY_CONTEXT = Object.freeze({
+  accountScope,
+  now: () => Date.now(),
+  randomUUID: () => crypto.randomUUID(),
+  readStore,
+  writeStore,
+});
+
+function normalizeHistoryContext(options = {}) {
+  return {
+    accountScope: options.accountScope || DEFAULT_HISTORY_CONTEXT.accountScope,
+    now: options.now || DEFAULT_HISTORY_CONTEXT.now,
+    randomUUID: options.randomUUID || DEFAULT_HISTORY_CONTEXT.randomUUID,
+    readStore: options.readStore || DEFAULT_HISTORY_CONTEXT.readStore,
+    writeStore: options.writeStore || DEFAULT_HISTORY_CONTEXT.writeStore,
+  };
+}
+
 function sanitizeMessages(raw) {
   if (!Array.isArray(raw)) return [];
   const messages = [];
   for (const item of raw.slice(-MAX_MESSAGES)) {
-    if (!item || typeof item !== 'object') continue;
-    const role = String(item.role || '').trim().toLowerCase();
-    if (!['system', 'user', 'assistant', 'tool'].includes(role)) continue;
-    const message = {
-      role,
-      content: typeof item.content === 'string' ? item.content : String(item.content || ''),
-    };
-    if (role === 'assistant' && Array.isArray(item.tool_calls) && item.tool_calls.length) {
-      message.tool_calls = item.tool_calls;
-    }
-    if (role === 'assistant' && typeof item.reasoning === 'string') {
-      message.reasoning = item.reasoning.slice(0, 50000);
-    }
-    if (role === 'assistant' && Array.isArray(item.tool_events)) {
-      const compact = (value) => {
-        let text = '';
-        try { text = typeof value === 'string' ? value : JSON.stringify(value, null, 2); } catch (_) { text = String(value ?? ''); }
-        if (typeof text !== 'string') text = String(value ?? '');
-        return text.length > 12000 ? `${text.slice(0, 12000)}\n…` : text;
-      };
-      message.tool_events = item.tool_events.slice(0, 32).map((entry) => ({
-        id: String(entry?.id || ''),
-        name: String(entry?.name || '工具'),
-        status: String(entry?.status || 'success'),
-        arguments: compact(entry?.arguments),
-        result: compact(entry?.result),
-      }));
-    }
-    if (role === 'assistant' && Array.isArray(item.trace_events)) {
-      const compact = (value) => {
-        let text = '';
-        try { text = typeof value === 'string' ? value : JSON.stringify(value, null, 2); } catch (_) { text = String(value ?? ''); }
-        if (typeof text !== 'string') text = String(value ?? '');
-        return text.length > 12000 ? `${text.slice(0, 12000)}\n…` : text;
-      };
-      message.trace_events = item.trace_events.slice(0, 64).map((entry, index) => {
-        const type = ['reasoning', 'tool', 'step'].includes(entry?.type) ? entry.type : 'step';
-        if (type === 'tool') {
-          return {
-            type,
-            round: Number(entry?.round) || 0,
-            tool: {
-              id: String(entry?.tool?.id || `tool-${index}`),
-              name: String(entry?.tool?.name || '工具'),
-              status: String(entry?.tool?.status || 'success'),
-              arguments: compact(entry?.tool?.arguments),
-              result: compact(entry?.tool?.result),
-            },
-          };
-        }
-        return {
-          type,
-          round: Number(entry?.round) || 0,
-          content: String(entry?.content || '').slice(0, 50000),
-        };
-      });
-    }
-    if (role === 'tool') {
-      message.tool_call_id = String(item.tool_call_id || '');
-      if (item.name) message.name = String(item.name);
-    }
-    messages.push(message);
+    const message = sanitizeMessage(item);
+    if (message) messages.push(message);
   }
   return messages;
+}
+
+function sanitizeMessage(item) {
+  if (!item || typeof item !== 'object') return null;
+  const role = String(item.role || '').trim().toLowerCase();
+  if (!['system', 'user', 'assistant', 'tool'].includes(role)) return null;
+  const message = {
+    role,
+    content: typeof item.content === 'string' ? item.content : String(item.content || ''),
+  };
+  if (role === 'assistant') appendAssistantHistory(message, item);
+  if (role === 'tool') appendToolHistory(message, item);
+  return message;
+}
+
+function appendAssistantHistory(message, item) {
+  if (Array.isArray(item.tool_calls) && item.tool_calls.length) message.tool_calls = item.tool_calls;
+  if (typeof item.reasoning === 'string') message.reasoning = item.reasoning.slice(0, 50000);
+  if (Array.isArray(item.tool_events)) {
+    message.tool_events = item.tool_events.slice(0, 32).map(sanitizeToolEvent);
+  }
+  if (Array.isArray(item.trace_events)) {
+    message.trace_events = item.trace_events.slice(0, 64).map(sanitizeTraceEvent);
+  }
+}
+
+function compactHistoryValue(value) {
+  let text = '';
+  try { text = typeof value === 'string' ? value : JSON.stringify(value, null, 2); } catch (_) { text = String(value ?? ''); }
+  if (typeof text !== 'string') text = String(value ?? '');
+  return text.length > 12000 ? `${text.slice(0, 12000)}\n…` : text;
+}
+
+function sanitizeToolEvent(entry) {
+  return {
+    id: String(entry?.id || ''),
+    name: String(entry?.name || '工具'),
+    status: String(entry?.status || 'success'),
+    arguments: compactHistoryValue(entry?.arguments),
+    result: compactHistoryValue(entry?.result),
+  };
+}
+
+function sanitizeTraceEvent(entry, index) {
+  const type = normalizeTraceType(entry);
+  if (type !== 'tool') {
+    return sanitizeTextTraceEvent(entry, type);
+  }
+  return sanitizeToolTraceEvent(entry, index, type);
+}
+
+function normalizeTraceType(entry) {
+  return ['reasoning', 'tool', 'step'].includes(entry?.type) ? entry.type : 'step';
+}
+
+function sanitizeTextTraceEvent(entry, type) {
+  return { type, round: Number(entry?.round) || 0, content: String(entry?.content || '').slice(0, 50000) };
+}
+
+function sanitizeToolTraceEvent(entry, index, type) {
+  return {
+    type,
+    round: Number(entry?.round) || 0,
+    tool: sanitizeTraceTool(entry?.tool, index),
+  };
+}
+
+function sanitizeTraceTool(tool, index) {
+  return {
+    id: String(tool?.id || `tool-${index}`),
+    name: String(tool?.name || '工具'),
+    status: String(tool?.status || 'success'),
+    arguments: compactHistoryValue(tool?.arguments),
+    result: compactHistoryValue(tool?.result),
+  };
+}
+
+function appendToolHistory(message, item) {
+  message.tool_call_id = String(item.tool_call_id || '');
+  if (item.name) message.name = String(item.name);
 }
 
 function previewFromMessages(messages) {
@@ -135,11 +173,11 @@ function normalizeBrowserConnectionIds(raw = {}) {
   return [...new Set(list.map((value) => String(value || '').trim()).filter(Boolean))];
 }
 
-function normalizeSession(raw = {}) {
-  const id = String(raw.id || '').trim() || crypto.randomUUID();
+function normalizeSession(raw = {}, context = DEFAULT_HISTORY_CONTEXT) {
+  const id = String(raw.id || '').trim() || context.randomUUID();
   const messages = sanitizeMessages(raw.messages);
   const title = String(raw.title || '').trim() || '新对话';
-  const now = Date.now();
+  const now = context.now();
   const browserConnectionIds = normalizeBrowserConnectionIds(raw);
   return {
     id,
@@ -172,11 +210,11 @@ function sessionSummary(session) {
   };
 }
 
-function listSessions(credentials) {
-  const scope = accountScope(credentials);
-  const store = readStore(scope);
+function listSessions(credentials, context = DEFAULT_HISTORY_CONTEXT) {
+  const scope = context.accountScope(credentials);
+  const store = context.readStore(scope);
   const sessions = store.sessions
-    .map((item) => normalizeSession(item))
+    .map((item) => normalizeSession(item, context))
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     .map(sessionSummary);
   return {
@@ -186,44 +224,28 @@ function listSessions(credentials) {
   };
 }
 
-function getSession(credentials, sessionId) {
-  const scope = accountScope(credentials);
-  const store = readStore(scope);
+function getSession(credentials, sessionId, context = DEFAULT_HISTORY_CONTEXT) {
+  const scope = context.accountScope(credentials);
+  const store = context.readStore(scope);
   const id = String(sessionId || '').trim();
   const found = store.sessions.find((item) => String(item.id) === id);
   if (!found) return { ok: false, message: '对话不存在' };
-  const session = normalizeSession(found);
+  const session = normalizeSession(found, context);
   store.currentId = session.id;
-  writeStore(scope, store);
+  context.writeStore(scope, store);
   return { ok: true, session };
 }
 
-function saveSession(credentials, rawSession, options = {}) {
-  const scope = accountScope(credentials);
-  const store = readStore(scope);
-  const session = normalizeSession(rawSession);
+function saveSession(credentials, rawSession, options = {}, context = DEFAULT_HISTORY_CONTEXT) {
+  const scope = context.accountScope(credentials);
+  const store = context.readStore(scope);
+  const session = normalizeSession(rawSession, context);
   session.preview = previewFromMessages(session.messages) || session.preview || '';
-  session.updatedAt = Date.now();
+  session.updatedAt = context.now();
 
   // 无消息的空会话不落盘；已有会话被删空时，同时移除旧记录。
   if (!session.messages.length && options.allowEmpty !== true) {
-    const existingIndex = store.sessions.findIndex((item) => String(item.id) === session.id);
-    if (existingIndex < 0) {
-      return { ok: true, session, summary: sessionSummary(session), skipped: true };
-    }
-    store.sessions.splice(existingIndex, 1);
-    if (store.currentId === session.id) store.currentId = store.sessions[0]?.id || '';
-    const written = writeStore(scope, store);
-    if (!written) {
-      return { ok: false, message: '对话历史写入本地失败', session, summary: sessionSummary(session) };
-    }
-    return {
-      ok: true,
-      session,
-      summary: sessionSummary(session),
-      removed: true,
-      currentId: store.currentId,
-    };
+    return removeEmptySession(scope, store, session, context);
   }
 
   const index = store.sessions.findIndex((item) => String(item.id) === session.id);
@@ -240,16 +262,28 @@ function saveSession(credentials, rawSession, options = {}) {
     store.sessions = store.sessions.slice(0, MAX_SESSIONS);
   }
   if (options.setCurrent !== false) store.currentId = session.id;
-  const written = writeStore(scope, store);
+  const written = context.writeStore(scope, store);
   if (!written) {
     return { ok: false, message: '对话历史写入本地失败', session, summary: sessionSummary(session) };
   }
   return { ok: true, session, summary: sessionSummary(session) };
 }
 
-function deleteSession(credentials, sessionId) {
-  const scope = accountScope(credentials);
-  const store = readStore(scope);
+function removeEmptySession(scope, store, session, context) {
+  const existingIndex = store.sessions.findIndex((item) => String(item.id) === session.id);
+  if (existingIndex < 0) return { ok: true, session, summary: sessionSummary(session), skipped: true };
+  store.sessions.splice(existingIndex, 1);
+  if (store.currentId === session.id) store.currentId = store.sessions[0]?.id || '';
+  const written = context.writeStore(scope, store);
+  if (!written) {
+    return { ok: false, message: '对话历史写入本地失败', session, summary: sessionSummary(session) };
+  }
+  return { ok: true, session, summary: sessionSummary(session), removed: true, currentId: store.currentId };
+}
+
+function deleteSession(credentials, sessionId, context = DEFAULT_HISTORY_CONTEXT) {
+  const scope = context.accountScope(credentials);
+  const store = context.readStore(scope);
   const id = String(sessionId || '').trim();
   const before = store.sessions.length;
   store.sessions = store.sessions.filter((item) => String(item.id) !== id);
@@ -259,7 +293,7 @@ function deleteSession(credentials, sessionId) {
   if (store.currentId === id) {
     store.currentId = store.sessions[0]?.id || '';
   }
-  const written = writeStore(scope, store);
+  const written = context.writeStore(scope, store);
   if (!written) {
     return { ok: false, message: '对话历史写入本地失败' };
   }
@@ -267,35 +301,35 @@ function deleteSession(credentials, sessionId) {
     ok: true,
     currentId: store.currentId,
     sessions: store.sessions
-      .map((item) => normalizeSession(item))
+      .map((item) => normalizeSession(item, context))
       .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
       .map(sessionSummary),
   };
 }
 
-function renameSession(credentials, sessionId, rawTitle) {
-  const scope = accountScope(credentials);
-  const store = readStore(scope);
+function renameSession(credentials, sessionId, rawTitle, context = DEFAULT_HISTORY_CONTEXT) {
+  const scope = context.accountScope(credentials);
+  const store = context.readStore(scope);
   const id = String(sessionId || '').trim();
   const title = String(rawTitle || '').trim().slice(0, 40);
   if (!title) return { ok: false, message: '对话名称不能为空' };
   const index = store.sessions.findIndex((item) => String(item.id) === id);
   if (index < 0) return { ok: false, message: '对话不存在' };
 
-  const session = normalizeSession(store.sessions[index]);
+  const session = normalizeSession(store.sessions[index], context);
   session.title = title;
   // 手动命名后不再让自动标题生成覆盖用户输入。
   session.titleGenerated = true;
   store.sessions[index] = session;
-  const written = writeStore(scope, store);
+  const written = context.writeStore(scope, store);
   if (!written) return { ok: false, message: '对话历史写入本地失败' };
   return { ok: true, session, summary: sessionSummary(session) };
 }
 
-function createSession(credentials, partial = {}) {
+function createSession(credentials, partial = {}, context = DEFAULT_HISTORY_CONTEXT) {
   // 空会话只返回内存对象，真正有消息后再 saveSession 落盘
   const session = normalizeSession({
-    id: crypto.randomUUID(),
+    id: context.randomUUID(),
     title: '新对话',
     titleGenerated: false,
     modelId: partial.modelId || '',
@@ -303,25 +337,25 @@ function createSession(credentials, partial = {}) {
     browserConnectionIds: Array.isArray(partial.browserConnectionIds) ? partial.browserConnectionIds : [],
     automationCardId: partial.automationCardId || '',
     messages: [],
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  });
-  const scope = accountScope(credentials);
-  const store = readStore(scope);
+    createdAt: context.now(),
+    updatedAt: context.now(),
+  }, context);
+  const scope = context.accountScope(credentials);
+  const store = context.readStore(scope);
   store.currentId = session.id;
-  writeStore(scope, store);
+  context.writeStore(scope, store);
   return { ok: true, session, summary: sessionSummary(session) };
 }
 
-function setCurrent(credentials, sessionId) {
-  const scope = accountScope(credentials);
-  const store = readStore(scope);
+function setCurrent(credentials, sessionId, context = DEFAULT_HISTORY_CONTEXT) {
+  const scope = context.accountScope(credentials);
+  const store = context.readStore(scope);
   const id = String(sessionId || '').trim();
   if (id && !store.sessions.some((item) => String(item.id) === id)) {
     return { ok: false, message: '对话不存在' };
   }
   store.currentId = id;
-  writeStore(scope, store);
+  context.writeStore(scope, store);
   return { ok: true, currentId: id };
 }
 
@@ -331,9 +365,23 @@ function provisionalTitleFromText(text) {
   return cleaned.slice(0, 20) + (cleaned.length > 20 ? '…' : '');
 }
 
+function createAiChatHistoryRepository(options = {}) {
+  const context = normalizeHistoryContext(options);
+  return {
+    createSession: (credentials, partial) => createSession(credentials, partial, context),
+    deleteSession: (credentials, id) => deleteSession(credentials, id, context),
+    getSession: (credentials, id) => getSession(credentials, id, context),
+    listSessions: (credentials) => listSessions(credentials, context),
+    renameSession: (credentials, id, title) => renameSession(credentials, id, title, context),
+    saveSession: (credentials, session, options) => saveSession(credentials, session, options, context),
+    setCurrent: (credentials, id) => setCurrent(credentials, id, context),
+  };
+}
+
 module.exports = {
   MAX_SESSIONS,
   MAX_MESSAGES,
+  createAiChatHistoryRepository,
   listSessions,
   getSession,
   saveSession,

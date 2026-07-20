@@ -10,17 +10,13 @@
   }
 })(typeof globalThis !== 'undefined' ? globalThis : this, function createServerMessageUtils() {
   function getServerMessageType(messageData = {}) {
-    return String(
-      messageData.message_type
-      || messageData.messageType
-      || messageData.data?.message_type
-      || messageData.data?.messageType
-      || messageData.announcement?.message_type
-      || messageData.announcement?.messageType
-      || messageData.payload?.message_type
-      || messageData.payload?.messageType
-      || ''
-    ).toLowerCase();
+    const candidates = [
+      messageData.message_type, messageData.messageType,
+      messageData.data?.message_type, messageData.data?.messageType,
+      messageData.announcement?.message_type, messageData.announcement?.messageType,
+      messageData.payload?.message_type, messageData.payload?.messageType,
+    ];
+    return String(candidates.find((value) => value != null && value !== '') ?? '').toLowerCase();
   }
 
   function getServerMessageText(messageData = {}) {
@@ -36,23 +32,16 @@
   }
 
   function getUpdateVersion(messageData = {}) {
-    return String(
-      messageData.version
-      || messageData.latest_version
-      || messageData.latestVersion
-      || messageData.targetVersion
-      || messageData.target_version
-      || messageData.update_version
-      || messageData.updateVersion
-      || messageData.raw?.version
-      || messageData.raw?.latest_version
-      || messageData.raw?.latestVersion
-      || messageData.raw?.targetVersion
-      || messageData.raw?.target_version
-      || messageData.raw?.update_version
-      || messageData.raw?.updateVersion
-      || ''
-    ).trim();
+    const fields = ['version', 'latest_version', 'latestVersion', 'targetVersion',
+      'target_version', 'update_version', 'updateVersion'];
+    const sources = [messageData, messageData.raw].filter((value) => value && typeof value === 'object');
+    for (const source of sources) {
+      for (const field of fields) {
+        const value = String(source[field] || '').trim();
+        if (value) return value;
+      }
+    }
+    return '';
   }
 
   function isUpdateLikeMessage(messageData = {}) {

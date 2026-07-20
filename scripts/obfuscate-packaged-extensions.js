@@ -74,7 +74,7 @@ exports.default = async function obfuscatePackagedExtensions(context) {
     const source = fs.readFileSync(filePath, 'utf8');
     if (!source.trim()) continue;
 
-    const result = JavaScriptObfuscator.obfuscate(source, buildObfuscationOptions(source));
+    const result = JavaScriptObfuscator.obfuscate(source, /** @type {any} */ (buildObfuscationOptions(source)));
     fs.writeFileSync(filePath, result.getObfuscatedCode(), 'utf8');
   }
 

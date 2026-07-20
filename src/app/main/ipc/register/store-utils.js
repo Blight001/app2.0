@@ -16,8 +16,24 @@ function writeStoreConfigSafe(storeConfig) {
   return writeStoreConfigFile(getStorePath, storeConfig);
 }
 
+function buildStoreWithLicenseKey(currentStore, key, deviceId) {
+  const store = currentStore && typeof currentStore === 'object' ? currentStore : {};
+  const credentials = store.userCredentials && typeof store.userCredentials === 'object'
+    ? store.userCredentials
+    : {};
+  const nextStore = { ...store, userCredentials: { ...credentials, key } };
+  if (deviceId) nextStore.userCredentials.deviceId = deviceId;
+  return nextStore;
+}
+
+function updateLicenseCacheCredentials(licenseCache, key, deviceId) {
+  if (!licenseCache || typeof licenseCache.setCredentials !== 'function') return;
+  licenseCache.setCredentials({ key, deviceId });
+}
+
 // 设置/更新/持久化：persistSavedLicenseKeySafe的具体业务逻辑。
-function persistSavedLicenseKeySafe({ readStoreConfigSafe, writeStoreConfigSafe, licenseCache } = {}, key, deviceId) {
+/** @param {Record<string, any>} [deps] */
+function persistSavedLicenseKeySafe({ readStoreConfigSafe, writeStoreConfigSafe, licenseCache } = {}, key = '', deviceId = '') {
   try {
     const normalizedKey = String(key || '').trim();
     const normalizedDeviceId = String(deviceId || '').trim();
@@ -26,27 +42,10 @@ function persistSavedLicenseKeySafe({ readStoreConfigSafe, writeStoreConfigSafe,
     }
 
     const currentStore = typeof readStoreConfigSafe === 'function' ? readStoreConfigSafe() : {};
-    const nextStore = {
-      ...(currentStore && typeof currentStore === 'object' ? currentStore : {}),
-      userCredentials: {
-        ...(currentStore?.userCredentials && typeof currentStore.userCredentials === 'object'
-          ? currentStore.userCredentials
-          : {}),
-        key: normalizedKey,
-      },
-    };
-
-    if (normalizedDeviceId) {
-      nextStore.userCredentials.deviceId = normalizedDeviceId;
-    }
+    const nextStore = buildStoreWithLicenseKey(currentStore, normalizedKey, normalizedDeviceId);
 
     const wroteStore = typeof writeStoreConfigSafe === 'function' ? writeStoreConfigSafe(nextStore) : false;
-    if (licenseCache && typeof licenseCache.setCredentials === 'function') {
-      licenseCache.setCredentials({
-        key: normalizedKey,
-        deviceId: normalizedDeviceId,
-      });
-    }
+    updateLicenseCacheCredentials(licenseCache, normalizedKey, normalizedDeviceId);
     return wroteStore === true;
   } catch (_) {
     return false;
@@ -54,7 +53,8 @@ function persistSavedLicenseKeySafe({ readStoreConfigSafe, writeStoreConfigSafe,
 }
 
 // 设置/更新/持久化：saveLicenseCredentialsSafe的具体业务逻辑。
-function saveLicenseCredentialsSafe(deps = {}, key, deviceId) {
+/** @param {Record<string, any>} [deps] */
+function saveLicenseCredentialsSafe(deps = {}, key = '', deviceId = '') {
   const normalizedKey = String(key || '').trim();
   const normalizedDeviceId = String(deviceId || '').trim();
   const { licenseCache } = deps || {};
@@ -74,6 +74,7 @@ function saveLicenseCredentialsSafe(deps = {}, key, deviceId) {
 }
 
 // 格式化/规范化：normalizeLicenseBinding的具体业务逻辑。
+/** @param {Record<string, any>} [source] */
 function normalizeLicenseBinding(source = {}) {
   return {
     canSelfUnbind: source.can_self_unbind === true || source.canSelfUnbind === true,
@@ -91,6 +92,10 @@ function normalizeLicenseBinding(source = {}) {
 }
 
 // 创建/初始化：buildUnboundCredentialRecord的具体业务逻辑。
+/**
+ * @param {Record<string, any>} [existing]
+ * @param {Record<string, any>} [binding]
+ */
 function buildUnboundCredentialRecord(existing = {}, { key, deviceId } = {}) {
   return {
     key: key || existing.key || '',

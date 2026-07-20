@@ -82,6 +82,7 @@ appbuild/
 dist/
 release/
 out/
+.generated/
 
 # Electron Builder
 builder-debug.yml

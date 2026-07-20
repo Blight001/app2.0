@@ -27,7 +27,7 @@ class BrowserRuntimeManager {
     // 应用外壳与侧栏，不能再被选作网页浏览运行时。
     return RUNTIME_TYPES.CHROMIUM;
   }
-  runtimeFor() { return this.chromium; }
+  runtimeFor(_type) { return this.chromium; }
   async launchProfile(profile, bounds) { return this.runtimeFor(this.resolveType(profile)).launchProfile(profile, bounds); }
   async show(profileId, type) { return this.runtimeFor(type).show(profileId); }
   async hide(profileId, type) { return this.runtimeFor(type).hide(profileId); }

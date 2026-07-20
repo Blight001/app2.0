@@ -115,11 +115,8 @@ function compactPreviousToolResults(groups) {
 
 function summaryLine(message) {
   const role = String(message?.role || '');
-  let label = { system: '系统', user: '用户', assistant: '助手', tool: '工具结果' }[role] || role;
-  if (role === 'tool' && message?.name) label += `(${String(message.name).slice(0, 64)})`;
-  const toolNames = role === 'assistant' && Array.isArray(message?.tool_calls)
-    ? message.tool_calls.map((call) => String(call?.function?.name || '').trim()).filter(Boolean)
-    : [];
+  const label = getSummaryRoleLabel(role, message);
+  const toolNames = getSummaryToolNames(role, message);
   let content = String(message?.content || '').replace(/\s+/g, ' ').trim();
   if (content.startsWith(AI_CONTEXT_SUMMARY_PREFIX.trim())) {
     content = content.slice(AI_CONTEXT_SUMMARY_PREFIX.trim().length).trim();
@@ -127,6 +124,16 @@ function summaryLine(message) {
   content = truncateMiddle(content, role === 'tool' ? 500 : 900);
   const toolSuffix = toolNames.length ? ` [调用工具: ${toolNames.join(', ')}]` : '';
   return `${label}: ${content || '(无文本)'}${toolSuffix}`;
+}
+
+function getSummaryRoleLabel(role, message) {
+  const label = { system: '系统', user: '用户', assistant: '助手', tool: '工具结果' }[role] || role;
+  return role === 'tool' && message?.name ? `${label}(${String(message.name).slice(0, 64)})` : label;
+}
+
+function getSummaryToolNames(role, message) {
+  if (role !== 'assistant' || !Array.isArray(message?.tool_calls)) return [];
+  return message.tool_calls.map((call) => String(call?.function?.name || '').trim()).filter(Boolean);
 }
 
 function buildContextSummary(droppedGroups, maxChars) {
@@ -175,87 +182,111 @@ function limitAiControlMessages(
 ) {
   const limit = Math.max(1, Math.floor(Number(maxMessages) || MAX_AI_CONTROL_MESSAGES));
   const charLimit = Math.max(1000, Math.floor(Number(maxChars) || MAX_AI_CONTROL_CHARS));
-  const groups = groupValidMessages(messages);
-  const leadingSystemGroups = [];
-  while (groups.length && String(groups[0]?.[0]?.role || '') === 'system' && leadingSystemGroups.length < 4) {
-    const group = groups.shift();
-    if (leadingSystemGroups.reduce((sum, item) => sum + item.length, 0) + group.length <= limit) {
-      leadingSystemGroups.push(group);
-    }
-  }
-
-  const previousSummaryGroups = [];
-  let conversationGroups = [];
-  for (const group of groups) {
-    const content = String(group?.[0]?.content || '');
-    if (content.startsWith(AI_CONTEXT_SUMMARY_PREFIX)) previousSummaryGroups.push(group);
-    else conversationGroups.push(group);
-  }
-
+  const extracted = extractLeadingSystemGroups(groupValidMessages(messages), limit);
+  const partitioned = partitionConversationGroups(extracted.remaining);
   const systemBudget = Math.min(8000, Math.floor(charLimit * 0.25));
-  const compactedSystemGroups = [];
-  let remainingSystemBudget = systemBudget;
-  for (const group of leadingSystemGroups) {
-    if (remainingSystemBudget <= 0) break;
-    const compacted = compactGroup(group, remainingSystemBudget);
-    compactedSystemGroups.push(compacted);
-    remainingSystemBudget -= groupChars(compacted);
-  }
+  const compactedSystemGroups = compactGroupsWithinBudget(extracted.system, systemBudget);
   const reservedMessages = compactedSystemGroups.reduce((sum, group) => sum + group.length, 0);
   const reservedChars = compactedSystemGroups.reduce((sum, group) => sum + groupChars(group), 0);
-  const initiallyOverLimit = previousSummaryGroups.length > 0
-    || conversationGroups.reduce((sum, group) => sum + group.length, reservedMessages) > limit
-    || conversationGroups.reduce((sum, group) => sum + groupChars(group), reservedChars) > charLimit;
+  let conversationGroups = partitioned.conversation;
+  const initiallyOverLimit = isAiMessageWindowOverLimit(
+    partitioned.summaries, conversationGroups, reservedMessages, reservedChars, limit, charLimit,
+  );
   if (initiallyOverLimit) {
     conversationGroups = compactPreviousToolResults(conversationGroups);
   }
-  const requiresSummary = previousSummaryGroups.length > 0
-    || conversationGroups.reduce((sum, group) => sum + group.length, reservedMessages) > limit
-    || conversationGroups.reduce((sum, group) => sum + groupChars(group), reservedChars) > charLimit;
+  const requiresSummary = isAiMessageWindowOverLimit(
+    partitioned.summaries, conversationGroups, reservedMessages, reservedChars, limit, charLimit,
+  );
   const summaryReserve = requiresSummary
     ? Math.min(MAX_AI_CONTEXT_SUMMARY_CHARS, Math.max(800, Math.floor(charLimit * 0.14)))
     : 0;
-  let remainingMessages = Math.max(0, limit - reservedMessages - (requiresSummary ? 1 : 0));
-  let remainingChars = Math.max(0, charLimit - reservedChars - summaryReserve);
-  const recentGroups = [];
-  const droppedConversationGroups = [];
-  for (let index = conversationGroups.length - 1; index >= 0; index -= 1) {
-    const group = conversationGroups[index];
-    if (group.length > remainingMessages) {
-      droppedConversationGroups.unshift(group);
-      continue;
-    }
-    const size = groupChars(group);
-    if (size <= remainingChars) {
-      recentGroups.unshift(group);
-      remainingMessages -= group.length;
-      remainingChars -= size;
-      continue;
-    }
-    if (!recentGroups.length && remainingChars > 0) {
-      const compacted = compactGroup(group, remainingChars);
-      recentGroups.unshift(compacted);
-      remainingMessages -= compacted.length;
-      remainingChars -= groupChars(compacted);
-    } else {
-      droppedConversationGroups.unshift(group);
-    }
-  }
-
-  const recentChars = recentGroups.reduce((sum, group) => sum + groupChars(group), 0);
+  const selected = selectRecentMessageGroups(conversationGroups, {
+    messages: Math.max(0, limit - reservedMessages - (requiresSummary ? 1 : 0)),
+    chars: Math.max(0, charLimit - reservedChars - summaryReserve),
+  });
+  const recentChars = selected.recent.reduce((sum, group) => sum + groupChars(group), 0);
   const summaryBudget = Math.min(
     MAX_AI_CONTEXT_SUMMARY_CHARS,
     Math.max(0, charLimit - reservedChars - recentChars),
   );
   const summary = buildContextSummary(
-    [...previousSummaryGroups, ...droppedConversationGroups],
+    [...partitioned.summaries, ...selected.dropped],
     summaryBudget,
   );
   return [
     ...compactedSystemGroups.flat(),
     ...(summary ? [summary] : []),
-    ...recentGroups.flat(),
+    ...selected.recent.flat(),
   ];
+}
+
+function extractLeadingSystemGroups(groups, limit) {
+  const remaining = groups.slice();
+  const system = [];
+  let used = 0;
+  while (remaining.length && String(remaining[0]?.[0]?.role || '') === 'system' && system.length < 4) {
+    const group = remaining.shift();
+    if (used + group.length <= limit) {
+      system.push(group);
+      used += group.length;
+    }
+  }
+  return { system, remaining };
+}
+
+function partitionConversationGroups(groups) {
+  const summaries = [];
+  const conversation = [];
+  for (const group of groups) {
+    const content = String(group?.[0]?.content || '');
+    (content.startsWith(AI_CONTEXT_SUMMARY_PREFIX) ? summaries : conversation).push(group);
+  }
+  return { summaries, conversation };
+}
+
+function compactGroupsWithinBudget(groups, budget) {
+  const compacted = [];
+  let remaining = budget;
+  for (const group of groups) {
+    if (remaining <= 0) break;
+    const next = compactGroup(group, remaining);
+    compacted.push(next);
+    remaining -= groupChars(next);
+  }
+  return compacted;
+}
+
+function isAiMessageWindowOverLimit(summaries, groups, reservedMessages, reservedChars, limit, charLimit) {
+  const messageCount = groups.reduce((sum, group) => sum + group.length, reservedMessages);
+  const charCount = groups.reduce((sum, group) => sum + groupChars(group), reservedChars);
+  return summaries.length > 0 || messageCount > limit || charCount > charLimit;
+}
+
+function selectRecentMessageGroups(groups, budget) {
+  let remainingMessages = budget.messages;
+  let remainingChars = budget.chars;
+  const recent = [];
+  const dropped = [];
+  for (let index = groups.length - 1; index >= 0; index -= 1) {
+    const group = groups[index];
+    if (group.length > remainingMessages) {
+      dropped.unshift(group);
+      continue;
+    }
+    const size = groupChars(group);
+    if (size <= remainingChars) {
+      recent.unshift(group);
+      remainingMessages -= group.length;
+      remainingChars -= size;
+    } else if (!recent.length && remainingChars > 0) {
+      const compacted = compactGroup(group, remainingChars);
+      recent.unshift(compacted);
+      remainingMessages -= compacted.length;
+      remainingChars -= groupChars(compacted);
+    } else dropped.unshift(group);
+  }
+  return { recent, dropped };
 }
 
 module.exports = {

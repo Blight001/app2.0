@@ -105,6 +105,10 @@ test('首批 schema 通道在注册点实际经过 payload 校验包装', () => 
     if (!entry.requestSchema) continue;
     const registrar = path.join(root, entry.registrar);
     const source = fs.readFileSync(registrar, 'utf8');
+    if (!source.includes(`ipcMain.${entry.kind === 'event' ? 'on' : 'handle'}('${entry.channel}'`)) {
+      // ipc/registry.js 对所有 ipc.handle/on 自动包装，模块注册点无需重复包装。
+      continue;
+    }
     const escaped = entry.channel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const wrapper = entry.kind === 'event' ? 'wrapLegacyIpcEventPayload' : 'wrapLegacyIpcPayload';
     assert.match(

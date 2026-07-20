@@ -41,7 +41,10 @@
       ],
       "js": [
         "content/fx.js",
-        "content/observe.js"
+        "content/observe.js",
+        "content/observe-targets.js",
+        "content/observe-records.js",
+        "content/observe-actions.js"
       ],
       "run_at": "document_idle"
     }

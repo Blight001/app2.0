@@ -71,17 +71,8 @@ function readPlatformsConfigSafe() {
   return {};
 }
 
-// 把许可证记录压缩成适合持久化的最小结构。
-function normalizeLicenseRecordForStore(entry = {}) {
-  const keyValue = String(entry.keyValue || entry.key || '').trim();
-  if (!keyValue) return null;
-  return {
-    id: String(entry.id || keyValue || `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`),
-    keyValue,
-  };
-}
-
 // 清理 store 中旧版卡密缓存；账号登录会话需要保留，以便下次启动恢复。
+/** @param {Record<string, any>} [storeConfig] */
 function pruneStoreLicenseFields(storeConfig = {}) {
   const next = { ...(storeConfig || {}) };
   let changed = false;
@@ -124,6 +115,36 @@ function pruneStoreLicenseFields(storeConfig = {}) {
   return { next, changed };
 }
 
+function ensureDirectory(directoryPath) {
+  if (!fs.existsSync(directoryPath)) {
+    fs.mkdirSync(directoryPath, { recursive: true });
+  }
+}
+
+function replaceLegacyStoreFile(storeDir) {
+  if (!fs.existsSync(storeDir)) return;
+  try {
+    if (!fs.statSync(storeDir).isFile()) return;
+    fs.unlinkSync(storeDir);
+    console.log('[配置] 已清理旧的 store 文件');
+  } catch (error) {
+    console.warn('[配置] 检查 store 目录失败:', error?.message || error);
+  }
+}
+
+function prunePersistedStore(storePath) {
+  try {
+    if (!fs.existsSync(storePath)) return;
+    const parsedStore = JSON.parse(fs.readFileSync(storePath, 'utf8') || '{}');
+    const pruned = pruneStoreLicenseFields(parsedStore);
+    if (!pruned.changed) return;
+    fs.writeFileSync(storePath, JSON.stringify(pruned.next, null, 2), { encoding: 'utf8' });
+    console.log('[配置] 已清理 store/content 中的旧版卡密元数据，并保留有效账号会话');
+  } catch (error) {
+    console.warn('[配置] 清理 store/content 卡密元数据失败:', error?.message || error);
+  }
+}
+
 /**
  * 初始化核心目录：打包后将resources/core复制到用户数据目录
  */
@@ -136,50 +157,19 @@ function initializeCoreDirectory() {
     const storeDir = getStoreDir();
 
     // 确保 core 根目录存在
-    if (!fs.existsSync(userDataCoreDir)) {
-      fs.mkdirSync(userDataCoreDir, { recursive: true });
-    }
-
-    if (fs.existsSync(storeDir)) {
-      try {
-        const stat = fs.statSync(storeDir);
-        if (stat.isFile()) {
-          fs.unlinkSync(storeDir);
-          console.log('[配置] 已清理旧的 store 文件');
-        }
-      } catch (e) {
-        console.warn('[配置] 检查 store 目录失败:', e?.message || e);
-      }
-    }
-
-    if (!fs.existsSync(storeDir)) {
-      fs.mkdirSync(storeDir, { recursive: true });
-    }
+    ensureDirectory(userDataCoreDir);
+    replaceLegacyStoreFile(storeDir);
+    ensureDirectory(storeDir);
 
     const storePath = getStorePath();
-
-    try {
-      if (fs.existsSync(storePath)) {
-        const rawStore = fs.readFileSync(storePath, 'utf8');
-        const parsedStore = JSON.parse(rawStore || '{}');
-        const pruned = pruneStoreLicenseFields(parsedStore);
-        if (pruned.changed) {
-          fs.writeFileSync(storePath, JSON.stringify(pruned.next, null, 2), { encoding: 'utf8' });
-          console.log('[配置] 已清理 store/content 中的旧版卡密元数据，并保留有效账号会话');
-        }
-      }
-    } catch (e) {
-      console.warn('[配置] 清理 store/content 卡密元数据失败:', e?.message || e);
-    }
+    prunePersistedStore(storePath);
 
     // 如果 store 不存在，则创建一个最小默认配置（避免覆盖已有用户配置）
     // 使用统一的 getStorePath()（位于用户数据根目录的 store/content），避免与其他模块期望位置不一致
     if (!fs.existsSync(storePath)) {
       // 先使用内置的默认值（若被意外替换破坏，请恢复此结构）
       // 默认值会在卡密验证成功后被覆盖为接口返回服务器配置
-      let defaultStore = {
-};
-      
+      const defaultStore = {};
 
         fs.writeFileSync(storePath, JSON.stringify(defaultStore, null, 2), { encoding: 'utf8' });
         console.log('[配置] 已创建默认 store/content:', storePath);
@@ -189,6 +179,29 @@ function initializeCoreDirectory() {
     console.error('[配置] 初始化核心目录失败:', error);
     return false;
   }
+}
+
+function normalizeTcpTransport(transport = {}, httpCompatMode = false) {
+  const tls = transport.tls || {};
+  return {
+    preferred: httpCompatMode ? 'http' : String(transport.preferred || 'tls').toLowerCase(),
+    allowHttpFallback: transport.allowHttpFallback !== false,
+    allowPlainFallback: false,
+    tls: {
+      enabled: true,
+      rejectUnauthorized: tls.rejectUnauthorized === true,
+      caPath: String(tls.caPath || tls.ca_path || '').trim(),
+      certFingerprint: String(tls.certFingerprint || tls.cert_fingerprint || '').trim(),
+    },
+  };
+}
+
+function createTcpConfig(config, transport, httpCompatMode) {
+  return {
+    host: config.host || '127.0.0.1',
+    port: normalizeTcpPort(config.port),
+    transport: normalizeTcpTransport(transport, httpCompatMode),
+  };
 }
 
 // TCP 服务器配置（从 store 获取）
@@ -214,43 +227,17 @@ function getTcpConfig() {
   try {
     const httpCompatMode = isHttpCompatModeEnabled();
     if (RUNTIME_TCP_CONFIG && typeof RUNTIME_TCP_CONFIG === 'object') {
-      const runtimeTransport = RUNTIME_TCP_CONFIG.transport || {};
-      return {
-        host: RUNTIME_TCP_CONFIG.host || '127.0.0.1',
-        port: normalizeTcpPort(RUNTIME_TCP_CONFIG.port),
-        transport: {
-          preferred: httpCompatMode ? 'http' : String(runtimeTransport.preferred || 'tls').toLowerCase(),
-          allowHttpFallback: RUNTIME_TCP_CONFIG.transport?.allowHttpFallback !== false,
-          allowPlainFallback: false,
-          tls: {
-            enabled: true,
-            rejectUnauthorized: runtimeTransport.tls?.rejectUnauthorized === true,
-            caPath: runtimeTransport.tls?.caPath || '',
-            certFingerprint: runtimeTransport.tls?.certFingerprint || '',
-          },
-        },
-      };
+      return createTcpConfig(
+        RUNTIME_TCP_CONFIG,
+        RUNTIME_TCP_CONFIG.transport || {},
+        httpCompatMode,
+      );
     }
 
     const cfg = getStoreConfig();
     const tcpCfg = cfg.tcp || {};
     const transportCfg = tcpCfg.transport || cfg.transport || cfg.connectionTransport || {};
-    const tlsCfg = transportCfg.tls || {};
-    return {
-      host: tcpCfg.host || '127.0.0.1',
-      port: normalizeTcpPort(tcpCfg.port),
-      transport: {
-        preferred: httpCompatMode ? 'http' : String(transportCfg.preferred || 'tls').toLowerCase(),
-        allowHttpFallback: transportCfg.allowHttpFallback !== false,
-        allowPlainFallback: false,
-        tls: {
-          enabled: true,
-          rejectUnauthorized: tlsCfg.rejectUnauthorized === true,
-          caPath: String(tlsCfg.caPath || tlsCfg.ca_path || '').trim(),
-          certFingerprint: String(tlsCfg.certFingerprint || tlsCfg.cert_fingerprint || '').trim(),
-        },
-      }
-    };
+    return createTcpConfig(tcpCfg, transportCfg, httpCompatMode);
   } catch (_) {
     return {
       host: '127.0.0.1',
@@ -260,93 +247,93 @@ function getTcpConfig() {
   }
 }
 
+function normalizeServerBase(value) {
+  const normalized = String(value || '').trim().replace(/\/+$/, '');
+  return isServerBaseAllowedForMode(normalized) ? normalized : '';
+}
+
+function getConfiguredAccountServiceUrl(platformConfig, platformsConfig) {
+  const accountService = platformConfig.accountService || platformsConfig.accountService || {};
+  const firstServiceUrl = Array.isArray(accountService.urls) ? accountService.urls[0] : '';
+  return String(
+    accountService.url
+    || firstServiceUrl
+    || platformConfig.accountServiceUrl
+    || platformsConfig.accountServiceUrl
+    || ''
+  ).trim();
+}
+
+function getAccountServiceBase() {
+  const platformsConfig = readPlatformsConfigSafe();
+  const platformKey = String(process.env.PLATFORM || platformsConfig.defaultPlatform || 'default').trim();
+  const platformConfig = (platformsConfig.platformConfigs || {})[platformKey] || {};
+  const accountServiceUrl = getConfiguredAccountServiceUrl(platformConfig, platformsConfig);
+  if (!accountServiceUrl) return '';
+  try {
+    const parsed = new URL(accountServiceUrl);
+    const accountPathIndex = parsed.pathname.indexOf('/api/account');
+    parsed.pathname = accountPathIndex >= 0 ? parsed.pathname.slice(0, accountPathIndex) || '/' : '/';
+    parsed.search = '';
+    parsed.hash = '';
+    return normalizeServerBase(parsed.toString());
+  } catch (_) {
+    return '';
+  }
+}
+
+function getDirectStoreBase(config) {
+  return normalizeServerBase(
+    config.serverBase
+    || config.server_base
+    || config.httpBase
+    || config.http_base
+    || config.apiBase
+    || config.api_base,
+  );
+}
+
+function getStructuredStoreBase(config) {
+  const http = config.http || config.httpServer || config.server || config.api;
+  if (!http || typeof http !== 'object') return '';
+  const protocol = http.protocol || (http.https ? 'https' : 'http');
+  const host = http.host || http.hostname;
+  if (!host) return '';
+  const port = http.port || http.httpPort || http.http_port;
+  return normalizeServerBase(`${protocol}://${host}${port ? `:${port}` : ''}`);
+}
+
+function getTcpFallbackBase(config) {
+  const tcp = getTcpConfig();
+  if (!tcp?.host) return '';
+  const configuredPort = Number(config.httpPort || config.http_port);
+  const tcpPort = Number(tcp.port);
+  const port = configuredPort || (Number.isFinite(tcpPort) ? tcpPort : 0);
+  return normalizeServerBase(`http://${tcp.host}${port ? `:${port}` : ''}`);
+}
+
 // 动态获取 HTTP 服务器 base（支持环境变量与 store）
 // 解析当前 HTTP 服务基址，按环境变量、运行时值、store 逐层兜底。
 function getServerBase() {
   try {
     const httpCompatMode = isHttpCompatModeEnabled();
-
-    const useCandidate = (value) => {
-      const normalized = String(value || '').trim().replace(/\/+$/, '');
-      return isServerBaseAllowedForMode(normalized) ? normalized : '';
-    };
-
-    if (httpCompatMode && RUNTIME_SERVER_BASE && typeof RUNTIME_SERVER_BASE === 'string') {
-      const runtimeBase = useCandidate(RUNTIME_SERVER_BASE);
-      if (runtimeBase) return runtimeBase;
-    }
-
-    const envBase = process.env.SERVER_BASE;
-    if (envBase && typeof envBase === 'string') {
-      const configuredBase = useCandidate(envBase);
-      if (configuredBase) return configuredBase;
-    }
-
-    if (RUNTIME_SERVER_BASE && typeof RUNTIME_SERVER_BASE === 'string') {
-      const runtimeBase = useCandidate(RUNTIME_SERVER_BASE);
-      if (runtimeBase) return runtimeBase;
-    }
+    const runtimeBase = normalizeServerBase(RUNTIME_SERVER_BASE);
+    if (httpCompatMode && runtimeBase) return runtimeBase;
+    const envBase = normalizeServerBase(process.env.SERVER_BASE);
+    if (envBase) return envBase;
+    if (runtimeBase) return runtimeBase;
 
     // 模型列表允许匿名读取。尚未登录时，从账号服务入口推导客户端 HTTP 根地址，
     // 例如 http://host:58111/api/account -> http://host:58111。
-    const platformsConfig = readPlatformsConfigSafe();
-    const platformKey = String(process.env.PLATFORM || platformsConfig.defaultPlatform || 'default').trim();
-    const platformConfig = (platformsConfig.platformConfigs || {})[platformKey] || {};
-    const accountService = platformConfig.accountService || platformsConfig.accountService || {};
-    const accountServiceUrl = String(
-      accountService.url
-      || (Array.isArray(accountService.urls) ? accountService.urls[0] : '')
-      || platformConfig.accountServiceUrl
-      || platformsConfig.accountServiceUrl
-      || ''
-    ).trim();
-    if (accountServiceUrl) {
-      try {
-        const parsed = new URL(accountServiceUrl);
-        const accountPathIndex = parsed.pathname.indexOf('/api/account');
-        parsed.pathname = accountPathIndex >= 0 ? parsed.pathname.slice(0, accountPathIndex) || '/' : '/';
-        parsed.search = '';
-        parsed.hash = '';
-        const configuredBase = useCandidate(parsed.toString());
-        if (configuredBase) return configuredBase;
-      } catch (_) {}
-    }
+    const accountServiceBase = getAccountServiceBase();
+    if (accountServiceBase) return accountServiceBase;
 
     const cfg = getStoreConfig() || {};
-    const directBase =
-      cfg.serverBase ||
-      cfg.server_base ||
-      cfg.httpBase ||
-      cfg.http_base ||
-      cfg.apiBase ||
-      cfg.api_base;
-    if (directBase && typeof directBase === 'string') {
-      const configuredBase = useCandidate(directBase);
-      if (configuredBase) return configuredBase;
-    }
-
-    const httpCfg = cfg.http || cfg.httpServer || cfg.server || cfg.api;
-    if (httpCfg && typeof httpCfg === 'object') {
-      const protocol = httpCfg.protocol || (httpCfg.https ? 'https' : 'http');
-      const host = httpCfg.host || httpCfg.hostname;
-      const port = httpCfg.port || httpCfg.httpPort || httpCfg.http_port;
-      if (host) {
-        const configuredBase = useCandidate(`${protocol}://${host}${port ? `:${port}` : ''}`);
-        if (configuredBase) return configuredBase;
-      }
-    }
+    const storeBase = getDirectStoreBase(cfg) || getStructuredStoreBase(cfg);
+    if (storeBase) return storeBase;
 
     // 最后兜底：由 TCP 配置直接推导 HTTP 地址，保持返回端口原样
-    const tcp = getTcpConfig();
-    const host = tcp?.host;
-    let port = Number(cfg.httpPort || cfg.http_port);
-    if (!port && Number.isFinite(Number(tcp?.port))) {
-      port = Number(tcp.port);
-    }
-    if (host) {
-      const fallbackBase = useCandidate(`http://${host}${port ? `:${port}` : ''}`);
-      if (fallbackBase) return fallbackBase;
-    }
+    return getTcpFallbackBase(cfg);
   } catch (_) {}
   return '';
 }
@@ -394,17 +381,7 @@ function setRuntimeTcpConfig(tcpConfig = null) {
   RUNTIME_TCP_CONFIG = {
     host,
     port: normalizeTcpPort(port),
-    transport: {
-      preferred: String(tcpConfig.transport?.preferred || 'tls').toLowerCase(),
-      allowHttpFallback: tcpConfig.transport?.allowHttpFallback !== false,
-      allowPlainFallback: false,
-      tls: {
-        enabled: true,
-        rejectUnauthorized: tcpConfig.transport?.tls?.rejectUnauthorized === true,
-        caPath: String(tcpConfig.transport?.tls?.caPath || tcpConfig.transport?.tls?.ca_path || '').trim(),
-        certFingerprint: String(tcpConfig.transport?.tls?.certFingerprint || tcpConfig.transport?.tls?.cert_fingerprint || '').trim(),
-      },
-    },
+    transport: normalizeTcpTransport(tcpConfig.transport || {}),
   };
   return { ...RUNTIME_TCP_CONFIG };
 }

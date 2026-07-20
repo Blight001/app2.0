@@ -100,42 +100,13 @@ function attachContextMenu(wc, dependencies = {}) {
 
 
 
-// 回退到原生菜单
-function fallbackToNativeMenu(wc, params, dependencies) {
-  const { addTab, downloadOrSaveMedia, tabs, activeTabId, refreshPage } = dependencies;
-
+async function copyContextImage(wc, params) {
   try {
-    const template = [];
-    const editFlags = params.editFlags || {};
-    const isEditable = params.isEditable || false;
-    const hasSelection = !!(params.selectionText && params.selectionText.trim());
-    const linkURL = params.linkURL && params.linkURL.startsWith('http') ? params.linkURL : '';
-    const srcURL = params.srcURL && params.srcURL.startsWith('http') ? params.srcURL : '';
-    const mediaType = params.mediaType || '';
-
-    // 链接相关操作
-    if (linkURL) {
-      template.push({
-        label: '🔗 在新标签页打开链接',
-        accelerator: 'CmdOrCtrl+Click',
-        click: () => { try { addTab && addTab(linkURL); } catch (_) {} }
-      });
-      template.push({ type: 'separator' });
-    }
-
-    // 媒体相关操作
-    if (mediaType === 'image') {
-      template.push({
-        label: '📋 复制图片',
-        click: async () => {
-          try {
-            if (wc && !wc.isDestroyed()) {
-              wc.copyImageAt(params.x, params.y);
-            }
-          } catch (_) {
-            try {
-              if (wc && !wc.isDestroyed()) {
-                const ok = await wc.executeJavaScript(`(function(){
+    if (wc && !wc.isDestroyed()) wc.copyImageAt(params.x, params.y);
+  } catch (_) {
+    try {
+      if (wc && !wc.isDestroyed()) {
+        const dataUrl = await wc.executeJavaScript(`(function(){
                   try {
                     const el = document.elementFromPoint(${params.x}, ${params.y});
                     const img = el && (el.closest && el.closest('img')) || (el && el.tagName && el.tagName.toLowerCase()==='img' && el);
@@ -150,39 +121,29 @@ function fallbackToNativeMenu(wc, params, dependencies) {
                     return c.toDataURL('image/png') || '';
                   } catch(e){ return false; }
                 })()`, true);
-                if (ok && typeof ok === 'string' && ok.startsWith('data:image/')) {
-                  const { nativeImage } = require('electron');
-                  const img = nativeImage.createFromDataURL(ok);
-                  if (!img.isEmpty()) clipboard.writeImage(img);
-                }
-              }
-            } catch(_) {}
-          }
+        if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
+          const { nativeImage } = require('electron');
+          const image = nativeImage.createFromDataURL(dataUrl);
+          if (!image.isEmpty()) clipboard.writeImage(image);
         }
-      });
-      template.push({
-        label: '💾 保存图片...',
-        accelerator: 'CmdOrCtrl+S',
-        click: async () => {
-          try {
-            let u = srcURL;
-            if (!u) {
-              u = await wc.executeJavaScript(`(function(){ try { const el = document.elementFromPoint(${params.x}, ${params.y}); const m = el && (el.closest && el.closest('img, picture')) || (el && el.tagName && el.tagName.toLowerCase()==='img' && el); if (!m) return ''; const s = (m.currentSrc || m.src || (m.querySelector && (m.querySelector('source') && m.querySelector('source').src)) || ''); return s || ''; } catch(e){ return ''; } })()`, true);
-            }
-            if (u && downloadOrSaveMedia) await downloadOrSaveMedia(wc, u);
-          } catch(_){ }
-        }
-      });
-      template.push({ type: 'separator' });
-    } else if (mediaType === 'video' || mediaType === 'audio') {
-      const mediaLabel = mediaType === 'video' ? '🎬 下载视频...' : '🎵 下载音频...';
-      template.push({
-        label: mediaLabel,
-        accelerator: 'CmdOrCtrl+S',
-        click: async () => {
-          try {
-            let info = null;
-            info = await wc.executeJavaScript(`(function(){
+      }
+    } catch (_) {}
+  }
+}
+
+async function saveContextImage(wc, params, srcURL, downloadOrSaveMedia) {
+  try {
+    let url = srcURL;
+    if (!url) {
+      url = await wc.executeJavaScript(`(function(){ try { const el = document.elementFromPoint(${params.x}, ${params.y}); const m = el && (el.closest && el.closest('img, picture')) || (el && el.tagName && el.tagName.toLowerCase()==='img' && el); if (!m) return ''; const s = (m.currentSrc || m.src || (m.querySelector && (m.querySelector('source') && m.querySelector('source').src)) || ''); return s || ''; } catch(e){ return ''; } })()`, true);
+    }
+    if (url && downloadOrSaveMedia) await downloadOrSaveMedia(wc, url);
+  } catch (_) {}
+}
+
+async function saveContextAudioVideo(wc, params, srcURL, mediaType, downloadOrSaveMedia) {
+  try {
+    const info = await wc.executeJavaScript(`(function(){
               try {
                 const el = document.elementFromPoint(${params.x}, ${params.y});
                 const m = el && (el.closest && el.closest('${mediaType}')) || (el && el.tagName && el.tagName.toLowerCase()==='${mediaType}' && el);
@@ -196,69 +157,81 @@ function fallbackToNativeMenu(wc, params, dependencies) {
                 return { src: src || '', type: type || '' };
               } catch(e){ return { src: '', type: ''}; }
             })()`, true);
-// 处理：finalUrl的具体业务逻辑。
-            const finalUrl = (info && info.src) ? info.src : (srcURL || '');
-            if (!finalUrl || !downloadOrSaveMedia) return;
-            const extH = extFromUrl(finalUrl) || (mediaType === 'video' ? 'mp4' : '');
-            await downloadOrSaveMedia(wc, finalUrl, { mimeHint: (info && info.type) || '', extHint: extH });
-          } catch(_){ }
-        }
-      });
-      template.push({ type: 'separator' });
-    } else if (srcURL) {
-      template.push({
-        label: '💾 保存资源...',
-        accelerator: 'CmdOrCtrl+S',
-        click: async () => { try { downloadOrSaveMedia && await downloadOrSaveMedia(wc, srcURL); } catch(_){} }
-      });
-      template.push({ type: 'separator' });
-    }
+    const finalUrl = info?.src || srcURL || '';
+    if (!finalUrl || !downloadOrSaveMedia) return;
+    const extHint = extFromUrl(finalUrl) || (mediaType === 'video' ? 'mp4' : '');
+    await downloadOrSaveMedia(wc, finalUrl, { mimeHint: info?.type || '', extHint });
+  } catch (_) {}
+}
 
-    // 页面操作
+function pushContextLinkItems(template, linkURL, addTab) {
+  if (!linkURL) return;
+  template.push({
+    label: '🔗 在新标签页打开链接', accelerator: 'CmdOrCtrl+Click',
+    click: () => { try { addTab?.(linkURL); } catch (_) {} },
+  }, { type: 'separator' });
+}
+
+function pushContextMediaItems(template, wc, params, srcURL, mediaType, downloadOrSaveMedia) {
+  if (mediaType === 'image') {
+    template.push(
+      { label: '📋 复制图片', click: () => copyContextImage(wc, params) },
+      { label: '💾 保存图片...', accelerator: 'CmdOrCtrl+S', click: () => saveContextImage(wc, params, srcURL, downloadOrSaveMedia) },
+      { type: 'separator' },
+    );
+    return;
+  }
+  if (['video', 'audio'].includes(mediaType)) {
     template.push({
-      label: '🔄 刷新页面',
-      accelerator: 'F5',
-      click: () => { try { refreshPage && refreshPage(); } catch (_) {} }
-    });
-    template.push({ type: 'separator' });
+      label: mediaType === 'video' ? '🎬 下载视频...' : '🎵 下载音频...',
+      accelerator: 'CmdOrCtrl+S',
+      click: () => saveContextAudioVideo(wc, params, srcURL, mediaType, downloadOrSaveMedia),
+    }, { type: 'separator' });
+    return;
+  }
+  if (srcURL) {
+    template.push({
+      label: '💾 保存资源...', accelerator: 'CmdOrCtrl+S',
+      click: async () => { try { await downloadOrSaveMedia?.(wc, srcURL); } catch (_) {} },
+    }, { type: 'separator' });
+  }
+}
 
-    // 编辑操作
-    if (isEditable) {
-      if (editFlags.canUndo) template.push({
-        role: 'undo',
-        label: '撤销',
-        accelerator: 'CmdOrCtrl+Z'
-      });
-      if (editFlags.canRedo) template.push({
-        role: 'redo',
-        label: '重做',
-        accelerator: 'CmdOrCtrl+Y'
-      });
-      if (template.length && template[template.length - 1]?.type !== 'separator') template.push({ type: 'separator' });
-      if (editFlags.canCut) template.push({
-        role: 'cut',
-        label: '剪切',
-        accelerator: 'CmdOrCtrl+X'
-      });
-      if (editFlags.canCopy) template.push({
-        role: 'copy',
-        label: '复制',
-        accelerator: 'CmdOrCtrl+C'
-      });
-      if (editFlags.canPaste) template.push({
-        role: 'paste',
-        label: '粘贴',
-        accelerator: 'CmdOrCtrl+V'
-      });
-    } else {
-      if (hasSelection && editFlags.canCopy) {
-        template.push({
-          role: 'copy',
-          label: '复制',
-          accelerator: 'CmdOrCtrl+C'
-        });
-      }
-    }
+function pushEditRole(template, enabled, role, label, accelerator) {
+  if (enabled) template.push({ role, label, accelerator });
+}
+
+function pushContextEditItems(template, params) {
+  const editFlags = params.editFlags || {};
+  if (!params.isEditable) {
+    const hasSelection = Boolean(params.selectionText?.trim());
+    pushEditRole(template, hasSelection && editFlags.canCopy, 'copy', '复制', 'CmdOrCtrl+C');
+    return;
+  }
+  pushEditRole(template, editFlags.canUndo, 'undo', '撤销', 'CmdOrCtrl+Z');
+  pushEditRole(template, editFlags.canRedo, 'redo', '重做', 'CmdOrCtrl+Y');
+  if (template.at(-1)?.type !== 'separator') template.push({ type: 'separator' });
+  pushEditRole(template, editFlags.canCut, 'cut', '剪切', 'CmdOrCtrl+X');
+  pushEditRole(template, editFlags.canCopy, 'copy', '复制', 'CmdOrCtrl+C');
+  pushEditRole(template, editFlags.canPaste, 'paste', '粘贴', 'CmdOrCtrl+V');
+}
+
+function httpContextUrl(value) {
+  return value?.startsWith('http') ? value : '';
+}
+
+function fallbackToNativeMenu(wc, params, dependencies) {
+  try {
+    const template = [];
+    const linkURL = httpContextUrl(params.linkURL);
+    const srcURL = httpContextUrl(params.srcURL);
+    pushContextLinkItems(template, linkURL, dependencies.addTab);
+    pushContextMediaItems(template, wc, params, srcURL, params.mediaType || '', dependencies.downloadOrSaveMedia);
+    template.push({
+      label: '🔄 刷新页面', accelerator: 'F5',
+      click: () => { try { dependencies.refreshPage?.(); } catch (_) {} },
+    }, { type: 'separator' });
+    pushContextEditItems(template, params);
 
     const menu = Menu.buildFromTemplate(template);
     if (menu) menu.popup({ window: BrowserWindow.fromWebContents(wc) });

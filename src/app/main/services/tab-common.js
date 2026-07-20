@@ -79,6 +79,17 @@ function focusSidebarInput(getMainWindow, getSideView) {
   }
 }
 
+function scheduleSidebarLayoutRefresh(nextVisible, getMainWindow, getSideView) {
+  const delay = nextVisible ? 140 : 400;
+  setTimeout(() => {
+    const win = typeof getMainWindow === 'function' ? getMainWindow() : null;
+    if (isUsableWindow(win)) win.emit('resize');
+    if (!nextVisible) return;
+    focusSidebarInput(getMainWindow, getSideView);
+    setImmediate(() => focusSidebarInput(getMainWindow, getSideView));
+  }, delay);
+}
+
 function toggleSidebarVisibility(options = {}) {
   const {
     getIsSidebarVisible,
@@ -104,20 +115,7 @@ function toggleSidebarVisibility(options = {}) {
     const sideView = typeof getSideView === 'function' ? getSideView() : null;
     sendSidebarVisibility(sideView, nextVisible);
 
-    const delay = nextVisible ? 140 : 400;
-    setTimeout(() => {
-      const win = typeof getMainWindow === 'function' ? getMainWindow() : null;
-      if (isUsableWindow(win)) {
-        win.emit('resize');
-      }
-      if (nextVisible) {
-        focusSidebarInput(getMainWindow, getSideView);
-        // Electron may finish the WebContentsView compositor/input-region
-        // update on the next task after setBounds/setVisible. Re-focus once at
-        // that boundary so the repair is not timing-dependent.
-        setImmediate(() => focusSidebarInput(getMainWindow, getSideView));
-      }
-    }, delay);
+    scheduleSidebarLayoutRefresh(nextVisible, getMainWindow, getSideView);
 
     return nextVisible;
   } catch (error) {

@@ -1,0 +1,314 @@
+  function resizeInput() {
+    const input = el('ai-chat-input');
+    if (!input) return;
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 130)}px`;
+  }
+
+  function focusElement(input) {
+    if (!input) return;
+    try {
+      input.focus({ preventScroll: true });
+    } catch (_) {
+      try { input.focus(); } catch (__) {}
+    }
+  }
+
+  /**
+   * 侧栏是 WebContentsView：OS/Chromium 子窗口可能抢走键盘焦点，
+   * 而 DOM 仍显示 textarea:focus，表现为“已聚焦但无法输入”。
+   * 这里通过主进程把键盘焦点拉回侧栏 webContents，再回焦输入框。
+   */
+  function reclaimAiInputFocus(input) {
+    if (!input || state._aiInputReclaiming) return;
+    if (!window.aiFree?.ui?.focusSidebarInput) {
+      focusElement(input);
+      return;
+    }
+
+    const now = Date.now();
+    // 短防抖：pointerdown/click 连续触发时只回收一次
+    if (state._aiInputReclaimAt && now - state._aiInputReclaimAt < 120) return;
+    state._aiInputReclaimAt = now;
+
+    const token = Symbol('ai-input-focus');
+    state._aiInputFocusToken = token;
+    state._aiInputReclaiming = true;
+
+    const refocus = () => {
+      if (state._aiInputFocusToken !== token) return;
+      if (aiInputHasActiveDraft()) return;
+      // 若用户已点到别处，不要强行抢回
+      if (document.activeElement && document.activeElement !== input) {
+        const active = document.activeElement;
+        if (active !== document.body && active !== document.documentElement) return;
+      }
+      focusElement(input);
+    };
+
+    // 等本轮 click 的原生聚焦完成后再向主进程要键盘焦点，避免互相打架
+    window.setTimeout(() => {
+      if (state._aiInputFocusToken !== token) {
+        state._aiInputReclaiming = false;
+        return;
+      }
+      void window.aiFree.ui.focusSidebarInput({ interaction: 'text-input' }).then(() => {
+        refocus();
+        state._aiInputReclaiming = false;
+      }).catch((error) => {
+        console.warn('[AI 控制] 恢复输入框焦点失败:', error?.message || error);
+        refocus();
+        state._aiInputReclaiming = false;
+      });
+    }, 0);
+  }
+
+  function openPersonalLogin() {
+    window.aiFree?.account?.openCenterPopup?.();
+  }
+
+  async function ensureAuthenticatedForChat() {
+    try {
+      const session = await window.aiFree?.account?.getSession?.();
+      state.accountAuthenticated = session?.authenticated === true;
+      syncSendState();
+      if (state.accountAuthenticated) return true;
+    } catch (_) {}
+    state.accountAuthenticated = false;
+    syncSendState();
+    openPersonalLogin();
+    return false;
+  }
+
+  async function insertMessageDuringRun(content, input) {
+    if (!state.activeRequestId || state.stopping) return;
+    const messages = currentMessages();
+    const insertedMessage = { role: 'user', content };
+    messages.push(insertedMessage);
+    const userRow = appendMessage('user', content, { messageIndex: messages.length - 1 });
+    if (input) {
+      input.value = '';
+      resizeInput();
+      flushDeferredAiControlRefresh();
+    }
+    syncSendState();
+    try {
+      const result = await window.aiFree.ai.chatInsert({
+        requestId: state.activeRequestId,
+        content,
+      });
+      if (!result?.ok) throw new Error(result?.message || '当前 AI 回复已经结束');
+    } catch (error) {
+      const index = messages.indexOf(insertedMessage);
+      if (index >= 0) messages.splice(index, 1);
+      userRow?.remove();
+      if (input && !input.value) {
+        input.value = content;
+        resizeInput();
+      }
+      setStatus(error?.message || String(error), 'warning');
+      syncSendState();
+    }
+  }
+
+  async function stopAIOutput() {
+    if (!state.loading || !state.activeRequestId || state.stopping) return;
+    state.stopping = true;
+    syncSendState();
+    try {
+      await window.aiFree.ai.chatStop({
+        requestId: state.activeRequestId,
+      });
+    } catch (error) {
+      state.stopping = false;
+      syncSendState();
+      setStatus(error?.message || String(error));
+    }
+  }
+
+  async function refreshQuotaBeforeSend(useCustomApi) {
+    if (useCustomApi) return;
+    try {
+      const result = await window.aiFree?.ai?.getModels?.();
+      if (result?.quota) renderQuota(result.quota);
+    } catch (_) {}
+  }
+
+  async function prepareChatSend(input, select, content) {
+    const useCustomApi = selectedModelIsCustom();
+    if (!useCustomApi && !await ensureAuthenticatedForChat()) return null;
+    if (!select?.value) return null;
+    await refreshQuotaBeforeSend(useCustomApi);
+    if (!useCustomApi && isQuotaExhausted()) {
+      showChatBusinessError('AI 对话额度已用尽，请联系管理员');
+      syncSendState();
+      return null;
+    }
+    ensureSessionForSend();
+    const messages = currentMessages();
+    const wasFirstExchange = !messages.some((message) => message.role === 'assistant' && String(message.content || '').trim());
+    messages.push({ role: 'user', content });
+    const userRow = appendMessage('user', content, { messageIndex: messages.length - 1 });
+    updateSessionTitleUi();
+    input.value = '';
+    resizeInput();
+    flushDeferredAiControlRefresh();
+    state.loading = true;
+    state.stopping = false;
+    setStatus('');
+    syncSendState();
+    return { content, input, messages, select, useCustomApi, userRow, wasFirstExchange };
+  }
+
+  function subscribeChatStream(run) {
+    run.streamView = createAssistantView({ pending: true });
+    run.insertedDuringRun = false;
+    return window.aiFree?.ai?.onChatEvent?.((event) => {
+      if (!event || event.requestId !== run.requestId) return;
+      if (event.type === 'round_start') run.streamView?.addReasoning('', event.round);
+      if (event.type === 'reasoning_delta') run.streamView?.addReasoning(event.delta, event.round);
+      if (event.type === 'content_delta') run.streamView?.addContent(event.delta, event.round);
+      if (event.type === 'tool_start' || event.type === 'tool_result') run.streamView?.upsertTool(event.tool || {}, event.round);
+      if (event.type === 'user_inserted') {
+        run.insertedDuringRun = true;
+        run.streamView?.finalize();
+        run.streamView = createAssistantView({ pending: true });
+      }
+    });
+  }
+
+  function buildChatRequest(run) {
+    return {
+      modelId: run.select.value,
+      messages: run.messages,
+      quota: run.useCustomApi ? null : state.quota,
+      browserConnectionId: state.currentBrowserIds[0] || '',
+      browserConnectionIds: [...state.currentBrowserIds],
+      automationCardId: state.currentCardId,
+      stream: true,
+      requestId: run.requestId,
+    };
+  }
+
+  function removeFailedChatRows(run, removeUser = true) {
+    run.messages.pop();
+    if (removeUser) run.userRow?.remove();
+    run.streamView?.row?.remove();
+    if (!run.messages.length) renderWelcome();
+  }
+
+  function handleChatBusinessFailure(run, result) {
+    const message = String(result?.message || result?.error || '对话请求失败');
+    if (/请先.*登录|未登录/.test(message)) {
+      removeFailedChatRows(run, false);
+      openPersonalLogin();
+      return true;
+    }
+    if (!isQuotaFailure(message)) return false;
+    removeFailedChatRows(run);
+    if (result?.quota) renderQuota(result.quota);
+    showChatBusinessError(message);
+    return true;
+  }
+
+  function applyReturnedMessages(run, result) {
+    if (Array.isArray(result.messages) && result.messages.length) {
+      state.messages = result.messages;
+      return;
+    }
+    run.messages.push({ role: 'assistant', content: String(result.message?.content || '').trim() });
+  }
+
+  function applyFinalAssistantMetadata(result) {
+    const finalAssistant = [...state.messages].reverse().find((item) => item?.role === 'assistant');
+    if (!finalAssistant) return;
+    finalAssistant.reasoning = String(result.message?.reasoning || '');
+    finalAssistant.tool_events = Array.isArray(result.message?.tool_events) ? result.message.tool_events : [];
+    finalAssistant.trace_events = Array.isArray(result.message?.trace_events) ? result.message.trace_events : [];
+  }
+
+  function updateCurrentSessionAfterChat(run) {
+    if (!state.currentSession) return;
+    state.currentSession.modelId = run.select.value;
+    state.currentSession.browserConnectionId = state.currentBrowserIds[0] || '';
+    state.currentSession.browserConnectionIds = [...state.currentBrowserIds];
+    state.currentSession.automationCardId = state.currentCardId;
+    if (!state.currentSession.title || state.currentSession.title === '新对话') {
+      state.currentSession.title = provisionalTitle(run.content);
+    }
+  }
+
+  async function applyChatResult(run, result) {
+    applyReturnedMessages(run, result);
+    const replyText = String(result.message?.content || '').trim();
+    applyFinalAssistantMetadata(result);
+    state.lastQuotaCost = result.quota_cost ?? result.quota_cost_increment ?? null;
+    renderQuota(run.useCustomApi ? state.quota : (result.quota || state.quota));
+    updateCurrentSessionAfterChat(run);
+    if (result.stopped) {
+      run.streamView?.finalize();
+      renderConversation();
+      await persistCurrentSession();
+      return;
+    }
+    run.streamView?.setContent(replyText || '模型未返回内容');
+    run.streamView?.finalize();
+    if (run.insertedDuringRun) renderConversation();
+    await persistCurrentSession();
+    if (run.wasFirstExchange) void maybeGenerateTitle(run.select.value);
+  }
+
+  function handleChatSendError(run, error) {
+    run.messages.pop();
+    const message = error?.message || String(error);
+    if (isQuotaFailure(message)) {
+      run.userRow?.remove();
+      run.streamView?.row?.remove();
+      if (!run.messages.length) renderWelcome();
+      showChatBusinessError(message);
+      return;
+    }
+    run.streamView?.addContent(`\n\n请求失败：${message}`);
+    run.streamView?.finalize();
+    setStatus(message);
+  }
+
+  function finishChatSend(run) {
+    run.unsubscribeStream?.();
+    state.loading = false;
+    state.stopping = false;
+    state.activeRequestId = '';
+    syncSendState();
+    updateSessionTitleUi();
+    run.input?.focus();
+  }
+
+  async function sendMessage() {
+    const input = el('ai-chat-input');
+    const select = el('ai-chat-model');
+    const content = String(input?.value || '').trim();
+    if (!content) return;
+    if (state.loading) {
+      await insertMessageDuringRun(content, input);
+      return;
+    }
+
+    const run = await prepareChatSend(input, select, content);
+    if (!run) return;
+    run.requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    state.activeRequestId = run.requestId;
+    run.unsubscribeStream = subscribeChatStream(run);
+
+    try {
+      const result = await window.aiFree.ai.chat(buildChatRequest(run));
+      if (!result?.ok) {
+        if (handleChatBusinessFailure(run, result)) return;
+        throw new Error(String(result?.message || result?.error || '对话请求失败'));
+      }
+      await applyChatResult(run, result);
+    } catch (error) {
+      handleChatSendError(run, error);
+    } finally {
+      finishChatSend(run);
+    }
+  }

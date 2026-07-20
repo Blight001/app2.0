@@ -13,24 +13,34 @@ function clonePlainObject(value) {
   }
 }
 
+function firstAccountSessionValue(source, names) {
+  for (const name of names) {
+    const value = source[name];
+    if (value !== undefined && value !== null && value !== '') return value;
+  }
+  return '';
+}
+
 function normalizeAccountSession(input = {}) {
+  /** @type {Record<string, any>} */
   const source = input && typeof input === 'object' ? input : {};
-  const authType = String(source.authType || source.auth_type || '').trim().toLowerCase();
-  const serverBase = String(source.serverBase || source.server_base || '').trim().replace(/\/+$/, '');
-  const hasLegacyTenant = Boolean(String(source.tenantId || source.tenant_id || '').trim())
+  const value = (names) => firstAccountSessionValue(source, names);
+  const authType = String(value(['authType', 'auth_type'])).trim().toLowerCase();
+  const serverBase = String(value(['serverBase', 'server_base'])).trim().replace(/\/+$/, '');
+  const hasLegacyTenant = Boolean(String(value(['tenantId', 'tenant_id'])).trim())
     || /\/t\/[^/]+(?:\/|$)/i.test(serverBase);
   const session = {
     authType,
-    username: String(source.username || '').trim(),
-    key: String(source.key || source.credential || '').trim(),
-    deviceId: String(source.deviceId || source.device_id || '').trim(),
-    platformName: String(source.platformName || source.platform_name || '').trim(),
+    username: String(value(['username'])).trim(),
+    key: String(value(['key', 'credential'])).trim(),
+    deviceId: String(value(['deviceId', 'device_id'])).trim(),
+    platformName: String(value(['platformName', 'platform_name'])).trim(),
     serverBase,
     serverMode: normalizeServerMode(
-      source.serverMode || source.server_mode,
+      value(['serverMode', 'server_mode']),
       inferServerMode(serverBase),
     ),
-    authenticatedAt: String(source.authenticatedAt || source.authenticated_at || '').trim(),
+    authenticatedAt: String(value(['authenticatedAt', 'authenticated_at'])).trim(),
     account: clonePlainObject(source.account),
     validation: clonePlainObject(source.validation),
   };

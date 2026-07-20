@@ -6,6 +6,7 @@ const {
 } = require('./normalizers');
 
 let recycleTimers = new Map();
+/** @type {Promise<any>} */
 let cleanupQueue = Promise.resolve();
 const cleanupTasks = new Map();
 
@@ -29,45 +30,39 @@ function resolveRecycleTimestamp(account) {
     account.refreshInfo?.nextRefreshAt
   ];
 
-  for (const value of explicitValues) {
-    const ts = normalizeTimeValueToMs(value);
-    if (ts) return ts;
-  }
+  const explicit = firstNormalizedTimestamp(explicitValues);
+  if (explicit) return explicit;
+  const remainingSeconds = firstPositiveNumber(getRemainingValues(account, 'seconds'));
+  if (remainingSeconds) return Date.now() + Math.floor(remainingSeconds * 1000);
+  const remainingMinutes = firstPositiveNumber(getRemainingValues(account, 'minutes'));
+  if (remainingMinutes) return Date.now() + Math.floor(remainingMinutes * 60 * 1000);
+  return firstNormalizedTimestamp([account.aiAccountExpiryTime, account.ai_account_expiry_time]);
+}
 
-  const remainingSeconds = normalizePositiveNumber(
-    account.remaining_seconds
-    ?? account.remainingSeconds
-    ?? account.refresh_info?.remaining_seconds
-    ?? account.refresh_info?.remainingSeconds
-    ?? account.refreshInfo?.remaining_seconds
-    ?? account.refreshInfo?.remainingSeconds
-  );
-  if (remainingSeconds) {
-    return Date.now() + Math.floor(remainingSeconds * 1000);
-  }
-
-  const remainingMinutes = normalizePositiveNumber(
-    account.remaining_minutes
-    ?? account.remainingMinutes
-    ?? account.refresh_info?.remaining_minutes
-    ?? account.refresh_info?.remainingMinutes
-    ?? account.refreshInfo?.remaining_minutes
-    ?? account.refreshInfo?.remainingMinutes
-  );
-  if (remainingMinutes) {
-    return Date.now() + Math.floor(remainingMinutes * 60 * 1000);
-  }
-
-  const fallbackValues = [
-    account.aiAccountExpiryTime,
-    account.ai_account_expiry_time
-  ];
-
-  for (const value of fallbackValues) {
-    const ts = normalizeTimeValueToMs(value);
-    if (ts) return ts;
+function firstNormalizedTimestamp(values) {
+  for (const value of values) {
+    const timestamp = normalizeTimeValueToMs(value);
+    if (timestamp) return timestamp;
   }
   return null;
+}
+
+function firstPositiveNumber(values) {
+  for (const value of values) {
+    const number = normalizePositiveNumber(value);
+    if (number) return number;
+  }
+  return null;
+}
+
+function getRemainingValues(account, unit) {
+  const snake = `remaining_${unit}`;
+  const camel = `remaining${unit[0].toUpperCase()}${unit.slice(1)}`;
+  return [
+    account[snake], account[camel],
+    account.refresh_info?.[snake], account.refresh_info?.[camel],
+    account.refreshInfo?.[snake], account.refreshInfo?.[camel],
+  ];
 }
 
 // 处理：isTemporaryAccount的具体业务逻辑。
@@ -112,34 +107,29 @@ async function deleteAccountNow(accountStorage, accountId, options = {}) {
   }
 
   try {
-    if (typeof options.cleanupAccountArtifacts === 'function') {
-      const cleanupResult = await options.cleanupAccountArtifacts(accountId);
-      if (!cleanupResult || cleanupResult.ok !== true) {
-        console.warn(`[AccountCleanup] 清理账号浏览器环境失败(${accountId}):`, cleanupResult?.error || '未知错误');
-        return false;
-      }
-    }
-
+    if (!await cleanupAccountArtifacts(accountId, options)) return false;
     const result = accountStorage.deleteAccount(accountId);
-    if (result && result.ok) {
-      console.log(`[AccountCleanup] 已删除到期账号: ${accountId}`);
-      if (options.notifyOnDelete !== false) notifyAccountListUpdated(options);
-      return true;
-    }
-
-    if (result?.error === '账号不存在') {
-      if (options.notifyOnDelete !== false) notifyAccountListUpdated(options);
-      return true;
-    }
-
-    if (result && result.error) {
-      console.warn(`[AccountCleanup] 删除账号失败(${accountId}):`, result.error);
-    }
-    return false;
+    return handleAccountDeletionResult(accountId, result, options);
   } catch (e) {
     console.error('[AccountCleanup] 删除到期账号失败:', e?.message || e);
     return false;
   }
+}
+
+async function cleanupAccountArtifacts(accountId, options) {
+  if (typeof options.cleanupAccountArtifacts !== 'function') return true;
+  const result = await options.cleanupAccountArtifacts(accountId);
+  if (result?.ok === true) return true;
+  console.warn(`[AccountCleanup] 清理账号浏览器环境失败(${accountId}):`, result?.error || '未知错误');
+  return false;
+}
+
+function handleAccountDeletionResult(accountId, result, options) {
+  if (result?.ok) console.log(`[AccountCleanup] 已删除到期账号: ${accountId}`);
+  const removed = result?.ok === true || result?.error === '账号不存在';
+  if (removed && options.notifyOnDelete !== false) notifyAccountListUpdated(options);
+  if (!removed && result?.error) console.warn(`[AccountCleanup] 删除账号失败(${accountId}):`, result.error);
+  return removed;
 }
 
 // 多个账号可能在同一秒到期。统一串行执行磁盘清理，既避免同时争抢磁盘，
@@ -246,34 +236,9 @@ async function refreshAccountRecycleTimers(accountStorage, options = {}) {
     const accountId = String(account && account.id ? account.id : '').trim();
     if (!accountId) continue;
     seenIds.add(accountId);
-
-    if (!isTemporaryAccount(account)) {
-      clearRecycleTimer(accountId);
-      continue;
-    }
-
-    const recycleAt = resolveRecycleTimestamp(account);
-    if (!recycleAt) {
-      clearRecycleTimer(accountId);
-      continue;
-    }
-
-    if (recycleAt <= Date.now()) {
-      const deleted = await queueAccountDeletion(accountStorage, accountId, {
-        ...options,
-        notifyOnDelete: false,
-      });
-      if (deleted) {
-        removed += 1;
-      } else {
-        scheduleCleanupRetry(accountStorage, accountId, options);
-      }
-      continue;
-    }
-
-    if (scheduleAccountDeletion(accountStorage, account, options)) {
-      scheduled += 1;
-    }
+    const result = await refreshAccountTimer(accountStorage, account, options);
+    scheduled += result.scheduled;
+    removed += result.removed;
   }
 
   for (const accountId of Array.from(recycleTimers.keys())) {
@@ -285,6 +250,21 @@ async function refreshAccountRecycleTimers(accountStorage, options = {}) {
   if (removed > 0) notifyAccountListUpdated(options);
 
   return { scheduled, removed };
+}
+
+async function refreshAccountTimer(accountStorage, account, options) {
+  const accountId = String(account.id || '').trim();
+  const recycleAt = isTemporaryAccount(account) ? resolveRecycleTimestamp(account) : null;
+  if (!recycleAt) {
+    clearRecycleTimer(accountId);
+    return { scheduled: 0, removed: 0 };
+  }
+  if (recycleAt > Date.now()) {
+    return { scheduled: scheduleAccountDeletion(accountStorage, account, options) ? 1 : 0, removed: 0 };
+  }
+  const deleted = await queueAccountDeletion(accountStorage, accountId, { ...options, notifyOnDelete: false });
+  if (!deleted) scheduleCleanupRetry(accountStorage, accountId, options);
+  return { scheduled: 0, removed: deleted ? 1 : 0 };
 }
 
 // 创建/初始化：initializeAccountCleanup的具体业务逻辑。

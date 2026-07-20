@@ -4,260 +4,209 @@ const {
 } = require('./tab-common');
 const { removeDirectoryWithRetries: removeDirWithRetries } = require('../utils/fs-cleanup');
 
-// 创建/初始化：createBrowserPartitionCleaner的具体业务逻辑。
-function createBrowserPartitionCleaner(deps = {}) {
-  const {
-    app,
-    fs,
-    path,
-    BrowserWindow,
-    electronSession,
-    getTabs = () => new Map(),
-    getMainWindow = () => null,
-    getSideView = () => null,
-    getLicenseWindow = () => null,
-    getActiveTabId = () => null,
-    getExtPopupWin = () => null,
-    logger = console,
-  } = deps;
+function isManagedTabPartitionName(partitionName) {
+  return String(partitionName || '').trim().startsWith('tab-');
+}
 
-// 处理：isManagedTabPartitionName的具体业务逻辑。
-  function isManagedTabPartitionName(partitionName) {
-    return String(partitionName || '').trim().startsWith('tab-');
-  }
+function isEphemeralManagedTabPartitionName(partitionName) {
+  return /^tab-\d+$/.test(String(partitionName || '').trim());
+}
 
-// 处理：isEphemeralManagedTabPartitionName的具体业务逻辑。
-  function isEphemeralManagedTabPartitionName(partitionName) {
-    const normalized = String(partitionName || '').trim();
-    return /^tab-\d+$/.test(normalized);
-  }
+// AI-FREE 网页已迁移到独立 Chromium Profile；旧 Electron Partitions 可统一回收。
+function isPersistentManagedTabPartitionName(_partitionName) {
+  return false;
+}
 
-// 处理：isPersistentManagedTabPartitionName的具体业务逻辑。
-  function isPersistentManagedTabPartitionName(partitionName) {
-    void partitionName;
-    // AI-FREE 网页已经迁移到独立 Chromium Profile。旧 tab-* Electron
-    // Partitions 不再承载网页 Cookie/Storage，可以统一回收。
+function isPersistentSharedPartitionName(_partitionName) {
+  return false;
+}
+
+function windowUsesSession(win, session) {
+  try {
+    const contents = win?.webContents;
+    return Boolean(win && !win.isDestroyed() && contents && !contents.isDestroyed() && contents.session === session);
+  } catch (_) {
     return false;
   }
+}
 
-// 处理：isPersistentSharedPartitionName的具体业务逻辑。
-  function isPersistentSharedPartitionName(partitionName) {
-    const normalized = String(partitionName || '').trim();
-    return false;
-  }
-
-// 校验/保护：hasLiveBrowserUsersForSession的具体业务逻辑。
-  function hasLiveBrowserUsersForSession(session, partitionName, excludedTabId = null) {
-    const normalizedPartitionName = normalizePersistPartitionName(partitionName);
-    if (!session || !normalizedPartitionName) {
-      return false;
-    }
-
-    const tabs = getTabs();
-    for (const [tabId, tab] of tabs.entries()) {
+function createSessionUserChecker(deps) {
+  return function hasLiveBrowserUsersForSession(session, partitionName, excludedTabId = null) {
+    const normalizedName = normalizePersistPartitionName(partitionName);
+    if (!session || !normalizedName) return false;
+    for (const [tabId, tab] of deps.getTabs().entries()) {
       if (excludedTabId && tabId === excludedTabId) continue;
-      if (normalizePersistPartitionName(tab?.partition) !== normalizedPartitionName) continue;
-      return true;
+      if (normalizePersistPartitionName(tab?.partition) === normalizedName) return true;
     }
-
-    for (const win of BrowserWindow.getAllWindows()) {
-      try {
-        if (!win || win.isDestroyed() || !win.webContents || win.webContents.isDestroyed()) {
-          continue;
-        }
-        if (win.webContents.session === session) {
-          return true;
-        }
-      } catch (_) {}
+    for (const win of deps.BrowserWindow.getAllWindows()) {
+      if (windowUsesSession(win, session)) return true;
     }
-
     return false;
-  }
+  };
+}
 
-// 移除/删除：removeDirectoryWithRetries的具体业务逻辑。
-  async function removeDirectoryWithRetries(dirPath, label = '目录') {
-    return removeDirWithRetries(fs, dirPath, {
-      logger,
-      failureMessage: `[缓存清理] 删除${label}失败:`,
-    });
-  }
+function createDirectoryTools(deps) {
+  const getBrowserPartitionsRootDir = () => deps.path.join(deps.app.getPath('userData'), 'Partitions');
+  const removeDirectoryWithRetries = (dirPath, label = '目录') => removeDirWithRetries(deps.fs, dirPath, {
+    logger: deps.logger,
+    failureMessage: `[缓存清理] 删除${label}失败:`,
+  });
+  return { getBrowserPartitionsRootDir, removeDirectoryWithRetries };
+}
 
-// 获取/读取/解析：getBrowserPartitionsRootDir的具体业务逻辑。
-  function getBrowserPartitionsRootDir() {
-    return path.join(app.getPath('userData'), 'Partitions');
+async function clearSessionCache(session, partitionName, logger) {
+  try {
+    await session.clearCache();
+    logger.log?.(`[缓存清理] 已清理会话缓存: ${partitionName || 'default-session'}`);
+  } catch (error) {
+    logger.warn?.('[缓存清理] 清理会话缓存失败:', partitionName || 'default-session', error?.message || error);
   }
+}
 
-// 停止/关闭/清理：cleanupBrowserSessionData的具体业务逻辑。
-  async function cleanupBrowserSessionData({ partition, session, excludedTabId = null, source = '浏览器', force = false } = {}) {
+function createSessionCleanup(deps, hasLiveBrowserUsersForSession) {
+  /** @param {Record<string, any>} [options] */
+  return async function cleanupBrowserSessionData(options = {}) {
+    const { partition, session, excludedTabId = null, source = '浏览器', force = false } = options;
     const partitionName = normalizePersistPartitionName(partition);
-    if (!session) {
-      return { ok: false, skipped: true };
-    }
-
-    const isManagedPartition = !!partitionName && isManagedTabPartitionName(partitionName);
-
-    if (isManagedPartition && !force && !source?.includes('退出') && hasLiveBrowserUsersForSession(session, partitionName, excludedTabId)) {
-      logger.log?.(`[缓存清理] ${source} 分区仍在使用，跳过:`, partitionName);
+    if (!session) return { ok: false, skipped: true };
+    const managed = Boolean(partitionName) && isManagedTabPartitionName(partitionName);
+    const exiting = String(source || '').includes('退出');
+    if (managed && !force && !exiting && hasLiveBrowserUsersForSession(session, partitionName, excludedTabId)) {
+      deps.logger.log?.(`[缓存清理] ${source} 分区仍在使用，跳过:`, partitionName);
       return { ok: true, skipped: true, reason: 'in-use' };
     }
-
-    try {
-      await session.clearCache();
-      logger.log?.(`[缓存清理] 已清理会话缓存: ${partitionName || 'default-session'}`);
-    } catch (error) {
-      logger.warn?.('[缓存清理] 清理会话缓存失败:', partitionName || 'default-session', error?.message || error);
-    }
-
-    if (!isManagedPartition) {
-      return { ok: true, removed: false, skipped: false };
-    }
-
-    // 账号标签页的分区需要保留，便于下次启动直接复用 cookie / storage。
+    await clearSessionCache(session, partitionName, deps.logger);
+    if (!managed) return { ok: true, removed: false, skipped: false };
     return { ok: true, removed: false, skipped: true, reason: 'persistent-tab-partition' };
-  }
+  };
+}
 
-// 停止/关闭/清理：purgeBrowserSessionData的具体业务逻辑。
-  async function purgeBrowserSessionData({ partition, session, source = '账号删除' } = {}) {
+async function clearSessionStorage(session, partitionName, logger) {
+  try {
+    if (session && typeof session.clearStorageData === 'function') await session.clearStorageData();
+  } catch (error) {
+    logger.warn?.('[缓存清理] 清理会话存储失败:', partitionName, error?.message || error);
+  }
+}
+
+function createSessionPurge(deps, directoryTools) {
+  /** @param {Record<string, any>} [options] */
+  return async function purgeBrowserSessionData(options = {}) {
+    const { partition, session, source = '账号删除' } = options;
     const partitionName = normalizePersistPartitionName(partition);
-    if (!partitionName) {
-      return { ok: false, skipped: true, reason: 'missing-partition' };
+    if (!partitionName) return { ok: false, skipped: true, reason: 'missing-partition' };
+    await clearSessionStorage(session, partitionName, deps.logger);
+    if (session && typeof session.clearCache === 'function') {
+      await clearSessionCache(session, partitionName, deps.logger);
     }
-
-    try {
-      if (session && typeof session.clearStorageData === 'function') {
-        await session.clearStorageData();
-      }
-    } catch (error) {
-      logger.warn?.('[缓存清理] 清理会话存储失败:', partitionName, error?.message || error);
-    }
-
-    try {
-      if (session && typeof session.clearCache === 'function') {
-        await session.clearCache();
-      }
-    } catch (error) {
-      logger.warn?.('[缓存清理] 清理会话缓存失败:', partitionName, error?.message || error);
-    }
-
-    const partitionDir = path.join(getBrowserPartitionsRootDir(), partitionName);
-    const removed = await removeDirectoryWithRetries(partitionDir, `Partitions/${partitionName}`);
-    logger.log?.(`[缓存清理] ${source} 已删除分区数据:`, partitionName, removed);
+    const partitionDir = deps.path.join(directoryTools.getBrowserPartitionsRootDir(), partitionName);
+    const removed = await directoryTools.removeDirectoryWithRetries(partitionDir, `Partitions/${partitionName}`);
+    deps.logger.log?.(`[缓存清理] ${source} 已删除分区数据:`, partitionName, removed);
     return { ok: true, removed, partition: partitionName };
-  }
+  };
+}
 
-// 处理：collectBrowserSessionCleanupTargets的具体业务逻辑。
-  function collectBrowserSessionCleanupTargets() {
+function createCleanupTargetCollector(deps) {
+  return function collectBrowserSessionCleanupTargets() {
     const targets = [];
-    const seenSessions = new Set();
-
-// 处理：pushTarget的具体业务逻辑。
-    const pushTarget = (session, partition, source) => {
-      if (!session || seenSessions.has(session)) {
-        return;
-      }
-      seenSessions.add(session);
+    const seen = new Set();
+    const push = (session, partition, source) => {
+      if (!session || seen.has(session)) return;
+      seen.add(session);
       targets.push({ session, partition, source });
     };
-
-    const tabs = getTabs();
-
-    pushTarget(getSideView()?.webContents?.session, undefined, '侧边栏');
-    pushTarget(getMainWindow()?.webContents?.session, undefined, '主窗口');
-    pushTarget(getLicenseWindow()?.webContents?.session, undefined, '验证窗口');
-    pushTarget(getExtPopupWin()?.webContents?.session, tabs.get(getActiveTabId())?.partition, '扩展弹窗');
-    pushTarget(electronSession?.defaultSession, undefined, '默认会话');
-
+    const tabs = deps.getTabs();
+    push(deps.getSideView()?.webContents?.session, undefined, '侧边栏');
+    push(deps.getMainWindow()?.webContents?.session, undefined, '主窗口');
+    push(deps.getLicenseWindow()?.webContents?.session, undefined, '验证窗口');
+    push(deps.getExtPopupWin()?.webContents?.session, tabs.get(deps.getActiveTabId())?.partition, '扩展弹窗');
+    push(deps.electronSession?.defaultSession, undefined, '默认会话');
     return targets;
-  }
+  };
+}
 
-// 停止/关闭/清理：cleanupAllBrowserSessionData的具体业务逻辑。
-  async function cleanupAllBrowserSessionData({ source = '退出', force = false } = {}) {
-    const targets = collectBrowserSessionCleanupTargets();
-    if (targets.length === 0) {
-      return { ok: true, cleanedCount: 0, skipped: true };
-    }
-
+function createCleanupAll(deps, collectTargets, cleanupSession) {
+  return async function cleanupAllBrowserSessionData({ source = '退出', force = false } = {}) {
+    const targets = collectTargets();
+    if (!targets.length) return { ok: true, cleanedCount: 0, skipped: true };
     let cleanedCount = 0;
     for (const target of targets) {
       try {
-        const result = await cleanupBrowserSessionData({
-          ...target,
-          source,
-          excludedTabId: null,
-          force,
-        });
-        if (result?.ok) {
-          cleanedCount += 1;
-        }
+        const result = await cleanupSession({ ...target, source, excludedTabId: null, force });
+        if (result?.ok) cleanedCount += 1;
       } catch (error) {
-        logger.warn?.('[缓存清理] 退出时清理会话失败:', target?.source || '未知会话', error?.message || error);
+        deps.logger.warn?.('[缓存清理] 退出时清理会话失败:', target?.source || '未知会话', error?.message || error);
       }
     }
-
     return { ok: true, cleanedCount, targetCount: targets.length };
-  }
+  };
+}
 
-// 停止/关闭/清理：cleanupBrowserPartitionsRootDir的具体业务逻辑。
-  async function cleanupBrowserPartitionsRootDir() {
-    const partitionsRootDir = getBrowserPartitionsRootDir();
-    if (!fs.existsSync(partitionsRootDir)) {
-      return {
-        ok: true,
-        removed: false,
-        cleanedCount: 0,
-        partitionsRootDir,
-      };
-    }
-
-    let cleanedCount = 0;
-    let failedCount = 0;
-    let keptPersistentCount = 0;
-    let removed = false;
-    try {
-      const entries = await fs.promises.readdir(partitionsRootDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (isPersistentSharedPartitionName(entry.name) || isPersistentManagedTabPartitionName(entry.name)) {
-          logger.log?.('[退出] 跳过持久分区清理:', entry.name);
-          keptPersistentCount += 1;
-          continue;
-        }
-        const entryPath = path.join(partitionsRootDir, entry.name);
-        try {
-          const removed = await removeDirectoryWithRetries(entryPath, `Partitions/${entry.name}`);
-          if (removed) {
-            cleanedCount += 1;
-          } else {
-            failedCount += 1;
-          }
-        } catch (error) {
-          failedCount += 1;
-          logger.warn?.('[退出] 逐个清理 Partitions 子项失败:', entryPath, error?.message || error);
-        }
+async function removePartitionEntries(deps, directoryTools, rootDir) {
+  const result = { cleanedCount: 0, failedCount: 0, keptPersistentCount: 0 };
+  try {
+    const entries = await deps.fs.promises.readdir(rootDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (isPersistentSharedPartitionName(entry.name) || isPersistentManagedTabPartitionName(entry.name)) {
+        result.keptPersistentCount += 1;
+        continue;
       }
-    } catch (error) {
-      logger.warn?.('[退出] 枚举 Partitions 子项失败:', error?.message || error);
-    }
-
-    if (failedCount === 0) {
       try {
-        await fs.promises.rm(partitionsRootDir, { recursive: true, force: true });
-        removed = !fs.existsSync(partitionsRootDir);
+        const entryPath = deps.path.join(rootDir, entry.name);
+        const removed = await directoryTools.removeDirectoryWithRetries(entryPath, `Partitions/${entry.name}`);
+        if (removed) result.cleanedCount += 1;
+        else result.failedCount += 1;
       } catch (error) {
-        failedCount += 1;
-        logger.warn?.('[退出] 删除旧 Partitions 根目录失败:', error?.message || error);
+        result.failedCount += 1;
+        deps.logger.warn?.('[退出] 逐个清理 Partitions 子项失败:', entry.name, error?.message || error);
       }
     }
-
-    return {
-      ok: true,
-      removed,
-      cleanedCount,
-      failedCount,
-      keptPersistentCount,
-      partitionsRootDir,
-    };
+  } catch (error) {
+    deps.logger.warn?.('[退出] 枚举 Partitions 子项失败:', error?.message || error);
   }
+  return result;
+}
 
+async function removeEmptyPartitionsRoot(deps, rootDir, result) {
+  if (result.failedCount) return false;
+  try {
+    await deps.fs.promises.rm(rootDir, { recursive: true, force: true });
+    return !deps.fs.existsSync(rootDir);
+  } catch (error) {
+    result.failedCount += 1;
+    deps.logger.warn?.('[退出] 删除旧 Partitions 根目录失败:', error?.message || error);
+    return false;
+  }
+}
+
+function createPartitionsRootCleanup(deps, directoryTools) {
+  return async function cleanupBrowserPartitionsRootDir() {
+    const rootDir = directoryTools.getBrowserPartitionsRootDir();
+    if (!deps.fs.existsSync(rootDir)) {
+      return { ok: true, removed: false, cleanedCount: 0, partitionsRootDir: rootDir };
+    }
+    const result = await removePartitionEntries(deps, directoryTools, rootDir);
+    const removed = await removeEmptyPartitionsRoot(deps, rootDir, result);
+    return { ok: true, removed, ...result, partitionsRootDir: rootDir };
+  };
+}
+
+function createBrowserPartitionCleaner(input = {}) {
+  const deps = {
+    getTabs: () => new Map(),
+    getMainWindow: () => null,
+    getSideView: () => null,
+    getLicenseWindow: () => null,
+    getActiveTabId: () => null,
+    getExtPopupWin: () => null,
+    logger: console,
+    ...input,
+  };
+  const directoryTools = createDirectoryTools(deps);
+  const hasLiveBrowserUsersForSession = createSessionUserChecker(deps);
+  const cleanupBrowserSessionData = createSessionCleanup(deps, hasLiveBrowserUsersForSession);
+  const purgeBrowserSessionData = createSessionPurge(deps, directoryTools);
+  const collectBrowserSessionCleanupTargets = createCleanupTargetCollector(deps);
   return {
     normalizePersistPartitionName,
     isManagedTabPartitionName,
@@ -266,16 +215,13 @@ function createBrowserPartitionCleaner(deps = {}) {
     buildManagedTabPartitionName,
     isPersistentSharedPartitionName,
     hasLiveBrowserUsersForSession,
-    removeDirectoryWithRetries,
-    getBrowserPartitionsRootDir,
+    ...directoryTools,
     cleanupBrowserSessionData,
     purgeBrowserSessionData,
     collectBrowserSessionCleanupTargets,
-    cleanupAllBrowserSessionData,
-    cleanupBrowserPartitionsRootDir,
+    cleanupAllBrowserSessionData: createCleanupAll(deps, collectBrowserSessionCleanupTargets, cleanupBrowserSessionData),
+    cleanupBrowserPartitionsRootDir: createPartitionsRootCleanup(deps, directoryTools),
   };
 }
 
-module.exports = {
-  createBrowserPartitionCleaner,
-};
+module.exports = { createBrowserPartitionCleaner };

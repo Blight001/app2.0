@@ -23,6 +23,7 @@
     let fxHideTimer = null;
     let moveAnim = null;
     let screenshotOverlay = null;
+    let hoverTarget = null;
 
     const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, Number(ms) || 0)));
     // rAF 在后台（隐藏）标签页会暂停，届时动画的 await 永不 resolve。既然隐藏标签
@@ -33,12 +34,18 @@
     try {
         chrome.storage.local.get('agent-settings').then((r) => {
             const s = r && r['agent-settings'];
-            if (s && typeof s.mouseFx === 'boolean') fxEnabled = s.mouseFx;
+            if (s && typeof s.mouseFx === 'boolean') {
+                fxEnabled = s.mouseFx;
+                if (!fxEnabled) hideCursor();
+            }
         }).catch(() => {});
         chrome.storage.onChanged.addListener((changes, area) => {
             if (area === 'local' && changes['agent-settings']) {
                 const s = changes['agent-settings'].newValue;
-                if (s && typeof s.mouseFx === 'boolean') fxEnabled = s.mouseFx;
+                if (s && typeof s.mouseFx === 'boolean') {
+                    fxEnabled = s.mouseFx;
+                    if (!fxEnabled) hideCursor();
+                }
             }
         });
     } catch (_e) {}
@@ -148,10 +155,17 @@
 
     function scheduleHide() {
         if (fxHideTimer) clearTimeout(fxHideTimer);
-        fxHideTimer = setTimeout(() => {
-            if (fxCursor) fxCursor.classList.remove('show');
-            if (fxTrail) fxTrail.classList.remove('show');
-        }, 1800);
+        fxHideTimer = null;
+        // 操作结束后保留在最后位置，模拟真实鼠标持续悬停在浏览器页面中。
+        if (fxCursor) fxCursor.classList.add('show');
+        if (fxTrail) fxTrail.classList.remove('show');
+    }
+
+    function hideCursor() {
+        if (fxHideTimer) clearTimeout(fxHideTimer);
+        fxHideTimer = null;
+        if (fxCursor) fxCursor.classList.remove('show');
+        if (fxTrail) fxTrail.classList.remove('show');
     }
 
     function showCursor() {
@@ -172,6 +186,43 @@
 
     const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
     const cursorInner = () => (fxCursor ? fxCursor.querySelector(`.${FX}-cur-in`) : null);
+
+    function dispatchHoverMove(x, y) {
+        const target = document.elementFromPoint(x, y) || document.body || document.documentElement;
+        if (!target) return;
+        const base = {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            clientX: x,
+            clientY: y,
+            pointerId: 1,
+            pointerType: 'mouse',
+            isPrimary: true
+        };
+
+        try {
+            if (target !== hoverTarget) {
+                if (hoverTarget && hoverTarget.isConnected) {
+                    const leaveBase = { ...base, relatedTarget: target };
+                    hoverTarget.dispatchEvent(new PointerEvent('pointerout', leaveBase));
+                    hoverTarget.dispatchEvent(new MouseEvent('mouseout', leaveBase));
+                    hoverTarget.dispatchEvent(new PointerEvent('pointerleave', { ...leaveBase, bubbles: false }));
+                    hoverTarget.dispatchEvent(new MouseEvent('mouseleave', { ...leaveBase, bubbles: false }));
+                }
+                const enterBase = { ...base, relatedTarget: hoverTarget && hoverTarget.isConnected ? hoverTarget : null };
+                target.dispatchEvent(new PointerEvent('pointerover', enterBase));
+                target.dispatchEvent(new MouseEvent('mouseover', enterBase));
+                target.dispatchEvent(new PointerEvent('pointerenter', { ...enterBase, bubbles: false }));
+                target.dispatchEvent(new MouseEvent('mouseenter', { ...enterBase, bubbles: false }));
+                hoverTarget = target;
+            }
+            target.dispatchEvent(new PointerEvent('pointermove', base));
+            target.dispatchEvent(new MouseEvent('mousemove', base));
+        } catch (_error) {
+            // 页面事件监听器或特殊节点异常不能阻断可视鼠标动效。
+        }
+    }
 
     async function pressPulse() {
         const inner = cursorInner();
@@ -208,7 +259,7 @@
         }
     }
 
-    async function moveTo(x, y) {
+    async function moveTo(x, y, emitHoverEvents = false) {
         if (!ensureCursor()) return;
         showCursor();
         const startX = fxX, startY = fxY;
@@ -224,6 +275,7 @@
                 if (moveAnim) { cancelAnimationFrame(moveAnim); moveAnim = null; }
                 clearTimeout(backstop);
                 place(x, y, false);
+                if (emitHoverEvents) dispatchHoverMove(x, y);
                 resolve();
             };
             const backstop = setTimeout(finish, duration + 400);
@@ -231,7 +283,10 @@
             const step = (now) => {
                 const t = Math.min(1, (now - t0) / duration);
                 const e = easeOutCubic(t);
-                place(startX + dx * e, startY + dy * e, false);
+                const nextX = startX + dx * e;
+                const nextY = startY + dy * e;
+                place(nextX, nextY, false);
+                if (emitHoverEvents) dispatchHoverMove(nextX, nextY);
                 if (fxTrail) {
                     const lag = 0.28;
                     const tx = startX + dx * Math.max(0, e - lag);
@@ -257,16 +312,39 @@
     }
 
     // ── 对外 API（executePageAction 在真正操作 DOM 前 await 调用）──────────────
+    async function hoverBrowser() {
+        if (!isFxEnabled() || !document.body) return false;
+        if (!ensureCursor()) return false;
+
+        const width = Math.max(8, window.innerWidth || 0);
+        const height = Math.max(8, window.innerHeight || 0);
+        const startX = Math.min(2, width - 1);
+        const startY = Math.min(height - 4, Math.max(4, height * (0.28 + Math.random() * 0.44)));
+        const endX = Math.min(width - 4, Math.max(4, width * (0.42 + Math.random() * 0.18)));
+        const endY = Math.min(height - 4, Math.max(4, height * (0.34 + Math.random() * 0.24)));
+
+        if (fxHideTimer) clearTimeout(fxHideTimer);
+        showCursor();
+        place(startX, startY, false);
+        if (fxTrail) fxTrail.style.transform = `translate(${startX}px, ${startY}px)`;
+        hoverTarget = null;
+        dispatchHoverMove(startX, startY);
+        await sleep(45 + Math.random() * 55);
+        await moveTo(endX, endY, true);
+        scheduleHide();
+        return true;
+    }
+
     async function moveToEl(el) {
         if (!isFxEnabled() || !el) return;
         const { x, y } = centerOf(el);
-        await moveTo(x, y);
+        await moveTo(x, y, true);
     }
 
     async function clickEl(el, variant) {
         if (!isFxEnabled() || !el) return;
         const { x, y } = centerOf(el);
-        await moveTo(x, y);
+        await moveTo(x, y, true);
         const v = variant === 'right' ? 'right' : variant === 'double' ? 'double' : 'left';
         const rip = v === 'right' ? 'right' : 'left';
         if (v === 'double') {
@@ -282,7 +360,7 @@
     async function typeEl(el) {
         if (!isFxEnabled() || !el) return;
         const { x, y } = centerOf(el);
-        await moveTo(x, y);
+        await moveTo(x, y, true);
         ensureStyles();
         try {
             const r = el.getBoundingClientRect();
@@ -360,6 +438,7 @@
     window.__hsFx = {
         __installed: true,
         enabled: isFxEnabled,
+        hoverBrowser,
         moveToEl,
         clickEl,
         typeEl,

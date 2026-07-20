@@ -54,8 +54,8 @@ async function injectZoomWheelListener(wc) {
             }
 
             const zoomFactor = currentZoom / 100;
-            if (window.electronAPI && window.electronAPI.send) {
-              window.electronAPI.send('set-zoom', zoomFactor);
+            if (window.aiFree && window.aiFree.ui && window.aiFree.ui.setZoom) {
+              window.aiFree.ui.setZoom(zoomFactor);
             }
           }
         }, { passive: false, capture: true });

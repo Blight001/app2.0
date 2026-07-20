@@ -153,6 +153,28 @@ function normalizeProxyEntries(entries, currentName) {
   }).filter((item) => item.name);
 }
 
+function getPositiveVpnDelay(source) {
+  const value = Number(source && source.delay);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function normalizeMergedProxyEntry(item, previous, currentName) {
+  const name = String((item && item.name) || '').trim();
+  const nextDelay = getPositiveVpnDelay(item);
+  const previousDelay = getPositiveVpnDelay(previous);
+  const delay = nextDelay !== null ? nextDelay : previousDelay;
+  const hasError = (item && item.error) || (previous && previous.error);
+  const itemText = item && item.delayText;
+  const previousText = previous && previous.delayText;
+  return {
+    name,
+    delay,
+    delayText: String(itemText || previousText
+      || (hasError ? '超时' : (delay !== null ? `${Math.round(delay)}ms` : '测速中...'))),
+    selected: name === String(currentName || '').trim(),
+  };
+}
+
 // 同步/连接：mergeProxyEntriesWithPrevious的具体业务逻辑。
 function mergeProxyEntriesWithPrevious(entries, previousEntries, currentName) {
   const nextList = Array.isArray(entries) ? entries : [];
@@ -164,24 +186,9 @@ function mergeProxyEntriesWithPrevious(entries, previousEntries, currentName) {
   );
 
   return nextList.map((item) => {
-    const name = String(item?.name || '').trim();
+    const name = String((item && item.name) || '').trim();
     const previous = previousMap.get(name) || {};
-    const nextDelay = Number(item?.delay);
-    const hasNextDelay = Number.isFinite(nextDelay) && nextDelay > 0;
-    const previousDelay = Number(previous?.delay);
-    const hasPreviousDelay = Number.isFinite(previousDelay) && previousDelay > 0;
-    const hasDelay = hasNextDelay || hasPreviousDelay;
-    const delay = hasNextDelay ? nextDelay : (hasPreviousDelay ? previousDelay : null);
-    return {
-      name,
-      delay,
-      delayText: String(
-        item?.delayText
-        || previous?.delayText
-        || (item?.error || previous?.error ? '超时' : (hasDelay ? `${Math.round(delay)}ms` : '测速中...')),
-      ),
-      selected: name === String(currentName || '').trim(),
-    };
+    return normalizeMergedProxyEntry(item, previous, currentName);
   }).filter((item) => item.name);
 }
 
@@ -305,48 +312,63 @@ function buildVpnNodeSelectorButton(name, index, proxyItem, selectedName) {
   checkEl.setAttribute('aria-hidden', 'true');
   button.append(main, checkEl);
 
-  button.addEventListener('click', async () => {
-    if (isNetworkMagicStartFlowActive() || vpnNodeSelectorBusy || !window.electronAPI || typeof window.electronAPI.invoke !== 'function') {
+  button.addEventListener('click', () => switchVpnNode(name));
+
+  return button;
+}
+
+function getVpnSwitchRequest(name) {
+  const currentName = String(clashMiniProxyState.current || '').trim();
+  const nodeName = String(name || '').trim();
+  if (!nodeName || nodeName === currentName) return null;
+  return {
+    groupName: String(clashMiniProxyState.groupName || '节点选择').trim() || '节点选择',
+    nodeName,
+  };
+}
+
+function applyVpnSwitchResult(result, nodeName) {
+  clashMiniProxyState.current = String(result.current || result.name || nodeName).trim();
+  clashMiniProxyState.proxies = normalizeProxyEntries(clashMiniProxyState.proxies, clashMiniProxyState.current);
+  syncVpnNodeSelectorState();
+  scheduleVpnNodeSelectorRender({ forceFull: true });
+  setVpnNodeSelectorOpen(false);
+  const modal = window.MessageModal;
+  if (modal && typeof modal.showSuccessMessage === 'function') {
+    modal.showSuccessMessage(`已切换到节点：${clashMiniProxyState.current}`);
+  }
+}
+
+function showVpnSwitchError(error) {
+  const modal = window.MessageModal;
+  if (!modal || typeof modal.showErrorMessage !== 'function') return;
+  modal.showErrorMessage(error && error.message ? error.message : String(error));
+}
+
+async function switchVpnNode(name) {
+    const networkApi = window.aiFree && window.aiFree.network;
+    if (isNetworkMagicStartFlowActive() || vpnNodeSelectorBusy || !networkApi || typeof networkApi.switchClashProxy !== 'function') {
       return;
     }
 
-    const currentName = String(clashMiniProxyState.current || '').trim();
-    const groupName = String(clashMiniProxyState.groupName || '节点选择').trim() || '节点选择';
-    const nodeName = String(name || '').trim();
-    if (!nodeName || nodeName === currentName) {
+    const request = getVpnSwitchRequest(name);
+    if (!request) {
       setVpnNodeSelectorOpen(false);
       return;
     }
 
     setVpnNodeSelectorBusy(true);
     try {
-      const result = await window.electronAPI.invoke('switch-clash-mini-proxy', {
-        groupName,
-        nodeName,
-      });
+      const result = await networkApi.switchClashProxy(request);
       if (!result || result.ok !== true) {
         throw new Error((result && (result.error || result.message)) || '切换节点失败');
       }
-
-      clashMiniProxyState.current = String(result.current || result.name || nodeName).trim();
-      clashMiniProxyState.proxies = normalizeProxyEntries(clashMiniProxyState.proxies, clashMiniProxyState.current);
-      syncVpnNodeSelectorState();
-      scheduleVpnNodeSelectorRender({ forceFull: true });
-      setVpnNodeSelectorOpen(false);
-
-      if (window.MessageModal && typeof window.MessageModal.showSuccessMessage === 'function') {
-        window.MessageModal.showSuccessMessage(`已切换到节点：${clashMiniProxyState.current}`);
-      }
+      applyVpnSwitchResult(result, request.nodeName);
     } catch (error) {
-      if (window.MessageModal && typeof window.MessageModal.showErrorMessage === 'function') {
-        window.MessageModal.showErrorMessage(error?.message || String(error));
-      }
+      showVpnSwitchError(error);
     } finally {
       setVpnNodeSelectorBusy(false);
     }
-  });
-
-  return button;
 }
 
 // 处理：scheduleVpnNodeSelectorRender的具体业务逻辑。
@@ -378,861 +400,3 @@ let vpnNodeSelectorOptionNodes = new Map();
 let vpnNodeSelectorRenderedNamesKey = '';
 
 // 获取/读取/解析：getClashMiniConfigSignature的具体业务逻辑。
-function getClashMiniConfigSignature(key, deviceId) {
-  return `${String(key || '').trim()}::${String(deviceId || '').trim()}`;
-}
-
-// 获取/读取/解析：resolveClashMiniCredentialsSnapshot的具体业务逻辑。
-async function resolveClashMiniCredentialsSnapshot({ key = '', deviceId = '' } = {}) {
-  let nextKey = String(key || '').trim();
-  let nextDeviceId = String(deviceId || '').trim();
-
-  if (!nextKey || !nextDeviceId) {
-    const credentialsResp = await window.electronAPI.invoke('get-user-credentials').catch(() => null);
-    const credentials = credentialsResp && credentialsResp.ok === true && credentialsResp.credentials
-      ? credentialsResp.credentials
-      : {};
-
-    if (!nextKey) {
-      nextKey = String(
-        safeGetEl('key-input')?.value
-        || credentials.key
-        || globalCurrentKey
-        || '',
-      ).trim();
-    }
-
-    if (!nextDeviceId) {
-      nextDeviceId = String(
-        safeGetEl('device-id')?.value
-        || credentials.deviceId
-        || globalCurrentDeviceId
-        || '',
-      ).trim();
-    }
-  }
-
-  if (!nextDeviceId && window.electronAPI && typeof window.electronAPI.invoke === 'function') {
-    const deviceIdResp = await window.electronAPI.invoke('license-get-device-id').catch(() => null);
-    nextDeviceId = String(deviceIdResp || '').trim();
-  }
-
-  return {
-    key: nextKey,
-    deviceId: nextDeviceId,
-  };
-}
-
-// 同步/连接：syncClashMiniConfigFromServer的具体业务逻辑。
-async function syncClashMiniConfigFromServer(options = {}) {
-  if (!window.electronAPI || typeof window.electronAPI.invoke !== 'function') {
-    throw new Error('当前环境不支持获取 Clash 配置');
-  }
-
-  const { key, deviceId } = await resolveClashMiniCredentialsSnapshot(options);
-
-  if (!key || !deviceId) {
-    throw new Error('账号未登录或缺少设备号，无法获取 Clash 配置');
-  }
-
-  const clashResp = await window.electronAPI.invoke('get-clash-config', { key, deviceId });
-  if (!clashResp || clashResp.ok !== true) {
-    throw new Error((clashResp && (clashResp.error || clashResp.message)) || '获取客户端配置失败');
-  }
-
-  const configContent = String(clashResp.content || clashResp.configContent || '').trim();
-  const subscriptionUrl = String(clashResp.proxySubscriptionUrl || '').trim();
-  const importContent = configContent || '';
-
-  const saveResp = await window.electronAPI.invoke('save-clash-config', {
-    clashConfig: importContent,
-    configContent: importContent,
-    content: importContent,
-    subscriptionUrl,
-  });
-
-  if (!saveResp || saveResp.ok !== true) {
-    if (saveResp && saveResp.rawContent) {
-      console.error('[侧边栏][Clash] 导入失败时的原始配置内容:');
-      console.error(saveResp.rawContent);
-    }
-    throw new Error((saveResp && (saveResp.error || saveResp.message)) || '导入 Clash 配置失败');
-  }
-
-  return {
-    key,
-    deviceId,
-    clashResp,
-    saveResp,
-  };
-}
-
-// 校验/保护：ensureClashMiniConfigPreheated的具体业务逻辑。
-async function ensureClashMiniConfigPreheated(options = {}) {
-  const { key, deviceId } = await resolveClashMiniCredentialsSnapshot(options);
-  if (!key || !deviceId) {
-    throw new Error('账号未登录或缺少设备号，无法预热 Clash 配置');
-  }
-
-  const signature = getClashMiniConfigSignature(key, deviceId);
-  const force = options.force === true;
-  if (force && clashMiniConfigPreheatState.promise) {
-    await clashMiniConfigPreheatState.promise.catch(() => {});
-  }
-  if (!force && clashMiniConfigPreheatState.result && clashMiniConfigPreheatState.signature === signature) {
-    return clashMiniConfigPreheatState.result;
-  }
-
-  if (!force && clashMiniConfigPreheatState.promise && clashMiniConfigPreheatState.signature === signature) {
-    return clashMiniConfigPreheatState.promise;
-  }
-
-// 处理：promise的具体业务逻辑。
-  const promise = (async () => {
-    console.log('[侧边栏][Clash] 开始预热客户端配置...');
-    const result = await syncClashMiniConfigFromServer({ key, deviceId });
-    clashMiniConfigPreheatState.result = result;
-    clashMiniConfigPreheatState.signature = signature;
-    return result;
-  })();
-
-  clashMiniConfigPreheatState.signature = signature;
-  clashMiniConfigPreheatState.promise = promise;
-
-  try {
-    return await promise;
-  } catch (error) {
-    if (clashMiniConfigPreheatState.signature === signature) {
-      clashMiniConfigPreheatState.result = null;
-      clashMiniConfigPreheatState.signature = '';
-    }
-    throw error;
-  } finally {
-    if (clashMiniConfigPreheatState.promise === promise) {
-      clashMiniConfigPreheatState.promise = null;
-    }
-  }
-}
-
-// 启动/打开/显示：runBestRouteSelection的具体业务逻辑。
-async function runBestRouteSelection({
-  keepPanelOpen = false,
-  showPanel = true,
-  refreshOptions = true,
-  concurrency,
-  reportProgress = true,
-} = {}) {
-  if (!window.electronAPI || typeof window.electronAPI.invoke !== 'function') {
-    throw new Error('当前环境不支持最低延时测试');
-  }
-  if (!isVpnEnabled) {
-    throw new Error('请先开启网络魔法');
-  }
-
-  if (refreshOptions) {
-    await loadVpnNodeSelectorOptions({ force: true, probeDelays: false }).catch(() => {});
-  }
-  if (showPanel) {
-    setVpnNodeSelectorOpen(true, { force: true });
-  }
-
-  const result = await window.electronAPI.invoke('test-min-latency', {
-    names: Array.isArray(clashMiniProxyState.names) ? clashMiniProxyState.names : [],
-    concurrency,
-    reportProgress,
-  });
-  if (!result || result.ok !== true) {
-    throw new Error((result && (result.error || result.message)) || '最低延时测试失败');
-  }
-
-  const bestName = String(result.bestName || result?.best?.name || '').trim();
-  const bestDelay = Number(result.bestDelay ?? result?.best?.delay);
-
-  if (bestName) {
-    clashMiniProxyState.current = bestName;
-    clashMiniProxyState.names = Array.isArray(result.entries)
-      ? Array.from(new Set(result.entries.map((item) => String(item?.name || '').trim()).filter(Boolean)))
-      : clashMiniProxyState.names;
-    clashMiniProxyState.proxies = normalizeProxyEntries(result.entries, bestName);
-    const bestEntry = clashMiniProxyState.proxies.find((item) => item.name === bestName);
-    if (bestEntry && Number.isFinite(bestDelay) && bestDelay > 0) {
-      bestEntry.delay = bestDelay;
-      bestEntry.delayText = `${Math.round(bestDelay)}ms`;
-      bestEntry.selected = true;
-    }
-    syncVpnNodeSelectorState();
-    scheduleVpnNodeSelectorRender({ forceFull: true });
-  }
-
-  if (keepPanelOpen && showPanel) {
-    setVpnNodeSelectorOpen(true);
-  } else if (!showPanel) {
-    setVpnNodeSelectorOpen(false);
-  }
-
-  return { bestName, bestDelay, result };
-}
-
-// 设置/更新/持久化：setVpnNodeSelectorBusy的具体业务逻辑。
-function setVpnNodeSelectorBusy(busy) {
-  vpnNodeSelectorBusy = busy === true;
-  applyVpnActionAvailability();
-  if (vpnNodeSelectorGrid) {
-    vpnNodeSelectorGrid.classList.toggle('is-busy', vpnNodeSelectorBusy);
-    vpnNodeSelectorGrid.querySelectorAll('button').forEach((button) => {
-      button.disabled = vpnNodeSelectorBusy;
-    });
-  }
-}
-
-// 同步/连接：syncVpnNodeSelectorState的具体业务逻辑。
-function syncVpnNodeSelectorState() {
-  if (!testLatencyBtn || !vpnNodeSelectorPanel) return;
-  const enabled = canUseVpnFeatures();
-  applyVpnActionAvailability();
-  if (!enabled) {
-    setVpnNodeSelectorOpen(false);
-    vpnNodeSelectorPanel.hidden = true;
-    return;
-  }
-
-  if (vpnNodeSelectorGroup) {
-    vpnNodeSelectorGroup.textContent = String(clashMiniProxyState.groupName || '节点选择').trim() || '节点选择';
-  }
-}
-
-// 渲染/刷新：renderVpnNodeSelectorOptions的具体业务逻辑。
-function renderVpnNodeSelectorOptions() {
-  if (!vpnNodeSelectorGrid) return;
-
-  const names = getVpnNodeSelectorNames();
-  const namesKey = buildVpnNodeSelectorNamesKey(names);
-  const selectedName = getVpnNodeSelectorSelectedName();
-
-  if (names.length === 0) {
-    vpnNodeSelectorOptionNodes.clear();
-    vpnNodeSelectorRenderedNamesKey = '';
-    vpnNodeSelectorGrid.innerHTML = '';
-    const empty = document.createElement('div');
-    empty.className = 'vpn-node-option';
-    empty.style.gridColumn = '1 / -1';
-    empty.style.cursor = 'default';
-    empty.setAttribute('aria-checked', 'false');
-    const main = document.createElement('div');
-    main.className = 'vpn-node-option-main';
-    const nameEl = document.createElement('div');
-    nameEl.className = 'vpn-node-option-name';
-    nameEl.textContent = '暂无可用节点';
-    const metaEl = document.createElement('div');
-    metaEl.className = 'vpn-node-option-meta';
-    metaEl.textContent = '请先启动网络魔法';
-    main.append(nameEl, metaEl);
-    const checkEl = document.createElement('span');
-    checkEl.className = 'vpn-node-option-check';
-    empty.append(main, checkEl);
-    vpnNodeSelectorGrid.appendChild(empty);
-    return;
-  }
-
-  const needsRebuild = vpnNodeSelectorRenderedNamesKey !== namesKey
-    || vpnNodeSelectorGrid.children.length !== names.length;
-  if (needsRebuild) {
-    vpnNodeSelectorOptionNodes.clear();
-    vpnNodeSelectorGrid.innerHTML = '';
-    vpnNodeSelectorRenderedNamesKey = namesKey;
-    names.forEach((name, index) => {
-      const proxyItem = getProxyItemByName(name);
-      const button = buildVpnNodeSelectorButton(name, index, proxyItem, selectedName);
-      vpnNodeSelectorOptionNodes.set(name, button);
-      vpnNodeSelectorGrid.appendChild(button);
-    });
-    return;
-  }
-
-  names.forEach((name, index) => {
-    const proxyItem = getProxyItemByName(name);
-    let button = vpnNodeSelectorOptionNodes.get(name);
-    if (!button || !vpnNodeSelectorGrid.contains(button)) {
-      button = buildVpnNodeSelectorButton(name, index, proxyItem, selectedName);
-      vpnNodeSelectorOptionNodes.set(name, button);
-      vpnNodeSelectorGrid.appendChild(button);
-      return;
-    }
-    updateVpnNodeSelectorButton(button, name, index, proxyItem, selectedName);
-  });
-}
-
-// 设置/更新/持久化：applyClashMiniLatencyProgress的具体业务逻辑。
-function applyClashMiniLatencyProgress(payload) {
-  if (!payload || typeof payload !== 'object') return;
-  if (payload.groupName && String(payload.groupName).trim() !== String(clashMiniProxyState.groupName || '').trim()) {
-    return;
-  }
-
-  const nextBestName = String(payload.bestName || '').trim();
-  const nextBestDelay = Number(payload.bestDelay);
-  const hasBest = nextBestName && Number.isFinite(nextBestDelay) && nextBestDelay > 0;
-
-  if (!Array.isArray(clashMiniProxyState.proxies) || clashMiniProxyState.proxies.length === 0) {
-    clashMiniProxyState.proxies = [];
-  }
-
-  if (payload.phase === 'done' && Array.isArray(payload.entries) && payload.entries.length > 0) {
-    clashMiniProxyState.proxies = normalizeProxyEntries(payload.entries, nextBestName || clashMiniProxyState.current);
-    syncVpnNodeSelectorState();
-    scheduleVpnNodeSelectorRender({ forceFull: true });
-    return;
-  }
-
-  const index = Number(payload.index);
-  const hasIndex = Number.isInteger(index) && index >= 0;
-  const entryName = String(payload.name || '').trim();
-  const targetIndex = hasIndex && clashMiniProxyState.proxies[index]
-    ? index
-    : clashMiniProxyState.proxies.findIndex((item) => String(item?.name || '').trim() === entryName);
-
-  if (targetIndex >= 0 && clashMiniProxyState.proxies[targetIndex]) {
-    const nextDelay = Number(payload.delay);
-    const hasDelay = Number.isFinite(nextDelay) && nextDelay > 0;
-    clashMiniProxyState.proxies[targetIndex] = {
-      ...clashMiniProxyState.proxies[targetIndex],
-      delay: hasDelay ? nextDelay : null,
-      delayText: hasDelay
-        ? `${Math.round(nextDelay)}ms`
-        : String(payload.error || clashMiniProxyState.proxies[targetIndex].delayText || '测速中...'),
-      selected: hasBest && String(clashMiniProxyState.proxies[targetIndex].name || '').trim() === nextBestName,
-    };
-  }
-
-  if (hasBest) {
-    clashMiniProxyState.current = nextBestName;
-    clashMiniProxyState.proxies = clashMiniProxyState.proxies.map((item) => ({
-      ...item,
-      selected: String(item?.name || '').trim() === nextBestName,
-    }));
-  }
-
-  syncVpnNodeSelectorState();
-  scheduleVpnNodeSelectorRender();
-}
-
-// 获取/读取/解析：loadVpnNodeSelectorOptions的具体业务逻辑。
-async function loadVpnNodeSelectorOptions({ force = false, probeDelays = true } = {}) {
-  if (!window.electronAPI || typeof window.electronAPI.invoke !== 'function') return null;
-  if (!force && !isVpnEnabled) return null;
-  if (vpnNodeSelectorBusy) return null;
-
-  try {
-    const result = await window.electronAPI.invoke('get-clash-mini-proxy-options', {
-      includeDelays: probeDelays === true,
-    });
-    if (!result || result.ok !== true) {
-      clashMiniProxyState = {
-        groupName: String(result?.groupName || '节点选择').trim() || '节点选择',
-        current: '',
-        names: [],
-        proxies: [],
-      };
-      syncVpnNodeSelectorState();
-      scheduleVpnNodeSelectorRender({ forceFull: true });
-      return result;
-    }
-
-    clashMiniProxyState = {
-      groupName: String(result.groupName || '节点选择').trim() || '节点选择',
-      current: String(result.current || '').trim(),
-      names: Array.isArray(result.names) && result.names.length > 0
-        ? result.names
-        : (Array.isArray(result.proxies)
-          ? Array.from(new Set(result.proxies.map((item) => String(item?.name || '').trim()).filter(Boolean)))
-          : []),
-      proxies: probeDelays
-        ? Array.isArray(result.proxies) ? result.proxies : []
-        : mergeProxyEntriesWithPrevious(result.proxies, clashMiniProxyState.proxies, String(result.current || '').trim()),
-    };
-
-    syncVpnNodeSelectorState();
-    scheduleVpnNodeSelectorRender({ forceFull: true });
-    return result;
-  } catch (error) {
-    console.warn('[侧边栏] 获取节点列表失败:', error?.message || error);
-    return null;
-  }
-}
-
-// 供外部模块（connection-sync 等）在批量启停按钮后调用，收敛选路按钮状态。
-function syncLatencyButtonState() {
-  if (!testLatencyBtn) return;
-  if (sideButtonLockSnapshot) {
-    // 面板锁定期间外部批量启用不得生效，把快照内按钮重新压回禁用。
-    reassertSidePanelLock();
-    return;
-  }
-  if (testLatencyBtn.dataset.busy === '1' && canUseVpnFeatures()) {
-    // withBusyButton 正在接管测速按钮，等它收尾后再统一恢复。
-    return;
-  }
-  applyVpnActionAvailability();
-  syncVpnNodeSelectorState();
-}
-
-// 设置/更新/持久化：applyClashMiniStatus的具体业务逻辑。
-function applyClashMiniStatus(status, { startBtn, vpnBtn, loadProxyOptions = true } = {}) {
-  try {
-    const wasRunning = isVpnEnabled === true;
-    const running = status && status.running === true;
-    const enabled = status && (
-      status.running === true
-      || status.enabled === true
-      || status.proxyAppliedByApp === true
-    );
-    const isBusy = !!(
-      (startBtn && startBtn.dataset.busy === '1')
-      || (vpnBtn && vpnBtn.dataset.busy === '1')
-    );
-    isVpnEnabled = enabled;
-    if (startBtn) {
-      startBtn.textContent = running ? 'Clash Mini 运行中' : '启动 Clash Mini';
-      startBtn.title = running
-        ? (enabled ? 'Clash Mini 已启动，点击后会再次尝试启动' : 'Clash Mini 已启动，但网络魔法未开启')
-        : '点击启动 Clash Mini 代理模块';
-      startBtn.disabled = running || isBusy;
-    }
-    if (vpnBtn) {
-      vpnBtn.textContent = enabled ? '关闭网络魔法' : '开启网络魔法';
-      vpnBtn.title = enabled ? '点击关闭网络魔法' : '点击开启网络魔法';
-      if (isBusy) {
-        vpnBtn.disabled = true;
-      }
-    }
-    syncLatencyButtonState();
-    syncVpnNodeSelectorState();
-    if (typeof syncLoggedOutProtectedEntryAvailability === 'function') {
-      syncLoggedOutProtectedEntryAvailability();
-    }
-    if (enabled && !wasRunning && loadProxyOptions) {
-      loadVpnNodeSelectorOptions({ force: true, probeDelays: false }).catch(() => {});
-    } else if (!enabled && wasRunning) {
-      clashMiniProxyState.current = '';
-      clashMiniProxyState.names = [];
-      clashMiniProxyState.proxies = [];
-      syncVpnNodeSelectorState();
-      scheduleVpnNodeSelectorRender({ forceFull: true });
-    }
-  } catch (_) {}
-}
-
-// 启动成功后调度后台自动选路。必须在创建定时器之前同步置位
-// backgroundBestRouteSelectionPending：状态事件和按钮 busy 收尾即使随后到达，
-// applyVpnActionAvailability 也不会产生一帧可点击的空窗。
-function scheduleBestRouteSelection() {
-  if (backgroundBestRouteSelectionPending) return;
-  backgroundBestRouteSelectionPending = true;
-  applyVpnActionAvailability();
-  // setTimeout(0)：等启动按钮 withBusyButton 的收尾（微任务）先执行完，
-  // 再对面板做整体快照锁定，否则快照会把“忙碌中”的禁用状态当成原始状态。
-  setTimeout(() => {
-    void runBackgroundBestRouteSelection();
-  }, 0);
-}
-
-// 后台自动选路：从准备阶段起锁定网络工具面板（开关、手动选路、测速均不可操作，
-// “一键启动”平台按钮除外），结束后统一解锁并恢复各按钮应有状态。
-async function runBackgroundBestRouteSelection() {
-  lockSidePanelButtons();
-  try {
-    // 给刚完成重启的 Chromium 留出短暂稳定时间；等待期间按钮保持锁定。
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    await loadVpnNodeSelectorOptions({ force: true, probeDelays: false }).catch(() => {});
-    setVpnNodeSelectorBusy(true);
-    await runBestRouteSelection({
-      keepPanelOpen: true,
-      showPanel: true,
-      refreshOptions: false,
-      concurrency: 4,
-      reportProgress: true,
-    });
-  } catch (error) {
-    console.warn('[侧边栏][Clash] 后台自动选路失败，保留当前节点:', error?.message || error);
-  } finally {
-    setVpnNodeSelectorBusy(false);
-    backgroundBestRouteSelectionPending = false;
-    unlockSidePanelButtons();
-  }
-}
-
-// 获取/读取/解析：getNetworkMagicAutoStartEnabled的具体业务逻辑。
-async function getNetworkMagicAutoStartEnabled() {
-  if (!window.electronAPI || typeof window.electronAPI.invoke !== 'function') {
-    return true;
-  }
-  try {
-    const result = await window.electronAPI.invoke('get-network-magic-auto-start-enabled');
-    if (result && result.ok === true && typeof result.enabled === 'boolean') {
-      return result.enabled;
-    }
-  } catch (_) {}
-  return true;
-}
-
-// 设置/更新/持久化：persistNetworkMagicAutoStartEnabled的具体业务逻辑。
-async function persistNetworkMagicAutoStartEnabled(enabled) {
-  if (!window.electronAPI || typeof window.electronAPI.invoke !== 'function') {
-    return { ok: false };
-  }
-  return window.electronAPI.invoke('set-network-magic-auto-start-enabled', { enabled: !!enabled });
-}
-
-// 停止/关闭/清理：stopClashMiniFlow的具体业务逻辑。
-async function stopClashMiniFlow({ startBtn, vpnBtn } = {}) {
-  if (typeof window.electron.stopClashMini !== 'function') {
-    throw new Error('当前环境不支持停止 Clash Mini');
-  }
-  const result = await window.electron.stopClashMini();
-  if (!result || result.ok !== true) {
-    throw new Error((result && (result.error || result.message)) || '关闭网络魔法失败');
-  }
-  await persistNetworkMagicAutoStartEnabled(false).catch(() => {});
-  applyClashMiniStatus(result, { startBtn, vpnBtn });
-  return '开启网络魔法';
-}
-
-// 完整启动流程（单次执行体，勿直接调用，统一走 startClashMiniFlow）：
-//  1. 需要刷新配置且核心已在运行时，先停掉旧进程；
-//  2. 拉取并导入服务器最新 Clash 配置（手动开启时强制刷新）；
-//  3. 启动核心、应用浏览器代理；
-//  4. 记忆“自动启动”偏好；
-//  5. 调度后台自动选路（不阻塞“启动中”按钮，最慢节点的超时不占用开关）；
-//  6. 把最终状态应用到按钮 UI。
-async function startClashMiniFlowOnce({ startBtn, vpnBtn, fetchConfig = true, key = '', deviceId = '' } = {}) {
-  if (typeof window.electron.startClashMini !== 'function') {
-    throw new Error('当前环境不支持启动 Clash Mini');
-  }
-
-  const currentStatus = window.electron.getClashMiniStatus
-    ? await window.electron.getClashMiniStatus().catch(() => null)
-    : null;
-  const shouldRestartForFreshConfig = fetchConfig && currentStatus && currentStatus.running === true;
-  if (shouldRestartForFreshConfig && typeof window.electron.stopClashMini === 'function') {
-    const stopResult = await window.electron.stopClashMini().catch((error) => ({ ok: false, error: error?.message || String(error) }));
-    if (!stopResult || stopResult.ok !== true) {
-      throw new Error((stopResult && (stopResult.error || stopResult.message)) || '重启网络魔法前停止当前进程失败');
-    }
-  }
-
-  if (fetchConfig) {
-    // 获取服务器配置只能发生在真正启动网络魔法的流程里。个人中心、账号
-    // 恢复和普通侧边栏初始化都不得单独预热或刷新代理配置。
-    console.log('[侧边栏][Clash] 开启网络魔法，获取最新 YAML 并覆盖旧配置...');
-    await ensureClashMiniConfigPreheated({ force: true, key, deviceId });
-  }
-  const result = await window.electron.startClashMini();
-  if (!result || result.ok !== true) {
-    const error = new Error((result && (result.error || result.message)) || '启动网络魔法失败');
-    if (result?.cancelled === true) {
-      error.code = 'CLASH_MINI_START_CANCELLED';
-      error.cancelled = true;
-    }
-    throw error;
-  }
-
-  await persistNetworkMagicAutoStartEnabled(true).catch(() => {});
-  scheduleBestRouteSelection();
-  applyClashMiniStatus(result, { startBtn, vpnBtn, loadProxyOptions: false });
-  // 魔法不再强制接管所有浏览器：检测当前浏览器是否选择了魔法端口代理，
-  // 未选择时询问是否应用（不阻塞启动流程返回）。
-  void promptApplyNetworkMagicToActiveBrowser();
-
-  return '关闭网络魔法';
-}
-
-// 开启魔法后检测当前激活浏览器：未选择魔法端口代理时弹窗询问是否应用。
-async function promptApplyNetworkMagicToActiveBrowser() {
-  try {
-    if (!window.electronAPI || typeof window.electronAPI.invoke !== 'function') return;
-    const response = await window.electronAPI.invoke('get-network-magic-active-browser');
-    const tab = response?.ok ? response.tab : null;
-    if (!tab || tab.magicSelected === true) return;
-    if (!window.MessageModal || typeof window.MessageModal.showConfirmDialog !== 'function') return;
-    window.MessageModal.showConfirmDialog(`是否将魔法应用到当前的“${tab.name}”浏览器？`, async () => {
-      try {
-        const result = await window.electronAPI.invoke('apply-network-magic-to-browser', {
-          tabId: tab.id,
-          historyId: tab.historyId,
-        });
-        if (!result?.ok) throw new Error(result?.error || '应用魔法代理失败');
-      } catch (error) {
-        showNetworkMagicOperationError(error);
-      }
-    });
-  } catch (error) {
-    console.warn('[侧边栏][Clash] 检测当前浏览器魔法代理失败:', error?.message || error);
-  }
-}
-
-// 启动流程的统一入口。恢复状态、验证后自动开启和手动点击可能在相邻时刻
-// 同时触发：共享同一个启动任务，核心只启动一次，后台自动选路也只跑一次。
-// clashMiniStartFlowPromise 同时是“启动流程进行中”的状态标记，
-// applyVpnActionAvailability 靠它在整个流程期间保持选路按钮禁用。
-function startClashMiniFlow(options = {}) {
-  if (clashMiniStartFlowPromise) {
-    return clashMiniStartFlowPromise;
-  }
-
-  const sharedPromise = startClashMiniFlowOnce(options).finally(() => {
-    if (clashMiniStartFlowPromise === sharedPromise) {
-      clashMiniStartFlowPromise = null;
-    }
-    // 流程结束后重新收敛：成功时 backgroundBestRouteSelectionPending 已接棒
-    // 继续禁用，失败时回落到“未开启”状态（canUseVpnFeatures 为 false）。
-    applyVpnActionAvailability();
-  });
-  clashMiniStartFlowPromise = sharedPromise;
-  // 流程开始立即禁用选路按钮，堵住启动期间状态事件带来的可点击空窗。
-  applyVpnActionAvailability();
-  return sharedPromise;
-}
-
-// 开关按钮入口：根据当前状态决定启动还是停止。
-async function toggleClashMini({ startBtn, vpnBtn } = {}) {
-  if (!window.electron) {
-    throw new Error('当前环境不支持网络魔法操作');
-  }
-
-  // 启动流程尚未结束时，把重复点击并入进行中的启动任务，
-  // 避免核心刚拉起（running 已为 true）时误触发“关闭”。
-  if (clashMiniStartFlowPromise) {
-    return clashMiniStartFlowPromise;
-  }
-
-  const status = window.electron.getClashMiniStatus
-    ? await window.electron.getClashMiniStatus()
-    : null;
-  const running = status && status.running === true;
-  const enabled = status && (
-    status.running === true
-    || status.enabled === true
-    || status.proxyAppliedByApp === true
-  );
-
-  return running && enabled
-    ? stopClashMiniFlow({ startBtn, vpnBtn })
-    : startClashMiniFlow({ startBtn, vpnBtn, fetchConfig: true });
-}
-
-function showNetworkMagicOperationError(error) {
-  // 软件退出会主动取消尚未完成的 Clash Mini 启动，并关闭相关 socket。
-  // 这是预期清理，不应再弹错误框打断退出流程。
-  if (
-    window.__aiFreeAppClosing === true
-    || error?.cancelled === true
-    || error?.code === 'CLASH_MINI_START_CANCELLED'
-  ) {
-    return;
-  }
-  const message = String(error?.message || error || '网络魔法操作失败').trim() || '网络魔法操作失败';
-  console.error('[侧边栏][Clash] 网络魔法操作失败:', message);
-  if (window.MessageModal && typeof window.MessageModal.showErrorMessage === 'function') {
-    window.MessageModal.showErrorMessage(message);
-    return;
-  }
-  if (typeof window.alert === 'function') window.alert(message);
-}
-
-function observeNetworkMagicTask(task) {
-  if (task && typeof task.catch === 'function') {
-    task.catch(showNetworkMagicOperationError);
-  }
-  return task;
-}
-
-// 自动开启网络魔法的统一入口（面板初始化恢复 / 卡密验证通过 / 恢复登录态共用）。
-// 满足以下条件才会启动：卡密已验证、用户开启了“自动启动”记忆、核心未在运行、
-// 且用户没有正在手动操作开关。key/deviceId 缺省时由预热流程自行解析。
-async function autoStartNetworkMagicIfEligible({ startBtn, vpnBtn, key = '', deviceId = '' } = {}) {
-  // 个人中心浮窗复用侧边栏页面，但它不是网络魔法入口。即使记住了自动
-  // 启动偏好，也不能因为点击头像而启动核心或刷新 Clash 配置。
-  if (new URLSearchParams(window.location.search).get('accountCenterPopup') === '1') {
-    return;
-  }
-  if (!window.electronAPI || typeof window.electronAPI.invoke !== 'function') {
-    return;
-  }
-  if (!hasValidatedInSession && !isLicenseValidated()) {
-    return;
-  }
-  if (autoStartClashMiniInFlight) {
-    return;
-  }
-  if (vpnBtn && vpnBtn.dataset.busy === '1') {
-    return;
-  }
-
-  // 从条件评估阶段就置位“进行中”：预热启动（warmup）等并行流程推送的
-  // 状态事件即使在评估期间到达，选路按钮也不会被放开一瞬。
-  autoStartClashMiniInFlight = true;
-  try {
-    const autoStartEnabled = await getNetworkMagicAutoStartEnabled();
-    if (!autoStartEnabled) {
-      return;
-    }
-
-    const status = window.electron.getClashMiniStatus
-      ? await window.electron.getClashMiniStatus().catch(() => null)
-      : null;
-    if (status && status.running === true) {
-      return;
-    }
-
-    console.log('[侧边栏][Clash] 满足自动启动条件，开始启用网络魔法');
-    await startClashMiniFlow({ startBtn, vpnBtn, fetchConfig: true, key, deviceId });
-  } catch (error) {
-    console.warn('[侧边栏] 自动开启网络魔法失败:', error?.message || error);
-  } finally {
-    autoStartClashMiniInFlight = false;
-    // 无论正常结束还是提前退出，都重新收敛一次按钮可用性。
-    applyVpnActionAvailability();
-  }
-}
-
-// 同步/连接：bindClashMiniControls的具体业务逻辑。
-function bindClashMiniControls() {
-  const startBtn = safeGetEl('start-clash-mini-btn');
-  const vpnBtn = safeGetEl('VPN-switch');
-  const dreamBtn = safeGetEl('open-dream-page-btn');
-  testLatencyBtn = safeGetEl('test-min-latency-btn');
-  vpnNodeSelectorToggleBtn = safeGetEl('vpn-node-selector-toggle-btn');
-  vpnNodeSelectorPanel = safeGetEl('vpn-node-selector-panel');
-  vpnNodeSelectorGrid = safeGetEl('vpn-node-selector-grid');
-  vpnNodeSelectorGroup = safeGetEl('vpn-node-selector-group');
-  vpnSwitchBtn = vpnBtn;
-  const statusHandlersBound = window.__clashMiniConsoleBound === true;
-
-  if (startBtn && startBtn.dataset.bound !== '1') {
-    startBtn.addEventListener('click', () => {
-      observeNetworkMagicTask(withBusyButton(startBtn, [vpnBtn, dreamBtn], () => toggleClashMini({ startBtn, vpnBtn }), {
-        preserveTextAfterResolve: true,
-      }));
-    });
-    startBtn.dataset.bound = '1';
-  }
-
-  if (vpnBtn && vpnBtn.dataset.bound !== '1') {
-    vpnBtn.addEventListener('click', () => {
-      if (window.redirectToSidebarAccountLogin?.()) return;
-      observeNetworkMagicTask(withBusyButton(vpnBtn, [startBtn, dreamBtn], () => toggleClashMini({ startBtn, vpnBtn }), {
-        preserveTextAfterResolve: true,
-      }));
-    });
-    vpnBtn.dataset.bound = '1';
-  }
-
-  if (testLatencyBtn && testLatencyBtn.dataset.bound !== '1') {
-    testLatencyBtn.dataset.loadingText = '测试中...';
-    testLatencyBtn.addEventListener('click', () => {
-      if (testLatencyBtn.disabled) return;
-      if (sideButtonLockSnapshot || isNetworkMagicStartFlowActive()) return;
-      lockSidePanelButtons();
-      withBusyButton(testLatencyBtn, [vpnBtn], async () => {
-        try {
-          const { bestName, bestDelay } = await runBestRouteSelection({ keepPanelOpen: false });
-          if (window.MessageModal && typeof window.MessageModal.showSuccessMessage === 'function') {
-            window.MessageModal.showSuccessMessage(
-              bestName
-                ? `已切换到最低延时节点：${bestName}${Number.isFinite(bestDelay) ? ` (${bestDelay}ms)` : ''}`
-                : '最低延时测试完成',
-            );
-          }
-        } finally {
-          unlockSidePanelButtons();
-        }
-      });
-    });
-    testLatencyBtn.dataset.bound = '1';
-  }
-
-  if (vpnNodeSelectorToggleBtn && vpnNodeSelectorToggleBtn.dataset.bound !== '1') {
-    vpnNodeSelectorToggleBtn.addEventListener('click', async () => {
-      if (vpnNodeSelectorToggleBtn.disabled) return;
-      if (sideButtonLockSnapshot || isNetworkMagicStartFlowActive()) return;
-      const shouldOpen = !vpnNodeSelectorPanel || vpnNodeSelectorPanel.hidden || !vpnNodeSelectorPanel.classList.contains('is-open');
-      if (shouldOpen && (!Array.isArray(clashMiniProxyState.names) || clashMiniProxyState.names.length === 0)) {
-        await loadVpnNodeSelectorOptions({ force: true, probeDelays: false });
-      }
-      setVpnNodeSelectorOpen(shouldOpen);
-    });
-    vpnNodeSelectorToggleBtn.dataset.bound = '1';
-  }
-
-  if (!window.__vpnNodeSelectorBound) {
-    window.__vpnNodeSelectorBound = true;
-    document.addEventListener('click', (event) => {
-      if (!vpnNodeSelectorPanel || !testLatencyBtn || !vpnNodeSelectorToggleBtn) return;
-      const target = event.target;
-      if (!target) return;
-      if (vpnNodeSelectorPanel.contains(target) || testLatencyBtn.contains(target) || vpnNodeSelectorToggleBtn.contains(target)) {
-        return;
-      }
-      setVpnNodeSelectorOpen(false);
-    });
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') {
-        setVpnNodeSelectorOpen(false);
-      }
-    });
-  }
-
-  if (!statusHandlersBound && window.electronAPI && typeof window.electronAPI.on === 'function') {
-    window.electronAPI.on('app-shutting-down', () => {
-      window.__aiFreeAppClosing = true;
-    });
-
-    window.electronAPI.on('clash-mini-status', (status) => {
-      applyClashMiniStatus(status, { startBtn, vpnBtn });
-    });
-
-    window.electronAPI.on('proxy-traffic-quota', (quota) => {
-      renderProxyTrafficQuota(quota);
-    });
-
-    window.electronAPI.on('proxy-traffic-exhausted', (quota) => {
-      renderProxyTrafficQuota(quota);
-      window.MessageModal?.showErrorMessage?.('网络魔法流量已用完，代理已自动关闭。请到个人中心兑换流量。');
-    });
-    window.electronAPI.on('clash-mini-runtime-failed', (payload = {}) => {
-      applyClashMiniStatus({ ok: true, running: false, enabled: false }, { startBtn, vpnBtn });
-      if (window.__aiFreeAppClosing !== true) {
-        window.MessageModal?.showErrorMessage?.(payload.message || '网络魔法运行异常，已恢复为直连模式。');
-      }
-    });
-
-    window.electronAPI.on('clash-mini-latency-progress', (payload) => {
-      applyClashMiniLatencyProgress(payload);
-    });
-
-    window.__clashMiniConsoleBound = true;
-  }
-
-  if (!window.__aiFreeClosingGuardBound) {
-    window.__aiFreeClosingGuardBound = true;
-    window.addEventListener('beforeunload', () => {
-      window.__aiFreeAppClosing = true;
-    });
-  }
-
-  if (window.electron && typeof window.electron.getClashMiniStatus === 'function') {
-    window.electron.getClashMiniStatus()
-      .then((status) => applyClashMiniStatus(status, { startBtn, vpnBtn }))
-      .catch(() => {});
-  }
-
-  if (window.electronAPI && typeof window.electronAPI.invoke === 'function') {
-    window.electronAPI.invoke('get-proxy-traffic-quota').then((result) => {
-      if (result?.ok && result.quota) renderProxyTrafficQuota(result.quota);
-    }).catch(() => {});
-  }
-
-  if (window.electronAPI && typeof window.electronAPI.invoke === 'function') {
-    autoStartNetworkMagicIfEligible({ startBtn, vpnBtn }).catch(() => {});
-  }
-}

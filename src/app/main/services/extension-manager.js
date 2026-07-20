@@ -1,1902 +1,360 @@
 const crypto = require('crypto');
-const {
-  readJsonFileSafe,
-  readStoreConfigFile,
-  writeStoreConfigFile,
-} = require('../utils/json-store');
+const { createExtensionFileUtils } = require('../features/extensions/extension-file-utils');
+const { createExtensionCompatService } = require('../features/extensions/extension-compat-service');
+const { createExtensionDiscoveryService } = require('../features/extensions/extension-discovery-service');
+const { createProtectedExtensionRuntime } = require('../features/extensions/protected-extension-runtime');
+const { createExtensionSessionController } = require('../features/extensions/extension-session-controller');
+const { createExtensionWatcher } = require('../features/extensions/extension-watcher');
+const { createExtensionMutationService } = require('../features/extensions/extension-mutation-service');
+const config = require('../features/extensions/extension-config');
+const { readJsonFileSafe, readStoreConfigFile, writeStoreConfigFile } = require('../utils/json-store');
 
-const STORE_FIELD = 'extensionManager';
-const BUILTIN_TRANSLATE_ID = 'builtin-transform';
-const BUILTIN_REMOVE_WATERMARK_ID = 'builtin-remove-watermark';
-const COMPAT_CACHE_DIR_NAME = 'extension-runtime-compat';
-const PROTECTED_RUNTIME_DIR_NAME = 'protected-extension-runtime';
-const BROWSER_AUTOMATION_DIR_NAME = 'browser_automation';
-const BROWSER_AUTOMATION_ENV_FILE = 'background/00_environment.js';
-// Chromium reserves extension files/directories beginning with "_". Keep the
-// software-generated shim name ordinary so the original plugin remains untouched.
-const COMPAT_SHIM_FILE = 'electron-extension-compat.js';
-const COMPAT_SHIM_MARKER = '__AI_FREE_ELECTRON_EXTENSION_COMPAT__';
-const COMPAT_CACHE_SCHEMA = 5;
-const ELECTRON_UNRECOGNIZED_EXTENSION_PERMISSIONS = new Set([
-  'notifications',
-  'contextMenus',
-  'debugger',
-  'cookies',
-  'downloads',
-  'webNavigation',
-]);
-const EXTENSION_REFRESH_INTERVAL_MS = 10000;
-const EXTENSION_REFRESH_DEBOUNCE_MS = 300;
-
-function sanitizeManifestPermissionsForElectron(sourceManifest) {
-  const manifest = sourceManifest && typeof sourceManifest === 'object'
-    ? { ...sourceManifest }
-    : {};
-  const removedPermissions = [];
-
-  for (const field of ['permissions', 'optional_permissions']) {
-    if (!Array.isArray(manifest[field])) continue;
-    manifest[field] = manifest[field].filter((permission) => {
-      const normalized = String(permission || '').trim();
-      if (!ELECTRON_UNRECOGNIZED_EXTENSION_PERMISSIONS.has(normalized)) {
-        return true;
-      }
-      removedPermissions.push(normalized);
-      return false;
-    });
-  }
-
-  return {
-    manifest,
-    removedPermissions: Array.from(new Set(removedPermissions)),
-  };
+function createManagerFileUtils(runtime) {
+  const { app, fs, path } = runtime.deps;
+  return createExtensionFileUtils({ app, fs, path, compatCacheDirName: config.COMPAT_CACHE_DIR_NAME });
 }
 
-function createExtensionManager(deps = {}) {
-  const {
-    app,
+function createManagerCompatService(runtime) {
+  const { fs, logger, path } = runtime.deps;
+  const files = runtime.files;
+  return createExtensionCompatService({
+    compatCacheSchema: config.COMPAT_CACHE_SCHEMA,
+    compatShimFile: config.COMPAT_SHIM_FILE,
+    compatShimMarker: config.COMPAT_SHIM_MARKER,
+    copyDirectoryRecursive: files.copyDirectoryRecursive,
     fs,
+    hashId: runtime.hashId.bind(runtime),
+    isPathInside: files.isPathInside,
+    listExtensionTextFiles: files.listExtensionTextFiles,
+    logger,
+    normalizeAbsolutePath: runtime.normalizeAbsolutePath.bind(runtime),
     path,
-    logger = console,
-    getStorePath,
+    readJsonFile: runtime.readJsonFile.bind(runtime),
+    resolveCompatCacheRoot: files.resolveCompatCacheRoot,
+    sanitizeManifestPermissionsForElectron: config.sanitizeManifestPermissionsForElectron,
+    scanExtensionCompatNeeds: files.scanExtensionCompatNeeds,
+    toSafeFileName: files.toSafeFileName,
+  });
+}
+
+function createManagerDiscovery(runtime) {
+  const { app, fs, getTranslateExtDir, logger, path } = runtime.deps;
+  return createExtensionDiscoveryService({
+    app,
+    browserAutomationDirName: config.BROWSER_AUTOMATION_DIR_NAME,
+    builtinRemoveWatermarkId: config.BUILTIN_REMOVE_WATERMARK_ID,
+    builtinTranslateId: config.BUILTIN_TRANSLATE_ID,
+    fs,
     getTranslateExtDir,
-    getTabs = () => new Map(),
-    getActiveTabId = () => null,
-    applyPluginSettings = null,
-    sendToSide = null,
-    onPluginStateChanged = null,
-    getBrowserAutomationAccessToken = null,
-  } = deps;
+    hashId: runtime.hashId.bind(runtime),
+    listExtensionTextFiles: runtime.files.listExtensionTextFiles,
+    logger,
+    normalizeAbsolutePath: runtime.normalizeAbsolutePath.bind(runtime),
+    path,
+    readJsonFile: runtime.readJsonFile.bind(runtime),
+    sanitizeManifestPermissionsForElectron: config.sanitizeManifestPermissionsForElectron,
+  });
+}
 
-  let state = {
-    developerModeEnabled: true,
-    plugins: [],
-  };
+function createManagerProtectedRuntime(runtime) {
+  const { app, fs, getBrowserAutomationAccessToken, logger, path } = runtime.deps;
+  return createProtectedExtensionRuntime({
+    app,
+    browserAutomationDirName: config.BROWSER_AUTOMATION_DIR_NAME,
+    browserAutomationEnvFile: config.BROWSER_AUTOMATION_ENV_FILE,
+    copyDirectoryRecursive: runtime.files.copyDirectoryRecursive,
+    fs,
+    getBrowserAutomationAccessToken,
+    getPluginRuntimeSignature: runtime.discovery.getPluginRuntimeSignature,
+    hashId: runtime.hashId.bind(runtime),
+    isPathInside: runtime.files.isPathInside,
+    logger,
+    normalizeAbsolutePath: runtime.normalizeAbsolutePath.bind(runtime),
+    path,
+    protectedRuntimeDirName: config.PROTECTED_RUNTIME_DIR_NAME,
+    readJsonFile: runtime.readJsonFile.bind(runtime),
+  });
+}
 
-  const sessionExtensionIds = new WeakMap();
-  const knownSessions = new Set();
-  let realtimeStarted = false;
-  let refreshTimer = null;
-  let refreshDebounceTimer = null;
-  let refreshInFlight = null;
-  let refreshQueued = false;
-  let watcherRootsKey = '';
-  let extensionWatchers = [];
-  let protectedAutomationSignature = '';
-  let protectedAutomationPath = '';
-  let protectedRuntimeRootPrepared = false;
+function createManagerSessions(runtime) {
+  const { app, fs, getActiveTabId, getTabs, logger, path } = runtime.deps;
+  return createExtensionSessionController({
+    app, fs, getActiveTabId, getTabs, logger, path,
+    getState: () => runtime.state,
+    isBuiltinBrowserAutomationPlugin: runtime.protectedRuntime.isBuiltinBrowserAutomationPlugin,
+    normalizeAbsolutePath: runtime.normalizeAbsolutePath.bind(runtime),
+    prepareCompatExtensionPath: runtime.compat.prepareCompatExtensionPath,
+    prepareProtectedBrowserAutomationPath: runtime.protectedRuntime.prepareProtectedBrowserAutomationPath,
+  });
+}
 
-  function normalizeAbsolutePath(value) {
-    try {
-      const raw = String(value || '').trim();
-      return raw ? path.resolve(raw) : '';
-    } catch (_) {
-      return '';
-    }
+function createManagerWatcher(runtime) {
+  const { app, fs, logger, path } = runtime.deps;
+  return createExtensionWatcher({
+    app, fs, logger, path,
+    ensureEnabledPluginsLoadedInCurrentSessions: runtime.sessions.ensureEnabledPluginsLoadedInCurrentSessions,
+    refreshBundledExtensions: runtime.refreshBundledExtensions.bind(runtime),
+    refreshDebounceMs: config.EXTENSION_REFRESH_DEBOUNCE_MS,
+    refreshIntervalMs: config.EXTENSION_REFRESH_INTERVAL_MS,
+    resolveBundledExtensionRoots: runtime.discovery.resolveBundledExtensionRoots,
+  });
+}
+
+function createManagerMutations(runtime) {
+  const { logger, onPluginStateChanged } = runtime.deps;
+  return createExtensionMutationService({
+    logger, onPluginStateChanged,
+    buildPluginRecord: runtime.discovery.buildPluginRecord,
+    emitStateChanged: runtime.emitStateChanged.bind(runtime),
+    getPluginById: runtime.sessions.getPluginById,
+    getPublicState: runtime.sessions.getPublicState,
+    getState: () => runtime.state,
+    hashId: runtime.hashId.bind(runtime),
+    loadPluginIntoAllCurrentSessions: runtime.sessions.loadPluginIntoAllCurrentSessions,
+    normalizeAbsolutePath: runtime.normalizeAbsolutePath.bind(runtime),
+    persistState: runtime.persistState.bind(runtime),
+    readManifest: runtime.discovery.readManifest,
+    syncLegacyTranslateSetting: runtime.syncLegacyTranslateSetting.bind(runtime),
+    toPublicPlugin: runtime.sessions.toPublicPlugin,
+    unloadPluginFromAllSessions: runtime.sessions.unloadPluginFromAllSessions,
+  });
+}
+
+class ExtensionManagerRuntime {
+  constructor(deps = {}) {
+    this.deps = /** @type {Record<string, any>} */ ({
+      logger: console, getTabs: () => new Map(), getActiveTabId: () => null,
+      applyPluginSettings: null, sendToSide: null, onPluginStateChanged: null,
+      getBrowserAutomationAccessToken: null, ...deps,
+    });
+    this.state = { developerModeEnabled: true, plugins: [] };
+    this.files = createManagerFileUtils(this);
+    this.compat = createManagerCompatService(this);
+    this.discovery = createManagerDiscovery(this);
+    this.protectedRuntime = createManagerProtectedRuntime(this);
+    this.sessions = createManagerSessions(this);
+    this.watcher = createManagerWatcher(this);
+    this.mutations = createManagerMutations(this);
   }
 
-  function hashId(value) {
+  normalizeAbsolutePath(value) {
+    try {
+      const raw = String(value || '').trim();
+      return raw ? this.deps.path.resolve(raw) : '';
+    } catch (_) { return ''; }
+  }
+
+  hashId(value) {
     return crypto.createHash('sha1').update(String(value || '')).digest('hex').slice(0, 16);
   }
 
-  function readJsonFile(filePath) {
+  readJsonFile(filePath) {
     return readJsonFileSafe(filePath, {
-      fs,
-      fallback: null,
-      logger,
-      logPrefix: 'Extensions',
+      fs: this.deps.fs, fallback: null, logger: this.deps.logger, logPrefix: 'Extensions',
     });
   }
 
-  function readStoreSafe() {
-    return readStoreConfigFile(getStorePath, { fs });
+  readStoreSafe() {
+    return readStoreConfigFile(this.deps.getStorePath, { fs: this.deps.fs });
   }
 
-  function writeStoreSafe(nextStore) {
-    return writeStoreConfigFile(getStorePath, nextStore, {
-      fs,
-      path,
-      logger,
-      logPrefix: 'Extensions',
-      writeErrorMessage: '保存插件配置失败:',
+  writeStoreSafe(nextStore) {
+    return writeStoreConfigFile(this.deps.getStorePath, nextStore, {
+      fs: this.deps.fs, path: this.deps.path, logger: this.deps.logger,
+      logPrefix: 'Extensions', writeErrorMessage: '保存插件配置失败:',
     });
   }
 
-  function persistState() {
-    const current = readStoreSafe();
-    return writeStoreSafe({
+  toStoredPlugin(plugin) {
+    return {
+      id: plugin.id, path: plugin.path, name: plugin.name, rawName: plugin.rawName,
+      description: plugin.description, version: plugin.version, manifestVersion: plugin.manifestVersion,
+      enabled: plugin.enabled === true, builtin: plugin.builtin === true,
+      iconPath: plugin.iconPath, iconRelativePath: plugin.iconRelativePath,
+      popupPath: plugin.popupPath, optionsPath: plugin.optionsPath, hint: plugin.hint,
+      importedAt: plugin.importedAt, updatedAt: plugin.updatedAt,
+    };
+  }
+
+  persistState() {
+    const current = this.readStoreSafe();
+    return this.writeStoreSafe({
       ...(current && typeof current === 'object' ? current : {}),
-      [STORE_FIELD]: {
+      [config.STORE_FIELD]: {
         developerModeEnabled: true,
-        plugins: state.plugins.map((plugin) => ({
-          id: plugin.id,
-          path: plugin.path,
-          name: plugin.name,
-          rawName: plugin.rawName,
-          description: plugin.description,
-          version: plugin.version,
-          manifestVersion: plugin.manifestVersion,
-          enabled: plugin.enabled === true,
-          builtin: plugin.builtin === true,
-          iconPath: plugin.iconPath,
-          iconRelativePath: plugin.iconRelativePath,
-          popupPath: plugin.popupPath,
-          optionsPath: plugin.optionsPath,
-          hint: plugin.hint,
-          importedAt: plugin.importedAt,
-          updatedAt: plugin.updatedAt,
-        })),
+        plugins: this.state.plugins.map((plugin) => this.toStoredPlugin(plugin)),
       },
     });
   }
 
-  function readStoredState() {
-    const store = readStoreSafe();
-    const manager = store && typeof store[STORE_FIELD] === 'object' ? store[STORE_FIELD] : {};
-    return {
-      developerModeEnabled: true,
-      plugins: Array.isArray(manager.plugins) ? manager.plugins : [],
-    };
+  readStoredState() {
+    const store = this.readStoreSafe();
+    const manager = store && typeof store[config.STORE_FIELD] === 'object' ? store[config.STORE_FIELD] : {};
+    return { developerModeEnabled: true, plugins: Array.isArray(manager.plugins) ? manager.plugins : [] };
   }
 
-  function toSafeFileName(value) {
-    return String(value || '')
-      .trim()
-      .replace(/[^a-zA-Z0-9._-]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      || 'extension';
-  }
-
-  function isPathInside(parentDir, childPath) {
+  syncLegacyTranslateSetting() {
+    const plugin = this.state.plugins.find((item) => item.id === config.BUILTIN_TRANSLATE_ID);
+    if (typeof this.deps.applyPluginSettings !== 'function') return;
     try {
-      const parent = path.resolve(parentDir);
-      const child = path.resolve(childPath);
-      const relative = path.relative(parent, child);
-      return !!relative && !relative.startsWith('..') && !path.isAbsolute(relative);
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function resolveCompatCacheRoot() {
-    try {
-      if (app && typeof app.getPath === 'function') {
-        return path.join(app.getPath('userData'), COMPAT_CACHE_DIR_NAME);
-      }
-    } catch (_) {}
-    return path.join(process.cwd(), '.extension-runtime-compat');
-  }
-
-  function copyDirectoryRecursive(sourceDir, targetDir) {
-    if (typeof fs.cpSync === 'function') {
-      fs.cpSync(sourceDir, targetDir, {
-        recursive: true,
-        force: true,
-        dereference: false,
-        errorOnExist: false,
-      });
-      return;
-    }
-
-    fs.mkdirSync(targetDir, { recursive: true });
-    for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
-      const sourcePath = path.join(sourceDir, entry.name);
-      const targetPath = path.join(targetDir, entry.name);
-      if (entry.isDirectory()) {
-        copyDirectoryRecursive(sourcePath, targetPath);
-      } else if (entry.isSymbolicLink()) {
-        const link = fs.readlinkSync(sourcePath);
-        fs.symlinkSync(link, targetPath);
-      } else if (entry.isFile()) {
-        fs.copyFileSync(sourcePath, targetPath);
-      }
-    }
-  }
-
-  function listExtensionTextFiles(rootDir, options = {}) {
-    const maxFiles = Number(options.maxFiles) || 500;
-    const maxBytes = Number(options.maxBytes) || 8 * 1024 * 1024;
-    const textExts = new Set(['.js', '.mjs', '.cjs', '.html', '.htm', '.json']);
-    const skippedDirs = new Set(['.git', 'node_modules', '.cache']);
-    const files = [];
-    let latestMtimeMs = 0;
-
-    function walk(dir) {
-      if (files.length >= maxFiles) return;
-      let entries = [];
-      try {
-        entries = fs.readdirSync(dir, { withFileTypes: true });
-      } catch (_) {
-        return;
-      }
-
-      for (const entry of entries) {
-        if (files.length >= maxFiles) return;
-        if (skippedDirs.has(entry.name)) continue;
-        const entryPath = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          walk(entryPath);
-          continue;
-        }
-        if (!entry.isFile()) continue;
-        const ext = path.extname(entry.name).toLowerCase();
-        if (!textExts.has(ext)) continue;
-        try {
-          const stat = fs.statSync(entryPath);
-          latestMtimeMs = Math.max(latestMtimeMs, Number(stat.mtimeMs) || 0);
-          if (stat.size > maxBytes) continue;
-          files.push(entryPath);
-        } catch (_) {}
-      }
-    }
-
-    walk(rootDir);
-    return { files, latestMtimeMs, fileCount: files.length };
-  }
-
-  function scanExtensionCompatNeeds(rootDir) {
-    const scan = listExtensionTextFiles(rootDir);
-    const requiredApiRoots = new Set();
-
-    for (const filePath of scan.files) {
-      try {
-        const text = fs.readFileSync(filePath, 'utf8');
-        for (const match of text.matchAll(/\b(?:chrome|browser)\.(windows|tabs|cookies|downloads|alarms|action|storage)\b/g)) {
-          requiredApiRoots.add(match[1]);
-        }
-      } catch (_) {}
-    }
-
-    return {
-      ...scan,
-      requiredApiRoots: Array.from(requiredApiRoots).sort(),
-      needsCompatShim: requiredApiRoots.size > 0,
-    };
-  }
-
-  function buildElectronExtensionCompatShim() {
-    return `/* ${COMPAT_SHIM_MARKER} */
-(() => {
-  const installedKey = '__aiFreeElectronExtensionCompatInstalled';
-  if (globalThis[installedKey]) return;
-  try {
-    Object.defineProperty(globalThis, installedKey, { value: true, configurable: true });
-  } catch (_) {
-    globalThis[installedKey] = true;
-  }
-
-  const chromeApi = globalThis.chrome || globalThis.browser;
-  if (!chromeApi) return;
-
-  const tabsApi = chromeApi.tabs || null;
-  const runtimeApi = chromeApi.runtime || null;
-  const nativeTabsQuery = tabsApi && typeof tabsApi.query === 'function' ? tabsApi.query.bind(tabsApi) : null;
-  const nativeTabsUpdate = tabsApi && typeof tabsApi.update === 'function' ? tabsApi.update.bind(tabsApi) : null;
-  const WINDOW_ID_NONE = -1;
-  const WINDOW_ID_CURRENT = -2;
-
-  const isThenable = (value) => value && typeof value.then === 'function';
-  const makeEvent = () => {
-    const listeners = new Set();
-    return {
-      addListener(listener) { if (typeof listener === 'function') listeners.add(listener); },
-      removeListener(listener) { listeners.delete(listener); },
-      hasListener(listener) { return listeners.has(listener); },
-      hasListeners() { return listeners.size > 0; },
-      dispatch(...args) {
-        for (const listener of Array.from(listeners)) {
-          try { listener(...args); } catch (_) {}
-        }
-      },
-    };
-  };
-
-  function callChrome(api, method, args) {
-    if (!api || typeof api[method] !== 'function') {
-      return Promise.reject(new Error('chrome.' + method + ' is unavailable'));
-    }
-
-    try {
-      const result = api[method](...(args || []));
-      if (isThenable(result)) return result;
-      if (result !== undefined) return Promise.resolve(result);
-    } catch (_) {
-      // Retry with callback form below.
-    }
-
-    return new Promise((resolve, reject) => {
-      try {
-        api[method](...(args || []), (value) => {
-          const lastError = runtimeApi && runtimeApi.lastError;
-          if (lastError && lastError.message) {
-            reject(new Error(lastError.message));
-          } else {
-            resolve(value);
-          }
-        });
-      } catch (error) {
-        reject(error);
-      }
-    });
-  }
-
-  function withCallback(promise, callback) {
-    if (typeof callback === 'function') {
-      promise.then(
-        (value) => callback(value),
-        () => callback(undefined),
-      );
-      return undefined;
-    }
-    return promise;
-  }
-
-  function callNative(method, args) {
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const callback = (value) => {
-        if (settled) return;
-        settled = true;
-        const lastError = runtimeApi && runtimeApi.lastError;
-        lastError && lastError.message ? reject(new Error(lastError.message)) : resolve(value);
-      };
-      try {
-        const result = method(...args, callback);
-        if (isThenable(result)) {
-          result.then(callback, reject);
-        } else if (result !== undefined && !settled) {
-          settled = true;
-          resolve(result);
-        }
-      } catch (error) {
-        reject(error);
-      }
-    });
-  }
-
-  // Normalize Chrome query/update options to Electron's documented subset.
-  // This also makes active/currentWindow calls deterministic for the current
-  // Electron session.
-  if (tabsApi && nativeTabsQuery) {
-    tabsApi.query = (queryInfo, callback) => {
-      const source = queryInfo && typeof queryInfo === 'object' ? queryInfo : {};
-      const supported = {};
-      for (const key of ['url', 'title', 'audible', 'active', 'muted']) {
-        if (source[key] !== undefined) supported[key] = source[key];
-      }
-      const promise = callNative(nativeTabsQuery, [supported]).then((tabs) => {
-        const list = Array.isArray(tabs) ? tabs : [];
-        return list.map((tab, index) => ({
-          ...tab,
-          active: source.active === false ? !!tab.active : (index === 0 || !!tab.active),
-          windowId: Number.isFinite(Number(tab && tab.windowId)) ? Number(tab.windowId) : 1,
-        }));
-      });
-      return withCallback(promise, callback);
-    };
-  }
-
-  if (tabsApi && nativeTabsUpdate) {
-    tabsApi.update = (tabId, updateProperties, callback) => {
-      if (typeof updateProperties === 'function') {
-        callback = updateProperties;
-        updateProperties = tabId;
-        tabId = undefined;
-      }
-      const source = updateProperties && typeof updateProperties === 'object' ? updateProperties : {};
-      const supported = {};
-      if (source.url !== undefined) supported.url = source.url;
-      if (source.muted !== undefined) supported.muted = source.muted;
-      const args = tabId === undefined ? [supported] : [tabId, supported];
-      const promise = Object.keys(supported).length
-        ? callNative(nativeTabsUpdate, args)
-        : (tabId === undefined ? queryTabs({ active: true }).then((tabs) => tabs[0]) : getTab(tabId));
-      return withCallback(promise, callback);
-    };
-  }
-
-  function tabWindowId(tab) {
-    const id = Number(tab && tab.windowId);
-    return Number.isFinite(id) ? id : 1;
-  }
-
-  async function queryTabs(queryInfo) {
-    if (!tabsApi || typeof tabsApi.query !== 'function') return [];
-    try {
-      const tabs = await callChrome(tabsApi, 'query', [queryInfo || {}]);
-      return Array.isArray(tabs) ? tabs : [];
-    } catch (_) {
-      return [];
-    }
-  }
-
-  async function getTab(tabId) {
-    if (!tabsApi || typeof tabsApi.get !== 'function') return null;
-    try {
-      return await callChrome(tabsApi, 'get', [tabId]);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  async function collectWindows(queryInfo) {
-    const info = queryInfo && typeof queryInfo === 'object' ? queryInfo : {};
-    const allTabs = await queryTabs({});
-    const activeLastFocused = await queryTabs({ active: true, lastFocusedWindow: true });
-    const activeAny = allTabs.filter((tab) => tab && tab.active);
-    const focusedWindowId = tabWindowId(activeLastFocused[0] || activeAny[0] || allTabs[0]);
-    const byId = new Map();
-
-    for (const tab of allTabs) {
-      const id = tabWindowId(tab);
-      if (!byId.has(id)) {
-        byId.set(id, {
-          id,
-          focused: id === focusedWindowId,
-          incognito: !!tab.incognito,
-          type: 'normal',
-          state: 'normal',
-          alwaysOnTop: false,
-          tabs: [],
-        });
-      }
-      byId.get(id).tabs.push(tab);
-    }
-
-    if (byId.size === 0) {
-      byId.set(focusedWindowId || 1, {
-        id: focusedWindowId || 1,
-        focused: true,
-        incognito: false,
-        type: 'normal',
-        state: 'normal',
-        alwaysOnTop: false,
-        tabs: [],
-      });
-    }
-
-    let windows = Array.from(byId.values()).map((win) => ({
-      ...win,
-      tabs: win.tabs.slice().sort((a, b) => Number(a.index || 0) - Number(b.index || 0)),
-    }));
-
-    if (Array.isArray(info.windowTypes) && info.windowTypes.length) {
-      const allowed = new Set(info.windowTypes.map((type) => String(type || '')));
-      windows = windows.filter((win) => allowed.has(win.type));
-    }
-
-    if (info.populate !== true) {
-      windows = windows.map(({ tabs, ...win }) => win);
-    }
-
-    return windows;
-  }
-
-  async function getWindow(windowId, queryInfo) {
-    let id = Number(windowId);
-    const windows = await collectWindows({ ...(queryInfo || {}), populate: !!(queryInfo && queryInfo.populate) });
-    if (id === WINDOW_ID_CURRENT || !Number.isFinite(id)) {
-      return windows.find((win) => win.focused) || windows[0] || null;
-    }
-    return windows.find((win) => Number(win.id) === id) || null;
-  }
-
-  const windowsApi = chromeApi.windows || {};
-  if (!chromeApi.windows) {
-    try {
-      Object.defineProperty(chromeApi, 'windows', {
-        value: windowsApi,
-        configurable: true,
-        enumerable: true,
-      });
-    } catch (_) {
-      chromeApi.windows = windowsApi;
-    }
-  }
-
-  windowsApi.WINDOW_ID_NONE = windowsApi.WINDOW_ID_NONE ?? WINDOW_ID_NONE;
-  windowsApi.WINDOW_ID_CURRENT = windowsApi.WINDOW_ID_CURRENT ?? WINDOW_ID_CURRENT;
-  windowsApi.onCreated = windowsApi.onCreated || makeEvent();
-  windowsApi.onRemoved = windowsApi.onRemoved || makeEvent();
-  windowsApi.onFocusChanged = windowsApi.onFocusChanged || makeEvent();
-
-  if (typeof windowsApi.getAll !== 'function') {
-    windowsApi.getAll = (queryInfo, callback) => withCallback(collectWindows(queryInfo), callback);
-  }
-
-  if (typeof windowsApi.get !== 'function') {
-    windowsApi.get = (windowId, queryInfo, callback) => {
-      if (typeof queryInfo === 'function') {
-        callback = queryInfo;
-        queryInfo = {};
-      }
-      return withCallback(getWindow(windowId, queryInfo || {}), callback);
-    };
-  }
-
-  if (typeof windowsApi.getCurrent !== 'function') {
-    windowsApi.getCurrent = (queryInfo, callback) => {
-      if (typeof queryInfo === 'function') {
-        callback = queryInfo;
-        queryInfo = {};
-      }
-      return withCallback(getWindow(WINDOW_ID_CURRENT, queryInfo || {}), callback);
-    };
-  }
-
-  if (typeof windowsApi.getLastFocused !== 'function') {
-    windowsApi.getLastFocused = (queryInfo, callback) => {
-      if (typeof queryInfo === 'function') {
-        callback = queryInfo;
-        queryInfo = {};
-      }
-      return withCallback(getWindow(WINDOW_ID_CURRENT, queryInfo || {}), callback);
-    };
-  }
-
-  if (typeof windowsApi.update !== 'function') {
-    windowsApi.update = (windowId, updateInfo, callback) => {
-      const promise = (async () => {
-        const win = await getWindow(windowId, { populate: true });
-        if (updateInfo && updateInfo.focused === true && tabsApi && typeof tabsApi.update === 'function') {
-          const activeTab = (win && win.tabs || []).find((tab) => tab && tab.active) || (win && win.tabs || [])[0];
-          if (activeTab && activeTab.id !== undefined) {
-            try { await callChrome(tabsApi, 'update', [activeTab.id, { active: true }]); } catch (_) {}
-          }
-        }
-        const next = await getWindow(windowId, {});
-        return next || (win ? (({ tabs, ...rest }) => rest)(win) : null);
-      })();
-      return withCallback(promise, callback);
-    };
-  }
-
-  if (typeof windowsApi.create !== 'function') {
-    windowsApi.create = (createData, callback) => {
-      const promise = (async () => {
-        if (!tabsApi || typeof tabsApi.create !== 'function') {
-          throw new Error('chrome.tabs.create is unavailable');
-        }
-        const data = createData && typeof createData === 'object' ? createData : {};
-        const url = Array.isArray(data.url) ? data.url[0] : data.url;
-        const tab = await callChrome(tabsApi, 'create', [{
-          url: url || undefined,
-          active: data.focused !== false,
-        }]);
-        return await getWindow(tabWindowId(tab), { populate: true });
-      })();
-      return withCallback(promise, callback);
-    };
-  }
-
-  if (typeof windowsApi.remove !== 'function') {
-    windowsApi.remove = (windowId, callback) => {
-      const promise = (async () => {
-        if (!tabsApi || typeof tabsApi.remove !== 'function') return undefined;
-        const win = await getWindow(windowId, { populate: true });
-        const ids = (win && win.tabs || [])
-          .map((tab) => tab && tab.id)
-          .filter((id) => id !== undefined && id !== null);
-        if (ids.length) {
-          try { await callChrome(tabsApi, 'remove', [ids]); } catch (_) {}
-        }
-        return undefined;
-      })();
-      return withCallback(promise, callback);
-    };
-  }
-
-  // Electron intentionally implements only a subset of chrome.tabs.  Complete
-  // the common API surface in one place so extensions do not need Electron
-  // branches scattered through their business code. An internal view session has
-  // one app-managed tab, therefore create/remove degrade to replacing/blanking
-  // that view while preserving Chrome-compatible return values.
-  if (tabsApi) {
-    tabsApi.onCreated = tabsApi.onCreated || makeEvent();
-    tabsApi.onRemoved = tabsApi.onRemoved || makeEvent();
-    tabsApi.onUpdated = tabsApi.onUpdated || makeEvent();
-    tabsApi.onActivated = tabsApi.onActivated || makeEvent();
-
-    if (typeof tabsApi.get !== 'function') {
-      tabsApi.get = (tabId, callback) => {
-        const promise = queryTabs({}).then((tabs) => {
-          const found = tabs.find((tab) => Number(tab && tab.id) === Number(tabId));
-          if (!found) throw new Error('No tab with id: ' + tabId);
-          return found;
-        });
-        return withCallback(promise, callback);
-      };
-    }
-
-    if (typeof tabsApi.create !== 'function') {
-      tabsApi.create = (createProperties, callback) => {
-        const promise = (async () => {
-          const data = createProperties && typeof createProperties === 'object' ? createProperties : {};
-          const before = await queryTabs({});
-          const current = before.find((tab) => {
-            const tabUrl = String(tab && tab.url || '').toLowerCase();
-            return tabUrl.startsWith('http://') || tabUrl.startsWith('https://');
-          })
-            || (await queryTabs({ active: true }))[0]
-            || before[0];
-          if (!current) throw new Error('No Electron tab is available');
-          const url = String(data.url || 'about:blank');
-          const knownIds = new Set(before.map((tab) => Number(tab && tab.id)));
-
-          // The app's window-open handler turns this into a real
-          // managed tab. Poll chrome.tabs so the extension receives its ID.
-          if (chromeApi.scripting && typeof chromeApi.scripting.executeScript === 'function') {
-            try {
-              await chromeApi.scripting.executeScript({
-                target: { tabId: current.id },
-                args: [url],
-                func: (targetUrl) => { window.open(targetUrl, '_blank', 'noopener'); },
-              });
-              for (let attempt = 0; attempt < 30; attempt += 1) {
-                await new Promise((resolve) => setTimeout(resolve, 100));
-                const after = await queryTabs({});
-                const created = after.find((tab) => !knownIds.has(Number(tab && tab.id)))
-                  || after.find((tab) => String(tab && tab.url || '') === url && Number(tab.id) !== Number(current.id));
-                if (created) return { ...created, active: data.active !== false };
-              }
-            } catch (_) {}
-          }
-
-          // Last-resort behavior for pages that block window.open: navigation
-          // still succeeds in the current real page instead of targeting the
-          // extension's offscreen document.
-          if (typeof tabsApi.update === 'function') {
-            await callChrome(tabsApi, 'update', [current.id, { url }]);
-          }
-          return await getTab(current.id) || { ...current, url, active: true };
-        })();
-        return withCallback(promise, callback);
-      };
-    }
-
-    if (typeof tabsApi.remove !== 'function') {
-      tabsApi.remove = (tabIds, callback) => {
-        const ids = Array.isArray(tabIds) ? tabIds : [tabIds];
-        const promise = Promise.all(ids.map(async (id) => {
-          if (typeof tabsApi.update === 'function') {
-            await callChrome(tabsApi, 'update', [id, { url: 'about:blank' }]);
-          }
-        })).then(() => undefined);
-        return withCallback(promise, callback);
-      };
-    }
-  }
-
-  // MV3 storage.session is absent in Electron. Local storage has the same
-  // asynchronous contract and is a durable, deterministic fallback.
-  if (chromeApi.storage && !chromeApi.storage.session && chromeApi.storage.local) {
-    try { chromeApi.storage.session = chromeApi.storage.local; } catch (_) {}
-  }
-
-  // Badge APIs are cosmetic; missing methods must never break an automation
-  // socket or MCP result path.
-  const actionApi = chromeApi.action || {};
-  if (!chromeApi.action) {
-    try { chromeApi.action = actionApi; } catch (_) {}
-  }
-  for (const method of ['setBadgeText', 'setBadgeBackgroundColor', 'setTitle', 'setIcon']) {
-    if (typeof actionApi[method] !== 'function') actionApi[method] = () => Promise.resolve();
-  }
-
-  // Keep MV3 keepalive code operational. Timers are scoped to the extension
-  // worker; recreating an alarm with the same name replaces the previous one.
-  const alarmsApi = chromeApi.alarms || {};
-  const alarmTimers = new Map();
-  if (!chromeApi.alarms) {
-    try { chromeApi.alarms = alarmsApi; } catch (_) {}
-  }
-  alarmsApi.onAlarm = alarmsApi.onAlarm || makeEvent();
-  if (typeof alarmsApi.create !== 'function') {
-    alarmsApi.create = (name, info) => {
-      if (typeof name !== 'string') { info = name; name = ''; }
-      const alarmName = String(name || '');
-      const data = info && typeof info === 'object' ? info : {};
-      const old = alarmTimers.get(alarmName);
-      if (old) clearTimeout(old);
-      const delay = Math.max(1, Number(data.delayInMinutes || data.periodInMinutes || 1)) * 60000;
-      const tick = () => {
-        alarmsApi.onAlarm.dispatch({ name: alarmName, scheduledTime: Date.now(), periodInMinutes: data.periodInMinutes });
-        if (data.periodInMinutes) alarmTimers.set(alarmName, setTimeout(tick, delay));
-        else alarmTimers.delete(alarmName);
-      };
-      alarmTimers.set(alarmName, setTimeout(tick, delay));
-      return Promise.resolve();
-    };
-  }
-  if (typeof alarmsApi.clear !== 'function') {
-    alarmsApi.clear = (name, callback) => {
-      const timer = alarmTimers.get(String(name || ''));
-      if (timer) clearTimeout(timer);
-      const removed = alarmTimers.delete(String(name || ''));
-      return withCallback(Promise.resolve(removed), callback);
-    };
-  }
-
-  // Downloads are implemented through the active page. This preserves the
-  // app's Session 'will-download' handling and works for data/blob/http URLs.
-  const downloadsApi = chromeApi.downloads || {};
-  let nextDownloadId = 1;
-  if (!chromeApi.downloads) {
-    try { chromeApi.downloads = downloadsApi; } catch (_) {}
-  }
-  if (typeof downloadsApi.download !== 'function') {
-    downloadsApi.download = (options, callback) => {
-      const promise = (async () => {
-        const data = options && typeof options === 'object' ? options : {};
-        if (!data.url) throw new Error('downloads.download requires url');
-        const tab = (await queryTabs({ active: true }))[0] || (await queryTabs({}))[0];
-        if (!tab || !chromeApi.scripting || typeof chromeApi.scripting.executeScript !== 'function') {
-          throw new Error('No page is available for the Electron download');
-        }
-        await chromeApi.scripting.executeScript({
-          target: { tabId: tab.id },
-          args: [data.url, data.filename || ''],
-          func: (url, filename) => {
-            const anchor = document.createElement('a');
-            anchor.href = url;
-            if (filename) anchor.download = filename;
-            anchor.style.display = 'none';
-            document.documentElement.appendChild(anchor);
-            anchor.click();
-            anchor.remove();
-          },
-        });
-        return nextDownloadId++;
-      })();
-      return withCallback(promise, callback);
-    };
-  }
-})();
-`;
-  }
-
-  function prependShimToScript(scriptPath, shimText) {
-    try {
-      if (!scriptPath || !fs.existsSync(scriptPath)) return false;
-      const current = fs.readFileSync(scriptPath, 'utf8');
-      if (current.includes(COMPAT_SHIM_MARKER)) return false;
-      fs.writeFileSync(scriptPath, `${shimText}\n${current}`, 'utf8');
-      return true;
+      this.deps.applyPluginSettings({ translateExtEnabled: plugin?.enabled === true });
     } catch (error) {
-      logger.warn?.('[Extensions] 注入扩展后台兼容脚本失败:', scriptPath, error?.message || error);
-      return false;
+      this.deps.logger.warn?.('[Extensions] 同步翻译插件开关失败:', error?.message || error);
     }
   }
 
-  function injectShimIntoHtml(htmlPath, rootDir) {
+  emitStateChanged() {
     try {
-      if (!htmlPath || !fs.existsSync(htmlPath)) return false;
-      const current = fs.readFileSync(htmlPath, 'utf8');
-      if (current.includes(COMPAT_SHIM_FILE)) return false;
-      let relativeShimPath = COMPAT_SHIM_FILE;
-      if (rootDir) {
-        relativeShimPath = path
-          .relative(path.dirname(htmlPath), path.join(rootDir, COMPAT_SHIM_FILE))
-          .replace(/\\/g, '/');
-        if (!relativeShimPath.startsWith('.')) {
-          relativeShimPath = `./${relativeShimPath}`;
-        }
-      }
-      const tag = `<script src="${relativeShimPath}"></script>`;
-      let next = '';
-      if (/<\/head>/i.test(current)) {
-        next = current.replace(/<\/head>/i, `${tag}\n</head>`);
-      } else if (/<script\b/i.test(current)) {
-        next = current.replace(/<script\b/i, `${tag}\n<script`);
-      } else {
-        next = `${tag}\n${current}`;
-      }
-      fs.writeFileSync(htmlPath, next, 'utf8');
-      return true;
-    } catch (error) {
-      logger.warn?.('[Extensions] 注入扩展页面兼容脚本失败:', htmlPath, error?.message || error);
-      return false;
-    }
-  }
-
-  function patchCompatExtensionDirectory(compatDir) {
-    const manifestPath = path.join(compatDir, 'manifest.json');
-    const sourceManifest = readJsonFile(manifestPath);
-    if (!sourceManifest || typeof sourceManifest !== 'object') {
-      throw new Error('运行时插件副本缺少有效 manifest.json');
-    }
-    const sanitized = sanitizeManifestPermissionsForElectron(sourceManifest);
-    const manifest = sanitized.manifest;
-    let manifestChanged = sanitized.removedPermissions.length > 0;
-
-    const shimText = buildElectronExtensionCompatShim();
-    fs.writeFileSync(path.join(compatDir, COMPAT_SHIM_FILE), shimText, 'utf8');
-
-    const background = manifest.background && typeof manifest.background === 'object'
-      ? manifest.background
-      : null;
-
-    if (background?.service_worker) {
-      const workerPath = path.join(compatDir, String(background.service_worker).replace(/^\/+/, ''));
-      prependShimToScript(workerPath, shimText);
-    } else if (Array.isArray(background?.scripts)) {
-      const scripts = background.scripts.map((item) => String(item || '').trim()).filter(Boolean);
-      if (!scripts.includes(COMPAT_SHIM_FILE)) {
-        background.scripts = [COMPAT_SHIM_FILE, ...scripts];
-        manifestChanged = true;
-      }
-    } else if (background?.page) {
-      injectShimIntoHtml(path.join(compatDir, String(background.page).replace(/^\/+/, '')), compatDir);
-    }
-
-    const htmlFiles = listExtensionTextFiles(compatDir, { maxFiles: 800, maxBytes: 1024 * 1024 })
-      .files
-      .filter((filePath) => ['.html', '.htm'].includes(path.extname(filePath).toLowerCase()));
-    htmlFiles.forEach((filePath) => injectShimIntoHtml(filePath, compatDir));
-
-    if (manifestChanged) {
-      fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-    }
-    if (sanitized.removedPermissions.length) {
-      logger.log?.(
-        '[Extensions] Electron 兼容层已处理不识别的权限声明:',
-        sanitized.removedPermissions.join(', '),
-      );
-    }
-  }
-
-  function prepareCompatExtensionPath(plugin) {
-    const sourcePath = normalizeAbsolutePath(plugin?.path);
-    if (!sourcePath) return '';
-
-    const scan = scanExtensionCompatNeeds(sourcePath);
-    if (!scan.needsCompatShim) {
-      return sourcePath;
-    }
-
-    const cacheRoot = resolveCompatCacheRoot();
-    const cacheName = `${toSafeFileName(plugin?.id || path.basename(sourcePath))}-${hashId(sourcePath)}`;
-    const compatDir = path.join(cacheRoot, cacheName);
-    const signature = hashId([
-      sourcePath,
-      plugin?.version || '',
-      scan.latestMtimeMs,
-      scan.fileCount,
-      scan.requiredApiRoots.join(','),
-      COMPAT_SHIM_MARKER,
-      COMPAT_SHIM_FILE,
-      COMPAT_CACHE_SCHEMA,
-    ].join('|'));
-    const signaturePath = path.join(compatDir, '.compat-signature');
-
-    try {
-      if (
-        fs.existsSync(path.join(compatDir, 'manifest.json'))
-        && fs.existsSync(signaturePath)
-        && fs.readFileSync(signaturePath, 'utf8') === signature
-      ) {
-        return compatDir;
-      }
-    } catch (_) {}
-
-    try {
-      fs.mkdirSync(cacheRoot, { recursive: true });
-      if (fs.existsSync(compatDir)) {
-        if (!isPathInside(cacheRoot, compatDir)) {
-          throw new Error('兼容缓存目录校验失败');
-        }
-        fs.rmSync(compatDir, { recursive: true, force: true });
-      }
-      copyDirectoryRecursive(sourcePath, compatDir);
-      patchCompatExtensionDirectory(compatDir);
-      fs.writeFileSync(signaturePath, signature, 'utf8');
-      logger.log?.('[Extensions] 已为插件创建 Electron 兼容副本:', plugin?.name || plugin?.id || sourcePath);
-      return compatDir;
-    } catch (error) {
-      logger.warn?.('[Extensions] 创建插件兼容副本失败，回退原目录:', plugin?.name || plugin?.id || sourcePath, error?.message || error);
-      return sourcePath;
-    }
-  }
-
-  function resolveBundledExtensionRoots() {
-    const candidates = [];
-    if (process.resourcesPath) {
-      candidates.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'assets', 'extensions'));
-      candidates.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'extensions'));
-      candidates.push(path.join(process.resourcesPath, 'src', 'assets', 'extensions'));
-      candidates.push(path.join(process.resourcesPath, 'app.asar', 'src', 'assets', 'extensions'));
-    }
-    if (app && typeof app.getAppPath === 'function') {
-      const appPath = app.getAppPath();
-      candidates.push(path.join(appPath, 'src', 'assets', 'extensions'));
-      candidates.push(path.join(appPath, 'assets', 'extensions'));
-    }
-    candidates.push(path.join(__dirname, '../../../assets/extensions'));
-
-    const roots = [];
-    const seen = new Set();
-    for (const candidate of candidates) {
-      const normalized = normalizeAbsolutePath(candidate);
-      if (!normalized || seen.has(normalized)) continue;
-      seen.add(normalized);
-      try {
-        if (fs.existsSync(normalized)) {
-          roots.push(normalized);
-        }
-      } catch (_) {}
-    }
-    return roots;
-  }
-
-  function collectBundledExtensionDirs() {
-    const dirsByName = new Map();
-
-    const addDir = (dir) => {
-      const normalized = normalizeAbsolutePath(dir);
-      if (!normalized) return;
-      try {
-        if (!fs.existsSync(path.join(normalized, 'manifest.json'))) return;
-        const key = path.basename(normalized).toLowerCase();
-        if (!dirsByName.has(key)) {
-          dirsByName.set(key, normalized);
-        }
-      } catch (_) {}
-    };
-
-    addDir(resolveBuiltinTranslateDir());
-
-    for (const root of resolveBundledExtensionRoots()) {
-      addDir(root);
-      try {
-        const children = fs.readdirSync(root, { withFileTypes: true })
-          .filter((entry) => entry.isDirectory())
-          .map((entry) => path.join(root, entry.name));
-        children.forEach(addDir);
-      } catch (error) {
-        logger.warn?.('[Extensions] 扫描内置插件目录失败:', root, error?.message || error);
-      }
-    }
-
-    return Array.from(dirsByName.values())
-      .sort((a, b) => path.basename(a).localeCompare(path.basename(b)));
-  }
-
-  function getBundledExtensionId(dir) {
-    const dirName = path.basename(String(dir || '')).trim();
-    const normalizedName = dirName.toLowerCase();
-    if (normalizedName === 'transform') return BUILTIN_TRANSLATE_ID;
-    if (normalizedName === 'remove_watermark') return BUILTIN_REMOVE_WATERMARK_ID;
-
-    const safeName = normalizedName
-      .replace(/[^a-z0-9_-]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-    return `asset-${safeName || hashId(dirName || dir)}`;
-  }
-
-  function getBundledExtensionOverrides(dir, existing = {}) {
-    const dirName = path.basename(String(dir || '')).trim().toLowerCase();
-    const overrides = {
-      id: getBundledExtensionId(dir),
-      builtin: true,
-      enabled: existing.enabled !== false,
-    };
-
-    if (dirName === 'transform') {
-      overrides.name = existing.name || '翻译插件';
-      overrides.hint = existing.hint || '点击网页右侧粉色按钮翻译';
-    } else if (dirName === 'remove_watermark') {
-      overrides.name = existing.name || '去水印插件';
-      overrides.hint = existing.hint || '右键视频图片直接下载';
-    }
-
-    return overrides;
-  }
-
-  function resolveMessages(dir, locale) {
-    const filePath = path.join(dir, '_locales', locale, 'messages.json');
-    const json = readJsonFile(filePath);
-    return json && typeof json === 'object' ? json : null;
-  }
-
-  function resolveManifestText(dir, manifest, value) {
-    const text = String(value || '').trim();
-    const match = text.match(/^__MSG_([^_]+(?:_[^_]+)*)__$/);
-    if (!match) return text;
-
-    const messageKey = match[1];
-    const locales = [
-      'zh_CN',
-      'zh',
-      String(manifest?.default_locale || '').trim(),
-      'en',
-    ].filter(Boolean);
-    const seen = new Set();
-    for (const locale of locales) {
-      if (seen.has(locale)) continue;
-      seen.add(locale);
-      const messages = resolveMessages(dir, locale);
-      const message = messages?.[messageKey]?.message;
-      if (message) return String(message);
-    }
-    return messageKey;
-  }
-
-  function readManifest(dir) {
-    const manifestPath = path.join(dir, 'manifest.json');
-    const manifest = readJsonFile(manifestPath);
-    if (!manifest || typeof manifest !== 'object') {
-      throw new Error('所选目录没有有效的 manifest.json');
-    }
-    if (!manifest.manifest_version) {
-      throw new Error('manifest.json 缺少 manifest_version');
-    }
-    return manifest;
-  }
-
-  function normalizeIconCandidate(iconValue) {
-    if (!iconValue) return '';
-    if (typeof iconValue === 'string') return iconValue;
-    if (typeof iconValue === 'object') {
-      const entries = Object.entries(iconValue)
-        .map(([size, iconPath]) => ({ size: Number(size), iconPath: String(iconPath || '') }))
-        .filter((entry) => entry.iconPath)
-        .sort((a, b) => b.size - a.size);
-      return entries[0]?.iconPath || '';
-    }
-    return '';
-  }
-
-  function resolveIconPath(dir, manifest) {
-    const actionIcon = normalizeIconCandidate(
-      manifest?.action?.default_icon
-      || manifest?.browser_action?.default_icon
-      || manifest?.page_action?.default_icon,
-    );
-    const manifestIcon = normalizeIconCandidate(manifest?.icons);
-    const relativePath = String(actionIcon || manifestIcon || '').replace(/^\/+/, '');
-    if (!relativePath) {
-      return { iconPath: '', iconRelativePath: '' };
-    }
-    const iconPath = path.join(dir, relativePath);
-    return {
-      iconPath: fs.existsSync(iconPath) ? iconPath : '',
-      iconRelativePath: relativePath,
-    };
-  }
-
-  function resolvePopupPath(manifest) {
-    return String(
-      manifest?.action?.default_popup
-      || manifest?.browser_action?.default_popup
-      || manifest?.page_action?.default_popup
-      || '',
-    ).replace(/^\/+/, '').trim();
-  }
-
-  function resolveOptionsPath(manifest) {
-    return String(
-      manifest?.options_page
-      || manifest?.options_ui?.page
-      || '',
-    ).replace(/^\/+/, '').trim();
-  }
-
-  function getPluginRuntimeSignature(dir, manifest = {}) {
-    try {
-      const scan = listExtensionTextFiles(dir, { maxFiles: 1200, maxBytes: 4 * 1024 * 1024 });
-      let manifestMtimeMs = 0;
-      try {
-        manifestMtimeMs = Number(fs.statSync(path.join(dir, 'manifest.json')).mtimeMs) || 0;
-      } catch (_) {}
-      return hashId([
-        normalizeAbsolutePath(dir),
-        manifest?.manifest_version || '',
-        manifest?.version || '',
-        manifestMtimeMs,
-        scan.latestMtimeMs,
-        scan.fileCount,
-      ].join('|'));
-    } catch (_) {
-      return hashId([normalizeAbsolutePath(dir), manifest?.version || '', 'signature-fallback'].join('|'));
-    }
-  }
-
-  function buildPluginRecord(dir, existing = {}, overrides = {}) {
-    const absPath = normalizeAbsolutePath(dir);
-    const manifest = readManifest(absPath);
-    const rawName = resolveManifestText(absPath, manifest, manifest.name) || path.basename(absPath);
-    const description = resolveManifestText(absPath, manifest, manifest.description) || '';
-    const icon = resolveIconPath(absPath, manifest);
-    const id = String(overrides.id || existing.id || `local-${hashId(absPath)}`).trim();
-    const now = new Date().toISOString();
-
-    return {
-      id,
-      path: absPath,
-      name: String(overrides.name || existing.name || rawName || path.basename(absPath)).trim(),
-      rawName,
-      description,
-      version: String(manifest.version || ''),
-      manifestVersion: Number(manifest.manifest_version) || null,
-      enabled: overrides.enabled !== undefined
-        ? overrides.enabled === true
-        : existing.enabled === true,
-      builtin: overrides.builtin !== undefined
-        ? overrides.builtin === true
-        : existing.builtin === true,
-      iconPath: icon.iconPath,
-      iconRelativePath: icon.iconRelativePath,
-      popupPath: resolvePopupPath(manifest),
-      optionsPath: resolveOptionsPath(manifest),
-      hint: String(overrides.hint || existing.hint || '').trim(),
-      importedAt: existing.importedAt || now,
-      updatedAt: now,
-      runtimeSignature: getPluginRuntimeSignature(absPath, manifest),
-    };
-  }
-
-  function normalizeStoredPlugin(plugin) {
-    try {
-      const absPath = normalizeAbsolutePath(plugin?.path);
-      if (!absPath || !fs.existsSync(path.join(absPath, 'manifest.json'))) {
-        return {
-          ...(plugin || {}),
-          path: absPath,
-          missing: true,
-          enabled: false,
-        };
-      }
-      return buildPluginRecord(absPath, plugin || {});
-    } catch (error) {
-      logger.warn?.('[Extensions] 插件记录解析失败:', plugin?.path, error?.message || error);
-      return {
-        ...(plugin || {}),
-        missing: true,
-        enabled: false,
-      };
-    }
-  }
-
-  function resolveBuiltinTranslateDir() {
-    try {
-      if (typeof getTranslateExtDir === 'function') {
-        const dir = getTranslateExtDir();
-        if (dir && fs.existsSync(path.join(dir, 'manifest.json'))) return dir;
-      }
-    } catch (_) {}
-    return '';
-  }
-
-  function syncLegacyTranslateSetting() {
-    const translatePlugin = state.plugins.find((plugin) => plugin.id === BUILTIN_TRANSLATE_ID);
-    if (typeof applyPluginSettings === 'function') {
-      try {
-        applyPluginSettings({ translateExtEnabled: translatePlugin?.enabled === true });
-      } catch (error) {
-        logger.warn?.('[Extensions] 同步翻译插件开关失败:', error?.message || error);
-      }
-    }
-  }
-
-  function emitStateChanged() {
-    try {
-      const publicState = getPublicState();
-      if (typeof sendToSide === 'function') {
-        sendToSide('extension-manager-state', publicState);
+      if (typeof this.deps.sendToSide === 'function') {
+        this.deps.sendToSide('extension-manager-state', this.sessions.getPublicState());
       }
     } catch (_) {}
   }
 
-  function resolveProtectedRuntimeRoot() {
-    try {
-      if (app && typeof app.getPath === 'function') {
-        return path.join(app.getPath('userData'), PROTECTED_RUNTIME_DIR_NAME);
-      }
-    } catch (_) {}
-    return path.join(process.cwd(), `.${PROTECTED_RUNTIME_DIR_NAME}`);
-  }
-
-  function isBuiltinBrowserAutomationPlugin(plugin) {
-    return plugin?.builtin === true
-      && path.basename(String(plugin.path || '')).toLowerCase() === BROWSER_AUTOMATION_DIR_NAME;
-  }
-
-  function prepareProtectedBrowserAutomationPath(plugin) {
-    const sourcePath = normalizeAbsolutePath(plugin?.path);
-    const accessToken = typeof getBrowserAutomationAccessToken === 'function'
-      ? String(getBrowserAutomationAccessToken() || '').trim()
-      : '';
-    // 独立复用 extension-manager 的脚本/测试没有桥接密钥时保持原行为；
-    // 正式应用始终注入 getter，并且绝不把密钥写回 sourcePath。
-    if (!sourcePath || !accessToken) return sourcePath;
-
-    const runtimeRoot = resolveProtectedRuntimeRoot();
-    // 路径也必须随软件启动凭据轮换。若一直复用同一路径，Chromium 可能从
-    // Profile 的扩展 Service Worker 缓存恢复上一次的 00_environment.js，
-    // 从而拿旧密钥连接本次新桥接。
-    const runtimeSessionId = hashId(`browser-automation-session|${accessToken}`);
-    const runtimeSessionRoot = path.join(runtimeRoot, runtimeSessionId);
-    const runtimePath = path.join(runtimeSessionRoot, BROWSER_AUTOMATION_DIR_NAME);
-    const signature = hashId([
-      sourcePath,
-      plugin?.runtimeSignature || '',
-      accessToken,
-      'protected-browser-automation-v1',
-    ].join('|'));
-    if (
-      protectedAutomationSignature === signature
-      && protectedAutomationPath === runtimePath
-      && fs.existsSync(path.join(runtimePath, 'manifest.json'))
-    ) {
-      return runtimePath;
-    }
-
-    try {
-      fs.mkdirSync(runtimeRoot, { recursive: true });
-      if (!protectedRuntimeRootPrepared) {
-        for (const entry of fs.readdirSync(runtimeRoot, { withFileTypes: true })) {
-          if (entry.name === runtimeSessionId) continue;
-          const stalePath = path.join(runtimeRoot, entry.name);
-          if (!isPathInside(runtimeRoot, stalePath)) continue;
-          try {
-            fs.rmSync(stalePath, { recursive: true, force: true });
-          } catch (cleanupError) {
-            logger.warn?.('[Extensions] 清理旧自动化插件运行副本失败:', cleanupError?.message || cleanupError);
-          }
-        }
-        protectedRuntimeRootPrepared = true;
-      }
-      fs.mkdirSync(runtimeSessionRoot, { recursive: true });
-      if (fs.existsSync(runtimePath)) {
-        if (!isPathInside(runtimeRoot, runtimePath)) {
-          throw new Error('受保护插件运行目录校验失败');
-        }
-        fs.rmSync(runtimePath, { recursive: true, force: true });
-      }
-      copyDirectoryRecursive(sourcePath, runtimePath);
-      const environmentPath = path.join(runtimePath, BROWSER_AUTOMATION_ENV_FILE);
-      const environmentSource = [
-        '// 由 AI-FREE 主进程生成；软件重启后此临时凭据立即失效。',
-        `globalThis.AI_FREE_BROWSER_ENVIRONMENT = Object.freeze(${JSON.stringify({
-          protectedRuntime: true,
-          appBrowserToken: accessToken,
-        })});`,
-        '',
-      ].join('\n');
-      fs.writeFileSync(environmentPath, environmentSource, { encoding: 'utf8', mode: 0o600 });
-      protectedAutomationSignature = signature;
-      protectedAutomationPath = runtimePath;
-      logger.log?.('[Extensions] 已创建仅限当前软件进程使用的自动化插件运行副本');
-      return runtimePath;
-    } catch (error) {
-      protectedAutomationSignature = '';
-      protectedAutomationPath = '';
-      // 不能回退到未注入认证的源扩展；源扩展虽会自锁，但直接不加载更清晰。
-      logger.error?.('[Extensions] 创建受保护自动化插件副本失败:', error?.message || error);
-      return '';
-    }
-  }
-
-  function getPluginMaps(plugins = []) {
+  getPluginMaps(plugins = []) {
     const byId = new Map();
     const byPath = new Map();
     for (const plugin of plugins) {
       if (!plugin || !plugin.id) continue;
       byId.set(plugin.id, plugin);
-      const normalizedPath = normalizeAbsolutePath(plugin.path);
+      const normalizedPath = this.normalizeAbsolutePath(plugin.path);
       if (normalizedPath) byPath.set(normalizedPath, plugin);
     }
     return { byId, byPath };
   }
 
-  function buildBundledPluginRecords() {
-    const stored = readStoredState();
-    const storedPlugins = stored.plugins
-      .map(normalizeStoredPlugin)
-      .filter((plugin) => plugin && plugin.id);
-    const storedMaps = getPluginMaps(storedPlugins);
-    const currentMaps = getPluginMaps(state.plugins);
-    const bundledPlugins = [];
-    const seenIds = new Set();
+  resolveExistingBundledPlugin(id, dir, currentMaps, storedMaps) {
+    const normalizedDir = this.normalizeAbsolutePath(dir);
+    return currentMaps.byId.get(id) || currentMaps.byPath.get(normalizedDir)
+      || storedMaps.byId.get(id) || storedMaps.byPath.get(normalizedDir) || {};
+  }
 
-    for (const dir of collectBundledExtensionDirs()) {
-      try {
-        const id = getBundledExtensionId(dir);
-        const normalizedDir = normalizeAbsolutePath(dir);
-        const existing = currentMaps.byId.get(id)
-          || currentMaps.byPath.get(normalizedDir)
-          || storedMaps.byId.get(id)
-          || storedMaps.byPath.get(normalizedDir)
-          || {};
-        const record = buildPluginRecord(dir, existing, getBundledExtensionOverrides(dir, existing));
-        if (seenIds.has(record.id)) continue;
-        seenIds.add(record.id);
-        bundledPlugins.push(record);
-      } catch (error) {
-        logger.warn?.('[Extensions] 扫描目录插件失败:', dir, error?.message || error);
-      }
+  appendBundledPlugin(records, seenIds, dir, currentMaps, storedMaps) {
+    try {
+      const id = this.discovery.getBundledExtensionId(dir);
+      const existing = this.resolveExistingBundledPlugin(id, dir, currentMaps, storedMaps);
+      const overrides = this.discovery.getBundledExtensionOverrides(dir, existing);
+      const record = this.discovery.buildPluginRecord(dir, existing, overrides);
+      if (seenIds.has(record.id)) return;
+      seenIds.add(record.id);
+      records.push(record);
+    } catch (error) {
+      this.deps.logger.warn?.('[Extensions] 扫描目录插件失败:', dir, error?.message || error);
     }
+  }
 
-    // 用户导入的解压插件不位于内置资源目录，刷新内置插件时仍需保留。
+  buildBundledPluginRecords() {
+    const storedPlugins = this.readStoredState().plugins
+      .map(this.discovery.normalizeStoredPlugin).filter((plugin) => plugin && plugin.id);
+    const storedMaps = this.getPluginMaps(storedPlugins);
+    const currentMaps = this.getPluginMaps(this.state.plugins);
+    const records = [];
+    const seenIds = new Set();
+    for (const dir of this.discovery.collectBundledExtensionDirs()) {
+      this.appendBundledPlugin(records, seenIds, dir, currentMaps, storedMaps);
+    }
     for (const plugin of storedPlugins) {
       if (!plugin?.id || plugin.builtin === true || seenIds.has(plugin.id)) continue;
       seenIds.add(plugin.id);
-      bundledPlugins.push(plugin);
+      records.push(plugin);
     }
-
-    return bundledPlugins;
+    return records;
   }
 
-  function didPublicPluginChange(prev, next) {
-    if (!prev || !next) return true;
-    const fields = [
-      'id',
-      'path',
-      'name',
-      'rawName',
-      'description',
-      'version',
-      'manifestVersion',
-      'enabled',
-      'builtin',
-      'iconPath',
-      'iconRelativePath',
-      'popupPath',
-      'optionsPath',
-      'hint',
-      'missing',
-    ];
-    return fields.some((field) => prev[field] !== next[field]);
+  didPublicPluginChange(previous, next) {
+    if (!previous || !next) return true;
+    const fields = ['id', 'path', 'name', 'rawName', 'description', 'version', 'manifestVersion',
+      'enabled', 'builtin', 'iconPath', 'iconRelativePath', 'popupPath', 'optionsPath', 'hint', 'missing'];
+    return fields.some((field) => previous[field] !== next[field]);
   }
 
-  function shouldReloadPlugin(prev, next) {
+  shouldReloadPlugin(previous, next) {
     if (!next || next.enabled !== true) return false;
-    if (!prev) return true;
-    return normalizeAbsolutePath(prev.path) !== normalizeAbsolutePath(next.path)
-      || prev.runtimeSignature !== next.runtimeSignature;
+    if (!previous) return true;
+    return this.normalizeAbsolutePath(previous.path) !== this.normalizeAbsolutePath(next.path)
+      || previous.runtimeSignature !== next.runtimeSignature;
   }
 
-  async function applyBundledPluginRecords(nextPlugins, options = {}) {
-    const previousPlugins = Array.isArray(state.plugins) ? state.plugins : [];
+  analyzePluginRecords(nextPlugins) {
+    const previousPlugins = Array.isArray(this.state.plugins) ? this.state.plugins : [];
     const previousById = new Map(previousPlugins.map((plugin) => [plugin.id, plugin]));
     const nextById = new Map(nextPlugins.map((plugin) => [plugin.id, plugin]));
     const removedPlugins = previousPlugins.filter((plugin) => plugin?.id && !nextById.has(plugin.id));
     const reloadPairs = [];
     let stateChanged = previousPlugins.length !== nextPlugins.length || removedPlugins.length > 0;
-
     for (const plugin of nextPlugins) {
       const previous = previousById.get(plugin.id) || null;
-      if (didPublicPluginChange(previous, plugin)) {
-        stateChanged = true;
-      }
-      if (shouldReloadPlugin(previous, plugin)) {
-        reloadPairs.push({ previous, plugin });
-      }
+      if (this.didPublicPluginChange(previous, plugin)) stateChanged = true;
+      if (this.shouldReloadPlugin(previous, plugin)) reloadPairs.push({ previous, plugin });
     }
+    return { removedPlugins, reloadPairs, stateChanged };
+  }
 
-    state = {
-      developerModeEnabled: true,
-      plugins: nextPlugins,
-    };
+  updatePluginState(nextPlugins, analysis, options) {
+    this.state = { developerModeEnabled: true, plugins: nextPlugins };
+    if (analysis.stateChanged || analysis.reloadPairs.length || options.persist === true) this.persistState();
+    this.syncLegacyTranslateSetting();
+    if (options.emit !== false && (analysis.stateChanged || options.emit === true)) this.emitStateChanged();
+  }
 
-    if (stateChanged || reloadPairs.length > 0 || options.persist === true) {
-      persistState();
+  async synchronizePluginSessions(analysis) {
+    for (const plugin of analysis.removedPlugins) {
+      if (plugin.enabled === true) await this.sessions.unloadPluginFromAllSessions(plugin);
     }
-    syncLegacyTranslateSetting();
-    if (options.emit !== false && (stateChanged || options.emit === true)) {
-      emitStateChanged();
+    for (const pair of analysis.reloadPairs) {
+      if (pair.previous?.enabled === true) await this.sessions.unloadPluginFromAllSessions(pair.previous);
+      await this.sessions.loadPluginIntoAllCurrentSessions(pair.plugin);
     }
+  }
 
-    if (options.load !== false) {
-      for (const plugin of removedPlugins) {
-        if (plugin.enabled === true) {
-          await unloadPluginFromAllSessions(plugin);
-        }
-      }
-      for (const pair of reloadPairs) {
-        if (pair.previous && pair.previous.enabled === true) {
-          await unloadPluginFromAllSessions(pair.previous);
-        }
-        await loadPluginIntoAllCurrentSessions(pair.plugin);
-      }
-    }
-
+  async applyBundledPluginRecords(nextPlugins, options = {}) {
+    const analysis = this.analyzePluginRecords(nextPlugins);
+    this.updatePluginState(nextPlugins, analysis, options);
+    if (options.load !== false) await this.synchronizePluginSessions(analysis);
     return {
-      stateChanged,
-      removed: removedPlugins.length,
-      reloaded: reloadPairs.length,
+      stateChanged: analysis.stateChanged,
+      removed: analysis.removedPlugins.length,
+      reloaded: analysis.reloadPairs.length,
     };
   }
 
-  async function refreshBundledExtensions(options = {}) {
-    const nextPlugins = buildBundledPluginRecords();
-    const result = await applyBundledPluginRecords(nextPlugins, options);
+  async refreshBundledExtensions(options = {}) {
+    const nextPlugins = this.buildBundledPluginRecords();
+    const result = await this.applyBundledPluginRecords(nextPlugins, options);
     if ((result.stateChanged || result.removed || result.reloaded) && options.reason) {
-      logger.log?.(
-        '[Extensions] 已刷新内置插件目录:',
-        options.reason,
-        `插件 ${nextPlugins.length} 个`,
-        `重载 ${result.reloaded} 个`,
-      );
+      this.deps.logger.log?.('[Extensions] 已刷新内置插件目录:', options.reason,
+        `插件 ${nextPlugins.length} 个`, `重载 ${result.reloaded} 个`);
     }
     return result;
   }
 
-  async function initialize(options = {}) {
-    await refreshBundledExtensions({ persist: true, load: false, emit: false });
-    startRealtimePluginLoading();
-    if (options.emit === true) {
-      emitStateChanged();
-    }
-    return getPublicState();
+  async initialize(options = {}) {
+    await this.refreshBundledExtensions({ persist: true, load: false, emit: false });
+    this.watcher.startRealtimePluginLoading();
+    if (options.emit === true) this.emitStateChanged();
+    return this.sessions.getPublicState();
   }
+}
 
-  function getIconDataUrl(plugin) {
-    try {
-      if (!plugin?.iconPath || !fs.existsSync(plugin.iconPath)) return '';
-      const ext = path.extname(plugin.iconPath).toLowerCase();
-      const mime = ext === '.svg'
-        ? 'image/svg+xml'
-        : ext === '.jpg' || ext === '.jpeg'
-          ? 'image/jpeg'
-          : ext === '.webp'
-            ? 'image/webp'
-            : 'image/png';
-      const data = fs.readFileSync(plugin.iconPath);
-      return `data:${mime};base64,${data.toString('base64')}`;
-    } catch (_) {
-      return '';
-    }
-  }
-
-  function toPublicPlugin(plugin) {
-    return {
-      id: plugin.id,
-      name: plugin.name || plugin.rawName || '未命名插件',
-      rawName: plugin.rawName || '',
-      description: plugin.description || '',
-      version: plugin.version || '',
-      enabled: plugin.enabled === true,
-      builtin: plugin.builtin === true,
-      missing: plugin.missing === true,
-      hint: plugin.hint || '',
-      path: plugin.path || '',
-      iconDataUrl: getIconDataUrl(plugin),
-    };
-  }
-
-  function getPublicState() {
-    return {
-      developerModeEnabled: true,
-      plugins: state.plugins.map(toPublicPlugin),
-    };
-  }
-
-  // Chromium Fork cannot use Electron's session.extensions API. It must receive
-  // unpacked extension directories before the browser process starts so that
-  // document_start content scripts are registered before the first navigation.
-  function getEnabledExtensionPaths() {
-    const seen = new Set();
-    const paths = [];
-    for (const plugin of state.plugins) {
-      if (plugin?.enabled !== true || plugin?.missing === true) continue;
-      const pluginPath = normalizeAbsolutePath(
-        isBuiltinBrowserAutomationPlugin(plugin)
-          ? prepareProtectedBrowserAutomationPath(plugin)
-          : plugin.path,
-      );
-      if (!pluginPath || seen.has(pluginPath)) continue;
-      try {
-        if (!fs.existsSync(path.join(pluginPath, 'manifest.json'))) continue;
-      } catch (_) {
-        continue;
-      }
-      seen.add(pluginPath);
-      paths.push(pluginPath);
-    }
-    return paths;
-  }
-
-  function getPluginById(pluginId) {
-    const id = String(pluginId || '').trim();
-    return state.plugins.find((plugin) => plugin.id === id) || null;
-  }
-
-  function rememberSession(session) {
-    if (!session) return null;
-    knownSessions.add(session);
-    let map = sessionExtensionIds.get(session);
-    if (!map) {
-      map = new Map();
-      sessionExtensionIds.set(session, map);
-    }
-    return map;
-  }
-
-  function getLoadedExtensions(session) {
-    try {
-      const all = session?.extensions?.getAllExtensions
-        ? session.extensions.getAllExtensions()
-        : null;
-      if (Array.isArray(all)) return all;
-      if (all && typeof all === 'object') return Object.values(all);
-    } catch (_) {}
-    return [];
-  }
-
-  function findLoadedExtension(session, plugin) {
-    const list = getLoadedExtensions(session);
-    const normalizedPath = normalizeAbsolutePath(plugin.path);
-    return list.find((extension) => {
-      const extensionPath = normalizeAbsolutePath(extension?.path || '');
-      if (extensionPath && normalizedPath && extensionPath === normalizedPath) return true;
-      if (extension?.id && rememberSession(session)?.get(plugin.id) === extension.id) return true;
-      const manifestName = extension?.manifest?.name || '';
-      return plugin.rawName && (extension?.name === plugin.rawName || manifestName === plugin.rawName);
-    }) || null;
-  }
-
-  async function loadPluginIntoSession(plugin, session, label = '') {
-    if (!plugin || plugin.enabled !== true || plugin.missing === true) return null;
-    if (!session || !session.extensions || typeof session.extensions.loadExtension !== 'function') {
-      return null;
-    }
-
-    const map = rememberSession(session);
-    const existingId = map.get(plugin.id);
-    if (existingId) {
-      const existing = findLoadedExtension(session, plugin);
-      if (existing && existing.id === existingId) return existing;
-    }
-
-    const loaded = findLoadedExtension(session, plugin);
-    if (loaded?.id) {
-      map.set(plugin.id, loaded.id);
-      return loaded;
-    }
-
-    try {
-      const loadPath = prepareCompatExtensionPath(plugin) || plugin.path;
-      const extension = await session.extensions.loadExtension(loadPath, { allowFileAccess: true });
-      if (extension?.id) {
-        map.set(plugin.id, extension.id);
-      }
-      logger.log?.('[Extensions] 插件已加载', label ? `(${label})` : '', plugin.name, extension?.id || '');
-      return extension || null;
-    } catch (error) {
-      const msg = error?.message || String(error);
-      if (/already loaded|exists/i.test(msg)) {
-        const fallback = findLoadedExtension(session, plugin);
-        if (fallback?.id) {
-          map.set(plugin.id, fallback.id);
-          return fallback;
-        }
-      }
-      logger.warn?.('[Extensions] 插件加载失败', label ? `(${label})` : '', plugin.name, msg);
-      return null;
-    }
-  }
-
-  async function loadEnabledIntoSession(session, label = '') {
-    if (!session) return { ok: false, loaded: 0 };
-    rememberSession(session);
-    let loaded = 0;
-    for (const plugin of state.plugins) {
-      if (plugin.enabled !== true) continue;
-      const extension = await loadPluginIntoSession(plugin, session, label);
-      if (extension) loaded += 1;
-    }
-    return { ok: true, loaded };
-  }
-
-  function collectSessions() {
-    const sessions = new Set(knownSessions);
-    return Array.from(sessions).filter(Boolean);
-  }
-
-  async function unloadPluginFromSession(plugin, session) {
-    if (!plugin || !session) return false;
-    const map = rememberSession(session);
-    let extensionId = map.get(plugin.id);
-    if (!extensionId) {
-      const loaded = findLoadedExtension(session, plugin);
-      extensionId = loaded?.id || '';
-    }
-    if (!extensionId) return false;
-
-    try {
-      if (session.extensions && typeof session.extensions.removeExtension === 'function') {
-        await Promise.resolve(session.extensions.removeExtension(extensionId));
-      } else if (typeof session.removeExtension === 'function') {
-        await Promise.resolve(session.removeExtension(extensionId));
-      } else {
-        return false;
-      }
-      map.delete(plugin.id);
-      logger.log?.('[Extensions] 插件已卸载:', plugin.name, extensionId);
-      return true;
-    } catch (error) {
-      logger.warn?.('[Extensions] 插件卸载失败:', plugin.name, error?.message || error);
-      return false;
-    }
-  }
-
-  async function unloadPluginFromAllSessions(plugin) {
-    const sessions = collectSessions();
-    await Promise.all(sessions.map((session) => unloadPluginFromSession(plugin, session)));
-  }
-
-  async function loadPluginIntoAllCurrentSessions(plugin) {
-    const sessions = collectSessions();
-    await Promise.all(sessions.map((session) => loadPluginIntoSession(plugin, session, '现有标签')));
-  }
-
-  async function ensureEnabledPluginsLoadedInCurrentSessions(label = '巡检') {
-    const sessions = collectSessions();
-    if (!sessions.length) return { ok: true, sessions: 0, loaded: 0 };
-    let loaded = 0;
-    await Promise.all(sessions.map(async (session) => {
-      const result = await loadEnabledIntoSession(session, label);
-      loaded += Number(result?.loaded || 0);
-    }));
-    return { ok: true, sessions: sessions.length, loaded };
-  }
-
-  function closeExtensionWatchers() {
-    for (const watcher of extensionWatchers) {
-      try { watcher.close(); } catch (_) {}
-    }
-    extensionWatchers = [];
-    watcherRootsKey = '';
-  }
-
-  function shouldWatchEvent(filename) {
-    const name = String(filename || '');
-    if (!name) return true;
-    const lower = name.toLowerCase();
-    if (lower.endsWith('manifest.json')) return true;
-    const ext = path.extname(lower);
-    return !ext || ['.js', '.mjs', '.cjs', '.html', '.htm', '.json'].includes(ext);
-  }
-
-  function setupExtensionWatchers() {
-    const roots = resolveBundledExtensionRoots();
-    const rootsKey = roots.join('|');
-    if (rootsKey === watcherRootsKey) return;
-    closeExtensionWatchers();
-    watcherRootsKey = rootsKey;
-
-    for (const root of roots) {
-      try {
-        const watcher = fs.watch(root, { recursive: true }, (_eventType, filename) => {
-          if (!shouldWatchEvent(filename)) return;
-          scheduleRealtimeRefresh(`目录变化 ${path.basename(root)}`);
-        });
-        extensionWatchers.push(watcher);
-      } catch (error) {
-        try {
-          const watcher = fs.watch(root, (_eventType, filename) => {
-            if (!shouldWatchEvent(filename)) return;
-            scheduleRealtimeRefresh(`目录变化 ${path.basename(root)}`);
-          });
-          extensionWatchers.push(watcher);
-        } catch (fallbackError) {
-          logger.warn?.('[Extensions] 监听插件目录失败:', root, fallbackError?.message || error?.message || fallbackError);
-        }
-      }
-    }
-  }
-
-  function scheduleRealtimeRefresh(reason = '目录变化') {
-    if (refreshDebounceTimer) {
-      clearTimeout(refreshDebounceTimer);
-    }
-    refreshDebounceTimer = setTimeout(() => {
-      refreshDebounceTimer = null;
-      void runRealtimeRefresh(reason);
-    }, EXTENSION_REFRESH_DEBOUNCE_MS);
-    if (typeof refreshDebounceTimer.unref === 'function') {
-      refreshDebounceTimer.unref();
-    }
-  }
-
-  async function runRealtimeRefresh(reason = '定时巡检') {
-    if (refreshInFlight) {
-      refreshQueued = true;
-      return refreshInFlight;
-    }
-
-    refreshInFlight = (async () => {
-      setupExtensionWatchers();
-      await refreshBundledExtensions({ reason });
-      await ensureEnabledPluginsLoadedInCurrentSessions(reason);
-    })();
-
-    try {
-      return await refreshInFlight;
-    } catch (error) {
-      logger.warn?.('[Extensions] 实时刷新插件失败:', error?.message || error);
-      return null;
-    } finally {
-      refreshInFlight = null;
-      if (refreshQueued) {
-        refreshQueued = false;
-        scheduleRealtimeRefresh('队列刷新');
-      }
-    }
-  }
-
-  function stopRealtimePluginLoading() {
-    if (refreshTimer) {
-      clearInterval(refreshTimer);
-      refreshTimer = null;
-    }
-    if (refreshDebounceTimer) {
-      clearTimeout(refreshDebounceTimer);
-      refreshDebounceTimer = null;
-    }
-    closeExtensionWatchers();
-    realtimeStarted = false;
-  }
-
-  function startRealtimePluginLoading() {
-    if (realtimeStarted) return;
-    realtimeStarted = true;
-    setupExtensionWatchers();
-    refreshTimer = setInterval(() => {
-      void runRealtimeRefresh('定时巡检');
-    }, EXTENSION_REFRESH_INTERVAL_MS);
-    if (typeof refreshTimer.unref === 'function') {
-      refreshTimer.unref();
-    }
-    try {
-      if (app && typeof app.once === 'function') {
-        app.once('before-quit', stopRealtimePluginLoading);
-      }
-    } catch (_) {}
-  }
-
-  async function setPluginEnabled(pluginId, enabled) {
-    const plugin = getPluginById(pluginId);
-    if (!plugin) {
-      return { ok: false, message: '插件不存在', state: getPublicState() };
-    }
-    if (plugin.missing === true && enabled === true) {
-      return { ok: false, message: '插件目录不存在，请重新导入', state: getPublicState() };
-    }
-
-    plugin.enabled = enabled === true;
-    plugin.updatedAt = new Date().toISOString();
-    persistState();
-
-    if (plugin.enabled) {
-      await loadPluginIntoAllCurrentSessions(plugin);
-    } else {
-      await unloadPluginFromAllSessions(plugin);
-    }
-
-    let browserRefresh = null;
-    if (typeof onPluginStateChanged === 'function') {
-      try {
-        browserRefresh = await onPluginStateChanged({
-          plugin: toPublicPlugin(plugin),
-          enabled: plugin.enabled,
-        });
-      } catch (error) {
-        browserRefresh = { ok: false, message: error?.message || String(error) };
-        logger.warn?.('[Extensions] 插件状态已更新，但浏览器刷新失败:', error?.message || error);
-      }
-    }
-
-    syncLegacyTranslateSetting();
-    emitStateChanged();
-    return { ok: true, plugin: toPublicPlugin(plugin), state: getPublicState(), browserRefresh };
-  }
-
-  async function importPlugin(sourcePath) {
-    const absPath = normalizeAbsolutePath(sourcePath);
-    if (!absPath) return { ok: false, message: '未选择插件目录', state: getPublicState() };
-
-    let record;
-    try {
-      readManifest(absPath);
-      const existing = state.plugins.find((plugin) => normalizeAbsolutePath(plugin?.path) === absPath) || null;
-      if (existing?.builtin === true) {
-        return { ok: false, message: '该目录是内置插件，无需重复导入', state: getPublicState() };
-      }
-      record = buildPluginRecord(absPath, existing || {}, {
-        id: existing?.id || `local-${hashId(absPath)}`,
-        builtin: false,
-        enabled: true,
-        hint: existing?.hint || '自定义导入插件',
-      });
-      if (existing?.enabled === true) await unloadPluginFromAllSessions(existing);
-      state.plugins = state.plugins.filter((plugin) => plugin.id !== record.id);
-      state.plugins.push(record);
-      persistState();
-      await loadPluginIntoAllCurrentSessions(record);
-    } catch (error) {
-      return { ok: false, message: error?.message || String(error), state: getPublicState() };
-    }
-
-    let browserRefresh = null;
-    if (typeof onPluginStateChanged === 'function') {
-      try {
-        browserRefresh = await onPluginStateChanged({
-          plugin: toPublicPlugin(record),
-          enabled: true,
-          imported: true,
-        });
-      } catch (error) {
-        browserRefresh = { ok: false, message: error?.message || String(error) };
-        logger.warn?.('[Extensions] 插件已导入，但浏览器刷新失败:', error?.message || error);
-      }
-    }
-    emitStateChanged();
-    return { ok: true, plugin: toPublicPlugin(record), state: getPublicState(), browserRefresh };
-  }
-
-  async function removePlugin(pluginId) {
-    const plugin = getPluginById(pluginId);
-    if (!plugin) return { ok: false, message: '插件不存在', state: getPublicState() };
-    if (plugin.builtin === true) {
-      return { ok: false, message: '内置插件不能删除，可以关闭开关禁用', state: getPublicState() };
-    }
-    await unloadPluginFromAllSessions(plugin);
-    state.plugins = state.plugins.filter((item) => item.id !== plugin.id);
-    persistState();
-    if (typeof onPluginStateChanged === 'function') {
-      try {
-        await onPluginStateChanged({ plugin: toPublicPlugin(plugin), enabled: false, removed: true });
-      } catch (error) {
-        logger.warn?.('[Extensions] 插件已删除，但浏览器刷新失败:', error?.message || error);
-      }
-    }
-    emitStateChanged();
-    return { ok: true, state: getPublicState() };
-  }
-
-  function isPluginEnabled(pluginId) {
-    return getPluginById(pluginId)?.enabled === true;
-  }
-
+function createExtensionManager(deps = {}) {
+  const runtime = new ExtensionManagerRuntime(deps);
   return {
-    BUILTIN_TRANSLATE_ID,
-    BUILTIN_REMOVE_WATERMARK_ID,
-    initialize,
-    getPublicState,
-    getEnabledExtensionPaths,
-    loadEnabledIntoSession,
-    ensureEnabledPluginsLoadedInCurrentSessions,
-    importPlugin,
-    setPluginEnabled,
-    removePlugin,
-    isPluginEnabled,
+    BUILTIN_TRANSLATE_ID: config.BUILTIN_TRANSLATE_ID,
+    BUILTIN_REMOVE_WATERMARK_ID: config.BUILTIN_REMOVE_WATERMARK_ID,
+    initialize: runtime.initialize.bind(runtime),
+    getPublicState: runtime.sessions.getPublicState,
+    getEnabledExtensionPaths: runtime.sessions.getEnabledExtensionPaths,
+    loadEnabledIntoSession: runtime.sessions.loadEnabledIntoSession,
+    ensureEnabledPluginsLoadedInCurrentSessions: runtime.sessions.ensureEnabledPluginsLoadedInCurrentSessions,
+    importPlugin: runtime.mutations.importPlugin,
+    setPluginEnabled: runtime.mutations.setPluginEnabled,
+    removePlugin: runtime.mutations.removePlugin,
+    isPluginEnabled: runtime.mutations.isPluginEnabled,
   };
 }
 
 module.exports = {
   createExtensionManager,
-  COMPAT_SHIM_FILE,
-  sanitizeManifestPermissionsForElectron,
+  COMPAT_SHIM_FILE: config.COMPAT_SHIM_FILE,
+  sanitizeManifestPermissionsForElectron: config.sanitizeManifestPermissionsForElectron,
 };

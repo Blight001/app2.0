@@ -5,7 +5,7 @@ function applyWindowsAppUserModelId() {
   if (process.platform !== 'win32') return;
 
   try {
-    const pkg = require('../../../package.json');
+    const pkg = require('../../../../package.json');
 // 处理：appId的具体业务逻辑。
     const appId = (pkg && pkg.build && pkg.build.appId) || pkg.name || 'com.ai-free.app';
     app.setAppUserModelId(appId);

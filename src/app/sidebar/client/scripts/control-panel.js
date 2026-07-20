@@ -14,8 +14,8 @@
 
   function syncAppTheme(theme) {
     try {
-      if (window.electronAPI && typeof window.electronAPI.send === 'function') {
-        window.electronAPI.send('app-theme-changed', theme);
+      if (typeof window.aiFree?.ui?.emitAppThemeChanged === 'function') {
+        window.aiFree.ui.emitAppThemeChanged( theme);
       }
     } catch (_) {}
   }
@@ -55,8 +55,8 @@
       themeToggleBtn.addEventListener('click', toggleTheme);
     }
 
-    if (window.electronAPI && typeof window.electronAPI.on === 'function') {
-      window.electronAPI.on('app-theme-changed', (theme) => {
+    if (typeof window.aiFree?.ui?.onAppThemeChanged === 'function') {
+      window.aiFree.ui.onAppThemeChanged((theme) => {
         applyTheme(theme, { broadcast: false });
       });
     }

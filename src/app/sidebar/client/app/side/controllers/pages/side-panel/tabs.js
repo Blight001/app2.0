@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (woolPlatformRefreshInFlight) return woolPlatformRefreshInFlight;
     woolPlatformRefreshInFlight = (async () => {
       try {
-        const response = await window.electronAPI?.invoke?.('refresh-wool-platforms');
+        const response = await window.aiFree?.content.refreshWoolPlatforms?.();
         if (response?.ok && typeof renderWoolPlatformButtons === 'function') {
           renderWoolPlatformButtons(
             Array.isArray(response.woolPlatforms) ? response.woolPlatforms : [],

@@ -4,31 +4,6 @@
 (function initControllerUtils() {
   const existing = window.RendererControllerUtils || {};
 
-  function createFallbackElectronApi() {
-    return {
-      __rendererFallback: true,
-      send: () => {},
-      on: () => {},
-      invoke: async () => undefined,
-    };
-  }
-
-  function ensureElectronApi() {
-    const current = window.electronAPI;
-    if (current && typeof current === 'object') {
-      if (typeof current.send !== 'function') current.send = () => {};
-      if (typeof current.on !== 'function') current.on = () => {};
-      if (typeof current.invoke !== 'function') current.invoke = async () => undefined;
-      return current;
-    }
-
-    const fallback = createFallbackElectronApi();
-    window.electronAPI = fallback;
-    return fallback;
-  }
-
-  ensureElectronApi();
-
   // 按 id 从指定根节点查找元素，方便页面脚本统一取 DOM。
   function getEl(id, root = document) {
     if (!root || typeof root.getElementById !== 'function') {
@@ -103,52 +78,21 @@
     console.warn(text);
   }
 
-  // 获取渲染进程可用的 IPC 适配层，兼容 preload 和直连 electron。
-  function getIpcBridge() {
-    const api = window.electronAPI;
-    if (
-      api
-      && api.__rendererFallback !== true
-      && typeof api.send === 'function'
-      && typeof api.on === 'function'
-    ) {
-      return {
-        send: api.send,
-        on: api.on,
-        invoke: typeof api.invoke === 'function'
-          ? api.invoke.bind(api)
-          : null,
-      };
-    }
-
-    try {
-      const { ipcRenderer } = require('electron');
-      return {
-        send: ipcRenderer.send.bind(ipcRenderer),
-        on: (channel, fn) => ipcRenderer.on(channel, (_evt, ...args) => fn(...args)),
-        invoke: typeof ipcRenderer.invoke === 'function' ? ipcRenderer.invoke.bind(ipcRenderer) : null,
-      };
-    } catch (_) {
-      return {
-        send: () => {},
-        on: () => {},
-        invoke: async () => ({ ok: false, message: 'IPC 不可用' }),
-      };
-    }
+  function resolveBusyButtonArguments(arg2, arg3, arg4) {
+    const legacy = Array.isArray(arg2) || arg2 == null || typeof arg2 !== 'function';
+    const fn = legacy ? arg3 : arg2;
+    const candidateOptions = legacy ? arg4 : arg3;
+    const options = candidateOptions && typeof candidateOptions === 'object' ? candidateOptions : {};
+    const candidateCompanions = legacy ? arg2 : options.companions;
+    const companions = Array.isArray(candidateCompanions) ? candidateCompanions.filter(Boolean) : [];
+    return { fn, options, companions };
   }
 
   // 给按钮套上“忙碌中”状态，执行异步任务期间禁用关联按钮并自动恢复。
   function withBusyButton(btn, arg2, arg3, arg4) {
     if (!btn || btn.dataset.busy === '1') return null;
 
-    const usingLegacySignature = Array.isArray(arg2) || arg2 == null || typeof arg2 !== 'function';
-    const fn = usingLegacySignature ? arg3 : arg2;
-    const options = usingLegacySignature
-      ? (arg4 && typeof arg4 === 'object' ? arg4 : {})
-      : (arg3 && typeof arg3 === 'object' ? arg3 : {});
-    const companions = usingLegacySignature
-      ? (Array.isArray(arg2) ? arg2.filter(Boolean) : [])
-      : (Array.isArray(options.companions) ? options.companions.filter(Boolean) : []);
+    const { fn, options, companions } = resolveBusyButtonArguments(arg2, arg3, arg4);
     const allButtons = [btn, ...companions];
     const originalText = btn.textContent;
     const loadingText = normalizeText(options.loadingText || btn.dataset.loadingText) || originalText;
@@ -201,7 +145,6 @@
     formatDateTimeCN,
     formatRemainingValidity,
     getEl,
-    getIpcBridge,
     normalizeText,
     showUserError,
     toFiniteNumber,

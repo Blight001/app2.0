@@ -1,5 +1,5 @@
 // 负责“打开即梦网页”按钮的事件绑定与调用主进程逻辑
-// 环境：Electron 渲染进程（需在 preload 暴露 window.electron.openDreamPage）
+// 环境：Electron 渲染进程（需在 preload 暴露 window.aiFree.content.openDreamPage）
 
 (() => {
   const DreamOpenerUtils = window.RendererControllerUtils || {};
@@ -40,6 +40,42 @@
       });
   });
 
+  function readDreamLaunchCredentials() {
+    const keyInput = getEl('key-input');
+    const deviceInput = getEl('device-id');
+    return {
+      key: String((keyInput && keyInput.value) || '').trim(),
+      deviceId: String((deviceInput && deviceInput.value) || '').trim(),
+    };
+  }
+
+  function resolveDreamLaunchTarget(clickedButton, container) {
+    const platform = String(clickedButton.dataset.platform || '').trim();
+    const buttonCount = container.querySelectorAll('.open-wool-platform-btn').length;
+    const legacyTargetUrl = buttonCount === 1 ? String(window.DREAM_URL || '').trim() : '';
+    return { platform, targetUrl: String(clickedButton.dataset.targetUrl || legacyTargetUrl).trim() };
+  }
+
+  async function openDreamPlatform(clickedButton, container) {
+    const { key, deviceId } = readDreamLaunchCredentials();
+    if (!key) throw new Error('请先登录账号');
+    const contentApi = window.aiFree && window.aiFree.content;
+    if (!contentApi || typeof contentApi.openDreamPage !== 'function') {
+      throw new Error('Electron 桥接未就绪（缺少 openDreamPage），请在 preload/main 中实现后再试');
+    }
+    const { platform, targetUrl } = resolveDreamLaunchTarget(clickedButton, container);
+    if (!platform || !targetUrl) throw new Error('羊毛平台配置不完整，请联系管理员');
+    console.log(`[前端] 用户点击"一键启动 ${platform}"按钮`);
+    console.log('[前端] 发送账号授权请求，设备ID:', deviceId);
+    const result = await contentApi.openDreamPage({ key, deviceId, platform, targetUrl });
+    if (!result || result.ok !== true) {
+      const message = result && (result.message || result.error) || '打开失败';
+      console.error('[前端] 打开网页失败:', message);
+      throw new Error(message);
+    }
+    console.log('[前端] 网页打开请求成功，标签页ID:', result.tabId);
+  }
+
 // 监听/绑定：attachOpenDreamPage的具体业务逻辑。
   function attachOpenDreamPage() {
     const container = getEl('wool-platform-buttons');
@@ -49,36 +85,7 @@
       const clickedButton = e.target && e.target.closest ? e.target.closest('.open-wool-platform-btn') : null;
       if (!clickedButton || !container.contains(clickedButton) || clickedButton.disabled) return;
       if (window.redirectToSidebarAccountLogin?.()) return;
-      const task = withBusyButton(clickedButton, async () => {
-// 处理：key的具体业务逻辑。
-        const key = (getEl('key-input')?.value || '').trim();
-// 处理：deviceId的具体业务逻辑。
-        const deviceId = (getEl('device-id')?.value || '').trim();
-        if (!key) throw new Error('请先登录账号');
-
-        if (!window.electron || typeof window.electron.openDreamPage !== 'function') {
-          throw new Error('Electron 桥接未就绪（缺少 openDreamPage），请在 preload/main 中实现后再试');
-        }
-
-        const platform = String(clickedButton.dataset.platform || '').trim();
-        const buttonCount = container.querySelectorAll('.open-wool-platform-btn').length;
-        const legacyTargetUrl = buttonCount === 1 ? String(window.DREAM_URL || '').trim() : '';
-        const targetUrl = String(clickedButton.dataset.targetUrl || legacyTargetUrl).trim();
-        if (!platform || !targetUrl) throw new Error('羊毛平台配置不完整，请联系管理员');
-        console.log(`[前端] 用户点击"一键启动 ${platform}"按钮`);
-        console.log('[前端] 发送账号授权请求，设备ID:', deviceId);
-
-        const result = await window.electron.openDreamPage({ key, deviceId, platform, targetUrl });
-        if (!result || result.ok !== true) {
-// 处理：msg的具体业务逻辑。
-          const msg = (result && (result.message || result.error)) || '打开失败';
-          console.error('[前端] 打开网页失败:', msg);
-          throw new Error(msg);
-        }
-
-        console.log('[前端] 网页打开请求成功，标签页ID:', result.tabId);
-
-      }, {
+      const task = withBusyButton(clickedButton, () => openDreamPlatform(clickedButton, container), {
         companions: [
           document.getElementById('validate-key-btn'),
           document.getElementById('VPN-switch'),

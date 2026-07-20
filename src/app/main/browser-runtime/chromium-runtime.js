@@ -1,117 +1,18 @@
 const crypto = require('crypto');
-const { spawn } = require('child_process');
 const { BrowserRuntime } = require('./browser-runtime');
 const { ChromiumCommandClient, createPipeName } = require('./chromium-command-client');
 const { ChromiumHealthMonitor } = require('./chromium-health');
 const {
-  captureChromiumSessionFiles,
   launchChromium,
-  loadStableChromiumSession,
-  persistStableChromiumSession,
-  restoreChromiumSessionFiles,
-  snapshotHasRestorableSession,
 } = require('./chromium-launcher');
 const { prepareSessionImport } = require('./session-import');
 const { normalizeBounds, RUNTIME_STATUS, RUNTIME_TYPES } = require('./runtime-types');
+const { stopChromiumProfile } = require('./chromium-runtime-process');
+const { snapshotAppliedChromiumProfile } = require('./chromium-profile-snapshot');
+const { attachChildWindowWithRetry } = require('./chromium-window-attachment');
+const { groupCookiesByOrigin } = require('./chromium-cookie-groups');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// instance.profile 也是下一次重启所使用的待应用配置，设置页会在不重启时更新它。
-// 单独保留本次进程真正采用的启动快照，避免界面把“已保存、待重启”误报成已生效。
-function snapshotAppliedChromiumProfile(profile = {}, launchArgs = []) {
-  const actualArgs = Array.isArray(launchArgs) ? launchArgs.map((item) => String(item || '')) : [];
-  const extensionArg = actualArgs.find((item) => item.startsWith('--load-extension=')) || '';
-  const loadedExtensions = extensionArg
-    ? extensionArg.slice('--load-extension='.length).split(',').map((item) => item.trim()).filter(Boolean)
-    : [];
-  return {
-    locale: String(profile.locale || '').trim(),
-    acceptLanguage: String(profile.acceptLanguage || '').trim(),
-    timezoneId: String(profile.timezoneId || '').trim(),
-    userAgent: String(profile.userAgent || '').trim(),
-    proxyServer: String(profile.proxyServer || '').trim(),
-    proxyBypassList: String(profile.proxyBypassList || '').trim(),
-    hardwareAcceleration: !actualArgs.includes('--disable-gpu'),
-    extensionCount: loadedExtensions.length,
-    browserSettings: profile.browserSettingsSnapshot && typeof profile.browserSettingsSnapshot === 'object'
-      ? JSON.parse(JSON.stringify(profile.browserSettingsSnapshot))
-      : null,
-    browserEnvironment: profile.browserEnvironment && typeof profile.browserEnvironment === 'object'
-      ? { ...profile.browserEnvironment }
-      : null,
-  };
-}
-
-function sessionSnapshotDigest(snapshot) {
-  if (!snapshot?.files?.length) return '';
-  const hash = crypto.createHash('sha256');
-  for (const file of [...snapshot.files].sort((left, right) => left.name.localeCompare(right.name))) {
-    hash.update(String(file.name || ''));
-    hash.update(file.data);
-  }
-  return hash.digest('hex');
-}
-
-async function waitForSettledChromiumSession(paths, timeoutMs = 3000) {
-  const deadline = Date.now() + Math.max(500, Number(timeoutMs) || 3000);
-  let previousDigest = '';
-  let stableReads = 0;
-  let latestSnapshot = null;
-  while (Date.now() < deadline) {
-    const snapshot = captureChromiumSessionFiles(paths, null);
-    const digest = sessionSnapshotDigest(snapshot);
-    if (digest && digest === previousDigest) {
-      stableReads += 1;
-      latestSnapshot = snapshot;
-      if (stableReads >= 3) return latestSnapshot;
-    } else {
-      previousDigest = digest;
-      stableReads = digest ? 1 : 0;
-      latestSnapshot = snapshot;
-    }
-    await delay(100);
-  }
-  return latestSnapshot;
-}
-
-function waitForChildExit(child, timeoutMs) {
-  if (!child || child.exitCode !== null) return Promise.resolve(true);
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (exited) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      child.off('exit', onExit);
-      resolve(exited);
-    };
-    const onExit = () => finish(true);
-    const timer = setTimeout(() => finish(child.exitCode !== null), Math.max(100, timeoutMs));
-    child.once('exit', onExit);
-  });
-}
-
-function terminateProcessTree(pid, timeoutMs = 10000) {
-  return new Promise((resolve) => {
-    const killer = spawn('taskkill.exe', ['/pid', String(pid), '/T', '/F'], {
-      windowsHide: true,
-      stdio: 'ignore',
-    });
-    let settled = false;
-    const finish = (ok) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(ok);
-    };
-    const timer = setTimeout(() => {
-      try { killer.kill(); } catch (_) {}
-      finish(false);
-    }, Math.max(1000, timeoutMs));
-    killer.once('error', () => finish(false));
-    killer.once('exit', (code) => finish(code === 0 || code === 128));
-  });
-}
 
 class ChromiumRuntime extends BrowserRuntime {
   constructor(options = {}) {
@@ -140,98 +41,145 @@ class ChromiumRuntime extends BrowserRuntime {
     return tracked;
   }
 
+  /** @param {Record<string, any>} [rawProfile] */
   async launchProfile(rawProfile = {}, rawBounds = {}) {
     const profileId = String(rawProfile.profileId || rawProfile.id || '').trim();
     if (!profileId) throw new Error('缺少 Profile ID');
-    const existing = this.store.getState(profileId);
-    if (existing && ['ready', 'hidden'].includes(existing.status)) {
+    if (this.isProfileVisible(profileId)) {
       await this.resize(profileId, rawBounds);
       await this.show(profileId);
       return this.getState(profileId);
     }
+    const context = this.prepareProfileLaunch(profileId, rawProfile, rawBounds);
+    try {
+      const instance = await this.createProfileInstance(context);
+      await this.completeProfileLaunch(profileId, instance, context.bounds);
+      return this.getState(profileId);
+    } catch (error) {
+      await this.cleanupFailedLaunch(profileId, {
+        hostHwnd: context.hostHwnd,
+        commandClient: context.commandClient,
+        error,
+      });
+      throw error;
+    }
+  }
+
+  isProfileVisible(profileId) {
+    return ['ready', 'hidden'].includes(this.store.getState(profileId)?.status);
+  }
+
+  prepareProfileLaunch(profileId, rawProfile, rawBounds) {
     const bounds = normalizeBounds(rawBounds);
     const paths = this.store.ensureProfile({ ...rawProfile, profileId, runtimeType: RUNTIME_TYPES.CHROMIUM });
-    // Chromium Fork uses an ASCII-only switch API for the handshake Profile ID.
-    // Business IDs may contain Chinese text (for example, "豆包::account"), so
-    // use the store's normalized filesystem ID only for the bridge protocol.
     const runtimeProfileId = String(paths.id || '').trim();
     this.store.acquireLock(profileId, { runtimeType: RUNTIME_TYPES.CHROMIUM });
     this.store.createState(profileId, RUNTIME_TYPES.CHROMIUM, { bounds, status: RUNTIME_STATUS.STARTING, startedAt: Date.now() });
+    return {
+      profileId,
+      profile: { ...rawProfile, profileId },
+      paths,
+      runtimeProfileId,
+      bounds,
+      hostHwnd: null,
+      commandClient: null,
+    };
+  }
 
-    let hostHwnd = null;
-    let commandClient = null;
-    try {
-      const parentWindow = this.getParentWindow?.();
-      if (!parentWindow || parentWindow.isDestroyed?.()) throw new Error('Electron 主窗口不可用');
-      const parentHwnd = parentWindow.getNativeWindowHandle();
-      hostHwnd = this.windowBridge.createHostWindow({ parentHwnd, ...bounds });
-      // Also hide explicitly so an older packaged native binding cannot expose
-      // its black host surface while Chromium is still handshaking.
-      this.windowBridge.hideHostWindow(hostHwnd);
-      const pipeName = createPipeName(profileId);
-      const launchToken = crypto.randomBytes(32).toString('hex');
-      commandClient = new ChromiumCommandClient({ profileId: runtimeProfileId, pipeName, launchToken, logger: this.logger });
-      await commandClient.listen();
-      this.store.transition(profileId, RUNTIME_STATUS.WAITING_PIPE, { hostHwnd, pipeName });
+  async createProfileInstance(context) {
+    const parentWindow = this.getParentWindow?.();
+    if (!parentWindow || parentWindow.isDestroyed?.()) throw new Error('Electron 主窗口不可用');
+    const hostHwnd = this.windowBridge.createHostWindow({
+      parentHwnd: parentWindow.getNativeWindowHandle(),
+      ...context.bounds,
+    });
+    context.hostHwnd = hostHwnd;
+    this.windowBridge.hideHostWindow(hostHwnd);
+    const pipeName = createPipeName(context.profileId);
+    const launchToken = crypto.randomBytes(32).toString('hex');
+    const commandClient = new ChromiumCommandClient({
+      profileId: context.runtimeProfileId, pipeName, launchToken, logger: this.logger,
+    });
+    context.commandClient = commandClient;
+    await commandClient.listen();
+    this.store.transition(context.profileId, RUNTIME_STATUS.WAITING_PIPE, { hostHwnd, pipeName });
+    const launched = launchChromium({
+      ...context,
+      hostHwnd,
+      pipeName,
+      launchToken,
+      resourcesPath: this.resourcesPath,
+      executablePath: context.profile.executablePath,
+      logger: this.logger,
+    });
+    const instance = this.recordProfileInstance(context, parentWindow, commandClient, launched);
+    this.bindInstance(context.profileId, instance);
+    return instance;
+  }
 
-      const profile = { ...rawProfile, profileId };
-      const launched = launchChromium({
-        profile, paths, bounds, hostHwnd, pipeName, launchToken, runtimeProfileId,
-        resourcesPath: this.resourcesPath, executablePath: profile.executablePath, logger: this.logger,
-      });
-      const child = launched.child;
-      commandClient.setExpectedPid(child.pid);
-      const instance = {
-        profile,
-        appliedProfile: snapshotAppliedChromiumProfile(profile, launched.args),
-        paths, child, commandClient, hostHwnd, parentWindow, runtimeProfileId,
-        expectedExit: false, monitor: null, parentFocusHandler: null,
-        parentFocusRaiseTimers: new Set(),
-      };
-      this.instances.set(profileId, instance);
-      this.store.patchState(profileId, { pid: child.pid });
-      this.bindInstance(profileId, instance);
+  recordProfileInstance(context, parentWindow, commandClient, launched) {
+    const { child } = launched;
+    commandClient.setExpectedPid(child.pid);
+    const instance = {
+      profile: context.profile,
+      appliedProfile: snapshotAppliedChromiumProfile(context.profile, launched.args),
+      paths: context.paths,
+      child,
+      commandClient,
+      hostHwnd: context.hostHwnd,
+      parentWindow,
+      runtimeProfileId: context.runtimeProfileId,
+      expectedExit: false,
+      monitor: null,
+      parentFocusHandler: null,
+      parentFocusRaiseTimers: new Set(),
+    };
+    this.instances.set(context.profileId, instance);
+    this.store.patchState(context.profileId, { pid: child.pid });
+    return instance;
+  }
 
-      const browserHwnd = await this.waitForBrowserWindow(profileId, instance);
-      const prototypeMode = String(process.env.AI_FREE_CHROMIUM_HANDSHAKE || '').toLowerCase() === 'prototype';
-      const handshakeState = this.store.getState(profileId);
-      if (!prototypeMode && (!handshakeState?.bridgeConnected || !handshakeState?.sessionId || !browserHwnd)) {
-        const handshakeError = new Error('AI-FREE Chromium Fork 握手状态不完整');
-        handshakeError.code = 'CHROMIUM_HANDSHAKE_INCOMPLETE';
-        throw handshakeError;
-      }
-      this.store.transition(profileId, RUNTIME_STATUS.ATTACHING, { browserHwnd });
-      const attached = this.windowBridge.attachChildWindow({
-        hostHwnd,
-        childHwnd: browserHwnd,
-        childPid: child.pid,
-        title: 'AI-FREE',
-      });
-      if (!attached || !this.windowBridge.isChildWindowAttached(hostHwnd, browserHwnd)) {
-        const attachError = new Error('外部浏览器未能嵌入 AI-FREE 软件窗口');
-        attachError.code = 'CHROMIUM_HWND_ATTACH_FAILED';
-        throw attachError;
-      }
-      this.windowBridge.setChildWindowTitle(browserHwnd, 'AI-FREE');
-      this.windowBridge.setHostBounds(hostHwnd, bounds);
-      this.windowBridge.showHostWindow(hostHwnd);
-      this.store.transition(profileId, RUNTIME_STATUS.READY, {
-        productName: 'AI-FREE',
-        embedded: true,
-        lastHeartbeatAt: Date.now(),
-      });
-      instance.monitor = new ChromiumHealthMonitor({
-        isWindowAlive: (hwnd) => this.windowBridge.isWindowAlive(hwnd),
-        onFailure: (error) => this.markCrashed(profileId, error),
-      });
-      instance.monitor.start(() => this.store.getState(profileId));
-      this.bindParentWindowFocus(profileId, instance);
-      this.emit('state-changed', this.getState(profileId));
-      return this.getState(profileId);
-    } catch (error) {
-      await this.cleanupFailedLaunch(profileId, { hostHwnd, commandClient, error });
+  async completeProfileLaunch(profileId, instance, bounds) {
+    const browserHwnd = await this.waitForBrowserWindow(profileId, instance);
+    this.assertCompleteHandshake(profileId, browserHwnd);
+    await this.attachProfileWindow(profileId, instance, browserHwnd, bounds);
+    instance.monitor = new ChromiumHealthMonitor({
+      isWindowAlive: (hwnd) => this.windowBridge.isWindowAlive(hwnd),
+      onFailure: (error) => this.markCrashed(profileId, error),
+    });
+    instance.monitor.start(() => this.store.getState(profileId));
+    this.bindParentWindowFocus(profileId, instance);
+    this.emit('state-changed', this.getState(profileId));
+  }
+
+  assertCompleteHandshake(profileId, browserHwnd) {
+    const prototypeMode = String(process.env.AI_FREE_CHROMIUM_HANDSHAKE || '').toLowerCase() === 'prototype';
+    const state = this.store.getState(profileId);
+    if (prototypeMode || (state?.bridgeConnected && state?.sessionId && browserHwnd)) return;
+    const error = /** @type {Error & {code?: string}} */ (new Error('AI-FREE Chromium Fork 握手状态不完整'));
+    error.code = 'CHROMIUM_HANDSHAKE_INCOMPLETE';
+    throw error;
+  }
+
+  async attachProfileWindow(profileId, instance, browserHwnd, bounds) {
+    this.store.transition(profileId, RUNTIME_STATUS.ATTACHING, { browserHwnd });
+    const attached = await attachChildWindowWithRetry(this.windowBridge, {
+      hostHwnd: instance.hostHwnd,
+      childHwnd: browserHwnd,
+      childPid: instance.child.pid,
+      title: 'AI-FREE',
+    }, { logger: this.logger });
+    if (!attached) {
+      const error = /** @type {Error & {code?: string}} */ (new Error('外部浏览器未能嵌入 AI-FREE 软件窗口'));
+      error.code = 'CHROMIUM_HWND_ATTACH_FAILED';
       throw error;
     }
+    this.windowBridge.setChildWindowTitle(browserHwnd, 'AI-FREE');
+    this.windowBridge.setHostBounds(instance.hostHwnd, bounds);
+    this.windowBridge.showHostWindow(instance.hostHwnd);
+    this.store.transition(profileId, RUNTIME_STATUS.READY, {
+      productName: 'AI-FREE', embedded: true, lastHeartbeatAt: Date.now(),
+    });
   }
 
   bindInstance(profileId, instance) {
@@ -313,6 +261,7 @@ class ChromiumRuntime extends BrowserRuntime {
       if (instance.child.exitCode !== null) throw new Error('Chromium 在创建窗口前退出');
       await delay(100);
     }
+    /** @type {Error & {code?: string}} */
     const error = new Error(allowPrototype ? '等待 Chromium 主窗口超时' : '等待 Chromium Fork 命名管道握手超时');
     error.code = 'CHROMIUM_WINDOW_TIMEOUT';
     throw error;
@@ -352,6 +301,7 @@ class ChromiumRuntime extends BrowserRuntime {
     const state = this.store.getState(id);
     const instance = this.instances.get(id);
     if (!instance || !state || ![RUNTIME_STATUS.READY, RUNTIME_STATUS.HIDDEN].includes(state.status)) {
+      /** @type {Error & {code?: string}} */
       const error = new Error(`Chromium Profile ${id || '<empty>'} 尚未就绪`);
       error.code = 'CHROMIUM_RUNTIME_NOT_READY';
       throw error;
@@ -398,22 +348,40 @@ class ChromiumRuntime extends BrowserRuntime {
     const instance = this.getReadyInstance(profileId);
     const prepared = prepareSessionImport(rawSession);
     const commandClient = instance.commandClient;
+    this.logSkippedSessionData(profileId, prepared);
+    const clearResult = await this.clearImportedSession(profileId, commandClient);
+    const cookieResult = await this.importPreparedCookies(profileId, commandClient, prepared);
+    const storageResults = await this.importPreparedStorage(profileId, commandClient, prepared);
+    const navigation = rawSession.navigateAfterImport === false
+      ? { result: { skipped: true } }
+      : await this.navigateAfterSessionImport(profileId, commandClient, prepared.targetUrl);
+    return this.createSessionImportResult(profileId, prepared, clearResult, cookieResult, storageResults, navigation);
+  }
+
+  logSkippedSessionData(profileId, prepared) {
     if (prepared.skippedCookies > 0 || prepared.skippedStorageOrigins > 0) {
       this.logger?.warn?.(
         `[ChromiumRuntime] importSession ${profileId}: 跳过与目标站点无关的数据 `
         + `(Cookie ${prepared.skippedCookies} 个, Storage ${prepared.skippedStorageOrigins} 个)`,
       );
     }
+  }
+
+  async clearImportedSession(profileId, commandClient) {
     this.logger?.info?.(`[ChromiumRuntime] importSession ${profileId}: clear-session`);
-    const clearResult = await commandClient.send('clear-session', {}, { timeoutMs: 30000 });
-    let cookieResult = { result: { imported: 0 } };
-    if (prepared.cookies.length > 0) {
-      this.logger?.info?.(`[ChromiumRuntime] importSession ${profileId}: set-cookies (${prepared.cookies.length})`);
-      cookieResult = await commandClient.send('set-cookies', {
-        cookies: prepared.cookies,
-        targetUrl: prepared.targetUrl,
-      }, { timeoutMs: 30000 });
-    }
+    return commandClient.send('clear-session', {}, { timeoutMs: 30000 });
+  }
+
+  async importPreparedCookies(profileId, commandClient, prepared) {
+    if (!prepared.cookies.length) return { result: { imported: 0 } };
+    this.logger?.info?.(`[ChromiumRuntime] importSession ${profileId}: set-cookies (${prepared.cookies.length})`);
+    return commandClient.send('set-cookies', {
+      cookies: prepared.cookies,
+      targetUrl: prepared.targetUrl,
+    }, { timeoutMs: 30000 });
+  }
+
+  async importPreparedStorage(profileId, commandClient, prepared) {
     const storageResults = [];
     for (const entry of prepared.browserStorage) {
       this.logger?.info?.(`[ChromiumRuntime] importSession ${profileId}: set-storage ${entry.origin}`);
@@ -422,42 +390,40 @@ class ChromiumRuntime extends BrowserRuntime {
         targetUrl: prepared.targetUrl,
       }, { timeoutMs: 30000 }));
     }
-    const navigateAfterImport = rawSession.navigateAfterImport !== false;
-    let navigation = { result: { skipped: true } };
-    if (navigateAfterImport) {
-      this.logger?.info?.(`[ChromiumRuntime] importSession ${profileId}: navigate ${prepared.targetUrl}`);
-      try {
-        navigation = await commandClient.send('navigate', {
-          url: prepared.targetUrl,
-        }, { timeoutMs: 30000 });
-      } catch (error) {
-        const message = String(error?.message || '');
-        const navigationTimedOut = ['NAVIGATION_TIMEOUT', 'RUNTIME_COMMAND_TIMEOUT'].includes(error?.code);
-        const navigationInterrupted = error?.code === 'NAVIGATION_FAILED'
-          && (/页面加载失败:\s*-3(?:\s|$)/.test(message) || /ERR_ABORTED/i.test(message));
-        if (!navigationTimedOut && !navigationInterrupted) throw error;
-        // navigate has already been delivered to Chromium. A slow page can keep
-        // loading after the bridge response deadline. ERR_ABORTED (-3) also means
-        // that the site replaced this navigation (usually a redirect), not that
-        // the destination is unreachable. Neither condition should tear down a
-        // valid imported session or turn browser startup into a hard failure.
-        this.logger?.warn?.(
-          navigationInterrupted
-            ? `[ChromiumRuntime] importSession ${profileId}: 页面导航被站点重定向，保留浏览器并等待最终页面`
-            : `[ChromiumRuntime] importSession ${profileId}: 页面加载超过等待时间，保留浏览器并继续加载`,
-        );
-        navigation = {
-          result: {
-            pending: true,
-            timedOut: navigationTimedOut,
-            interrupted: navigationInterrupted,
-            message: navigationInterrupted
-              ? '页面正在重定向，已保留浏览器窗口'
-              : '页面仍在加载，已保留浏览器窗口',
-          },
-        };
-      }
+    return storageResults;
+  }
+
+  async navigateAfterSessionImport(profileId, commandClient, targetUrl) {
+    this.logger?.info?.(`[ChromiumRuntime] importSession ${profileId}: navigate ${targetUrl}`);
+    try {
+      return await commandClient.send('navigate', { url: targetUrl }, { timeoutMs: 30000 });
+    } catch (error) {
+      return this.normalizeImportNavigationError(profileId, error);
     }
+  }
+
+  normalizeImportNavigationError(profileId, error) {
+    const message = String(error?.message || '');
+    const timedOut = ['NAVIGATION_TIMEOUT', 'RUNTIME_COMMAND_TIMEOUT'].includes(error?.code);
+    const interrupted = error?.code === 'NAVIGATION_FAILED'
+      && (/页面加载失败:\s*-3(?:\s|$)/.test(message) || /ERR_ABORTED/i.test(message));
+    if (!timedOut && !interrupted) throw error;
+    this.logger?.warn?.(
+      interrupted
+        ? `[ChromiumRuntime] importSession ${profileId}: 页面导航被站点重定向，保留浏览器并等待最终页面`
+        : `[ChromiumRuntime] importSession ${profileId}: 页面加载超过等待时间，保留浏览器并继续加载`,
+    );
+    return {
+      result: {
+        pending: true,
+        timedOut,
+        interrupted,
+        message: interrupted ? '页面正在重定向，已保留浏览器窗口' : '页面仍在加载，已保留浏览器窗口',
+      },
+    };
+  }
+
+  createSessionImportResult(profileId, prepared, clearResult, cookieResult, storageResults, navigation) {
     return {
       ok: true,
       profileId: String(profileId),
@@ -478,18 +444,7 @@ class ChromiumRuntime extends BrowserRuntime {
 
   async setCookiesNow(profileId, rawCookies = []) {
     const instance = this.getReadyInstance(profileId);
-    const groups = new Map();
-    for (const cookie of Array.isArray(rawCookies) ? rawCookies : []) {
-      let targetUrl = String(cookie?.url || '').trim();
-      if (!targetUrl && cookie?.domain) targetUrl = `https://${String(cookie.domain).replace(/^\./, '')}/`;
-      try {
-        const parsed = new URL(targetUrl);
-        if (!['http:', 'https:'].includes(parsed.protocol)) continue;
-        const key = parsed.origin;
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push({ ...cookie, url: targetUrl });
-      } catch (_) {}
-    }
+    const groups = groupCookiesByOrigin(rawCookies);
     let imported = 0;
     let skipped = 0;
     for (const [targetUrl, cookies] of groups) {
@@ -559,74 +514,7 @@ class ChromiumRuntime extends BrowserRuntime {
   }
 
   async stop(profileId, options = {}) {
-    const id = String(profileId);
-    const state = this.store.getState(id);
-    const instance = this.instances.get(id);
-    if (!state) return null;
-    if (![RUNTIME_STATUS.STOPPING, RUNTIME_STATUS.STOPPED].includes(state.status)) this.store.transition(id, RUNTIME_STATUS.STOPPING);
-    if (instance) {
-      // 当前已发布 Chromium Bridge 的 close-browser 等价于关闭最后一个
-      // 窗口，会把 Session 重写为空。退出前捕获，进程完整落盘 Cookie/
-      // Storage 后再恢复窗口会话文件，兼顾数据完整性与下次标签恢复。
-      const preCloseSnapshot = options.preserveSession === false
-        ? null
-        : captureChromiumSessionFiles(instance.paths, null);
-      const stableSnapshot = options.preserveSession === false
-        ? null
-        : loadStableChromiumSession(instance.paths, this.logger);
-      instance.expectedExit = true;
-      instance.monitor?.stop();
-      this.unbindParentWindowFocus(instance);
-      try { await instance.commandClient.send('close-browser', {}, { timeoutMs: 3000 }); } catch (_) {}
-      const deadline = Date.now() + Math.max(500, Number(options.timeoutMs) || 4000);
-      while (instance.child.exitCode === null && Date.now() < deadline) await delay(100);
-      if (instance.child.exitCode === null) {
-        if (options.force === false) {
-          try { instance.child.kill(); } catch (_) {}
-        } else {
-          await terminateProcessTree(instance.child.pid);
-        }
-        await waitForChildExit(instance.child, 5000);
-      }
-      if (instance.child.exitCode === null) {
-        const error = new Error(`Chromium Profile ${id} 进程未能在超时内退出`);
-        error.code = 'CHROMIUM_PROCESS_EXIT_TIMEOUT';
-        throw error;
-      }
-      if (options.preserveSession !== false) {
-        // 浏览器主进程退出并不代表 Session 文件已完成落盘；等待文件连续稳定，
-        // 避免残留子进程在快照恢复之后再次写入 TabClosed。
-        const postCloseSnapshot = await waitForSettledChromiumSession(instance.paths, 3000);
-        if (snapshotHasRestorableSession(postCloseSnapshot)) {
-          persistStableChromiumSession(instance.paths, postCloseSnapshot, this.logger);
-        } else {
-          const recoverySnapshot = snapshotHasRestorableSession(preCloseSnapshot)
-            ? preCloseSnapshot
-            : stableSnapshot;
-          if (recoverySnapshot && restoreChromiumSessionFiles(recoverySnapshot, this.logger)) {
-            persistStableChromiumSession(instance.paths, recoverySnapshot, this.logger);
-            this.logger?.warn?.(`[ChromiumRuntime] ${id} 退出结果无活动标签，已恢复稳定 Session`);
-          }
-        }
-      }
-      try { await instance.commandClient.close(); } catch (_) {}
-    }
-    if (state.browserHwnd) try { this.windowBridge.detachChildWindow({ hostHwnd: state.hostHwnd, childHwnd: state.browserHwnd }); } catch (_) {}
-    if (state.hostHwnd) try { this.windowBridge.destroyHostWindow(state.hostHwnd); } catch (_) {}
-    this.instances.delete(id);
-    this.store.releaseLock(id);
-    this.store.patchState(id, {
-      status: RUNTIME_STATUS.STOPPED,
-      stoppedAt: Date.now(),
-      browserHwnd: null,
-      hostHwnd: null,
-      pid: 0,
-      sessionId: '',
-      bridgeConnected: false,
-      embedded: false,
-    });
-    this.emit('state-changed', this.getState(id));
-    return this.getState(id);
+    return stopChromiumProfile(this, profileId, options);
   }
 
   async stopAll(options = {}) { return Promise.all(this.store.listStates().filter((s) => s.runtimeType === RUNTIME_TYPES.CHROMIUM).map((s) => this.stop(s.profileId, options))); }

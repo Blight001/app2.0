@@ -38,11 +38,11 @@ function objectPayload(channel, payload, { optional = false } = {}) {
 }
 
 function stringField(channel, object, key, options = {}) {
-  const { required = false, maxLength = MAX_ID_LENGTH } = options;
+  const { required = false, maxLength = MAX_ID_LENGTH, path = key } = options;
   const value = object[key];
   if (value === undefined && !required) return;
-  if (typeof value !== 'string') fail(channel, key, '必须是字符串');
-  if (value.length > maxLength) fail(channel, key, `长度不能超过 ${maxLength}`);
+  if (typeof value !== 'string') fail(channel, path, '必须是字符串');
+  if (value.length > maxLength) fail(channel, path, `长度不能超过 ${maxLength}`);
 }
 
 function booleanField(channel, object, key) {
@@ -61,6 +61,34 @@ function stringListField(channel, object, key) {
   }
 }
 
+function numberLikeField(channel, object, key) {
+  const value = object[key];
+  if (value === undefined) return;
+  if ((typeof value !== 'number' && typeof value !== 'string') || !Number.isFinite(Number(value))) {
+    fail(channel, key, '必须是有效数字');
+  }
+}
+
+function validateChatMessage(channel, message, index) {
+  const path = `messages[${index}]`;
+  if (!isPlainObject(message)) fail(channel, path, '必须是对象');
+  stringField(channel, message, 'role', { maxLength: 32, path: `${path}.role` });
+  if (message.content !== undefined && typeof message.content !== 'string' && !Array.isArray(message.content)) {
+    fail(channel, `${path}.content`, '必须是字符串或数组');
+  }
+  for (const key of ['tool_call_id', 'name', 'reasoning']) {
+    stringField(channel, message, key, {
+      maxLength: key === 'reasoning' ? MAX_TEXT_LENGTH : MAX_ID_LENGTH,
+      path: `${path}.${key}`,
+    });
+  }
+  for (const key of ['tool_calls', 'tool_events', 'trace_events']) {
+    if (message[key] === undefined) continue;
+    if (!Array.isArray(message[key])) fail(channel, `${path}.${key}`, '必须是数组');
+    if (message[key].length > MAX_LIST_LENGTH) fail(channel, `${path}.${key}`, `数量不能超过 ${MAX_LIST_LENGTH}`);
+  }
+}
+
 function validateHistorySession(channel, session) {
   if (!isPlainObject(session)) fail(channel, 'session', '必须是对象');
   for (const key of ['id', 'title', 'modelId', 'browserConnectionId', 'automationCardId', 'preview']) {
@@ -76,6 +104,18 @@ function validateHistorySession(channel, session) {
 }
 
 const IPC_PAYLOAD_SCHEMAS = Object.freeze({
+  'account.authenticate': (channel, payload) => {
+    const input = objectPayload(channel, payload, { optional: true });
+    stringField(channel, input, 'mode', { maxLength: 32 });
+    stringField(channel, input, 'username', { maxLength: 256 });
+    stringField(channel, input, 'password', { maxLength: 4096 });
+    return input;
+  },
+  'account.gift-code': (channel, payload) => {
+    const input = objectPayload(channel, payload, { optional: true });
+    stringField(channel, input, 'code', { maxLength: 512 });
+    return input;
+  },
   'ai.browser-selection': (channel, payload) => {
     const input = objectPayload(channel, payload, { optional: true });
     stringField(channel, input, 'profileId');
@@ -85,6 +125,23 @@ const IPC_PAYLOAD_SCHEMAS = Object.freeze({
   'ai.card-selection': (channel, payload) => {
     const input = objectPayload(channel, payload, { optional: true });
     stringField(channel, input, 'id');
+    return input;
+  },
+  'ai.chat': (channel, payload) => {
+    const input = objectPayload(channel, payload, { optional: true });
+    for (const key of ['modelId', 'requestId', 'browserConnectionId', 'automationCardId']) {
+      stringField(channel, input, key);
+    }
+    stringListField(channel, input, 'browserConnectionIds');
+    for (const key of ['disableTools', 'stream']) booleanField(channel, input, key);
+    if (input.quota !== undefined && input.quota !== null && !isPlainObject(input.quota)) {
+      fail(channel, 'quota', '必须是对象或 null');
+    }
+    if (input.messages !== undefined) {
+      if (!Array.isArray(input.messages)) fail(channel, 'messages', '必须是数组');
+      if (input.messages.length > MAX_LIST_LENGTH) fail(channel, 'messages', `数量不能超过 ${MAX_LIST_LENGTH}`);
+      input.messages.forEach((message, index) => validateChatMessage(channel, message, index));
+    }
     return input;
   },
   'ai.chat-insert': (channel, payload) => {
@@ -101,6 +158,15 @@ const IPC_PAYLOAD_SCHEMAS = Object.freeze({
   'ai.gift-code': (channel, payload) => {
     const input = objectPayload(channel, payload, { optional: true });
     stringField(channel, input, 'code');
+    return input;
+  },
+  'ai.custom-api': (channel, payload) => {
+    const input = objectPayload(channel, payload, { optional: true });
+    for (const key of ['clear', 'enabled']) booleanField(channel, input, key);
+    stringField(channel, input, 'name', { maxLength: 80 });
+    stringField(channel, input, 'baseUrl', { maxLength: 2048 });
+    stringField(channel, input, 'model', { maxLength: 200 });
+    stringField(channel, input, 'apiKey', { maxLength: 4096 });
     return input;
   },
   'ai.history-create': (channel, payload) => {
@@ -124,6 +190,17 @@ const IPC_PAYLOAD_SCHEMAS = Object.freeze({
     const input = objectPayload(channel, payload, { optional: true });
     booleanField(channel, input, 'setCurrent');
     validateHistorySession(channel, input.session === undefined ? input : input.session);
+    return input;
+  },
+  'ai.settings': (channel, payload) => {
+    const input = objectPayload(channel, payload, { optional: true });
+    numberLikeField(channel, input, 'mcpCallLimit');
+    return input;
+  },
+  'license.record-delete': (channel, payload) => {
+    const input = objectPayload(channel, payload, { optional: true });
+    stringField(channel, input, 'keyValue', { maxLength: 4096 });
+    stringField(channel, input, 'id');
     return input;
   },
 });

@@ -8,6 +8,10 @@
 'use strict';
 
 const { isRegisteredInvoke, isRegisteredEvent } = require('../../contracts/ipc-channels');
+const {
+  wrapLegacyIpcEventPayload,
+  wrapLegacyIpcPayload,
+} = require('../../contracts/ipc-payloads');
 
 function createIpcRegistry(ipcMain, { source = 'unknown' } = {}) {
   const handles = new Map(); // channel -> registrar 描述
@@ -29,7 +33,7 @@ function createIpcRegistry(ipcMain, { source = 'unknown' } = {}) {
         throw new Error(`[ipc-registry:${source}] invoke 通道 '${channel}' 未在 contracts/ipc-channels.js 登记`);
       }
       assertUsable(channel, handles, 'invoke');
-      ipcMain.handle(channel, handler);
+      ipcMain.handle(channel, wrapLegacyIpcPayload(channel, handler));
       handles.set(channel, { registrar });
     },
     on(channel, listener, { registrar = source } = {}) {
@@ -37,8 +41,9 @@ function createIpcRegistry(ipcMain, { source = 'unknown' } = {}) {
         throw new Error(`[ipc-registry:${source}] event 通道 '${channel}' 未在 contracts/ipc-channels.js 登记`);
       }
       assertUsable(channel, listeners, 'event');
-      ipcMain.on(channel, listener);
-      listeners.set(channel, { registrar, listener });
+      const wrappedListener = wrapLegacyIpcEventPayload(channel, listener);
+      ipcMain.on(channel, wrappedListener);
+      listeners.set(channel, { registrar, listener: wrappedListener });
     },
     dispose() {
       if (disposed) return;

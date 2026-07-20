@@ -77,3 +77,23 @@ test('dispose 只移除自己的监听器（按引用精确移除）', () => {
   registry.dispose();
   assert.equal(ipcMain.listeners.has('foreign-dynamic-channel'), true, '不得误删非注册器管理的监听');
 });
+
+test('声明 requestSchema 的 invoke 在进入业务 handler 前自动校验', async () => {
+  const ipcMain = fakeIpcMain();
+  const registry = createIpcRegistry(ipcMain, { source: 'unit' });
+  let called = 0;
+  registry.handle('ai-control-chat-stop', async (_event, payload) => {
+    called += 1;
+    return { ok: true, requestId: payload.requestId };
+  });
+
+  const handler = ipcMain.handlers.get('ai-control-chat-stop');
+  assert.deepEqual(await handler({}, { requestId: 'req-1' }), { ok: true, requestId: 'req-1' });
+  assert.equal(called, 1);
+  assert.deepEqual(await handler({}, { requestId: 42 }), {
+    ok: false,
+    code: 'IPC_INVALID_PAYLOAD',
+    message: '请求参数无效：requestId 必须是字符串',
+  });
+  assert.equal(called, 1, '非法输入不得触发业务 handler');
+});

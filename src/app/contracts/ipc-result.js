@@ -5,6 +5,9 @@
 // 本模块零依赖，主进程与测试均可直接 require。
 'use strict';
 
+/** @typedef {import('./ipc-contracts').IpcErrorPayload} IpcErrorPayload */
+/** @template T @typedef {import('./ipc-contracts').IpcResult<T>} IpcResult */
+
 class AppError extends Error {
   /**
    * @param {string} code 稳定错误码（如 'NETWORK_TIMEOUT'、'VIP_REQUIRED'）
@@ -21,8 +24,10 @@ class AppError extends Error {
   }
 }
 
+/** @template T @param {T} data @returns {IpcResult<T>} */
 const ok = (data) => ({ ok: true, data });
 
+/** @returns {IpcErrorPayload} */
 function toErrorPayload(error, fallbackCode = 'UNKNOWN') {
   if (error instanceof AppError) {
     const payload = { code: error.code, message: error.message, retryable: error.retryable };
@@ -36,6 +41,7 @@ function toErrorPayload(error, fallbackCode = 'UNKNOWN') {
   };
 }
 
+/** @returns {IpcResult<never>} */
 const fail = (error, fallbackCode = 'UNKNOWN') => ({ ok: false, error: toErrorPayload(error, fallbackCode) });
 
 // 包装 async handler：正常返回自动套 ok()，抛错自动映射为 fail()

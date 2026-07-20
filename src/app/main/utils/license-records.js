@@ -2,24 +2,27 @@ function normalizeLicenseKeyValue(value) {
   return String(value || '').trim();
 }
 
+function firstLicenseRecordValue(entry, fields) {
+  for (const field of fields) {
+    if (entry[field] !== undefined && entry[field] !== null && entry[field] !== '') return entry[field];
+  }
+  return '';
+}
+
 function normalizeLicenseRecord(entry = {}, options = {}) {
   if (!entry) return null;
   if (options.requireSuccessStatus === true && entry.status && entry.status !== 'success') {
     return null;
   }
 
-  const keyValue = normalizeLicenseKeyValue(entry.keyValue || entry.key || '');
+  const keyValue = normalizeLicenseKeyValue(firstLicenseRecordValue(entry, ['keyValue', 'key']));
   if (!keyValue) return null;
 
-  const platformName = normalizeLicenseKeyValue(
-    entry.platformName
-    || entry.platform
-    || entry.currentPlatformName
-    || ''
-  );
+  const platformName = normalizeLicenseKeyValue(firstLicenseRecordValue(
+    entry, ['platformName', 'platform', 'currentPlatformName']));
 
   const normalized = {
-    id: String(entry.id || keyValue || `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`),
+    id: String(firstLicenseRecordValue(entry, ['id']) || keyValue || `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`),
     keyValue,
   };
 
@@ -28,8 +31,8 @@ function normalizeLicenseRecord(entry = {}, options = {}) {
   }
 
   if (options.includeTimestamps === true) {
-    const savedAt = normalizeLicenseKeyValue(entry.savedAt || entry.createdAt || '');
-    const updatedAt = normalizeLicenseKeyValue(entry.updatedAt || '');
+    const savedAt = normalizeLicenseKeyValue(firstLicenseRecordValue(entry, ['savedAt', 'createdAt']));
+    const updatedAt = normalizeLicenseKeyValue(firstLicenseRecordValue(entry, ['updatedAt']));
     if (savedAt) normalized.savedAt = savedAt;
     if (updatedAt) normalized.updatedAt = updatedAt;
   }

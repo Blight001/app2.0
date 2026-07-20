@@ -485,7 +485,7 @@
 
       async function loadHistory() {
         try {
-          const response = await window.electron.getAppConsoleHistory();
+          const response = await window.aiFree.diagnostics.getConsoleHistory();
           const history = Array.isArray(response)
             ? response
             : (response && Array.isArray(response.history) ? response.history : []);
@@ -503,8 +503,8 @@
         }
       }
 
-      if (window.electronAPI && typeof window.electronAPI.on === 'function') {
-        window.electronAPI.on('app-console-line', (entry) => {
+      if (typeof window.aiFree?.diagnostics?.onConsoleLine === 'function') {
+        window.aiFree.diagnostics.onConsoleLine((entry) => {
           appendEntry(entry);
         });
       }

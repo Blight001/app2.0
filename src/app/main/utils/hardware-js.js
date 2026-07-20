@@ -6,16 +6,21 @@ const os = require('os');
 const { machineIdSync, machineId } = require('node-machine-id');
 
 // 获取/读取/解析：getHardwareFingerprint的具体业务逻辑。
-async function getHardwareFingerprint() {
+/**
+ * @param {{machineIdSync?: Function, machineId?: Function}} [dependencies]
+ */
+async function getHardwareFingerprint(dependencies = {}) {
+  const readMachineIdSync = dependencies.machineIdSync || machineIdSync;
+  const readMachineId = dependencies.machineId || machineId;
   try {
     let mid = '';
     try {
-      mid = machineIdSync({ original: true });
+      mid = readMachineIdSync({ original: true });
     } catch (_) {
       // ignore
     }
     if (!mid) {
-      mid = await machineId({ original: true });
+      mid = await readMachineId({ original: true });
     }
     if (!mid) throw new Error('machineId unavailable');
     // 输出为小写十六进制（与 Python hashlib.hexdigest 风格一致）

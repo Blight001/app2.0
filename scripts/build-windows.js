@@ -3,6 +3,7 @@ const path = require('path');
 const { build, Platform } = require('electron-builder');
 const { verifyPackagedRuntime } = require('./verify-packaged-runtime');
 const { buildNativeHost } = require('./build-native-host');
+const { buildSource } = require('./build-source');
 
 const projectDir = path.resolve(__dirname, '..');
 const extensionsDir = path.join(projectDir, 'src', 'assets', 'extensions');
@@ -24,6 +25,7 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** @param {any} options @param {string} label @param {{beforeRetry?: Function}} [hooks] */
 async function buildWithRetry(options, label, { beforeRetry } = {}) {
   const maxAttempts = 3;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -78,37 +80,52 @@ function writeStageConfigFile(appOutDir, stageConfig) {
   return configPath;
 }
 
+function resolveDeferredResourceSpec(appOutDir, entry, options) {
+  const sourceEntry = entry || {};
+  const label = String(options.label || sourceEntry.to || sourceEntry.from || '延后资源');
+  const requiredFile = String(options.requiredFile || '').trim();
+  const sourceDir = path.resolve(projectDir, String(sourceEntry.from || ''));
+  const resourcesDir = path.resolve(appOutDir, 'resources');
+  const targetDir = path.resolve(resourcesDir, String(sourceEntry.to || path.basename(sourceDir)));
+  return { label, requiredFile, sourceDir, resourcesDir, targetDir };
+}
+
+function validateDeferredResourceSpec(spec) {
+  const relativeTarget = path.relative(spec.resourcesDir, spec.targetDir);
+  if (!relativeTarget || relativeTarget.startsWith('..') || path.isAbsolute(relativeTarget)) {
+    throw new Error(`拒绝同步 ${spec.label} 到 resources 之外: ${spec.targetDir}`);
+  }
+  const requiredPath = spec.requiredFile && path.join(spec.sourceDir, spec.requiredFile);
+  if (!fs.existsSync(spec.sourceDir) || (requiredPath && !fs.existsSync(requiredPath))) {
+    throw new Error(`未找到内置 ${spec.label}: ${spec.sourceDir}`);
+  }
+}
+
+function copyDeferredResource(spec) {
+  fs.rmSync(spec.targetDir, { recursive: true, force: true });
+  fs.cpSync(spec.sourceDir, spec.targetDir, { recursive: true, force: true });
+  console.log(`[build:win] ${spec.label} 已独立同步到: ${spec.targetDir}`);
+}
+
 async function syncDeferredExtraResource(appOutDir, entry, options = {}) {
   assertExpectedAppOutput(appOutDir);
 
-  const label = String(options.label || entry?.to || entry?.from || '延后资源');
-  const requiredFile = String(options.requiredFile || '').trim();
-  const sourceDir = path.resolve(projectDir, String(entry?.from || ''));
-  const resourcesDir = path.resolve(appOutDir, 'resources');
-  const targetDir = path.resolve(resourcesDir, String(entry?.to || path.basename(sourceDir)));
-  const relativeTarget = path.relative(resourcesDir, targetDir);
-  if (!relativeTarget || relativeTarget.startsWith('..') || path.isAbsolute(relativeTarget)) {
-    throw new Error(`拒绝同步 ${label} 到 resources 之外: ${targetDir}`);
-  }
-  if (!fs.existsSync(sourceDir) || (requiredFile && !fs.existsSync(path.join(sourceDir, requiredFile)))) {
-    throw new Error(`未找到内置 ${label}: ${sourceDir}`);
-  }
+  const spec = resolveDeferredResourceSpec(appOutDir, entry, options);
+  validateDeferredResourceSpec(spec);
 
   const maxAttempts = 3;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      fs.rmSync(targetDir, { recursive: true, force: true });
-      fs.cpSync(sourceDir, targetDir, { recursive: true, force: true });
-      console.log(`[build:win] ${label} 已独立同步到: ${targetDir}`);
+      copyDeferredResource(spec);
       return;
     } catch (error) {
       if (!isTransientFileLock(error) || attempt === maxAttempts) {
         if (isTransientFileLock(error)) {
-          error.message = `${error.message}\n${label} 连续 ${maxAttempts} 次遇到文件占用。请稍后重试，并确认未运行 appbuild 中的 AI-FREE。`;
+          error.message = `${error.message}\n${spec.label} 连续 ${maxAttempts} 次遇到文件占用。请稍后重试，并确认未运行 appbuild 中的 AI-FREE。`;
         }
         throw error;
       }
-      console.warn(`[build:win] ${label} 同步遇到临时文件占用，等待 2 秒后重试 (${attempt}/${maxAttempts - 1})...`);
+      console.warn(`[build:win] ${spec.label} 同步遇到临时文件占用，等待 2 秒后重试 (${attempt}/${maxAttempts - 1})...`);
       await delay(2000);
     }
   }
@@ -173,13 +190,15 @@ function resolvePackagedExtensions() {
 }
 
 async function main() {
+  buildSource();
   const packageJson = readJson(packagePath);
   const builderConfig = packageJson.build || {};
   const { selected, excluded } = resolvePackagedExtensions();
   const configuredFiles = Array.isArray(builderConfig.files) ? builderConfig.files : [];
 
+  const mappedFiles = configuredFiles.map((entry) => appendGeneratedExtensionExclusions(entry, excluded));
   builderConfig.files = [
-    ...configuredFiles,
+    ...mappedFiles,
     ...excluded.map((name) => `!src/assets/extensions/${name}/**/*`),
   ];
 
@@ -256,6 +275,18 @@ async function main() {
     prepackaged: appOutDir,
   };
   await buildWithRetry(installerOptions, 'NSIS 安装包阶段');
+}
+
+function appendGeneratedExtensionExclusions(entry, excluded) {
+  const source = entry && typeof entry === 'object'
+    ? String(entry.from || '').replace(/\\/g, '/')
+    : '';
+  if (source !== '.generated/app/src') return entry;
+  const filter = Array.isArray(entry.filter) ? entry.filter : ['**/*'];
+  return {
+    ...entry,
+    filter: [...filter, ...excluded.map((name) => `!assets/extensions/${name}/**/*`)],
+  };
 }
 
 if (require.main === module) {

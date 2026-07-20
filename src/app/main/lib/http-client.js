@@ -3,9 +3,38 @@ const { NETWORK_DIAG_CONFIG, getServerBase, setRuntimeServerBase } = require('..
 const { postJson, postEventStream, getJson } = require('./http');
 const { executeHttpRequest } = require('./http-client/transport-request');
 const { isServerBaseAllowedForMode } = require('../utils/server-mode');
+const { normalizeValidationRuntimeConfig } = require('../features/account/validation-runtime-config');
+
+const RUNTIME_SERVER_BASE_FIELDS = [
+    'serverBase',
+    'server_base',
+    'address_HTTP',
+    'addressHttp',
+    'address_http',
+    'client_address',
+    'clientAddress',
+    'address',
+];
+
+function collectRuntimeServerBaseCandidates(source) {
+    if (!source || typeof source !== 'object') return [];
+    const roots = [source, source.result, source.data, source.payload]
+        .filter((value) => value && typeof value === 'object');
+    return roots.flatMap((root) => RUNTIME_SERVER_BASE_FIELDS.map((field) => root[field]));
+}
+
+function getClientConfigResultError(result) {
+    if (!result || typeof result !== 'object') return '获取客户端配置失败';
+    return result.message || result.error || '获取客户端配置失败';
+}
+
+function withHttpTransportMode(result) {
+    return { ...result, transportMode: 'http' };
+}
 
 // HTTP 客户端：负责把客户端请求通过 HTTP 发送到服务器。
 class HttpClient {
+    /** @param {any} [options] */
     constructor(options = {}) {
         // 兼容旧调用：既支持直接传入 mainWindow，也支持 options 对象。
         const hasMainWindow =
@@ -15,6 +44,7 @@ class HttpClient {
         const mainWindow = hasMainWindow ? options.mainWindow : options;
 
         // 主窗口引用（供上层使用）
+        /** @type {any} */
         this.mainWindow = mainWindow;
         // 传输模式恒为 http（保留字段以兼容读取方）
         this.transportMode = 'http';
@@ -37,46 +67,7 @@ class HttpClient {
     }
 
     _extractRuntimeServerBase(source) {
-        if (!source || typeof source !== 'object') {
-            return '';
-        }
-
-        const candidates = [
-            source.serverBase,
-            source.server_base,
-            source.address_HTTP,
-            source.addressHttp,
-            source.address_http,
-            source.client_address,
-            source.clientAddress,
-            source.address,
-            source.result?.serverBase,
-            source.result?.server_base,
-            source.result?.address_HTTP,
-            source.result?.addressHttp,
-            source.result?.address_http,
-            source.result?.client_address,
-            source.result?.clientAddress,
-            source.result?.address,
-            source.data?.serverBase,
-            source.data?.server_base,
-            source.data?.address_HTTP,
-            source.data?.addressHttp,
-            source.data?.address_http,
-            source.data?.client_address,
-            source.data?.clientAddress,
-            source.data?.address,
-            source.payload?.serverBase,
-            source.payload?.server_base,
-            source.payload?.address_HTTP,
-            source.payload?.addressHttp,
-            source.payload?.address_http,
-            source.payload?.client_address,
-            source.payload?.clientAddress,
-            source.payload?.address,
-        ];
-
-        for (const candidate of candidates) {
+        for (const candidate of collectRuntimeServerBaseCandidates(source)) {
             const normalized = this._normalizeRuntimeServerBase(candidate);
             if (normalized) {
                 return normalized;
@@ -134,6 +125,7 @@ class HttpClient {
         }
     }
 
+    /** @param {{path: string, method?: string, data?: any, timeoutMs?: number}} options */
     async _executeHttpRequest({
         path,
         method = 'POST',
@@ -152,6 +144,7 @@ class HttpClient {
     }
 
     // 统一的 HTTP 请求入口：执行请求、同步服务器地址、并附带 transportMode。
+    /** @param {{actionLabel?: string, path: string, method?: string, data?: any, timeoutMs?: number}} options */
     async _request({
         actionLabel,
         path,
@@ -305,23 +298,23 @@ class HttpClient {
                 });
                 this._syncRuntimeServerBase(result);
                 if (result && result.ok === true) {
-                    return { ...result, transportMode: 'http' };
+                    return withHttpTransportMode(result);
                 }
-                lastError = new Error(result?.message || result?.error || '获取客户端配置失败');
+                lastError = new Error(getClientConfigResultError(result));
                 // 非 ok 但已拿到响应对象时，仍返回该对象供上层判断。
                 if (attempt === attempts[attempts.length - 1] && result && typeof result === 'object') {
-                    return { ...result, transportMode: 'http' };
+                    return withHttpTransportMode(result);
                 }
             } catch (error) {
                 lastError = error;
-                console.warn(`[HTTP] getClientConfig ${attempt.label}失败:`, error?.message || error);
+                console.warn(`[HTTP] getClientConfig ${attempt.label}失败:`, error && error.message ? error.message : error);
             }
         }
 
         return {
             ok: false,
             status: 0,
-            error: lastError?.message || 'HTTP获取客户端配置失败',
+            error: lastError && lastError.message ? lastError.message : 'HTTP获取客户端配置失败',
             transportMode: 'http',
         };
     }
@@ -506,6 +499,7 @@ class HttpClient {
 }
 
 // 创建全局 HTTP 客户端实例
+/** @type {HttpClient | null} */
 let globalHttpClient = null;
 
 // Update the shared HTTP client options.
@@ -513,8 +507,9 @@ function updateGlobalHttpClientOptions(opts = {}) {
     if (!globalHttpClient || !opts || typeof opts !== 'object') {
         return;
     }
-    if (Object.prototype.hasOwnProperty.call(opts, 'mainWindow')) {
-        globalHttpClient.mainWindow = opts.mainWindow;
+    const optionRecord = /** @type {Record<string, any>} */ (opts);
+    if (Object.prototype.hasOwnProperty.call(optionRecord, 'mainWindow')) {
+        globalHttpClient.mainWindow = optionRecord.mainWindow;
     }
 }
 
@@ -531,65 +526,6 @@ function ensureGlobalHttpClient(options = {}) {
 // Create or reuse the shared HTTP client.
 function createHttpClient(options = {}) {
     return ensureGlobalHttpClient(options);
-}
-
-// 格式化/规范化：normalizeValidationRuntimeConfig的具体业务逻辑。
-function normalizeValidationRuntimeConfig(source = {}) {
-    const input = source && typeof source === 'object'
-        ? {
-            ...(source.result && typeof source.result === 'object' ? source.result : {}),
-            ...source,
-        }
-        : {};
-
-    const allowedPlatformsRaw = input.allowedPlatforms ?? input.allowed_platforms ?? [];
-    const allowedPlatforms = Array.isArray(allowedPlatformsRaw)
-        ? allowedPlatformsRaw.map((item) => String(item || '').trim()).filter(Boolean)
-        : [];
-    const platformName = String(
-        input.platformName
-        ?? input.platform_name
-        ?? allowedPlatforms[0]
-        ?? ''
-    ).trim();
-    const resolvedAllowedPlatforms = allowedPlatforms.length > 0
-        ? allowedPlatforms
-        : (platformName ? [platformName] : []);
-    const woolPlatformsRaw = input.woolPlatforms ?? input.wool_platforms ?? [];
-    const woolPlatforms = Array.isArray(woolPlatformsRaw)
-        ? woolPlatformsRaw.map((item) => ({
-            name: String(item?.name ?? item?.platform ?? item?.platform_name ?? '').trim(),
-            platform: String(item?.platform ?? item?.name ?? item?.platform_name ?? '').trim(),
-            targetUrl: String(item?.targetUrl ?? item?.target_url ?? '').trim(),
-            quota: item?.quota && typeof item.quota === 'object' ? { ...item.quota } : null,
-        })).filter((item) => item.name && item.targetUrl)
-        : [];
-
-    const serverBase = [
-        input.address_HTTP,
-        input.addressHttp,
-        input.address_http,
-        input.client_address,
-        input.clientAddress,
-        input.serverBase,
-        input.server_base,
-        input.address,
-    ].map((value) => String(value || '').trim()).find(Boolean) || '';
-
-    return {
-        platformName,
-        platform_name: platformName,
-        allowedPlatforms: resolvedAllowedPlatforms,
-        allowed_platforms: resolvedAllowedPlatforms,
-        woolPlatforms,
-        wool_platforms: woolPlatforms,
-        targetUrl: String(input.targetUrl ?? input.target_url ?? '').trim(),
-        tutorialUrl: String(input.tutorialUrl ?? input.tutorial_url ?? '').trim(),
-        serverBase,
-        server_base: serverBase,
-        address_HTTP: serverBase,
-        addressHttp: serverBase,
-    };
 }
 
 module.exports = {

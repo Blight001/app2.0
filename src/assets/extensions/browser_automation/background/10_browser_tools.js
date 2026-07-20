@@ -38,6 +38,39 @@ async function callObserveMethod(tabId, method, callArgs) {
     return value;
 }
 
+// 每次浏览器工具开始执行前，先把目标浏览器窗口切到前台，并让页面内的可视鼠标
+// 从视口边缘进入、自动移动一小段。该动效只用于增强操作真实性，注入失败不能影响
+// observe/action/wait 等真正的控制命令。
+async function prepareBrowserControl(tabId) {
+    const id = Number(tabId || 0);
+    if (!Number.isFinite(id) || id <= 0) return;
+
+    await focusTab(id).catch(() => {});
+
+    const invoke = () => chrome.scripting.executeScript({
+        target: { tabId: id },
+        func: () => {
+            if (!window.__hsFx || typeof window.__hsFx.hoverBrowser !== 'function') {
+                return { __hsFxMissing: true };
+            }
+            return window.__hsFx.hoverBrowser();
+        }
+    });
+
+    try {
+        let results = await invoke();
+        let value = Array.isArray(results) && results[0] ? results[0].result : undefined;
+        if (value && value.__hsFxMissing === true) {
+            await chrome.scripting.executeScript({ target: { tabId: id }, files: ['content/fx.js'] });
+            results = await invoke();
+            value = Array.isArray(results) && results[0] ? results[0].result : undefined;
+        }
+        return value;
+    } catch (_error) {
+        return undefined;
+    }
+}
+
 // ── 导航与搜索：browser_tab ───────────────────────────────────────────────
 function tabSummary(tab) {
     return { id: tab.id, url: tab.url, title: tab.title, active: !!tab.active, windowId: tab.windowId };
@@ -180,23 +213,35 @@ function normalizeBrowserTabAction(args = {}) {
 
 async function toolBrowserTab(args = {}) {
     const action = normalizeBrowserTabAction(args);
-    switch (action) {
-        case 'list': return toolBrowserTabList();
-        case 'switch': return toolBrowserTabSwitch(args);
-        case 'replace': return toolBrowserTabReplace(args);
-        case 'navigate': return toolBrowserTabNavigate(args);
-        case 'close': return toolBrowserTabClose(args);
-        case 'back': return toolBrowserTabBack(args);
-        case 'forward': return toolBrowserTabForward(args);
-        default:
-            throw new Error(`browser_tab: 未知 action「${action || '(空)'}」，可选 ${BROWSER_TAB_ACTIONS.join(' / ')}`);
+    const handlers = {
+        list: () => toolBrowserTabList(),
+        switch: () => toolBrowserTabSwitch(args),
+        replace: () => toolBrowserTabReplace(args),
+        navigate: () => toolBrowserTabNavigate(args),
+        close: () => toolBrowserTabClose(args),
+        back: () => toolBrowserTabBack(args),
+        forward: () => toolBrowserTabForward(args)
+    };
+    const handler = handlers[action];
+    if (!handler) {
+        throw new Error(`browser_tab: 未知 action「${action || '(空)'}」，可选 ${BROWSER_TAB_ACTIONS.join(' / ')}`);
     }
+    const result = await handler();
+
+    let hoverTabId = action === 'list' ? Number(result?.activeTabId || 0) : Number(result?.id || 0);
+    if (action === 'close') {
+        const fallback = await resolveAutomationTargetTab().catch(() => null);
+        hoverTabId = Number(fallback?.id || 0);
+    }
+    await prepareBrowserControl(hoverTabId);
+    return result;
 }
 
 // ── 页面观察：browser_observe ─────────────────────────────────────────────
 async function toolBrowserObserve(args = {}) {
     const tab = await resolveAutomationTargetTab(args);
     if (!tab) throw new Error('未找到可观察的真实网页标签页');
+    await prepareBrowserControl(tab.id);
     return callObserveMethod(tab.id, 'scan', [args]);
 }
 
@@ -206,6 +251,7 @@ const BROWSER_ACTION_KINDS = ['click', 'double_click', 'right_click', 'scroll', 
 async function toolBrowserAction(args = {}) {
     const tab = await resolveAutomationTargetTab(args);
     if (!tab) throw new Error('未找到可操作的真实网页标签页');
+    await prepareBrowserControl(tab.id);
     const action = String(args.action || '').trim();
     switch (action) {
         case 'click':        return callObserveMethod(tab.id, 'click', [args, 'left']);
@@ -223,5 +269,6 @@ async function toolBrowserAction(args = {}) {
 async function toolBrowserWait(args = {}) {
     const tab = await resolveAutomationTargetTab(args);
     if (!tab) throw new Error('未找到可等待的真实网页标签页');
+    await prepareBrowserControl(tab.id);
     return callObserveMethod(tab.id, 'wait', [args]);
 }

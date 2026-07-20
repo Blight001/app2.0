@@ -168,9 +168,9 @@ async function getCurrentAppVersion() {
     return cachedAppVersion;
   }
 
-  if (window.electronAPI && typeof window.electronAPI.invoke === 'function') {
+  if (typeof window.aiFree?.updates?.getAppVersion === 'function') {
     try {
-      const resp = await window.electronAPI.invoke('get-app-version');
+      const resp = await window.aiFree.updates.getAppVersion();
       const version = stripVersionPrefix(resp?.version || '');
       if (version) {
         cachedAppVersion = version;
@@ -240,31 +240,54 @@ function setUpdateWidgetVisible(visible) {
   updateWidgetState.visible = !!visible;
 }
 
+function normalizeUpdateWidgetPayload(payload) {
+  const percentValue = Number(payload.percent);
+  const versionFields = ['version', 'targetVersion', 'latest_version', 'latestVersion'];
+  return {
+    percent: Number.isFinite(percentValue) ? Math.max(0, Math.min(100, Math.round(percentValue))) : null,
+    version: String(versionFields.map((field) => payload[field]).find(Boolean) || '').trim(),
+    phase: String(payload.phase || '').trim().toLowerCase(),
+    message: String(payload.message || payload.content || '').trim(),
+  };
+}
+
+function renderUpdateWidgetElements(percent, version, message) {
+  const ring = safeUpdateWidgetEl('update-widget-ring');
+  const percentEl = safeUpdateWidgetEl('update-widget-percent');
+  const labelEl = safeUpdateWidgetEl('update-widget-label');
+  const textEl = safeUpdateWidgetEl('update-widget-text');
+  if (ring && percent !== null) ring.style.setProperty('--update-progress', `${percent}%`);
+  if (percentEl) percentEl.textContent = percent !== null ? `${percent}%` : '…';
+  if (labelEl) labelEl.textContent = version ? `更新中 v${version}` : '更新中';
+  if (textEl) textEl.textContent = message || '正在下载更新...';
+}
+
+function shouldResetUpdateWidget(phase) {
+  return ['error', 'failed', 'skip'].includes(phase);
+}
+
+function canShowUpdateWidget(isActivated, phase) {
+  return isActivated || ['confirmed', 'downloading', 'opening'].includes(phase);
+}
+
 // 渲染/刷新：renderUpdateWidget的具体业务逻辑。
 function renderUpdateWidget(payload = {}) {
-  const percentValue = Number(payload.percent);
-  const clampedPercent = Number.isFinite(percentValue)
-    ? Math.max(0, Math.min(100, Math.round(percentValue)))
-    : null;
-  const version = String(payload.version || payload.targetVersion || payload.latest_version || payload.latestVersion || '').trim();
-  const phase = String(payload.phase || '').trim().toLowerCase();
-  const message = String(payload.message || payload.content || '').trim();
+  const normalized = normalizeUpdateWidgetPayload(payload);
+  const { percent: clampedPercent, version, phase, message } = normalized;
   const isActivated = updateWidgetState.activated === true;
 
   if (version && updateWidgetState.shownVersion && updateWidgetState.shownVersion !== version && phase !== 'opening') {
     return;
   }
 
-  if (phase === 'error' || phase === 'failed' || phase === 'skip') {
+  if (shouldResetUpdateWidget(phase)) {
     setUpdateWidgetVisible(false);
     updateWidgetState.activated = false;
     updateWidgetState.lastPhase = phase;
     return;
   }
 
-  if (!isActivated && phase !== 'confirmed' && phase !== 'downloading' && phase !== 'opening') {
-    return;
-  }
+  if (!canShowUpdateWidget(isActivated, phase)) return;
 
   if (!updateWidgetState.visible) {
     setUpdateWidgetVisible(true);
@@ -275,23 +298,7 @@ function renderUpdateWidget(payload = {}) {
   }
   updateWidgetState.lastPhase = phase || updateWidgetState.lastPhase;
 
-  const ring = safeUpdateWidgetEl('update-widget-ring');
-  const percentEl = safeUpdateWidgetEl('update-widget-percent');
-  const labelEl = safeUpdateWidgetEl('update-widget-label');
-  const textEl = safeUpdateWidgetEl('update-widget-text');
-
-  if (ring && clampedPercent !== null) {
-    ring.style.setProperty('--update-progress', `${clampedPercent}%`);
-  }
-  if (percentEl) {
-    percentEl.textContent = clampedPercent !== null ? `${clampedPercent}%` : '…';
-  }
-  if (labelEl) {
-    labelEl.textContent = version ? `更新中 v${version}` : '更新中';
-  }
-  if (textEl) {
-    textEl.textContent = message || '正在下载更新...';
-  }
+  renderUpdateWidgetElements(clampedPercent, version, message);
 }
 
 // 不同于公告列表，这里只控制“下载进度卡片”的状态。
@@ -316,8 +323,8 @@ function resetUpdateWidget() {
 
 // 创建/初始化：initAnnouncementListener的具体业务逻辑。
 function initAnnouncementListener() {
-  if (window.electronAPI && window.electronAPI.on) {
-    window.electronAPI.on('server-announcements-reset', () => {
+  if (typeof window.aiFree?.ui?.onServerMessage === 'function') {
+    window.aiFree.ui.onServerAnnouncementsReset(() => {
       announcements = [];
       const announcementContent = safeGetEl('announcement-content');
       if (announcementContent) {
@@ -326,7 +333,7 @@ function initAnnouncementListener() {
     });
 
     // 普通公告只进公告栏，不进入更新弹窗逻辑。
-    window.electronAPI.on('server-message', (messageData) => {
+    window.aiFree.ui.onServerMessage((messageData) => {
       const messageType = getServerMessageType(messageData);
       const messageText = getServerMessageText(messageData);
 
@@ -345,7 +352,7 @@ function initAnnouncementListener() {
 
     // 更新通知只显示“发现新版本”的文案，不展示进度。
     // 进度显示由 app-update-activated / app-update-progress 单独驱动。
-    window.electronAPI.on('app-update-notice', (messageData) => {
+    window.aiFree.updates.onNotice((messageData) => {
       void (async () => {
         try {
           if (await shouldSkipUpdateAnnouncement(messageData || {})) {
@@ -359,12 +366,12 @@ function initAnnouncementListener() {
     });
 
     // 主进程确认进入更新流程后才会发这个事件。
-    window.electronAPI.on('app-update-progress', (payload) => {
+    window.aiFree.updates.onProgress((payload) => {
       renderUpdateWidget(payload || {});
     });
 
     // 用户点了“确认下载”后，才允许进度卡片显示。
-    window.electronAPI.on('app-update-activated', (payload) => {
+    window.aiFree.updates.onActivated((payload) => {
       updateWidgetState.activated = true;
       renderUpdateWidget({
         ...(payload || {}),
@@ -373,7 +380,7 @@ function initAnnouncementListener() {
     });
 
     // 完成态要保留提示，避免用户看到 100% 后没有任何明确反馈。
-    window.electronAPI.on('app-update-complete', (payload) => {
+    window.aiFree.updates.onComplete((payload) => {
       renderUpdateWidget({
         ...(payload || {}),
         phase: 'completed',
@@ -396,7 +403,7 @@ function initAnnouncementListener() {
       setUpdateWidgetVisible(true);
     });
 
-    window.electronAPI.on('app-update-error', (payload) => {
+    window.aiFree.updates.onError((payload) => {
       renderUpdateWidget({
         ...(payload || {}),
         phase: 'error',
@@ -404,9 +411,33 @@ function initAnnouncementListener() {
       resetUpdateWidget();
     });
 
-    window.electronAPI.on('app-update-skip', () => {
+    window.aiFree.updates.onSkip(() => {
       resetUpdateWidget();
     });
+  }
+}
+
+function storeAnnouncementRecord(announcementId, content, timestamp) {
+  const existingIndex = announcements.findIndex((announcement) => announcement.id === announcementId);
+  if (existingIndex >= 0) {
+    announcements[existingIndex].content = content;
+    announcements[existingIndex].timestamp = timestamp;
+    return;
+  }
+  announcements.unshift({ id: announcementId, content, timestamp });
+  if (announcements.length > MAX_ANNOUNCEMENTS) announcements = announcements.slice(0, MAX_ANNOUNCEMENTS);
+}
+
+function decorateAnnouncementHeader() {
+  const announcementIcon = safeGetEl('announcement-icon');
+  if (announcementIcon) {
+    announcementIcon.textContent = '📢';
+    announcementIcon.style.color = '#409eff';
+  }
+  const announcementTitle = safeGetEl('announcement-title');
+  if (announcementTitle) {
+    announcementTitle.textContent = '公告';
+    announcementTitle.style.color = '#409eff';
   }
 }
 
@@ -423,34 +454,8 @@ function updateAnnouncement(announcementData) {
       : (buildAnnouncementHtml(announcementData)
         || `<p>${escapeHtml(String(announcementData.content || announcementData.message || announcementData.announcement || '暂无公告内容').trim())}</p>`);
     const announcementId = announcementData.announcement_id;
-    const existingIndex = announcements.findIndex((ann) => ann.id === announcementId);
-
-    if (existingIndex >= 0) {
-      announcements[existingIndex].content = content;
-      announcements[existingIndex].timestamp = announcementData.timestamp || Date.now();
-    } else {
-      announcements.unshift({
-        id: announcementId,
-        content,
-        timestamp: announcementData.timestamp || Date.now()
-      });
-
-      if (announcements.length > MAX_ANNOUNCEMENTS) {
-        announcements = announcements.slice(0, MAX_ANNOUNCEMENTS);
-      }
-    }
-
-    const announcementIcon = safeGetEl('announcement-icon');
-    if (announcementIcon) {
-      announcementIcon.textContent = '📢';
-      announcementIcon.style.color = '#409eff';
-    }
-
-    const announcementTitle = safeGetEl('announcement-title');
-    if (announcementTitle) {
-      announcementTitle.textContent = '公告';
-      announcementTitle.style.color = '#409eff';
-    }
+    storeAnnouncementRecord(announcementId, content, announcementData.timestamp || Date.now());
+    decorateAnnouncementHeader();
 
     const contentHtml = announcements.map((ann) => String(ann.content || '')).join('');
     announcementContent.innerHTML = contentHtml || '<p>暂无公告内容</p>';
@@ -461,9 +466,9 @@ function updateAnnouncement(announcementData) {
 
 // 创建/初始化：initSidebarUiListeners的具体业务逻辑。
 function initSidebarUiListeners() {
-  if (!window.electronAPI || !window.electronAPI.on) return;
+  if (typeof window.aiFree?.ui?.onSidebarCollapse !== 'function') return;
 
-  window.electronAPI.on('update-device-id', (deviceId) => {
+  window.aiFree.ui.onDeviceIdUpdated((deviceId) => {
     try {
       const deviceIdInput = document.getElementById('device-id');
       if (deviceIdInput) {
@@ -474,7 +479,7 @@ function initSidebarUiListeners() {
     }
   });
 
-  window.electronAPI.on('license-usage-updated', (usage) => {
+  window.aiFree.ui.onLicenseUsageUpdated((usage) => {
     try {
       const usageText = formatUsageTimesText(usage);
       if (typeof setWoolPlatformRemainingUsage === 'function') {
@@ -487,7 +492,7 @@ function initSidebarUiListeners() {
     }
   });
 
-  window.electronAPI.on('app-version', (version) => {
+  window.aiFree.ui.onAppVersion((version) => {
     try {
       cachedAppVersion = stripVersionPrefix(version || '') || cachedAppVersion;
       const el = document.getElementById('app-version');
@@ -503,9 +508,9 @@ function initSidebarUiListeners() {
 
 // 创建/初始化：initSidebarAnimationListener的具体业务逻辑。
 function initSidebarAnimationListener() {
-  if (!window.electronAPI || !window.electronAPI.on) return;
+  if (typeof window.aiFree?.ui?.onDeviceIdUpdated !== 'function') return;
 
-  window.electronAPI.on('sidebar-collapse', () => {
+  window.aiFree.ui.onSidebarCollapse(() => {
     document.body.classList.add('collapsing');
     document.body.classList.remove('expanding');
     setTimeout(() => {
@@ -513,7 +518,7 @@ function initSidebarAnimationListener() {
     }, 400);
   });
 
-  window.electronAPI.on('sidebar-expand', () => {
+  window.aiFree.ui.onSidebarExpand(() => {
     document.body.classList.add('expanding');
     document.body.classList.remove('collapsing');
     setTimeout(() => requestSidebarInputFocus(), 150);
@@ -532,7 +537,7 @@ let sidebarInputFocusLastRequestedAt = 0;
 // sidebar receives pointer movement instead of waiting for a wheel event that
 // will never reach this renderer.
 function requestSidebarInputFocus(force = false, textInput = false) {
-  if (sidebarInputFocusPending || !window.electronAPI?.invoke) return;
+  if (sidebarInputFocusPending || typeof window.aiFree?.ui?.focusSidebarInput !== 'function') return;
   if (document.documentElement.dataset.aiInputComposing === 'true' && !textInput) return;
   const now = Date.now();
   if (!force && now - sidebarInputFocusLastRequestedAt < 120) return;
@@ -542,7 +547,7 @@ function requestSidebarInputFocus(force = false, textInput = false) {
     interaction: force ? 'explicit' : 'passive',
   };
   if (textInput) focusRequest.interaction = 'text-input';
-  void window.electronAPI.invoke('focus-sidebar-input', focusRequest)
+  void window.aiFree.ui.focusSidebarInput( focusRequest)
     .catch(() => {})
     .finally(() => {
       sidebarInputFocusPending = false;

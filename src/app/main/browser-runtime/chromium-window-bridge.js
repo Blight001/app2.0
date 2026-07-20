@@ -4,12 +4,17 @@ const path = require('path');
 function resolveBindingCandidates(options = {}) {
   const appRoot = path.resolve(options.appRoot || path.join(__dirname, '../../../../'));
   const resourcesPath = String(options.resourcesPath || process.resourcesPath || '').trim();
-  return [
+  const workingDirectory = path.resolve(options.workingDirectory || process.cwd());
+  return [...new Set([
     options.bindingPath,
     resourcesPath && path.join(resourcesPath, 'native', 'browser-host', 'browser_host.node'),
     resourcesPath && path.join(resourcesPath, 'app.asar.unpacked', 'native', 'browser-host', 'build', 'Release', 'browser_host.node'),
     path.join(appRoot, 'native', 'browser-host', 'build', 'Release', 'browser_host.node'),
-  ].filter(Boolean);
+    // `npm start` executes the staged `.generated/app` tree while keeping the
+    // project root as cwd. The native addon is intentionally built outside the
+    // generated source tree, so development must also probe that project root.
+    path.join(workingDirectory, 'native', 'browser-host', 'build', 'Release', 'browser_host.node'),
+  ].filter(Boolean))];
 }
 
 class ChromiumWindowBridge {
@@ -22,13 +27,13 @@ class ChromiumWindowBridge {
   load() {
     if (this.binding) return this.binding;
     if (process.platform !== 'win32') {
-      const error = new Error('Chromium Win32 嵌入仅支持 Windows');
+      const error = /** @type {Error & {code?: string}} */ (new Error('Chromium Win32 嵌入仅支持 Windows'));
       error.code = 'UNSUPPORTED_PLATFORM';
       throw error;
     }
     const bindingPath = this.candidates.find((candidate) => fs.existsSync(candidate));
     if (!bindingPath) {
-      const error = new Error('Win32 Browser Host 尚未编译，请执行 npm run build:native-host');
+      const error = /** @type {Error & {code?: string, candidates?: string[]}} */ (new Error('Win32 Browser Host 尚未编译，请执行 npm run build:native-host'));
       error.code = 'NATIVE_BROWSER_HOST_NOT_BUILT';
       error.candidates = this.candidates;
       throw error;
@@ -36,10 +41,10 @@ class ChromiumWindowBridge {
     try {
       this.binding = require(bindingPath);
     } catch (cause) {
-      const error = new Error(
+      const error = /** @type {Error & {code?: string, bindingPath?: string, cause?: any}} */ (new Error(
         `Win32 Browser Host 加载失败: ${bindingPath}; `
         + `${cause?.message || cause}. 请确认安装包完整且未被安全软件隔离`,
-      );
+      ));
       error.code = 'NATIVE_BROWSER_HOST_LOAD_FAILED';
       error.bindingPath = bindingPath;
       error.cause = cause;

@@ -7,7 +7,7 @@ const MAX_MESSAGE_BYTES = 4 * 1024 * 1024;
 const ALLOWED_COMMANDS = new Set(['navigate', 'reload', 'close-browser', 'set-cookies', 'set-storage', 'clear-session']);
 
 function runtimeBridgeError(code, message) {
-  const error = new Error(String(message || code || 'Runtime Bridge 命令失败'));
+  const error = /** @type {Error & {code?: string, command?: string}} */ (new Error(String(message || code || 'Runtime Bridge 命令失败')));
   error.code = String(code || 'RUNTIME_BRIDGE_ERROR');
   return error;
 }
@@ -52,7 +52,7 @@ class ChromiumCommandClient extends EventEmitter {
     this.server.on('error', (error) => this.emit('error', error));
     await new Promise((resolve, reject) => {
       const onError = (error) => { this.server?.off('listening', onListening); reject(error); };
-      const onListening = () => { this.server?.off('error', onError); resolve(); };
+      const onListening = () => { this.server?.off('error', onError); resolve(undefined); };
       this.server.once('error', onError);
       this.server.once('listening', onListening);
       this.server.listen(this.pipeName);
@@ -98,40 +98,52 @@ class ChromiumCommandClient extends EventEmitter {
   }
 
   handleMessage(message = {}) {
-    if (!this.handshakeComplete) {
-      if (message.type !== 'hello') return this.rejectHandshake('首条消息必须是 hello');
-      if (Number(message.protocolVersion) !== PROTOCOL_VERSION) return this.rejectHandshake('协议版本不匹配');
-      if (String(message.profileId || '') !== this.profileId) return this.rejectHandshake('Profile ID 不匹配');
-      if (String(message.launchToken || '') !== this.launchToken) return this.rejectHandshake('启动令牌错误');
-      if (this.expectedPid > 0 && Number(message.pid) !== this.expectedPid) return this.rejectHandshake('Chromium PID 不匹配');
-      this.launchToken = '';
-      this.sessionId = crypto.randomUUID();
-      this.handshakeComplete = true;
-      this.lastHello = { ...message, sessionId: this.sessionId };
-      this.sendRaw({
-        type: 'hello-accepted',
-        protocolVersion: PROTOCOL_VERSION,
-        profileId: this.profileId,
-        sessionId: this.sessionId,
-        heartbeatIntervalMs: 3000,
-      });
-      this.emit('hello', this.lastHello);
-      return;
-    }
-    if (Number(message.protocolVersion) !== PROTOCOL_VERSION || String(message.profileId || '') !== this.profileId) return;
-    if (String(message.sessionId || '') !== this.sessionId) return;
-    if (message.requestId && this.pending.has(message.requestId)) {
-      const pending = this.pending.get(message.requestId);
-      this.pending.delete(message.requestId);
-      clearTimeout(pending.timer);
-      if (message.ok === false || message.error) {
-        const details = message.error && typeof message.error === 'object' ? message.error : {};
-        pending.reject(runtimeBridgeError(details.code, details.message || message.error));
-      } else pending.resolve(message);
-      return;
-    }
+    if (!this.handshakeComplete) return this.handleHandshake(message);
+    if (!this.isCurrentSessionMessage(message)) return;
+    if (this.resolvePendingMessage(message)) return;
     this.emit('event', message);
     this.emit(String(message.type || 'message'), message);
+  }
+
+  handleHandshake(message) {
+    const rejection = this.getHandshakeRejection(message);
+    if (rejection) return this.rejectHandshake(rejection);
+    this.launchToken = '';
+    this.sessionId = crypto.randomUUID();
+    this.handshakeComplete = true;
+    this.lastHello = { ...message, sessionId: this.sessionId };
+    this.sendRaw({
+      type: 'hello-accepted', protocolVersion: PROTOCOL_VERSION,
+      profileId: this.profileId, sessionId: this.sessionId, heartbeatIntervalMs: 3000,
+    });
+    this.emit('hello', this.lastHello);
+  }
+
+  getHandshakeRejection(message) {
+    if (message.type !== 'hello') return '首条消息必须是 hello';
+    if (Number(message.protocolVersion) !== PROTOCOL_VERSION) return '协议版本不匹配';
+    if (String(message.profileId || '') !== this.profileId) return 'Profile ID 不匹配';
+    if (String(message.launchToken || '') !== this.launchToken) return '启动令牌错误';
+    if (this.expectedPid > 0 && Number(message.pid) !== this.expectedPid) return 'Chromium PID 不匹配';
+    return '';
+  }
+
+  isCurrentSessionMessage(message) {
+    return Number(message.protocolVersion) === PROTOCOL_VERSION
+      && String(message.profileId || '') === this.profileId
+      && String(message.sessionId || '') === this.sessionId;
+  }
+
+  resolvePendingMessage(message) {
+    if (!message.requestId || !this.pending.has(message.requestId)) return false;
+    const pending = this.pending.get(message.requestId);
+    this.pending.delete(message.requestId);
+    clearTimeout(pending.timer);
+    if (message.ok === false || message.error) {
+      const details = message.error && typeof message.error === 'object' ? message.error : {};
+      pending.reject(runtimeBridgeError(details.code, details.message || message.error));
+    } else pending.resolve(message);
+    return true;
   }
 
   rejectHandshake(reason) {
@@ -187,7 +199,7 @@ class ChromiumCommandClient extends EventEmitter {
     if (this.server) {
       const server = this.server;
       this.server = null;
-      await new Promise((resolve) => server.close(() => resolve()));
+      await new Promise((resolve) => server.close(() => resolve(undefined)));
     }
   }
 }

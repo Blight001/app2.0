@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { ensureChromiumSandboxAccess } = require('./chromium-sandbox-access');
+const { callOptional, firstText } = require('../../shared/safe-values');
 
 const SESSION_FILE_PATTERN = /^(Session|Tabs)_(\d+)$/;
 
@@ -18,6 +19,10 @@ const GOOGLE_CREDENTIAL_ENV_MAP = Object.freeze({
   AI_FREE_GOOGLE_CLIENT_ID: 'GOOGLE_DEFAULT_CLIENT_ID',
   AI_FREE_GOOGLE_CLIENT_SECRET: 'GOOGLE_DEFAULT_CLIENT_SECRET',
 });
+
+function text(...values) {
+  return firstText(...values).trim();
+}
 
 function buildChromiumEnvironment(baseEnv = process.env, overrides = {}) {
   const environment = { ...baseEnv, ...overrides };
@@ -73,9 +78,9 @@ function resolveChromiumExecutable(options = {}) {
   ].map(normalizeExecutableCandidate).filter(Boolean);
   const found = candidates.find((candidate) => fs.existsSync(candidate));
   if (found) return found;
-  const error = new Error(prototypeMode
+  const error = /** @type {Error & {code?: string, candidates?: string[]}} */ (new Error(prototypeMode
     ? '未找到可用于原型验证的 Chromium/Chrome/Edge'
-    : '未找到打包的 AI-FREE Chromium Fork：resources/chromium/ai-free-browser.exe（正式模式禁止使用系统 Chrome 或外部路径）');
+    : '未找到打包的 AI-FREE Chromium Fork：resources/chromium/ai-free-browser.exe（正式模式禁止使用系统 Chrome 或外部路径）'));
   error.code = 'CHROMIUM_EXECUTABLE_NOT_FOUND';
   error.candidates = candidates;
   throw error;
@@ -86,66 +91,77 @@ function assertSafeChromiumArgs(args = []) {
     const arg = String(rawArg || '').trim().toLowerCase();
     const switchName = arg.split('=')[0];
     if (FORBIDDEN_SWITCHES.has(switchName)) {
-      const error = new Error(`禁止使用不安全的 Chromium 参数: ${switchName}`);
+      const error = /** @type {Error & {code?: string}} */ (new Error(`禁止使用不安全的 Chromium 参数: ${switchName}`));
       error.code = 'FORBIDDEN_CHROMIUM_SWITCH';
       throw error;
     }
     if (switchName === '--remote-debugging-address' && !/=(127\.0\.0\.1|localhost|::1)$/.test(arg)) {
-      const error = new Error('Chromium 调试地址只能绑定回环接口');
+      const error = /** @type {Error & {code?: string}} */ (new Error('Chromium 调试地址只能绑定回环接口'));
       error.code = 'UNSAFE_DEBUG_ADDRESS';
       throw error;
     }
   }
 }
 
-function applyChromiumSessionStartupPolicy(paths = {}, logger = console, profile = {}) {
-  const userDataDir = String(paths.chromiumData || '').trim();
-  if (!userDataDir) return false;
-  const preferencesPath = path.join(userDataDir, 'Default', 'Preferences');
-  let preferences = {};
+function readChromiumPreferences(preferencesPath, logger) {
   try {
-    if (fs.existsSync(preferencesPath)) {
-      preferences = JSON.parse(fs.readFileSync(preferencesPath, 'utf8') || '{}');
-      if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) preferences = {};
-    }
+    if (!fs.existsSync(preferencesPath)) return {};
+    const value = JSON.parse(fs.readFileSync(preferencesPath, 'utf8') || '{}');
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   } catch (error) {
-    logger?.warn?.('[ChromiumRuntime] Preferences 无法解析，保留原文件并跳过会话启动策略:', error?.message || error);
-    return false;
+    callOptional(logger, 'warn', '[ChromiumRuntime] Preferences 无法解析，保留原文件并跳过会话启动策略:', text(error && error.message, error));
+    return null;
   }
+}
 
-  preferences.session = preferences.session && typeof preferences.session === 'object'
-    ? preferences.session
-    : {};
-  // 与本次启动意图保持一致。旧逻辑无条件写 5（新标签页），同时又传
-  // --restore-last-session，两套策略相互冲突，可能最终得到空白页。
-  preferences.session.restore_on_startup = profile.restoreLastSession === true ? 1 : 5;
-  preferences.session.startup_urls = [];
-  preferences.profile = preferences.profile && typeof preferences.profile === 'object'
-    ? preferences.profile
-    : {};
-  preferences.profile.exit_type = 'Normal';
-  preferences.profile.exited_cleanly = true;
-  const acceptedLanguages = String(profile.acceptLanguage || profile.locale || '')
+function ensurePreferenceSection(preferences, key) {
+  const current = preferences[key];
+  const section = current && typeof current === 'object' && !Array.isArray(current) ? current : {};
+  preferences[key] = section;
+  return section;
+}
+
+function acceptedProfileLanguages(profile) {
+  return text(profile.acceptLanguage, profile.locale)
     .split(',')
     .map((item) => item.split(';')[0].trim())
     .filter(Boolean)
     .join(',');
-  if (acceptedLanguages) {
-    preferences.intl = preferences.intl && typeof preferences.intl === 'object'
-      ? preferences.intl
-      : {};
-    preferences.intl.accept_languages = acceptedLanguages;
-    preferences.intl.selected_languages = acceptedLanguages;
-  }
+}
 
+function writeChromiumPreferences(preferencesPath, preferences, logger) {
   try {
     fs.mkdirSync(path.dirname(preferencesPath), { recursive: true });
     fs.writeFileSync(preferencesPath, JSON.stringify(preferences), 'utf8');
     return true;
   } catch (error) {
-    logger?.warn?.('[ChromiumRuntime] 写入单页启动策略失败:', error?.message || error);
+    callOptional(logger, 'warn', '[ChromiumRuntime] 写入单页启动策略失败:', text(error && error.message, error));
     return false;
   }
+}
+
+/** @param {Record<string, any>} [profile] */
+function applyChromiumSessionStartupPolicy(paths = {}, logger = console, profile = {}) {
+  const userDataDir = text(paths.chromiumData);
+  if (!userDataDir) return false;
+  const preferencesPath = path.join(userDataDir, 'Default', 'Preferences');
+  const preferences = readChromiumPreferences(preferencesPath, logger);
+  if (!preferences) return false;
+  const session = ensurePreferenceSection(preferences, 'session');
+  // 与本次启动意图保持一致。旧逻辑无条件写 5（新标签页），同时又传
+  // --restore-last-session，两套策略相互冲突，可能最终得到空白页。
+  session.restore_on_startup = profile.restoreLastSession === true ? 1 : 5;
+  session.startup_urls = [];
+  const profileSection = ensurePreferenceSection(preferences, 'profile');
+  profileSection.exit_type = 'Normal';
+  profileSection.exited_cleanly = true;
+  const acceptedLanguages = acceptedProfileLanguages(profile);
+  if (acceptedLanguages) {
+    const intl = ensurePreferenceSection(preferences, 'intl');
+    intl.accept_languages = acceptedLanguages;
+    intl.selected_languages = acceptedLanguages;
+  }
+  return writeChromiumPreferences(preferencesPath, preferences, logger);
 }
 
 function getChromiumSessionsDir(paths = {}) {
@@ -169,12 +185,32 @@ function containsRestorableWebUrl(buffer) {
 // uint16 commandSize + uint8 commandId + payload。只搜索 URL 会把已经追加
 // TabClosed(16) 的旧导航误判成可恢复页面，因此这里按 Chromium 的命令顺序
 // 还原“当前仍属于窗口的标签”集合。
+function applyChromiumSessionCommand(state, commandId, buffer, offset, payloadSize) {
+  if (commandId === 9 && payloadSize >= 4) {
+    state.windows.add(buffer.readInt32LE(offset));
+    return;
+  }
+  if (commandId === 0 && payloadSize >= 8) {
+    state.tabs.set(buffer.readInt32LE(offset + 4), buffer.readInt32LE(offset));
+    return;
+  }
+  if (commandId === 16 && payloadSize >= 4) {
+    state.tabs.delete(buffer.readInt32LE(offset));
+    return;
+  }
+  if (commandId !== 17 || payloadSize < 4) return;
+  const windowId = buffer.readInt32LE(offset);
+  state.windows.delete(windowId);
+  for (const [tabId, tabWindowId] of state.tabs) {
+    if (tabWindowId === windowId) state.tabs.delete(tabId);
+  }
+}
+
 function analyzeChromiumSession(buffer) {
   if (!Buffer.isBuffer(buffer) || buffer.length < 8 || buffer.subarray(0, 4).toString('ascii') !== 'SNSS') {
     return { valid: false, liveTabCount: 0, hasWebUrl: false };
   }
-  const windows = new Set();
-  const tabs = new Map();
+  const state = { windows: new Set(), tabs: new Map() };
   let offset = 8;
   let valid = true;
   while (offset + 3 <= buffer.length) {
@@ -187,24 +223,11 @@ function analyzeChromiumSession(buffer) {
     const commandId = buffer[offset + 2];
     const payloadOffset = offset + 3;
     const payloadSize = commandSize - 1;
-    if (commandId === 9 && payloadSize >= 4) {
-      windows.add(buffer.readInt32LE(payloadOffset)); // SetWindowType
-    } else if (commandId === 0 && payloadSize >= 8) {
-      const windowId = buffer.readInt32LE(payloadOffset);
-      const tabId = buffer.readInt32LE(payloadOffset + 4);
-      tabs.set(tabId, windowId); // SetTabWindow
-    } else if (commandId === 16 && payloadSize >= 4) {
-      tabs.delete(buffer.readInt32LE(payloadOffset)); // TabClosed
-    } else if (commandId === 17 && payloadSize >= 4) {
-      const windowId = buffer.readInt32LE(payloadOffset); // WindowClosed
-      windows.delete(windowId);
-      for (const [tabId, tabWindowId] of tabs) {
-        if (tabWindowId === windowId) tabs.delete(tabId);
-      }
-    }
+    applyChromiumSessionCommand(state, commandId, buffer, payloadOffset, payloadSize);
     offset = commandEnd;
   }
-  const liveTabCount = Array.from(tabs.values()).filter((windowId) => windows.has(windowId)).length;
+  const liveTabCount = Array.from(state.tabs.values())
+    .filter((windowId) => state.windows.has(windowId)).length;
   return {
     valid,
     liveTabCount,
@@ -267,11 +290,9 @@ function loadStableChromiumSession(paths = {}, logger = console) {
 // 旧版 close-browser 会先关闭最后一个窗口，再正常退出 Chromium，导致最新
 // Session 被写成 0 窗口。若上一组 Session 仍包含网页，则隔离空白的最新组，
 // 让 Chromium 自动回退读取上一组有效会话。
-function repairBlankLatestSession(paths = {}, logger = console) {
-  const sessionsDir = getChromiumSessionsDir(paths);
-  let entries = [];
+function readChromiumSessionEntries(sessionsDir) {
   try {
-    entries = fs.readdirSync(sessionsDir, { withFileTypes: true })
+    return fs.readdirSync(sessionsDir, { withFileTypes: true })
       .filter((entry) => entry.isFile() && SESSION_FILE_PATTERN.test(entry.name))
       .map((entry) => ({
         name: entry.name,
@@ -280,47 +301,55 @@ function repairBlankLatestSession(paths = {}, logger = console) {
         timestamp: sessionFileTimestamp(entry.name),
       }));
   } catch (_) {
-    return { repaired: false, removed: [] };
+    return [];
   }
+}
 
-  const sessionEntries = entries.filter((entry) => entry.type === 'Session')
-    .sort((left, right) => left.timestamp > right.timestamp ? -1 : 1);
-  if (sessionEntries.length < 2) return { repaired: false, removed: [] };
-  let latestBuffer = null;
-  try { latestBuffer = fs.readFileSync(sessionEntries[0].path); } catch (_) { return { repaired: false, removed: [] }; }
-  if (hasRestorableSessionBuffer(latestBuffer)) return { repaired: false, removed: [] };
+function entryHasRestorableSession(entry) {
+  try {
+    return hasRestorableSessionBuffer(fs.readFileSync(entry.path));
+  } catch (_) {
+    return false;
+  }
+}
 
-  const previousValid = sessionEntries.slice(1).find((entry) => {
-    try { return hasRestorableSessionBuffer(fs.readFileSync(entry.path)); } catch (_) { return false; }
-  });
-  if (!previousValid) return { repaired: false, removed: [] };
+function sessionTimestampDistance(entry, target) {
+  return entry.timestamp > target.timestamp
+    ? entry.timestamp - target.timestamp
+    : target.timestamp - entry.timestamp;
+}
 
-  const latestSession = sessionEntries[0];
-  const closestTabs = entries.filter((entry) => entry.type === 'Tabs')
-    .sort((left, right) => {
-      const leftDistance = left.timestamp > latestSession.timestamp
-        ? left.timestamp - latestSession.timestamp
-        : latestSession.timestamp - left.timestamp;
-      const rightDistance = right.timestamp > latestSession.timestamp
-        ? right.timestamp - latestSession.timestamp
-        : latestSession.timestamp - right.timestamp;
-      return leftDistance < rightDistance ? -1 : 1;
-    })[0];
-  const recoveryDir = path.join(String(paths.root || path.dirname(paths.chromiumData || sessionsDir)), 'session-recovery-discarded');
+function discardBlankSessionFiles(paths, sessionsDir, entries, logger) {
+  const recoveryRoot = text(paths.root, path.dirname(paths.chromiumData || sessionsDir));
+  const recoveryDir = path.join(recoveryRoot, 'session-recovery-discarded');
   const removed = [];
   try {
     fs.mkdirSync(recoveryDir, { recursive: true });
-    for (const entry of [latestSession, closestTabs].filter(Boolean)) {
-      const target = path.join(recoveryDir, `${Date.now()}-${entry.name}`);
-      fs.renameSync(entry.path, target);
+    for (const entry of entries.filter(Boolean)) {
+      fs.renameSync(entry.path, path.join(recoveryDir, `${Date.now()}-${entry.name}`));
       removed.push(entry.name);
     }
-    logger?.warn?.('[ChromiumRuntime] 已隔离空白的最新 Session，回退到上一组有效网页会话:', removed);
+    callOptional(logger, 'warn', '[ChromiumRuntime] 已隔离空白的最新 Session，回退到上一组有效网页会话:', removed);
     return { repaired: true, removed };
   } catch (error) {
-    logger?.warn?.('[ChromiumRuntime] 修复空白 Session 失败:', error?.message || error);
+    callOptional(logger, 'warn', '[ChromiumRuntime] 修复空白 Session 失败:', text(error && error.message, error));
     return { repaired: false, removed };
   }
+}
+
+function repairBlankLatestSession(paths = {}, logger = console) {
+  const sessionsDir = getChromiumSessionsDir(paths);
+  const entries = readChromiumSessionEntries(sessionsDir);
+  const sessionEntries = entries.filter((entry) => entry.type === 'Session')
+    .sort((left, right) => left.timestamp > right.timestamp ? -1 : 1);
+  if (sessionEntries.length < 2) return { repaired: false, removed: [] };
+  if (entryHasRestorableSession(sessionEntries[0])) return { repaired: false, removed: [] };
+  const previousValid = sessionEntries.slice(1).find(entryHasRestorableSession);
+  if (!previousValid) return { repaired: false, removed: [] };
+  const latestSession = sessionEntries[0];
+  const closestTabs = entries.filter((entry) => entry.type === 'Tabs')
+    .sort((left, right) => sessionTimestampDistance(left, latestSession) < sessionTimestampDistance(right, latestSession) ? -1 : 1)[0];
+  return discardBlankSessionFiles(paths, sessionsDir, [latestSession, closestTabs], logger);
 }
 
 function captureChromiumSessionFiles(paths = {}, logger = console) {
@@ -376,6 +405,31 @@ function restoreChromiumSessionFiles(snapshot, logger = console) {
   }
 }
 
+function pushChromiumArg(args, condition, value) {
+  if (condition) args.push(value);
+}
+
+function configuredExtensionPaths(profile) {
+  const source = Array.isArray(profile.extensionPaths) ? profile.extensionPaths : [];
+  return source.map((item) => path.resolve(String(item || ''))).filter((item) => fs.existsSync(item));
+}
+
+function appendChromiumProfileArgs(args, options, profile, bounds) {
+  pushChromiumArg(args, options.hostHwnd, `--hs-embed-parent-hwnd=${options.hostHwnd}`);
+  pushChromiumArg(args, profile.proxyServer, `--proxy-server=${profile.proxyServer}`);
+  pushChromiumArg(args, profile.proxyBypassList, `--proxy-bypass-list=${profile.proxyBypassList}`);
+  pushChromiumArg(args, profile.locale, `--lang=${profile.locale}`);
+  pushChromiumArg(args, profile.timezoneId, `--hs-timezone-id=${profile.timezoneId}`);
+  pushChromiumArg(args, profile.userAgent, `--user-agent=${profile.userAgent}`);
+  const width = Number(bounds.width);
+  const height = Number(bounds.height);
+  pushChromiumArg(args, width > 0 && height > 0, `--window-size=${Math.round(width)},${Math.round(height)}`);
+  const extensions = configuredExtensionPaths(profile);
+  pushChromiumArg(args, extensions.length > 0, `--load-extension=${extensions.join(',')}`);
+  pushChromiumArg(args, profile.remoteDebuggingPipe === true, '--remote-debugging-pipe');
+  pushChromiumArg(args, profile.restoreLastSession === true, '--restore-last-session');
+}
+
 function buildChromiumArgs(options = {}) {
   const profile = options.profile || {};
   const paths = options.paths || {};
@@ -398,19 +452,7 @@ function buildChromiumArgs(options = {}) {
     '--disable-session-crashed-bubble',
     '--disable-backgrounding-occluded-windows',
   ];
-  if (options.hostHwnd) args.push(`--hs-embed-parent-hwnd=${options.hostHwnd}`);
-  if (profile.proxyServer) args.push(`--proxy-server=${profile.proxyServer}`);
-  if (profile.proxyBypassList) args.push(`--proxy-bypass-list=${profile.proxyBypassList}`);
-  if (profile.locale) args.push(`--lang=${profile.locale}`);
-  if (profile.timezoneId) args.push(`--hs-timezone-id=${profile.timezoneId}`);
-  if (profile.userAgent) args.push(`--user-agent=${profile.userAgent}`);
-  if (Number(bounds.width) > 0 && Number(bounds.height) > 0) {
-    args.push(`--window-size=${Math.round(bounds.width)},${Math.round(bounds.height)}`);
-  }
-  const extensionPaths = (profile.extensionPaths || []).map((item) => path.resolve(String(item || ''))).filter((item) => fs.existsSync(item));
-  if (extensionPaths.length) args.push(`--load-extension=${extensionPaths.join(',')}`);
-  if (profile.remoteDebuggingPipe === true) args.push('--remote-debugging-pipe');
-  if (profile.restoreLastSession === true) args.push('--restore-last-session');
+  appendChromiumProfileArgs(args, options, profile, bounds);
   args.push(...(Array.isArray(profile.extraArgs) ? profile.extraArgs : []));
   // Chromium 在握手完成前还是独立顶层窗口。强制放到虚拟屏幕外，且放在
   // 自定义参数之后，避免用户参数覆盖；嵌入后 native host 会重新定位。
@@ -420,25 +462,43 @@ function buildChromiumArgs(options = {}) {
   return args;
 }
 
+function resolveChromiumLaunchOptions(options) {
+  const profile = options.profile && typeof options.profile === 'object' ? options.profile : {};
+  if (profile.restoreLastSession !== true) return options;
+  const recovery = prepareChromiumSessionRecovery(options.paths, options.logger);
+  const fallbackUrl = text(profile.restoreFallbackUrl);
+  if (recovery.restorable || !/^https?:\/\//i.test(fallbackUrl)) return options;
+  callOptional(options.logger, 'warn', '[ChromiumRuntime] 未找到可恢复的活动标签，回退打开浏览器记录网址:', fallbackUrl);
+  return {
+    ...options,
+    profile: { ...profile, initialUrl: fallbackUrl, restoreLastSession: false },
+  };
+}
+
+function chromiumSpawnEnvironment(options) {
+  const profile = options.profile && typeof options.profile === 'object' ? options.profile : {};
+  const overrides = { ...(options.env || {}) };
+  if (profile.timezoneId) overrides.TZ = String(profile.timezoneId);
+  return buildChromiumEnvironment(process.env, overrides);
+}
+
+function attachChromiumLogging(child, executablePath, options) {
+  const logger = options.logger;
+  const profile = options.profile && typeof options.profile === 'object' ? options.profile : {};
+  callOptional(logger, 'info', `[AI-FREE] 已启动外部浏览器内核: ${executablePath}`);
+  callOptional(logger, 'info', `[ChromiumRuntime] PID=${child.pid} Profile=${profile.profileId || ''}`);
+  forwardChromiumOutput(child.stdout, (line) => callOptional(logger, 'log', `[Chromium:${child.pid}] ${line}`));
+  forwardChromiumOutput(
+    child.stderr,
+    (line) => callOptional(logger, 'warn', `[Chromium:${child.pid}] ${line}`),
+    shouldIgnoreChromiumDiagnostic,
+  );
+}
+
 function launchChromium(options = {}) {
   const executablePath = resolveChromiumExecutable(options);
   ensureChromiumSandboxAccess(executablePath, options.logger);
-  let launchOptions = options;
-  if (options.profile?.restoreLastSession === true) {
-    const recovery = prepareChromiumSessionRecovery(options.paths, options.logger);
-    const fallbackUrl = String(options.profile?.restoreFallbackUrl || '').trim();
-    if (!recovery.restorable && /^https?:\/\//i.test(fallbackUrl)) {
-      launchOptions = {
-        ...options,
-        profile: {
-          ...options.profile,
-          initialUrl: fallbackUrl,
-          restoreLastSession: false,
-        },
-      };
-      options.logger?.warn?.('[ChromiumRuntime] 未找到可恢复的活动标签，回退打开浏览器记录网址:', fallbackUrl);
-    }
-  }
+  const launchOptions = resolveChromiumLaunchOptions(options);
   applyChromiumSessionStartupPolicy(launchOptions.paths, launchOptions.logger, launchOptions.profile);
   const args = buildChromiumArgs(launchOptions);
   const child = spawn(executablePath, args, {
@@ -448,19 +508,9 @@ function launchChromium(options = {}) {
     windowsHide: true,
     detached: false,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: buildChromiumEnvironment(process.env, {
-      ...(options.env || {}),
-      ...(options.profile?.timezoneId ? { TZ: String(options.profile.timezoneId) } : {}),
-    }),
+    env: chromiumSpawnEnvironment(options),
   });
-  options.logger?.info?.(`[AI-FREE] 已启动外部浏览器内核: ${executablePath}`);
-  options.logger?.info?.(`[ChromiumRuntime] PID=${child.pid} Profile=${options.profile?.profileId || ''}`);
-  forwardChromiumOutput(child.stdout, (line) => options.logger?.log?.(`[Chromium:${child.pid}] ${line}`));
-  forwardChromiumOutput(
-    child.stderr,
-    (line) => options.logger?.warn?.(`[Chromium:${child.pid}] ${line}`),
-    shouldIgnoreChromiumDiagnostic,
-  );
+  attachChromiumLogging(child, executablePath, options);
   return { child, executablePath, args };
 }
 
@@ -470,6 +520,11 @@ function shouldIgnoreChromiumDiagnostic(line) {
   return /WSALookupServiceBegin failed with:\s*10108\b/.test(String(line || ''));
 }
 
+/**
+ * @param {any} stream
+ * @param {(text: string) => void} emit
+ * @param {(text: string) => boolean} [shouldIgnore]
+ */
 function forwardChromiumOutput(stream, emit, shouldIgnore = () => false) {
   if (!stream || typeof stream.on !== 'function') return;
   let pending = '';

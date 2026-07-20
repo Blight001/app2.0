@@ -10,6 +10,7 @@ function parseVipExpiry(value) {
 }
 
 function collectVipSources(input = {}) {
+  /** @type {Record<string, any>} */
   const source = input && typeof input === 'object' ? input : {};
   const candidates = [
     source.validation?.result,
@@ -22,30 +23,44 @@ function collectVipSources(input = {}) {
   return candidates.filter((item) => item && typeof item === 'object');
 }
 
+function isRecentVipVerification(verification, now) {
+  const verifiedAt = Date.parse(String(verification?.vip_verified_at || ''));
+  return {
+    verifiedAt,
+    serverVerified: Number.isFinite(verifiedAt) && verifiedAt <= now + VIP_CLOCK_SKEW_MS
+      && now - verifiedAt <= VIP_VERIFICATION_MAX_AGE_MS,
+  };
+}
+
+function resolveVipStatus(sources) {
+  for (const source of sources) {
+    const fields = ['is_vip', 'isVip', 'vip_active', 'vipActive'];
+    if (!fields.some((key) => Object.prototype.hasOwnProperty.call(source, key))) continue;
+    return fields.some((key) => source[key] === true || Number(source[key]) === 1);
+  }
+  return false;
+}
+
+function resolveVipExpiryDate(sources) {
+  for (const source of sources) {
+    const value = String(source.vip_expiry_date || source.vipExpiryDate || '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+function isVipExpiryActive(expiryDate, now) {
+  const timestamp = parseVipExpiry(expiryDate);
+  return timestamp === null || (Number.isFinite(timestamp) && timestamp > now);
+}
+
 function resolveVipAccess(input = {}, now = Date.now()) {
   const sources = collectVipSources(input);
   const verification = sources.find((source) => source.vip_server_verified === true);
-  const verifiedAt = Date.parse(String(verification?.vip_verified_at || ''));
-  const serverVerified = Number.isFinite(verifiedAt)
-    && verifiedAt <= now + VIP_CLOCK_SKEW_MS
-    && now - verifiedAt <= VIP_VERIFICATION_MAX_AGE_MS;
-  let enabled = false;
-  let statusResolved = false;
-  let expiryDate = '';
-  for (const source of sources) {
-    const hasStatus = ['is_vip', 'isVip', 'vip_active', 'vipActive']
-      .some((key) => Object.prototype.hasOwnProperty.call(source, key));
-    if (!statusResolved && hasStatus) {
-      enabled = source.is_vip === true || source.isVip === true || source.vip_active === true || source.vipActive === true
-        || Number(source.is_vip) === 1 || Number(source.isVip) === 1;
-      statusResolved = true;
-    }
-    const candidateExpiry = String(source.vip_expiry_date || source.vipExpiryDate || '').trim();
-    if (!expiryDate && candidateExpiry) expiryDate = candidateExpiry;
-  }
-  const expiryTimestamp = parseVipExpiry(expiryDate);
-  const active = serverVerified && enabled
-    && (expiryTimestamp === null || (Number.isFinite(expiryTimestamp) && expiryTimestamp > now));
+  const { verifiedAt, serverVerified } = isRecentVipVerification(verification, now);
+  const enabled = resolveVipStatus(sources);
+  const expiryDate = resolveVipExpiryDate(sources);
+  const active = serverVerified && enabled && isVipExpiryActive(expiryDate, now);
   return {
     isVip: active,
     vipActive: active,
@@ -66,6 +81,7 @@ function markVipServerVerified(source = {}, verifiedAt = Date.now()) {
 }
 
 function clearVipServerVerification(source = {}) {
+  /** @type {Record<string, any>} */
   const value = source && typeof source === 'object' ? source : {};
   const clear = (item) => ({
     ...(item && typeof item === 'object' ? item : {}),

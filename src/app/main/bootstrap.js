@@ -157,7 +157,7 @@ function startMainApp() {
   appShellDeps.applyNetworkMagicToTab = applyNetworkMagicToTab;
 
   // ---- 生命周期 ----
-  registerAppLifecycle(buildLifecycleDeps({
+  const lifecycleRegistration = registerAppLifecycle(buildLifecycleDeps({
     app,
     fs,
     services,
@@ -165,6 +165,7 @@ function startMainApp() {
     refreshAllowedPlatformsAndNotify,
     late,
   }));
+  app.once('will-quit', () => lifecycleRegistration.dispose());
 }
 
 module.exports = {

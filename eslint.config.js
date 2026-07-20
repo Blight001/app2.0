@@ -31,6 +31,7 @@ module.exports = [
     ignores: [
       'node_modules/**',
       'appbuild/**',
+      '.generated/**',
       'resources/**',
       'native/**',
       'core/**',
@@ -41,12 +42,21 @@ module.exports = [
     ],
   },
   {
-    files: ['src/app/main/**/*.js', 'scripts/**/*.js', 'test/**/*.js', 'src/app/shared/**/*.js'],
+   files: ['src/app/main/**/*.js', 'scripts/**/*.js', 'test/**/*.js', 'src/app/shared/**/*.js'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'commonjs',
     },
     rules: { ...correctness, ...sizeGates, 'no-undef': 'off' },
+  },
+  {
+    // 生产代码使用尺寸门禁；验收测试可按场景保留较长的夹具与断言序列。
+    files: ['test/**/*.js'],
+    rules: {
+      'max-lines': 'off',
+      'max-lines-per-function': 'off',
+      complexity: 'off',
+    },
   },
   {
     // composition root 与装配模块是声明式接线：函数行数由依赖数量决定而非

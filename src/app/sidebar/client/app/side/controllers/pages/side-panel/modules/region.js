@@ -32,6 +32,10 @@ function pickFirstRegionText(...values) {
   return '';
 }
 
+function pickRegionField(candidate, fields) {
+  return pickFirstRegionText(...fields.map((field) => candidate[field]));
+}
+
 // 格式化/规范化：normalizeRegionCandidateInfo的具体业务逻辑。
 function normalizeRegionCandidateInfo(candidate) {
   if (!candidate) return null;
@@ -49,78 +53,31 @@ function normalizeRegionCandidateInfo(candidate) {
 
   if (typeof candidate !== 'object') return null;
 
-  const regionName = pickFirstRegionText(
-    candidate.regionInfo,
-    candidate.region_info,
-    candidate.regionName,
-    candidate.region_name,
-    candidate.region,
-    candidate.area,
-    candidate.areaName,
-    candidate.area_name,
-    candidate.country,
-    candidate.countryName,
-    candidate.country_name,
-    candidate.zone,
-    candidate.zoneName,
-    candidate.zone_name,
-    candidate.location,
-    candidate.locationName,
-    candidate.location_name,
-    candidate.label,
-    candidate.title,
-    candidate.name,
-    candidate.displayName,
-    candidate.text,
-    candidate.value,
-  );
-  const regionCode = pickFirstRegionText(
-    candidate.regionCode,
-    candidate.region_code,
-    candidate.code,
-    candidate.isoCode,
-    candidate.iso_code,
-    candidate.countryCode,
-    candidate.country_code,
-  );
-  const preferredGroupName = pickFirstRegionText(
-    candidate.preferredGroupName,
-    candidate.preferred_group_name,
-    candidate.proxyGroup,
-    candidate.proxy_group,
-    candidate.groupName,
-    candidate.group_name,
-    candidate.selectorGroup,
-    candidate.selector_group,
-  );
-  const preferredNodeName = pickFirstRegionText(
-    candidate.preferredNodeName,
-    candidate.preferred_node_name,
-    candidate.proxyNode,
-    candidate.proxy_node,
-    candidate.nodeName,
-    candidate.node_name,
-    candidate.node,
-    candidate.proxyName,
-    candidate.proxy_name,
-  );
+  const regionName = pickRegionField(candidate, [
+    'regionInfo', 'region_info', 'regionName', 'region_name', 'region', 'area', 'areaName', 'area_name',
+    'country', 'countryName', 'country_name', 'zone', 'zoneName', 'zone_name', 'location',
+    'locationName', 'location_name', 'label', 'title', 'name', 'displayName', 'text', 'value',
+  ]);
+  const regionCode = pickRegionField(candidate, [
+    'regionCode', 'region_code', 'code', 'isoCode', 'iso_code', 'countryCode', 'country_code',
+  ]);
+  const preferredGroupName = pickRegionField(candidate, [
+    'preferredGroupName', 'preferred_group_name', 'proxyGroup', 'proxy_group', 'groupName',
+    'group_name', 'selectorGroup', 'selector_group',
+  ]);
+  const preferredNodeName = pickRegionField(candidate, [
+    'preferredNodeName', 'preferred_node_name', 'proxyNode', 'proxy_node', 'nodeName',
+    'node_name', 'node', 'proxyName', 'proxy_name',
+  ]);
 
   const keywordSource = [];
-  collectRegionText(keywordSource, candidate.keywords);
-  collectRegionText(keywordSource, candidate.regionKeywords);
-  collectRegionText(keywordSource, candidate.region_keywords);
-  collectRegionText(keywordSource, candidate.searchKeywords);
-  collectRegionText(keywordSource, candidate.matchKeywords);
-  collectRegionText(keywordSource, candidate.match_keywords);
-  collectRegionText(keywordSource, candidate.regionInfo);
-  collectRegionText(keywordSource, candidate.region_info);
-  collectRegionText(keywordSource, candidate.region);
-  collectRegionText(keywordSource, candidate.regionData);
-  collectRegionText(keywordSource, candidate.region_data);
-  collectRegionText(keywordSource, regionName);
-  collectRegionText(keywordSource, regionCode);
-  collectRegionText(keywordSource, preferredGroupName);
-  collectRegionText(keywordSource, preferredNodeName);
+  const keywordFields = [
+    'keywords', 'regionKeywords', 'region_keywords', 'searchKeywords', 'matchKeywords',
+    'match_keywords', 'regionInfo', 'region_info', 'region', 'regionData', 'region_data',
+  ];
+  keywordFields.forEach((field) => collectRegionText(keywordSource, candidate[field]));
+  [regionName, regionCode, preferredGroupName, preferredNodeName]
+    .forEach((value) => collectRegionText(keywordSource, value));
 
   const keywords = Array.from(new Set(keywordSource.filter(Boolean)));
   const displayName = regionName || regionCode || preferredGroupName || preferredNodeName || keywords[0] || '';
@@ -202,10 +159,14 @@ function normalizeRegionRoutingInfo(regionInfo) {
   const uniqueNodeNames = Array.from(new Set(nodeNames.filter(Boolean)));
   const mergedKeywords = Array.from(keywordSet);
 
-  const regionName = primary?.regionName || uniqueRegionNames[0] || uniqueRegionCodes[0] || uniqueGroupNames[0] || uniqueNodeNames[0] || mergedKeywords[0] || '';
-  const regionCode = primary?.regionCode || (uniqueRegionCodes.length === 1 ? uniqueRegionCodes[0] : '');
-  const preferredGroupName = primary?.preferredGroupName || (uniqueGroupNames.length === 1 ? uniqueGroupNames[0] : '');
-  const preferredNodeName = primary?.preferredNodeName || (uniqueNodeNames.length === 1 ? uniqueNodeNames[0] : '');
+  const regionName = pickFirstRegionText(
+    primary?.regionName, uniqueRegionNames[0], uniqueRegionCodes[0], uniqueGroupNames[0],
+    uniqueNodeNames[0], mergedKeywords[0],
+  );
+  const singleton = (values) => (values.length === 1 ? values[0] : '');
+  const regionCode = pickFirstRegionText(primary?.regionCode, singleton(uniqueRegionCodes));
+  const preferredGroupName = pickFirstRegionText(primary?.preferredGroupName, singleton(uniqueGroupNames));
+  const preferredNodeName = pickFirstRegionText(primary?.preferredNodeName, singleton(uniqueNodeNames));
 
   return {
     regionName,

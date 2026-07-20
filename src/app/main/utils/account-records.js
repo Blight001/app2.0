@@ -44,40 +44,39 @@ function isPermanentAccountRecord(account, options = {}) {
   return type === 'one_time' || label.includes('永久') || label.includes('长久');
 }
 
+function loadAccountRecord(accountStorage, accountId) {
+  if (!accountId || typeof accountStorage.getAccount !== 'function') return null;
+  const result = accountStorage.getAccount(accountId);
+  return result?.ok === true && result.account ? result.account : null;
+}
+
+function listAccountRecords(accountStorage) {
+  if (typeof accountStorage.getAllAccounts !== 'function') return [];
+  const summaries = accountStorage.getAllAccounts();
+  return Array.isArray(summaries) ? summaries : [];
+}
+
+function findLoadedAccount(accountStorage, predicate) {
+  for (const summary of listAccountRecords(accountStorage)) {
+    const account = loadAccountRecord(accountStorage, String(summary?.id || '').trim());
+    if (account && predicate(account)) return account;
+  }
+  return null;
+}
+
 function findAccountRecord(accountStorage, options = {}) {
   if (!accountStorage) return null;
   const normalizedAccountId = String(options.accountId || '').trim();
   const normalizedKey = String(options.key || '').trim();
 
   try {
-    if (normalizedAccountId && typeof accountStorage.getAccount === 'function') {
-      const accountResult = accountStorage.getAccount(normalizedAccountId);
-      if (accountResult && accountResult.ok && accountResult.account) {
-        return accountResult.account;
-      }
-    }
-
-    if (!normalizedKey || typeof accountStorage.getAllAccounts !== 'function' || typeof accountStorage.getAccount !== 'function') {
-      return null;
-    }
-
-    const accountSummariesRaw = accountStorage.getAllAccounts();
-    const accountSummaries = Array.isArray(accountSummariesRaw) ? accountSummariesRaw : [];
-    for (const summary of accountSummaries) {
-      const accountId = String(summary?.id || '').trim();
-      if (!accountId) continue;
-      const accountResult = accountStorage.getAccount(accountId);
-      if (!accountResult || accountResult.ok !== true || !accountResult.account) continue;
-      const account = accountResult.account;
-      if (String(account.key || '').trim() === normalizedKey) {
-        return account;
-      }
-    }
+    const account = loadAccountRecord(accountStorage, normalizedAccountId);
+    if (account) return account;
+    if (!normalizedKey) return null;
+    return findLoadedAccount(accountStorage, (item) => String(item.key || '').trim() === normalizedKey);
   } catch (_) {
     return null;
   }
-
-  return null;
 }
 
 function findPermanentAccountByKey(accountStorage, key, options = {}) {
@@ -85,21 +84,9 @@ function findPermanentAccountByKey(accountStorage, key, options = {}) {
   if (!normalizedKey || !accountStorage) return null;
 
   try {
-    const accountSummariesRaw = typeof accountStorage.getAllAccounts === 'function'
-      ? accountStorage.getAllAccounts()
-      : [];
-    const accountSummaries = Array.isArray(accountSummariesRaw) ? accountSummariesRaw : [];
-    for (const summary of accountSummaries) {
-      const accountId = String(summary?.id || '').trim();
-      if (!accountId) continue;
-      const accountResult = accountStorage.getAccount(accountId);
-      if (!accountResult || accountResult.ok !== true || !accountResult.account) continue;
-      const account = accountResult.account;
-      if (String(account.key || '').trim() !== normalizedKey) continue;
-      if (isPermanentAccountRecord(account, options)) {
-        return account;
-      }
-    }
+    return findLoadedAccount(accountStorage, (account) => (
+      String(account.key || '').trim() === normalizedKey && isPermanentAccountRecord(account, options)
+    ));
   } catch (error) {
     const logger = options.logger;
     if (logger && typeof logger.warn === 'function') {

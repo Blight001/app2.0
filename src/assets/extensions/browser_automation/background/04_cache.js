@@ -24,25 +24,48 @@ function ensureStepIds(steps = []) {
     });
 }
 
+function normalizeFlowNode(node, stepIdSet) {
+    const source = node && typeof node === 'object' ? node : {};
+    const id = String(source.id || source.stepId || '').trim();
+    if (!id || !stepIdSet.has(id)) return null;
+    return {
+        id,
+        x: Number.isFinite(Number(source.x)) ? Number(source.x) : 0,
+        y: Number.isFinite(Number(source.y)) ? Number(source.y) : 0
+    };
+}
+
+function getFirstFlowField(source, names, fallback = '') {
+    for (const name of names) {
+        if (source[name] !== undefined && source[name] !== null && source[name] !== '') return source[name];
+    }
+    return fallback;
+}
+
+function normalizeFlowEdge(edge, index, stepIdSet, edgeKeys) {
+    const source = edge && typeof edge === 'object' ? edge : {};
+    const from = String(getFirstFlowField(source, ['from', 'source', 'fromId'])).trim();
+    const to = String(getFirstFlowField(source, ['to', 'target', 'toId'])).trim();
+    if (!from || !to || !stepIdSet.has(from) || !stepIdSet.has(to) || from === to) return null;
+    const label = String(getFirstFlowField(source, ['label', 'branch', 'condition'], 'next')).trim() || 'next';
+    const key = `${from}::${to}::${label}`;
+    if (edgeKeys.has(key)) return null;
+    edgeKeys.add(key);
+    return {
+        id: String(source.id || '').trim() || `edge_${sanitizeStepIdPart(from)}_${sanitizeStepIdPart(to)}_${sanitizeStepIdPart(label)}_${index + 1}`,
+        from,
+        to,
+        label
+    };
+}
+
 function normalizeFlowData(flow = null, steps = []) {
     if (!flow || typeof flow !== 'object' || Array.isArray(flow)) {
         return undefined;
     }
     const stepIds = steps.map((step, index) => String(step?.id || `step_${index + 1}`).trim()).filter(Boolean);
     const stepIdSet = new Set(stepIds);
-    const nodes = (Array.isArray(flow.nodes) ? flow.nodes : [])
-        .map((node) => {
-            const id = String(node?.id || node?.stepId || '').trim();
-            if (!id || !stepIdSet.has(id)) {
-                return null;
-            }
-            return {
-                id,
-                x: Number.isFinite(Number(node.x)) ? Number(node.x) : 0,
-                y: Number.isFinite(Number(node.y)) ? Number(node.y) : 0
-            };
-        })
-        .filter(Boolean);
+    const nodes = (Array.isArray(flow.nodes) ? flow.nodes : []).map((node) => normalizeFlowNode(node, stepIdSet)).filter(Boolean);
     const nodeIds = new Set(nodes.map((node) => node.id));
     stepIds.forEach((id, index) => {
         if (!nodeIds.has(id)) {
@@ -51,26 +74,7 @@ function normalizeFlowData(flow = null, steps = []) {
     });
     const edgeKeys = new Set();
     const edges = (Array.isArray(flow.edges) ? flow.edges : [])
-        .map((edge, index) => {
-            const from = String(edge?.from || edge?.source || edge?.fromId || '').trim();
-            const to = String(edge?.to || edge?.target || edge?.toId || '').trim();
-            if (!from || !to || !stepIdSet.has(from) || !stepIdSet.has(to) || from === to) {
-                return null;
-            }
-            const label = String(edge?.label || edge?.branch || edge?.condition || 'next').trim() || 'next';
-            const key = `${from}::${to}::${label}`;
-            if (edgeKeys.has(key)) {
-                return null;
-            }
-            edgeKeys.add(key);
-            return {
-                id: String(edge?.id || '').trim() || `edge_${sanitizeStepIdPart(from)}_${sanitizeStepIdPart(to)}_${sanitizeStepIdPart(label)}_${index + 1}`,
-                from,
-                to,
-                label
-            };
-        })
-        .filter(Boolean);
+        .map((edge, index) => normalizeFlowEdge(edge, index, stepIdSet, edgeKeys)).filter(Boolean);
     const start = String(flow.start || flow.start_node_id || flow.startNodeId || '').trim();
     return {
         version: 1,
@@ -189,6 +193,29 @@ async function replaceCardCacheState(items = [], selectedId = '') {
     }
 }
 
+function normalizeSoftwareCardCacheState(response) {
+    const state = response && response.state && typeof response.state === 'object' ? response.state : {};
+    return normalizeCardCacheState(state.items, state.selectedId);
+}
+
+async function persistAndMirrorCardCache(state) {
+    const response = await writeSoftwareCardCache(state);
+    const saved = normalizeSoftwareCardCacheState(response);
+    await writeLocalCardCacheMirror(saved, false);
+    return { ...saved, persisted: true };
+}
+
+async function loadRemoteCardCacheState(localState) {
+    const remote = await readSoftwareCardCache();
+    if (remote && remote.exists === true) {
+        const sharedState = normalizeSoftwareCardCacheState(remote);
+        await writeLocalCardCacheMirror(sharedState, false);
+        return { ...sharedState, persisted: true };
+    }
+    if (localState.items.length > 0) return persistAndMirrorCardCache(localState);
+    return { ...localState, persisted: true };
+}
+
 async function loadCardCacheState() {
     const stored = await chrome.storage.local.get([
         AUTOMATION_CARD_CACHE_LIST_KEY,
@@ -202,27 +229,9 @@ async function loadCardCacheState() {
 
     try {
         if (stored[AUTOMATION_CARD_PERSIST_PENDING_KEY] === true) {
-            const synced = await writeSoftwareCardCache(localState);
-            const saved = normalizeCardCacheState(synced?.state?.items, synced?.state?.selectedId);
-            await writeLocalCardCacheMirror(saved, false);
-            return { ...saved, persisted: true };
+            return await persistAndMirrorCardCache(localState);
         }
-
-        const remote = await readSoftwareCardCache();
-        if (remote?.exists === true) {
-            const sharedState = normalizeCardCacheState(remote?.state?.items, remote?.state?.selectedId);
-            await writeLocalCardCacheMirror(sharedState, false);
-            return { ...sharedState, persisted: true };
-        }
-
-        // 首次升级时，把当前 Profile 里已有的旧卡片自动迁移到软件目录。
-        if (localState.items.length > 0) {
-            const migrated = await writeSoftwareCardCache(localState);
-            const saved = normalizeCardCacheState(migrated?.state?.items, migrated?.state?.selectedId);
-            await writeLocalCardCacheMirror(saved, false);
-            return { ...saved, persisted: true };
-        }
-        return { ...localState, persisted: true };
+        return await loadRemoteCardCacheState(localState);
     } catch (_error) {
         // 保留离线兼容；软件运行且桥接恢复后会重新读取共享卡片库。
     }
@@ -338,5 +347,21 @@ function normalizeStandaloneSteps(cardData) {
 
 // 仅供 Node 回归测试使用；扩展 service worker 中没有 CommonJS module。
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { resolveCardCacheDeleteTarget };
+    module.exports = {
+        deleteCardCacheEntry,
+        ensureStepIds,
+        loadCardCache,
+        loadCardCacheState,
+        normalizeCardCacheEntry,
+        normalizeCardCacheState,
+        normalizeCardData,
+        normalizeFlowData,
+        normalizeStandaloneSteps,
+        readLocalCardCacheState,
+        replaceCardCacheState,
+        resolveCardCacheDeleteTarget,
+        sanitizeStepIdPart,
+        saveCardCacheState,
+        writeLocalCardCacheMirror
+    };
 }

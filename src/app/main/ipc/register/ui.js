@@ -1,746 +1,333 @@
-const path = require('path');
-const { BrowserWindow, screen, nativeTheme } = require('electron');
+const { BrowserWindow, nativeTheme } = require('electron');
 const { resolveTabTitle } = require('../../services/tab-common');
+const { createAccountCenterPopupController } = require('../../features/account/account-center-popup-controller');
+const { createTabContextMenuController } = require('../../features/browser/tab-context-menu-controller');
 
-// 监听/绑定：registerUiIPC的具体业务逻辑。
-function registerUiIPC(ctx) {
-  const ipc = ctx.ipc.scope('register/ui');
-  const { ui, getAppConsoleHistory, app } = ctx;
-  let tabContextMenuWindow = null;
-  let accountCenterPopupWindow = null;
-  let accountCenterPopupLayout = null;
-  let accountCenterPopupDismissTimer = null;
-  let accountCenterPopupDismissing = false;
-  let accountCenterPopupBlurArmTimer = null;
-  let accountCenterPopupBlurArmed = false;
-  let accountCenterPopupDismissOnBlur = true;
-  let accountCenterPopupWindowFocusHandler = null;
-  const pendingBrowserDataClearRequests = new Map();
+function uiIpcError(error) {
+  return error?.message || String(error);
+}
 
-  const closeAccountCenterPopupWindow = () => {
-    if (accountCenterPopupDismissTimer) {
-      clearTimeout(accountCenterPopupDismissTimer);
-      accountCenterPopupDismissTimer = null;
-    }
-    if (accountCenterPopupWindowFocusHandler && app?.removeListener) {
-      app.removeListener('browser-window-focus', accountCenterPopupWindowFocusHandler);
-      accountCenterPopupWindowFocusHandler = null;
-    }
-    if (accountCenterPopupBlurArmTimer) {
-      clearTimeout(accountCenterPopupBlurArmTimer);
-      accountCenterPopupBlurArmTimer = null;
-    }
-    accountCenterPopupDismissing = false;
-    accountCenterPopupBlurArmed = false;
-    accountCenterPopupDismissOnBlur = true;
-    const popup = accountCenterPopupWindow;
-    accountCenterPopupWindow = null;
-    accountCenterPopupLayout = null;
-    if (!popup || popup.isDestroyed()) return;
-    try { popup.close(); } catch (_) {}
-  };
+function normalizeAppTheme(theme) {
+  const value = String(theme || '').trim();
+  return value === 'light' || value === 'gold' ? value : 'dark';
+}
 
-  const dismissAccountCenterPopupWindow = () => {
-    const popup = accountCenterPopupWindow;
-    if (!popup || popup.isDestroyed() || accountCenterPopupDismissing) return;
-    accountCenterPopupDismissing = true;
-    try { popup.webContents.send('account-popup-dismiss'); } catch (_) {}
-    accountCenterPopupDismissTimer = setTimeout(() => {
-      accountCenterPopupDismissTimer = null;
-      closeAccountCenterPopupWindow();
-    }, 190);
-  };
+function sendThemeToContents(webContents, theme) {
+  try {
+    if (webContents && !webContents.isDestroyed()) webContents.send('app-theme-changed', theme);
+  } catch (_) {}
+}
 
-  const resizeAccountCenterPopupWindow = (requestedHeight) => {
-    const popup = accountCenterPopupWindow;
-    const layout = accountCenterPopupLayout;
-    if (!popup || popup.isDestroyed() || !layout) return;
-    const height = Math.max(320, Math.ceil(Number(requestedHeight) || 0));
-    const workAreaTop = layout.workArea.y + 8;
-    const lowestVisibleY = layout.workArea.y + layout.workArea.height - height - 8;
-    const y = height <= layout.workArea.height - 16
-      ? Math.min(Math.max(layout.desiredY, workAreaTop), lowestVisibleY)
-      : workAreaTop;
-    popup.setBounds({ x: layout.x, y, width: layout.width, height }, false);
-  };
-
-  const captureAccountCenterSnapshot = async () => {
-    try {
-      const sideView = ui.getSideView?.();
-      const webContents = sideView?.webContents;
-      if (!webContents || webContents.isDestroyed?.()) return {};
-      return await webContents.executeJavaScript(`(() => ({
-        theme: document.documentElement.classList.contains('theme-gold') ? 'gold' : (document.documentElement.classList.contains('theme-light') ? 'light' : 'dark'),
-        announcementTitle: document.getElementById('announcement-title')?.textContent || '',
-        announcementIcon: document.getElementById('announcement-icon')?.textContent || '',
-        announcementHtml: document.getElementById('announcement-content')?.innerHTML || '',
-        tutorialUrl: document.getElementById('tutorial-link')?.href || '',
-        appVersion: document.getElementById('app-version')?.textContent || ''
-      }))()`);
-    } catch (_) {
-      return {};
-    }
-  };
-
-  const toggleAccountCenterPopupWindow = async (payload = {}) => {
-    if (accountCenterPopupWindow && !accountCenterPopupWindow.isDestroyed()) {
-      dismissAccountCenterPopupWindow();
-      return;
-    }
-
-    const mainWindow = ui.getMainWindow?.();
-    if (!mainWindow || mainWindow.isDestroyed?.()) return;
-    accountCenterPopupDismissOnBlur = payload?.dismissOnBlur !== false;
-    const contentBounds = mainWindow.getContentBounds();
-    const anchor = payload?.anchor && typeof payload.anchor === 'object' ? payload.anchor : {};
-    const popupWidth = 430;
-    const popupHeight = 520;
-    const anchorRight = Number.isFinite(Number(anchor.right)) ? Number(anchor.right) : contentBounds.width - 8;
-    const anchorBottom = Number.isFinite(Number(anchor.bottom)) ? Number(anchor.bottom) : 36;
-    const desiredX = Math.round(contentBounds.x + anchorRight - popupWidth);
-    const desiredY = Math.round(contentBounds.y + anchorBottom + 6);
-    const display = screen.getDisplayNearestPoint({ x: desiredX, y: desiredY });
-    const workArea = display.workArea;
-    const x = Math.min(Math.max(desiredX, workArea.x + 8), workArea.x + workArea.width - popupWidth - 8);
-    const y = Math.min(Math.max(desiredY, workArea.y + 8), workArea.y + workArea.height - popupHeight - 8);
-    accountCenterPopupLayout = {
-      desiredY,
-      width: popupWidth,
-      workArea,
-      x,
-    };
-
-    const popup = new BrowserWindow({
-      parent: mainWindow,
-      width: popupWidth,
-      height: popupHeight,
-      x,
-      y,
-      show: false,
-      frame: false,
-      transparent: true,
-      backgroundColor: '#00000000',
-      resizable: false,
-      maximizable: false,
-      minimizable: false,
-      fullscreenable: false,
-      skipTaskbar: true,
-      autoHideMenuBar: true,
-      hasShadow: true,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        sandbox: false,
-        backgroundThrottling: false,
-        preload: path.join(app.getAppPath(), 'src', 'app', 'main', 'preload.js'),
-      },
-    });
-    accountCenterPopupWindow = popup;
-    accountCenterPopupWindowFocusHandler = (_event, focusedWindow) => {
-      if (focusedWindow === popup || !accountCenterPopupBlurArmed || !accountCenterPopupDismissOnBlur) return;
-      dismissAccountCenterPopupWindow();
-    };
-    app?.on?.('browser-window-focus', accountCenterPopupWindowFocusHandler);
-    let popupShown = false;
-    const showPopup = () => {
-      if (popupShown || popup.isDestroyed()) return;
+function createThemeController(ui) {
+  let currentTheme = 'dark';
+  return {
+    current: () => currentTheme,
+    broadcast(theme) {
+      currentTheme = normalizeAppTheme(theme);
+      try { if (nativeTheme) nativeTheme.themeSource = currentTheme === 'light' ? 'light' : 'dark'; } catch (_) {}
       try {
-        popup.show();
-        popup.focus();
-        popupShown = true;
-        accountCenterPopupBlurArmed = false;
-        if (accountCenterPopupBlurArmTimer) clearTimeout(accountCenterPopupBlurArmTimer);
-        // 原生 Chromium/父窗口在透明子窗口首次显示后可能短暂抢回焦点。
-        // 稳定期结束时重新聚焦一次，再启用真正的“点击外部关闭”。
-        accountCenterPopupBlurArmTimer = setTimeout(() => {
-          accountCenterPopupBlurArmTimer = null;
-          if (accountCenterPopupWindow !== popup || popup.isDestroyed() || accountCenterPopupDismissing) return;
-          try {
-            popup.show();
-            popup.focus();
-          } catch (_) {}
-          accountCenterPopupBlurArmTimer = setTimeout(() => {
-            accountCenterPopupBlurArmTimer = null;
-            if (accountCenterPopupWindow === popup && !popup.isDestroyed() && !accountCenterPopupDismissing) {
-              accountCenterPopupBlurArmed = true;
-            }
-          }, 80);
-        }, 220);
-      } catch (_) {}
-    };
-    popup.on('closed', () => {
-      if (accountCenterPopupWindow === popup) accountCenterPopupWindow = null;
-    });
-    popup.on('blur', () => {
-      if (accountCenterPopupWindow !== popup) return;
-      if (!accountCenterPopupBlurArmed || !accountCenterPopupDismissOnBlur) return;
-      dismissAccountCenterPopupWindow();
-    });
-    popup.webContents.on('did-finish-load', async () => {
-      if (popup.isDestroyed()) return;
-      showPopup();
-      const snapshot = await captureAccountCenterSnapshot();
-      if (popup.isDestroyed()) return;
-      popup.webContents.send('account-popup-snapshot', snapshot);
-    });
-    popup.once('ready-to-show', showPopup);
-
-    const popupPath = path.join(app.getAppPath(), 'src', 'app', 'sidebar', 'index.html');
-    try {
-      await popup.loadFile(popupPath, { query: {
-        accountCenterPopup: '1',
-        showVipPlans: payload?.showVipPlans === true ? '1' : '0',
-      } });
-      // 某些透明窗口不会稳定触发 ready-to-show；loadFile 完成后再做一次显示兜底。
-      showPopup();
-    } catch (error) {
-      console.warn('[UI] 个人中心独立浮窗加载失败:', error?.message || error);
-      closeAccountCenterPopupWindow();
-    }
-  };
-
-  const openAccountCenterPopupWindow = async (payload = {}) => {
-    if (accountCenterPopupWindow && !accountCenterPopupWindow.isDestroyed()) {
-      if (accountCenterPopupDismissing) {
-        closeAccountCenterPopupWindow();
-        await toggleAccountCenterPopupWindow(payload);
-        return;
-      }
-      accountCenterPopupDismissOnBlur = payload?.dismissOnBlur !== false;
-      try {
-        accountCenterPopupWindow.show();
-        accountCenterPopupWindow.focus();
-        if (payload?.showVipPlans === true) {
-          accountCenterPopupWindow.webContents.send('open-vip-plans');
+        const mainWindow = ui?.getMainWindow?.();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          const backgrounds = { light: '#f6f9fd', gold: '#0c0b09', dark: '#0f1115' };
+          mainWindow.setBackgroundColor(backgrounds[currentTheme]);
+          sendThemeToContents(mainWindow.webContents, currentTheme);
         }
       } catch (_) {}
-      return;
+      try { ui?.sendToSide?.('app-theme-changed', currentTheme); } catch (_) {}
+    },
+  };
+}
+
+function browserDataClearCapability(ui, profileId) {
+  const manager = ui?.browserRuntimeManager;
+  return Boolean(profileId && manager && typeof manager.clearData === 'function');
+}
+
+function validateBrowserDataClearRequest(ui, payload) {
+  const profileId = String(payload?.profileId || '').trim();
+  if (!browserDataClearCapability(ui, profileId)) return { error: { ok: false, message: '当前浏览器不支持清空数据' } };
+  const tab = ui?.getTabs?.().get?.(profileId);
+  if (!tab) return { error: { ok: false, message: '浏览器窗口不存在' } };
+  const contents = ui?.getSideView?.()?.webContents;
+  if (!contents || contents.isDestroyed?.()) {
+    return { error: { ok: false, message: '侧边栏尚未就绪，无法显示确认弹窗' } };
+  }
+  return { profileId, tab, contents };
+}
+
+function validateBrowserDataClearResolution(ui, event, payload, pendingRequests) {
+  const requestId = String(payload?.requestId || '').trim();
+  const pending = pendingRequests.get(requestId);
+  if (!pending) return { error: { ok: false, message: '清空请求已失效，请重新操作' } };
+  const contents = ui?.getSideView?.()?.webContents;
+  if (!contents || contents.id !== event.sender?.id) {
+    return { error: { ok: false, message: '只能从侧边栏确认清空操作' } };
+  }
+  return { requestId, pending };
+}
+
+function createBrowserDataClearController(ui, closeContextMenu) {
+  const pendingRequests = new Map();
+
+  async function request(payload = {}) {
+    try {
+      const validated = validateBrowserDataClearRequest(ui, payload);
+      if (validated.error) return validated.error;
+      const { profileId, tab, contents } = validated;
+      closeContextMenu();
+      ui?.ensureSidebarVisible?.();
+      const requestId = `browser-data-clear-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const timeout = setTimeout(() => pendingRequests.delete(requestId), 120000);
+      pendingRequests.set(requestId, { profileId, timeout });
+      contents.send('browser-data-clear-confirm-request', { requestId, profileId, title: resolveTabTitle(tab) });
+      return { ok: true, pending: true };
+    } catch (error) {
+      return { ok: false, message: uiIpcError(error) };
     }
-    await toggleAccountCenterPopupWindow(payload);
+  }
+
+  async function resolve(event, payload = {}) {
+    const validated = validateBrowserDataClearResolution(ui, event, payload, pendingRequests);
+    if (validated.error) return validated.error;
+    const { requestId, pending } = validated;
+    clearTimeout(pending.timeout);
+    pendingRequests.delete(requestId);
+    if (payload?.confirmed !== true) return { ok: true, cancelled: true };
+    try {
+      if (!ui?.getTabs?.().get?.(pending.profileId)) return { ok: false, message: '浏览器窗口不存在' };
+      const state = await ui.browserRuntimeManager.clearData(pending.profileId);
+      return { ok: true, state };
+    } catch (error) {
+      return { ok: false, message: uiIpcError(error) };
+    }
+  }
+
+  return { request, resolve };
+}
+
+function getManagedTabs(ui) {
+  return typeof ui?.getTabs === 'function' ? ui.getTabs() : new Map();
+}
+
+function getManagedActiveTabId(ui) {
+  return typeof ui?.getActiveTabId === 'function' ? ui.getActiveTabId() : null;
+}
+
+function findManagedTabById(ui, tabId) {
+  const id = String(tabId || '').trim();
+  if (!id) return null;
+  const tabs = getManagedTabs(ui);
+  if (typeof tabs.get === 'function' && tabs.has(id)) return tabs.get(id);
+  try {
+    for (const tab of tabs.values()) {
+      if (String(tab?.id || '').trim() === id) return tab;
+    }
+  } catch (_) {}
+  return null;
+}
+
+function serializeManagedTab(ui, tab) {
+  if (!tab) return null;
+  const id = String(tab.id || '');
+  return {
+    id,
+    appTabId: id,
+    title: resolveTabTitle(tab),
+    url: String(tab.runtimeUrl || ''),
+    active: id === String(getManagedActiveTabId(ui) || ''),
+    accountId: String(tab.accountId || '').trim(),
+    runtimeType: 'chromium',
   };
+}
 
-  let currentAppTheme = 'dark';
-
-  const normalizeAppTheme = (theme) => {
-    const value = String(theme || '').trim();
-    return value === 'light' || value === 'gold' ? value : 'dark';
+function listManagedTabs(ui) {
+  const tabs = Array.from(getManagedTabs(ui).values()).map((tab) => serializeManagedTab(ui, tab)).filter(Boolean);
+  return {
+    ok: true,
+    activeTabId: String(getManagedActiveTabId(ui) || ''),
+    tabs,
+    activeTab: tabs.find((tab) => tab.active) || null,
   };
+}
 
+function normalizeBridgeUrl(raw) {
+  const value = String(raw || '').trim();
+  if (!value) throw new Error('缺少 URL');
+  if (value === 'about:blank') return value;
+  try { return new URL(value).href; } catch (_) { return new URL(`https://${value}`).href; }
+}
+
+function createTabBridgeActions(ui) {
+  const resultTabs = () => listManagedTabs(ui).tabs;
+  return {
+    'tab:identify': async ({ activeTab }) => ({ ok: true, tab: serializeManagedTab(ui, activeTab), tabs: resultTabs() }),
+    'tab:list': async () => listManagedTabs(ui),
+    'tab:switch': async ({ targetTab }) => {
+      if (!targetTab?.id || typeof ui.switchTab !== 'function') return { ok: false, message: '目标标签不存在或无法切换' };
+      ui.switchTab(targetTab.id);
+      return { ok: true, action: 'switch', tab: serializeManagedTab(ui, targetTab), tabs: resultTabs() };
+    },
+    'tab:close': async ({ targetTab }) => {
+      if (!targetTab?.id || typeof ui.closeTab !== 'function') return { ok: false, message: '目标标签不存在或无法关闭' };
+      const closing = serializeManagedTab(ui, targetTab);
+      await ui.closeTab(targetTab.id);
+      return { ok: true, action: 'close', tab: closing, tabs: resultTabs() };
+    },
+    'tab:open': async ({ targetTab, payload }) => {
+      if (typeof ui.addTab !== 'function') return { ok: false, message: '打开标签功能不可用' };
+      const openedId = await ui.addTab(normalizeBridgeUrl(payload?.url), {
+        browserSettings: targetTab?.browserSettings, runtimeType: 'chromium',
+      });
+      return { ok: true, action: 'open', tab: serializeManagedTab(ui, findManagedTabById(ui, openedId)), tabs: resultTabs() };
+    },
+    'tab:replace': async ({ targetTab, payload }) => {
+      if (!targetTab?.id || !ui?.browserRuntimeManager) return { ok: false, message: '目标网页不可用' };
+      if (typeof ui.switchTab === 'function') ui.switchTab(targetTab.id);
+      await ui.browserRuntimeManager.navigate(targetTab.id, 'chromium', normalizeBridgeUrl(payload?.url));
+      return { ok: true, action: 'replace', tab: serializeManagedTab(ui, targetTab), tabs: resultTabs() };
+    },
+    'tab:history': async () => ({ ok: false, message: '内置 Chromium 暂未开放前进/后退桥接' }),
+    'tab:reload': async ({ targetTab }) => {
+      if (!targetTab?.id || typeof ui.refreshTab !== 'function') return { ok: false, message: '目标网页不可用' };
+      const result = await ui.refreshTab(targetTab.id);
+      return result?.ok ? { ok: true, action: 'reload', tab: serializeManagedTab(ui, targetTab) } : result;
+    },
+    'tab:capture': async () => ({ ok: false, message: '请通过 Chromium 内的 AI-FREE 自动化扩展执行截图' }),
+  };
+}
+
+function createTabBridgeHandler(ui) {
+  const actions = createTabBridgeActions(ui);
+  return async (_event, payload = {}) => {
+    try {
+      const command = String(payload?.command || payload?.action || '').trim();
+      const activeTab = findManagedTabById(ui, getManagedActiveTabId(ui));
+      const targetTab = findManagedTabById(ui, payload?.appTabId || payload?.tabId) || activeTab;
+      const action = actions[command];
+      if (!action) return { ok: false, message: `未知 MCP 浏览器桥接命令: ${command || '(empty)'}` };
+      return action({ activeTab, targetTab, payload });
+    } catch (error) {
+      return { ok: false, message: uiIpcError(error) };
+    }
+  };
+}
+
+function resolveSidebarFocusTarget(ui, event) {
+  const sideView = typeof ui?.getSideView === 'function' ? ui.getSideView() : null;
+  if (sideView?.webContents && !sideView.webContents.isDestroyed?.()) return sideView.webContents;
+  return event.sender && !event.sender.isDestroyed?.() ? event.sender : null;
+}
+
+function focusMainWindow(mainWindow) {
+  if (!mainWindow || mainWindow.isDestroyed?.()) return;
+  if (mainWindow.isMinimized?.()) {
+    try { mainWindow.restore?.(); } catch (_) {}
+  }
+  if (!mainWindow.isFocused?.()) {
+    try { mainWindow.focus?.(); } catch (_) {}
+  }
+}
+
+function createSidebarFocusAction(mainWindow, sideContents, event) {
+  return () => {
+    try {
+      if (sideContents && !sideContents.isDestroyed?.()) {
+        if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed?.()) mainWindow.webContents.focus();
+        sideContents.focus();
+        return true;
+      }
+      if (event.sender && !event.sender.isDestroyed?.()) {
+        event.sender.focus();
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  };
+}
+
+function createSidebarFocusHandler(ui, isPopupOpen) {
+  return async (event, request = {}) => {
+    try {
+      const passive = request?.interaction === 'passive';
+      const textInput = request?.interaction === 'text-input';
+      if (passive && isPopupOpen()) return { ok: true, skipped: true, reason: 'account-center-popup-open' };
+      const mainWindow = ui?.getMainWindow?.();
+      const sideContents = resolveSidebarFocusTarget(ui, event);
+      focusMainWindow(mainWindow);
+      const focusSide = createSidebarFocusAction(mainWindow, sideContents, event);
+      focusSide();
+      if (textInput) return { ok: true, stableTextInput: true };
+      await new Promise((resolve) => setImmediate(resolve));
+      focusSide();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      focusSide();
+      return { ok: true, sideFocused: Boolean(sideContents?.isFocused?.()) };
+    } catch (error) {
+      return { ok: false, error: uiIpcError(error) };
+    }
+  };
+}
+
+function registerBrowserRuntimeIPC(ipc, ui, clearController) {
   ipc.handle('get-browser-runtime-state', async (_event, payload = {}) => {
     const manager = ui?.browserRuntimeManager;
     if (!manager) return { ok: false, message: 'Browser Runtime 不可用' };
     const profileId = String(payload?.profileId || '').trim();
-    return {
-      ok: true,
-      nativeHostAvailable: manager.isChromiumAvailable(),
-      state: profileId ? manager.getState(profileId) : null,
-      states: manager.listStates(),
-    };
+    return { ok: true, nativeHostAvailable: manager.isChromiumAvailable(), state: profileId ? manager.getState(profileId) : null, states: manager.listStates() };
   });
-
   ipc.handle('restart-browser-runtime', async (_event, payload = {}) => {
     const profileId = String(payload?.profileId || '').trim();
     if (!profileId || !ui?.browserRuntimeManager) return { ok: false, message: '缺少 Chromium Profile ID' };
-    try {
-      const state = await ui.browserRuntimeManager.restart(profileId);
-      return { ok: true, state };
-    } catch (error) {
-      return { ok: false, message: error?.message || String(error) };
-    }
+    try { return { ok: true, state: await ui.browserRuntimeManager.restart(profileId) }; }
+    catch (error) { return { ok: false, message: uiIpcError(error) }; }
   });
+  ipc.handle('clear-browser-runtime-data', (_event, payload) => clearController.request(payload));
+  ipc.handle('resolve-browser-data-clear-confirm', (event, payload) => clearController.resolve(event, payload));
+}
 
-  ipc.handle('clear-browser-runtime-data', async (_event, payload = {}) => {
-    const profileId = String(payload?.profileId || '').trim();
-    const manager = ui?.browserRuntimeManager;
-    if (!profileId || !manager || typeof manager.clearData !== 'function') {
-      return { ok: false, message: '当前浏览器不支持清空数据' };
-    }
-    try {
-      const tab = ui?.getTabs?.().get?.(profileId);
-      if (!tab) return { ok: false, message: '浏览器窗口不存在' };
-      closeTabContextMenuWindow();
-      ui?.ensureSidebarVisible?.();
-      const sideWebContents = ui?.getSideView?.()?.webContents;
-      if (!sideWebContents || sideWebContents.isDestroyed?.()) {
-        return { ok: false, message: '侧边栏尚未就绪，无法显示确认弹窗' };
-      }
-      const requestId = `browser-data-clear-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const timeout = setTimeout(() => {
-        pendingBrowserDataClearRequests.delete(requestId);
-      }, 120000);
-      pendingBrowserDataClearRequests.set(requestId, { profileId, timeout });
-      sideWebContents.send('browser-data-clear-confirm-request', {
-        requestId,
-        profileId,
-        title: resolveTabTitle(tab),
-      });
-      return { ok: true, pending: true };
-    } catch (error) {
-      return { ok: false, message: error?.message || String(error) };
-    }
-  });
-
-  ipc.handle('resolve-browser-data-clear-confirm', async (event, payload = {}) => {
-    const requestId = String(payload?.requestId || '').trim();
-    const pending = pendingBrowserDataClearRequests.get(requestId);
-    if (!pending) return { ok: false, message: '清空请求已失效，请重新操作' };
-    const sideWebContents = ui?.getSideView?.()?.webContents;
-    if (!sideWebContents || sideWebContents.id !== event.sender?.id) {
-      return { ok: false, message: '只能从侧边栏确认清空操作' };
-    }
-    clearTimeout(pending.timeout);
-    pendingBrowserDataClearRequests.delete(requestId);
-    if (payload?.confirmed !== true) return { ok: true, cancelled: true };
-    try {
-      const tab = ui?.getTabs?.().get?.(pending.profileId);
-      if (!tab) return { ok: false, message: '浏览器窗口不存在' };
-      const state = await ui.browserRuntimeManager.clearData(pending.profileId);
-      return { ok: true, state };
-    } catch (error) {
-      return { ok: false, message: error?.message || String(error) };
-    }
-  });
-
-  const sendAppThemeToWebContents = (webContents, theme) => {
-    try {
-      if (webContents && !webContents.isDestroyed()) {
-        webContents.send('app-theme-changed', theme);
-      }
-    } catch (_) {}
-  };
-
-  const broadcastAppTheme = (theme) => {
-    const nextTheme = normalizeAppTheme(theme);
-    currentAppTheme = nextTheme;
-
-    try {
-      if (nativeTheme) {
-        nativeTheme.themeSource = nextTheme === 'light' ? 'light' : 'dark';
-      }
-    } catch (_) {}
-
-    try {
-      const mainWindow = ui && typeof ui.getMainWindow === 'function' ? ui.getMainWindow() : null;
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.setBackgroundColor(nextTheme === 'light' ? '#f6f9fd' : (nextTheme === 'gold' ? '#0c0b09' : '#0f1115'));
-        sendAppThemeToWebContents(mainWindow.webContents, nextTheme);
-      }
-    } catch (_) {}
-
-    try {
-      if (ui && typeof ui.sendToSide === 'function') {
-        ui.sendToSide('app-theme-changed', nextTheme);
-      }
-    } catch (_) {}
-  };
-
-  const closeTabContextMenuWindow = () => {
-    if (tabContextMenuWindow && !tabContextMenuWindow.isDestroyed()) {
-      try { tabContextMenuWindow.close(); } catch (_) {}
-    }
-    tabContextMenuWindow = null;
-  };
-
-  const buildTabContextMenuHtml = (tabId) => `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-  <style>
-    html, body {
-      margin: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background: transparent;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-    .menu {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      padding: 6px;
-      min-width: 168px;
-      box-sizing: border-box;
-      background: rgba(17, 20, 28, 0.98);
-      border: 1px solid rgba(255, 255, 255, 0.10);
-      border-radius: 8px;
-      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.34);
-      backdrop-filter: blur(10px);
-    }
-    button {
-      appearance: none;
-      border: 0;
-      background: transparent;
-      color: #e6e8ee;
-      font-size: 12px;
-      line-height: 1.2;
-      min-height: 32px;
-      padding: 0 10px;
-      border-radius: 6px;
-      text-align: left;
-      cursor: pointer;
-      white-space: nowrap;
-      box-sizing: border-box;
-    }
-    button:hover { background: rgba(77, 163, 255, 0.18); }
-    button:active { background: rgba(77, 163, 255, 0.28); }
-    button.danger { color: #ffb4b4; }
-    button.danger:hover { background: rgba(255, 82, 82, 0.16); }
-    button:disabled {
-      cursor: default;
-      opacity: 0.72;
-    }
-    .error {
-      display: none;
-      color: #ffb4b4;
-      font-size: 11px;
-      line-height: 1.3;
-      max-height: 28px;
-      overflow: hidden;
-      padding: 2px 4px 0;
-    }
-    .error.visible {
-      display: block;
-    }
-  </style>
-</head>
-<body>
-  <div class="menu">
-    <button id="restart-btn" type="button">重启浏览器</button>
-    <button id="clear-btn" class="danger" type="button">清空浏览器数据</button>
-    <div id="error" class="error"></div>
-  </div>
-  <script>
-    const tabId = ${JSON.stringify(String(tabId || ''))};
-    const api = window.electronAPI;
-    const restartBtn = document.getElementById('restart-btn');
-    const clearBtn = document.getElementById('clear-btn');
-    const errorEl = document.getElementById('error');
-    const restartText = restartBtn.textContent;
-    const clearText = clearBtn.textContent;
-
-    const setLoading = (loading) => {
-      restartBtn.disabled = loading;
-      clearBtn.disabled = loading;
-      if (!loading) {
-        restartBtn.textContent = restartText;
-        clearBtn.textContent = clearText;
-      }
-    };
-
-    const showError = (message) => {
-      errorEl.textContent = message || '操作失败';
-      errorEl.classList.add('visible');
-    };
-
-    const invoke = async (action) => {
-      const targetBtn = action === 'restart' ? restartBtn : clearBtn;
-      const channel = action === 'restart' ? 'restart-browser-runtime' : 'clear-browser-runtime-data';
-      targetBtn.textContent = action === 'restart' ? '重启中...' : '清理中...';
-      setLoading(true);
-      try {
-        errorEl.classList.remove('visible');
-        errorEl.textContent = '';
-        if (!api || typeof api.invoke !== 'function') {
-          throw new Error('当前窗口不可用');
-        }
-        const resp = await api.invoke(channel, { profileId: tabId });
-        if (!resp || resp.ok !== true) {
-          throw new Error((resp && (resp.message || resp.error)) || '操作失败');
-        }
-        window.close();
-      } catch (error) {
-        setLoading(false);
-        showError(error && (error.message || String(error)));
-      }
-    };
-
-    restartBtn.addEventListener('click', () => invoke('restart'));
-    clearBtn.addEventListener('click', () => invoke('clear'));
-    window.addEventListener('blur', () => window.close());
-  </script>
-</body>
-</html>`;
-
-  const openTabContextMenuWindow = ({ tabId, x = 0, y = 0, parentWindow = null } = {}) => {
-    try {
-      closeTabContextMenuWindow();
-      const parent = parentWindow && !parentWindow.isDestroyed() ? parentWindow : null;
-      if (!parent) return false;
-
-      const popupWidth = 168;
-      const popupHeight = 92;
-      const parentBounds = typeof parent.getBounds === 'function' ? parent.getBounds() : { x: 0, y: 0, width: popupWidth, height: popupHeight };
-      const display = screen.getDisplayNearestPoint
-        ? screen.getDisplayNearestPoint({ x: parentBounds.x + Number(x || 0), y: parentBounds.y + Number(y || 0) })
-        : screen.getPrimaryDisplay();
-      const workArea = display && display.workArea ? display.workArea : { x: 0, y: 0, width: 1920, height: 1080 };
-      const anchorX = parentBounds.x + Number(x || 0);
-      const anchorY = parentBounds.y + Number(y || 0);
-      const left = Math.min(Math.max(anchorX - 12, workArea.x + 8), workArea.x + workArea.width - popupWidth - 8);
-      const top = Math.min(Math.max(anchorY + 8, workArea.y + 8), workArea.y + workArea.height - popupHeight - 8);
-
-      tabContextMenuWindow = new BrowserWindow({
-        x: Math.round(left),
-        y: Math.round(top),
-        width: popupWidth,
-        height: popupHeight,
-        frame: false,
-        resizable: false,
-        movable: false,
-        maximizable: false,
-        minimizable: false,
-        skipTaskbar: true,
-        show: false,
-        alwaysOnTop: true,
-        backgroundColor: '#11141c',
-        transparent: true,
-        parent,
-        webPreferences: {
-          nodeIntegration: false,
-          contextIsolation: true,
-          sandbox: false,
-          devTools: false,
-          preload: path.join(__dirname, '../../preload.js'),
-        },
-      });
-
-      tabContextMenuWindow.on('closed', () => {
-        tabContextMenuWindow = null;
-      });
-      tabContextMenuWindow.on('blur', () => closeTabContextMenuWindow());
-
-      tabContextMenuWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildTabContextMenuHtml(tabId))}`);
-      tabContextMenuWindow.once('ready-to-show', () => {
-        try { tabContextMenuWindow.show(); } catch (_) {}
-      });
-      return true;
-    } catch (error) {
-      console.warn('[UI] 打开浏览器菜单窗口失败:', error?.message || error);
-      closeTabContextMenuWindow();
-      return false;
-    }
-  };
-
-  ipc.on('app-theme-changed', (_e, theme) => {
-    broadcastAppTheme(theme);
-  });
-
-  ipc.handle('get-app-theme', async () => ({
-    ok: true,
-    theme: currentAppTheme,
-  }));
-
-  ipc.on('add-tab', (_e, url) => ui.addTab(url));
-  ipc.on('switch-tab', (_e, tabId) => ui.switchTab(tabId));
-  ipc.on('close-tab', (_e, tabId) => { void ui.closeTab(tabId); });
-
-  ipc.handle('show-tab-context-menu', async (_e, payload = {}) => {
+function registerTabIPC(ipc, ui, contextMenu) {
+  ipc.on('add-tab', (_event, url) => ui.addTab(url));
+  ipc.on('switch-tab', (_event, tabId) => ui.switchTab(tabId));
+  ipc.on('close-tab', (_event, tabId) => { void ui.closeTab(tabId); });
+  ipc.handle('show-tab-context-menu', async (event, payload = {}) => {
     try {
       const tabId = String(payload?.tabId || '').trim();
-      if (!tabId) {
-        return { ok: false, message: '缺少标签 ID' };
-      }
-      const x = Number(payload?.x ?? 0);
-      const y = Number(payload?.y ?? 0);
-      const opened = openTabContextMenuWindow({
+      if (!tabId) return { ok: false, message: '缺少标签 ID' };
+      const opened = contextMenu.openTabContextMenuWindow({
         tabId,
-        x,
-        y,
-        parentWindow: BrowserWindow.fromWebContents(_e.sender),
+        x: Number(payload?.x ?? 0),
+        y: Number(payload?.y ?? 0),
+        parentWindow: BrowserWindow.fromWebContents(event.sender),
       });
       return opened ? { ok: true } : { ok: false, message: '打开浏览器菜单失败' };
-    } catch (error) {
-      return { ok: false, message: error?.message || String(error) };
-    }
+    } catch (error) { return { ok: false, message: uiIpcError(error) }; }
   });
-
   ipc.handle('get-tabs-state', async () => {
     try {
-      const tabs = ui.getTabs && typeof ui.getTabs === 'function' ? ui.getTabs() : new Map();
-      const activeTabId = ui.getActiveTabId && typeof ui.getActiveTabId === 'function'
-        ? ui.getActiveTabId()
-        : null;
-      const tabData = Array.from(tabs.values()).map((tab) => ({
-        id: tab.id,
-        title: resolveTabTitle(tab),
-        isActive: tab.id === activeTabId,
-        accountId: String(tab.accountId || '').trim(),
+      const activeId = getManagedActiveTabId(ui);
+      const tabs = Array.from(getManagedTabs(ui).values()).map((tab) => ({
+        id: tab.id, title: resolveTabTitle(tab), isActive: tab.id === activeId, accountId: String(tab.accountId || '').trim(),
       }));
-      return { ok: true, tabs: tabData };
-    } catch (error) {
-      return { ok: false, error: error?.message || String(error), tabs: [] };
-    }
+      return { ok: true, tabs };
+    } catch (error) { return { ok: false, error: uiIpcError(error), tabs: [] }; }
   });
-
-  const getManagedTabs = () => (
-    ui && typeof ui.getTabs === 'function' ? ui.getTabs() : new Map()
-  );
-
-  const getManagedActiveTabId = () => (
-    ui && typeof ui.getActiveTabId === 'function' ? ui.getActiveTabId() : null
-  );
-
-  const findManagedTabById = (tabId) => {
-    const raw = String(tabId || '').trim();
-    if (!raw) return null;
-    const tabs = getManagedTabs();
-    if (tabs && typeof tabs.get === 'function' && tabs.has(raw)) return tabs.get(raw);
-    try {
-      for (const tab of tabs.values()) {
-        if (String(tab?.id || '').trim() === raw) return tab;
-      }
-    } catch (_) {}
-    return null;
-  };
-
-  const serializeManagedTab = (tab) => {
-    if (!tab) return null;
-    const activeTabId = getManagedActiveTabId();
-    return {
-      id: String(tab.id || ''),
-      appTabId: String(tab.id || ''),
-      title: resolveTabTitle(tab),
-      url: String(tab.runtimeUrl || ''),
-      active: String(tab.id || '') === String(activeTabId || ''),
-      accountId: String(tab.accountId || '').trim(),
-      runtimeType: 'chromium',
-    };
-  };
-
-  const listManagedTabs = () => {
-    const tabs = Array.from(getManagedTabs().values()).map(serializeManagedTab).filter(Boolean);
-    return {
-      ok: true,
-      activeTabId: String(getManagedActiveTabId() || ''),
-      tabs,
-      activeTab: tabs.find((tab) => tab.active) || null,
-    };
-  };
-
-  const normalizeBridgeUrl = (raw) => {
-    const value = String(raw || '').trim();
-    if (!value) throw new Error('缺少 URL');
-    if (value === 'about:blank') return value;
-    try {
-      return new URL(value).href;
-    } catch (_) {
-      return new URL(`https://${value}`).href;
-    }
-  };
-
-  ipc.handle('browser-mcp-bridge', async (_event, payload = {}) => {
-    try {
-      const command = String(payload?.command || payload?.action || '').trim();
-      const activeTab = findManagedTabById(getManagedActiveTabId());
-      const targetTab = findManagedTabById(payload?.appTabId || payload?.tabId) || activeTab;
-
-      if (command === 'tab:identify') {
-        return { ok: true, tab: serializeManagedTab(activeTab), tabs: listManagedTabs().tabs };
-      }
-
-      if (command === 'tab:list') {
-        return listManagedTabs();
-      }
-
-      if (command === 'tab:switch') {
-        if (!targetTab?.id || typeof ui.switchTab !== 'function') {
-          return { ok: false, message: '目标标签不存在或无法切换' };
-        }
-        ui.switchTab(targetTab.id);
-        return { ok: true, action: 'switch', tab: serializeManagedTab(targetTab), tabs: listManagedTabs().tabs };
-      }
-
-      if (command === 'tab:close') {
-        if (!targetTab?.id || typeof ui.closeTab !== 'function') {
-          return { ok: false, message: '目标标签不存在或无法关闭' };
-        }
-        const closing = serializeManagedTab(targetTab);
-        await ui.closeTab(targetTab.id);
-        return { ok: true, action: 'close', tab: closing, tabs: listManagedTabs().tabs };
-      }
-
-      if (command === 'tab:open') {
-        if (typeof ui.addTab !== 'function') {
-          return { ok: false, message: '打开标签功能不可用' };
-        }
-        const url = normalizeBridgeUrl(payload?.url);
-        const openedId = await ui.addTab(url, {
-          browserSettings: targetTab?.browserSettings,
-          runtimeType: 'chromium',
-        });
-        const opened = findManagedTabById(openedId);
-        return { ok: true, action: 'open', tab: serializeManagedTab(opened), tabs: listManagedTabs().tabs };
-      }
-
-      if (command === 'tab:replace') {
-        if (!targetTab?.id || !ui?.browserRuntimeManager) {
-          return { ok: false, message: '目标网页不可用' };
-        }
-        const url = normalizeBridgeUrl(payload?.url);
-        if (typeof ui.switchTab === 'function' && targetTab?.id) {
-          ui.switchTab(targetTab.id);
-        }
-        await ui.browserRuntimeManager.navigate(targetTab.id, 'chromium', url);
-        return { ok: true, action: 'replace', tab: serializeManagedTab(targetTab), tabs: listManagedTabs().tabs };
-      }
-
-      if (command === 'tab:history') {
-        return { ok: false, message: '内置 Chromium 暂未开放前进/后退桥接' };
-      }
-
-      if (command === 'tab:reload') {
-        if (!targetTab?.id || typeof ui.refreshTab !== 'function') {
-          return { ok: false, message: '目标网页不可用' };
-        }
-        const result = await ui.refreshTab(targetTab.id);
-        if (!result?.ok) return result;
-        return { ok: true, action: 'reload', tab: serializeManagedTab(targetTab) };
-      }
-
-      if (command === 'tab:capture') {
-        return { ok: false, message: '请通过 Chromium 内的 AI-FREE 自动化扩展执行截图' };
-      }
-
-      return { ok: false, message: `未知 MCP 浏览器桥接命令: ${command || '(empty)'}` };
-    } catch (error) {
-      return { ok: false, message: error?.message || String(error) };
-    }
+  ipc.handle('browser-mcp-bridge', createTabBridgeHandler(ui));
+  ipc.handle('refresh-tab', async (_event, tabId) => {
+    try { return ui.refreshTab ? ui.refreshTab(tabId) : { ok: false, message: '刷新功能不可用' }; }
+    catch (error) { return { ok: false, message: uiIpcError(error) }; }
   });
+  ipc.on('reorder-tab', (_event, payload = {}) => {
+    try { ui.reorderTab?.(payload.tabId, payload.targetTabId, payload.position); } catch (_) {}
+  });
+}
 
-  ipc.handle('refresh-tab', async (_e, tabId) => {
-    try {
-      if (!ui.refreshTab) {
-        return { ok: false, message: '刷新功能不可用' };
-      }
-      return ui.refreshTab(tabId);
-    } catch (error) {
-      console.warn('[IPC] 刷新标签失败:', error?.message || error);
-      return { ok: false, message: error?.message || String(error) };
-    }
-  });
-
-  ipc.on('reorder-tab', (_e, payload = {}) => {
-    try {
-      ui.reorderTab && ui.reorderTab(payload.tabId, payload.targetTabId, payload.position);
-    } catch (error) {
-      console.warn('[IPC] 重排标签失败:', error?.message || error);
-    }
-  });
-  ipc.on('toggle-sidebar', () => ui.toggleSidebar());
-  ipc.on('ensure-sidebar-visible', () => ui.ensureSidebarVisible && ui.ensureSidebarVisible());
-  ipc.on('toggle-account-center-popup', (_event, payload = {}) => {
-    void toggleAccountCenterPopupWindow(payload);
-  });
-  ipc.on('open-account-center-popup', (_event, payload = {}) => {
-    void openAccountCenterPopupWindow(payload);
-  });
-  ipc.on('dismiss-account-center-popup', () => dismissAccountCenterPopupWindow());
-  ipc.on('close-account-center-popup', () => dismissAccountCenterPopupWindow());
+function registerAccountPopupIPC(ipc, ui, popup) {
+  ipc.on('toggle-account-center-popup', (_event, payload = {}) => { void popup.toggleAccountCenterPopupWindow(payload); });
+  ipc.on('open-account-center-popup', (_event, payload = {}) => { void popup.openAccountCenterPopupWindow(payload); });
+  ipc.on('dismiss-account-center-popup', () => popup.dismissAccountCenterPopupWindow());
+  ipc.on('close-account-center-popup', () => popup.dismissAccountCenterPopupWindow());
   ipc.on('resize-account-center-popup', (event, payload = {}) => {
-    const popup = accountCenterPopupWindow;
-    if (!popup || popup.isDestroyed() || event.sender !== popup.webContents) return;
-    resizeAccountCenterPopupWindow(payload.height);
+    if (popup.isAccountCenterPopupSender(event.sender)) popup.resizeAccountCenterPopupWindow(payload.height);
   });
   ipc.on('sync-app-shell-account', (_event, session = {}) => {
     try {
@@ -752,147 +339,57 @@ function registerUiIPC(ctx) {
       });
     } catch (_) {}
   });
+}
 
+function registerUiUtilityIPC(ipc, ctx, popup) {
+  const { ui } = ctx;
+  ipc.on('toggle-sidebar', () => ui.toggleSidebar());
+  ipc.on('ensure-sidebar-visible', () => ui.ensureSidebarVisible?.());
   ipc.handle('open-active-web-console', async () => {
     try {
-      const wc = ui.getActiveWC && ui.getActiveWC();
-      if (!wc || (wc.isDestroyed && wc.isDestroyed())) {
-        return { ok: false, message: '当前没有可查看控制台的网页' };
-      }
-
-      if (typeof wc.isDevToolsOpened === 'function' && wc.isDevToolsOpened()) {
-        try {
-          if (wc.devToolsWebContents && typeof wc.devToolsWebContents.focus === 'function') {
-            wc.devToolsWebContents.focus();
-          }
-        } catch (_) {}
+      const contents = ui.getActiveWC?.();
+      if (!contents || contents.isDestroyed?.()) return { ok: false, message: '当前没有可查看控制台的网页' };
+      if (contents.isDevToolsOpened?.()) {
+        try { contents.devToolsWebContents?.focus?.(); } catch (_) {}
         return { ok: true, opened: true, alreadyOpen: true };
       }
-
-      wc.openDevTools({ mode: 'detach' });
+      contents.openDevTools({ mode: 'detach' });
       return { ok: true, opened: true, alreadyOpen: false };
-    } catch (e) {
-      return { ok: false, message: e?.message || String(e) };
-    }
+    } catch (error) { return { ok: false, message: uiIpcError(error) }; }
   });
-
-  // get-app-console-history 由 app-lifecycle 在 app.whenReady 阶段注册
-  // （需早于 bootstrapMainApp 供调试控制台使用），此处不得重复注册。
-
   ipc.on('reveal-cookie-import', () => {
-    try {
-      console.log('[IPC] 收到 Cookie 导入解锁请求');
-      if (ui && ui.sendToSide) {
-        ui.sendToSide('cookie-import-unlock');
-      }
-      if (ui && typeof ui.ensureSidebarVisible === 'function') {
-        ui.ensureSidebarVisible();
-      }
-    } catch (e) {
-      console.error('[IPC] 处理 Cookie 导入解锁请求失败:', e?.message || e);
-    }
+    try { ui.sendToSide?.('cookie-import-unlock'); ui.ensureSidebarVisible?.(); } catch (_) {}
   });
-
-  ipc.on('set-zoom', (_e, zoomFactor) => ui.setZoom(zoomFactor));
-  ipc.on('refresh-active-tab-to-url', (_e, url) => ui.refreshActiveTabToUrl(url));
+  ipc.on('set-zoom', (_event, zoomFactor) => ui.setZoom(zoomFactor));
+  ipc.on('refresh-active-tab-to-url', (_event, url) => ui.refreshActiveTabToUrl(url));
   ipc.on('refresh-active-tab', () => ui.refreshActiveTab());
-
   ipc.on('smart-refresh-active-tab', async () => {
     try {
-      const wc = ui.getActiveWC && ui.getActiveWC();
-      if (!wc || (wc.isDestroyed && wc.isDestroyed())) return;
-// 处理：url的具体业务逻辑。
-      const url = (wc.getURL && wc.getURL()) || '';
-      if (typeof url === 'string' && url.startsWith('https://dreamina.capcut.com/ai-tool/')) {
+      const contents = ui.getActiveWC?.();
+      if (!contents || contents.isDestroyed?.()) return;
+      const url = contents.getURL?.() || '';
+      if (String(url).startsWith('https://dreamina.capcut.com/ai-tool/')) {
         const targetUrl = typeof ctx.getDreamTargetUrl === 'function' ? ctx.getDreamTargetUrl() : ctx.DREAM_TARGET_URL;
-        console.log('[智能刷新] 检测到Dreamina页面，刷新到统一入口:', targetUrl);
         ui.refreshActiveTabToUrl(targetUrl);
-      } else {
-        console.log('[智能刷新] 普通页面刷新，当前URL:', url);
-        ui.refreshActiveTab();
-      }
+      } else ui.refreshActiveTab();
     } catch (_) {}
   });
+  ipc.handle('focus-sidebar-input', createSidebarFocusHandler(ui, popup.isAccountCenterPopupOpen));
+  ipc.on('open-tutorial', (_event, url) => { void ui?.openTutorialTab?.(url); });
+}
 
-  ipc.handle('focus-sidebar-input', async (event, request = {}) => {
-    try {
-      // Pointer entry/movement is used to repair the native Chromium wheel
-      // target, but hover must not take focus away from an open account-center
-      // BrowserWindow. A real sidebar click is marked explicit and continues
-      // through the normal focus/blur dismissal path.
-      const passiveInteraction = request?.interaction === 'passive';
-      const textInputInteraction = request?.interaction === 'text-input';
-      const accountCenterPopupOpen = accountCenterPopupWindow
-        && !accountCenterPopupWindow.isDestroyed?.()
-        && !accountCenterPopupDismissing;
-      if (passiveInteraction && accountCenterPopupOpen) {
-        return { ok: true, skipped: true, reason: 'account-center-popup-open' };
-      }
-
-      const mainWindow = ui?.getMainWindow?.();
-      const sideView = typeof ui?.getSideView === 'function' ? ui.getSideView() : null;
-      const sideWc = (sideView?.webContents && !sideView.webContents.isDestroyed?.())
-        ? sideView.webContents
-        : (event.sender && !event.sender.isDestroyed?.() ? event.sender : null);
-
-      if (mainWindow && !mainWindow.isDestroyed?.()) {
-        if (mainWindow.isMinimized?.()) {
-          try { mainWindow.restore?.(); } catch (_) {}
-        }
-        // Only activate the owner when necessary. The renderer-to-renderer
-        // handoff below repairs focus inside an already foregrounded window.
-        if (!mainWindow.isFocused?.()) {
-          try { mainWindow.focus?.(); } catch (_) {}
-        }
-      }
-
-      const focusSide = () => {
-        try {
-          if (sideWc && !sideWc.isDestroyed?.()) {
-            // When the embedded Chromium HWND owns the Win32 input queue,
-            // BrowserWindow.focus() alone does nothing because the window is
-            // already foregrounded. Electron can also keep reporting the
-            // sidebar as focused after the native child stole SetFocus, so do
-            // not trust sideWc.isFocused() here. Always move through the shell
-            // renderer before targeting the sidebar WebContentsView.
-            if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed?.()) {
-              mainWindow.webContents.focus();
-            }
-            sideWc.focus();
-            return true;
-          }
-          if (event.sender && !event.sender.isDestroyed?.()) {
-            event.sender.focus();
-            return true;
-          }
-        } catch (_) {}
-        return false;
-      };
-
-      // 立刻 + 延迟补焦，覆盖 Chromium 子窗口/布局同步抢焦点的时序。
-      focusSide();
-      // 文本框已经开始接管键盘输入时只能做一次原生焦点交接。
-      // 后续 setImmediate/20ms 补焦会在中文输入法刚进入 composition 后
-      // 再次切走焦点，从而把尚未上屏的拼音预编辑文本清掉。
-      if (textInputInteraction) {
-        return { ok: true, stableTextInput: true };
-      }
-      await new Promise((resolve) => setImmediate(resolve));
-      focusSide();
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      focusSide();
-
-      return { ok: true, sideFocused: !!(sideWc && typeof sideWc.isFocused === 'function' && sideWc.isFocused()) };
-    } catch (error) {
-      return { ok: false, error: error?.message || String(error) };
-    }
-  });
-
-  ipc.on('open-tutorial', (event, url) => {
-    if (typeof ui?.openTutorialTab === 'function') {
-      void ui.openTutorialTab(url);
-    }
-  });
+function registerUiIPC(ctx) {
+  const ipc = ctx.ipc.scope('register/ui');
+  const popup = createAccountCenterPopupController({ app: ctx.app, ui: ctx.ui });
+  const contextMenu = createTabContextMenuController();
+  const theme = createThemeController(ctx.ui);
+  const clearController = createBrowserDataClearController(ctx.ui, contextMenu.closeTabContextMenuWindow);
+  registerBrowserRuntimeIPC(ipc, ctx.ui, clearController);
+  ipc.on('app-theme-changed', (_event, nextTheme) => theme.broadcast(nextTheme));
+  ipc.handle('get-app-theme', async () => ({ ok: true, theme: theme.current() }));
+  registerTabIPC(ipc, ctx.ui, contextMenu);
+  registerAccountPopupIPC(ipc, ctx.ui, popup);
+  registerUiUtilityIPC(ipc, ctx, popup);
 }
 
 module.exports = { registerUiIPC };

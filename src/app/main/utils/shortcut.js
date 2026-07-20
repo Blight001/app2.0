@@ -86,6 +86,43 @@ async function checkDesktopShortcutAndPrompt(parentWindow, sendToSide) {
   }
 }
 
+function createWindowsDesktopShortcut(shortcutPath) {
+  try {
+    const exe = process.execPath;
+    const icon = resolveAppIconPath();
+    const productName = getProductDisplayName();
+    let args = '';
+    try {
+      if (!app.isPackaged) args = `"${app.getAppPath()}"`;
+    } catch (_) {}
+    /** @type {any} */
+    const shortcutOptions = {
+      target: exe,
+      args,
+      description: productName,
+      icon: fs.existsSync(icon) ? icon : undefined,
+      iconIndex: 0,
+      workingDirectory: path.dirname(exe),
+    };
+    const ok = shell.writeShortcutLink(shortcutPath, 'create', shortcutOptions);
+    if (!ok) throw new Error('writeShortcutLink 返回 false');
+    console.log('[Shortcut] Windows 桌面快捷方式创建成功');
+    return { ok: true };
+  } catch (error) {
+    console.warn('[Shortcut] 创建 Windows 快捷方式失败:', error?.message || error);
+    return { ok: false, error: error.message };
+  }
+}
+
+async function createLinuxDesktopShortcut(shortcutPath) {
+  const ok = await createLinuxDesktopFile(shortcutPath);
+  if (ok) {
+    console.log('[Shortcut] Linux 桌面快捷方式创建成功');
+    return { ok: true };
+  }
+  return { ok: false, error: '无法在桌面创建 .desktop 文件' };
+}
+
 // 实际创建桌面快捷方式的函数（供IPC调用）
 async function createDesktopShortcut() {
   try {
@@ -100,53 +137,10 @@ async function createDesktopShortcut() {
       return { ok: true };
     }
 
-    if (process.platform === 'win32') {
-      try {
-        const exe = process.execPath;
-        const icon = resolveAppIconPath();
-        const productName = getProductDisplayName();
-
-        // 在开发模式下（未打包），需要把 Electron 可执行文件的 args 指向应用目录，
-        // 否则快捷方式打开的是 electron.exe 且不会加载当前项目
-        let args = '';
-        try {
-          if (!app.isPackaged) {
-            const appPath = app.getAppPath();
-            // 加上引号以支持路径中有空格
-            args = `"${appPath}"`;
-          }
-        } catch (_) {}
-
-        const options = {
-          target: exe,
-          args,
-          description: productName,
-          icon: fs.existsSync(icon) ? icon : undefined,
-          iconIndex: 0,
-          workingDirectory: path.dirname(exe)
-        };
-        const ok = shell.writeShortcutLink(shortcutPath, 'create', options);
-        if (!ok) throw new Error('writeShortcutLink 返回 false');
-
-        console.log('[Shortcut] Windows 桌面快捷方式创建成功');
-        return { ok: true };
-      } catch (e) {
-        console.warn('[Shortcut] 创建 Windows 快捷方式失败:', e?.message || e);
-        return { ok: false, error: e.message };
-      }
-    } else if (process.platform === 'linux') {
-      const ok = await createLinuxDesktopFile(shortcutPath);
-      if (ok) {
-        console.log('[Shortcut] Linux 桌面快捷方式创建成功');
-        return { ok: true };
-      } else {
-        return { ok: false, error: '无法在桌面创建 .desktop 文件' };
-      }
-    } else {
-      // macOS 不自动在桌面创建快捷方式
-      console.log('[Shortcut] macOS 平台跳过桌面快捷方式创建');
-      return { ok: true };
-    }
+    if (process.platform === 'win32') return createWindowsDesktopShortcut(shortcutPath);
+    if (process.platform === 'linux') return createLinuxDesktopShortcut(shortcutPath);
+    console.log('[Shortcut] macOS 平台跳过桌面快捷方式创建');
+    return { ok: true };
   } catch (e) {
     console.warn('[Shortcut] 创建桌面快捷方式异常:', e?.message || e);
     return { ok: false, error: e.message };

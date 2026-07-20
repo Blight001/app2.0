@@ -1,255 +1,183 @@
-const {
-  readStoreConfigFile,
-  writeStoreConfigFile,
-} = require('../utils/json-store');
+const { readStoreConfigFile, writeStoreConfigFile } = require('../utils/json-store');
 const {
   normalizeLicenseRecord: normalizeLicenseRecordBase,
   normalizeLicenseRecords,
 } = require('../utils/license-records');
 
-// 创建/初始化：createLicenseStore的具体业务逻辑。
-function createLicenseStore(deps = {}) {
-  const {
-    fs,
-    path,
-    getStorePath,
-    getCurrentPlatformLabel,
-    licenseCache,
-    logger = console,
-  } = deps;
+function recordKey(record) {
+  return String(record?.keyValue || record?.key || '').trim();
+}
 
-// 获取/读取/解析：readStoreConfigSafe的具体业务逻辑。
-  function readStoreConfigSafe() {
-    return readStoreConfigFile(getStorePath, { fs, fallback: {} });
+class LicenseStore {
+  constructor(deps) {
+    this.deps = deps;
+    this.fs = deps.fs;
+    this.path = deps.path;
+    this.licenseCache = deps.licenseCache;
+    this.logger = deps.logger || console;
   }
 
-// 设置/更新/持久化：writeStoreConfigSafe的具体业务逻辑。
-  function writeStoreConfigSafe(nextConfig) {
-    return writeStoreConfigFile(getStorePath, nextConfig, {
-      fs,
-      path,
-      logger,
+  readStoreConfigSafe() {
+    return readStoreConfigFile(this.deps.getStorePath, { fs: this.fs, fallback: {} });
+  }
+
+  writeStoreConfigSafe(nextConfig) {
+    return writeStoreConfigFile(this.deps.getStorePath, nextConfig, {
+      fs: this.fs,
+      path: this.path,
+      logger: this.logger,
       logPrefix: '配置',
       writeErrorMessage: '写入 store 失败:',
     });
   }
 
-// 获取/读取/解析：getLegacyLicenseRecordsPaths的具体业务逻辑。
-  function getLegacyLicenseRecordsPaths() {
+  getLegacyLicenseRecordsPaths() {
     try {
-      const baseDir = path.dirname(getStorePath());
-      const legacyRootDir = path.dirname(baseDir);
+      const baseDir = this.path.dirname(this.deps.getStorePath());
+      const legacyRootDir = this.path.dirname(baseDir);
       return [
-        path.join(baseDir, 'license-records'),
-        path.join(baseDir, 'license-records.json'),
-        path.join(legacyRootDir, 'license-records'),
-        path.join(legacyRootDir, 'license-records.json'),
+        this.path.join(baseDir, 'license-records'),
+        this.path.join(baseDir, 'license-records.json'),
+        this.path.join(legacyRootDir, 'license-records'),
+        this.path.join(legacyRootDir, 'license-records.json'),
       ];
     } catch (_) {
       return [];
     }
   }
 
-// 处理：maskLicenseKey的具体业务逻辑。
-  function maskLicenseKey(key) {
-    const value = String(key || '').trim();
-    if (!value) return '';
-    if (value.length <= 8) return value;
-    return `${value.slice(0, 4)}****${value.slice(-4)}`;
+  maskValue(value) {
+    const text = String(value || '').trim();
+    if (!text || text.length <= 8) return text;
+    return `${text.slice(0, 4)}****${text.slice(-4)}`;
   }
 
-// 处理：maskDeviceId的具体业务逻辑。
-  function maskDeviceId(deviceId) {
-    const value = String(deviceId || '').trim();
-    if (!value) return '';
-    if (value.length <= 8) return value;
-    return `${value.slice(0, 4)}****${value.slice(-4)}`;
+  normalizeLicenseRecord(entry = {}) {
+    return normalizeLicenseRecordBase(entry, { includeTimestamps: true, requireSuccessStatus: true });
   }
 
-// 格式化/规范化：normalizeLicenseRecord的具体业务逻辑。
-  function normalizeLicenseRecord(entry = {}) {
-    return normalizeLicenseRecordBase(entry, {
-      includeTimestamps: true,
-      requireSuccessStatus: true,
-    });
+  sanitizeLicenseRecords(records) {
+    return normalizeLicenseRecords(records, { includeTimestamps: true, requireSuccessStatus: true });
   }
 
-// 格式化/规范化：sanitizeLicenseRecords的具体业务逻辑。
-  function sanitizeLicenseRecords(records) {
-    return normalizeLicenseRecords(records, {
-      includeTimestamps: true,
-      requireSuccessStatus: true,
-    });
+  appendCachedRecords(target) {
+    if (typeof this.licenseCache?.getRecords === 'function') target.push(...this.licenseCache.getRecords());
   }
 
-// 获取/读取/解析：readLicenseRecordsSafe的具体业务逻辑。
-  function readLicenseRecordsSafe() {
+  appendStoreRecords(target, storeConfig) {
+    if (Array.isArray(storeConfig.licenseRecords)) target.push(...storeConfig.licenseRecords);
+    if (Array.isArray(storeConfig.license_records)) target.push(...storeConfig.license_records);
+    const savedKey = String(storeConfig.userCredentials?.key || '').trim();
+    if (savedKey && !target.some((item) => recordKey(item) === savedKey)) {
+      target.unshift({ keyValue: savedKey, platformName: this.getCurrentPlatformLabelSafe() });
+    }
+  }
+
+  appendLegacyFileRecords(target, legacyPath) {
+    try {
+      if (!legacyPath || !this.fs.existsSync(legacyPath) || this.fs.statSync(legacyPath).isDirectory()) return;
+      const parsed = JSON.parse(this.fs.readFileSync(legacyPath, 'utf8') || '[]');
+      if (Array.isArray(parsed)) {
+        target.push(...parsed);
+        return;
+      }
+      if (!parsed || typeof parsed !== 'object') return;
+      if (Array.isArray(parsed.records)) target.push(...parsed.records);
+      if (Array.isArray(parsed.licenseRecords)) target.push(...parsed.licenseRecords);
+    } catch (_) {}
+  }
+
+  readLicenseRecordsSafe() {
     try {
       const sourceRecords = [];
-
-      if (licenseCache && typeof licenseCache.getRecords === 'function') {
-        sourceRecords.push(...licenseCache.getRecords());
-      }
-
-      const storeConfig = readStoreConfigSafe();
-      if (Array.isArray(storeConfig.licenseRecords)) {
-        sourceRecords.push(...storeConfig.licenseRecords);
-      }
-      if (Array.isArray(storeConfig.license_records)) {
-        sourceRecords.push(...storeConfig.license_records);
-      }
-
-      const savedKey = String(storeConfig.userCredentials?.key || '').trim();
-      if (savedKey && !sourceRecords.some((item) => String(item?.keyValue || item?.key || '').trim() === savedKey)) {
-        sourceRecords.unshift({
-          keyValue: savedKey,
-          platformName: getCurrentPlatformLabelSafe(),
-        });
-      }
-
-      const legacyPaths = getLegacyLicenseRecordsPaths();
-      for (const legacyPath of legacyPaths) {
-        try {
-          if (!legacyPath || !fs.existsSync(legacyPath)) continue;
-          const stat = fs.statSync(legacyPath);
-          if (stat.isDirectory()) continue;
-          const raw = fs.readFileSync(legacyPath, 'utf8');
-          const parsed = JSON.parse(raw || '[]');
-          if (Array.isArray(parsed)) {
-            sourceRecords.push(...parsed);
-          } else if (parsed && typeof parsed === 'object') {
-            if (Array.isArray(parsed.records)) sourceRecords.push(...parsed.records);
-            if (Array.isArray(parsed.licenseRecords)) sourceRecords.push(...parsed.licenseRecords);
-          }
-        } catch (_) {}
-      }
-
-      const cleaned = sanitizeLicenseRecords(sourceRecords);
-      if (cleaned.length > 0) {
-        if (licenseCache && typeof licenseCache.setRecords === 'function') {
-          licenseCache.setRecords(cleaned);
-        }
-        return cleaned;
-      }
-
-      return [];
+      this.appendCachedRecords(sourceRecords);
+      this.appendStoreRecords(sourceRecords, this.readStoreConfigSafe());
+      this.getLegacyLicenseRecordsPaths().forEach((filePath) => this.appendLegacyFileRecords(sourceRecords, filePath));
+      const cleaned = this.sanitizeLicenseRecords(sourceRecords);
+      if (cleaned.length && typeof this.licenseCache?.setRecords === 'function') this.licenseCache.setRecords(cleaned);
+      return cleaned;
     } catch (_) {
       return [];
     }
   }
 
-// 设置/更新/持久化：writeLicenseRecordsSafe的具体业务逻辑。
-  function writeLicenseRecordsSafe(records) {
+  writeLicenseRecordsSafe(records) {
     try {
-      const cleaned = sanitizeLicenseRecords(records);
-      const existingConfig = readStoreConfigSafe();
-      const nextConfig = {
-        ...existingConfig,
-        licenseRecords: cleaned,
-      };
+      const cleaned = this.sanitizeLicenseRecords(records);
+      const nextConfig = { ...this.readStoreConfigSafe(), licenseRecords: cleaned };
       delete nextConfig.license_records;
-      if (licenseCache && typeof licenseCache.setRecords === 'function') {
-        licenseCache.setRecords(cleaned);
-      }
-      return writeStoreConfigSafe(nextConfig);
-    } catch (e) {
-      logger.warn?.('[验证记录] 写入失败:', e?.message || e);
+      this.licenseCache?.setRecords?.(cleaned);
+      return this.writeStoreConfigSafe(nextConfig);
+    } catch (error) {
+      this.logger.warn?.('[验证记录] 写入失败:', error?.message || error);
       return false;
     }
   }
 
-// 获取/读取/解析：getCurrentPlatformLabelSafe的具体业务逻辑。
-  function getCurrentPlatformLabelSafe() {
+  getCurrentPlatformLabelSafe() {
     try {
-      const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
-        ? licenseCache.getRuntimeConfig()
-        : {};
-      const runtimePlatformName = String(runtimeConfig.platformName || '').trim();
-      if (runtimePlatformName) {
-        return runtimePlatformName;
-      }
-
-      const runtimeAllowedPlatforms = Array.isArray(runtimeConfig.allowedPlatforms) ? runtimeConfig.allowedPlatforms : [];
-      if (runtimeAllowedPlatforms.length > 0) {
-        return String(runtimeAllowedPlatforms[0] || '').trim() || '未知平台';
-      }
-
-      const allowedPlatforms = Array.isArray(deps.getLatestAllowedPlatforms?.()) ? deps.getLatestAllowedPlatforms() : [];
-      const cachedPlatformName = String(allowedPlatforms[0] || '').trim();
-      if (cachedPlatformName) return cachedPlatformName;
+      const runtimeConfig = this.licenseCache?.getRuntimeConfig?.() || {};
+      const platformName = String(runtimeConfig.platformName || '').trim();
+      if (platformName) return platformName;
+      const runtimePlatforms = Array.isArray(runtimeConfig.allowedPlatforms) ? runtimeConfig.allowedPlatforms : [];
+      if (runtimePlatforms.length) return String(runtimePlatforms[0] || '').trim() || '未知平台';
+      const latest = this.deps.getLatestAllowedPlatforms?.();
+      const allowedPlatforms = Array.isArray(latest) ? latest : [];
+      return String(allowedPlatforms[0] || '').trim() || '未知平台';
     } catch (_) {
       return '未知平台';
     }
-    return '未知平台';
   }
 
-// 处理：appendLicenseRecord的具体业务逻辑。
-  function appendLicenseRecord(entry = {}) {
-    const normalized = normalizeLicenseRecord({
+  appendLicenseRecord(entry = {}) {
+    const now = new Date().toISOString();
+    const normalized = this.normalizeLicenseRecord({
       ...entry,
-      savedAt: String(entry.savedAt || new Date().toISOString()).trim(),
-      updatedAt: String(entry.updatedAt || new Date().toISOString()).trim(),
+      savedAt: String(entry.savedAt || now).trim(),
+      updatedAt: String(entry.updatedAt || now).trim(),
     });
     if (!normalized) return null;
-
-    const records = readLicenseRecordsSafe();
-    const nextRecords = [normalized, ...records.filter((item) => String(item?.keyValue || '').trim() !== normalized.keyValue)];
-    writeLicenseRecordsSafe(nextRecords);
+    const records = this.readLicenseRecordsSafe();
+    this.writeLicenseRecordsSafe([normalized, ...records.filter((item) => recordKey(item) !== normalized.keyValue)]);
     return normalized;
   }
 
-// 设置/更新/持久化：updateLicenseRecordPlatform的具体业务逻辑。
-  function updateLicenseRecordPlatform(entry = {}) {
+  updateLicenseRecordPlatform(entry = {}) {
     const keyValue = String(entry.keyValue || entry.key || '').trim();
     const platformName = String(entry.platformName || entry.platform || entry.currentPlatformName || '').trim();
     if (!keyValue || !platformName) return null;
-
-    const records = readLicenseRecordsSafe();
+    const records = this.readLicenseRecordsSafe();
     let updated = false;
     const updatedAt = new Date().toISOString();
     const nextRecords = records.map((item) => {
-      const itemKey = String(item?.keyValue || item?.key || '').trim();
-      if (itemKey !== keyValue) return item;
+      if (recordKey(item) !== keyValue) return item;
       updated = true;
-      return {
-        ...item,
-        platformName,
-        updatedAt,
-      };
+      return { ...item, platformName, updatedAt };
     });
-
-    if (!updated) {
-      nextRecords.unshift({
-        keyValue,
-        platformName,
-        savedAt: updatedAt,
-        updatedAt,
-      });
-    }
-
-    writeLicenseRecordsSafe(nextRecords);
-    return {
-      keyValue,
-      platformName,
-      updated,
-    };
+    if (!updated) nextRecords.unshift({ keyValue, platformName, savedAt: updatedAt, updatedAt });
+    this.writeLicenseRecordsSafe(nextRecords);
+    return { keyValue, platformName, updated };
   }
 
-  return {
-    readStoreConfigSafe,
-    writeStoreConfigSafe,
-    getCurrentPlatformLabel: getCurrentPlatformLabelSafe,
-    normalizeLicenseRecord,
-    sanitizeLicenseRecords,
-    readLicenseRecordsSafe,
-    writeLicenseRecordsSafe,
-    maskLicenseKey,
-    maskDeviceId,
-    appendLicenseRecord,
-    updateLicenseRecordPlatform,
-  };
+  toApi() {
+    return {
+      readStoreConfigSafe: this.readStoreConfigSafe.bind(this),
+      writeStoreConfigSafe: this.writeStoreConfigSafe.bind(this),
+      getCurrentPlatformLabel: this.getCurrentPlatformLabelSafe.bind(this),
+      normalizeLicenseRecord: this.normalizeLicenseRecord.bind(this),
+      sanitizeLicenseRecords: this.sanitizeLicenseRecords.bind(this),
+      readLicenseRecordsSafe: this.readLicenseRecordsSafe.bind(this),
+      writeLicenseRecordsSafe: this.writeLicenseRecordsSafe.bind(this),
+      maskLicenseKey: this.maskValue.bind(this),
+      maskDeviceId: this.maskValue.bind(this),
+      appendLicenseRecord: this.appendLicenseRecord.bind(this),
+      updateLicenseRecordPlatform: this.updateLicenseRecordPlatform.bind(this),
+    };
+  }
 }
 
-module.exports = {
-  createLicenseStore,
-};
+function createLicenseStore(deps = {}) {
+  return new LicenseStore(deps).toApi();
+}
+
+module.exports = { createLicenseStore };

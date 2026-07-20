@@ -259,6 +259,15 @@ async function clearCardCache() {
     setCardFileName('未选择卡片');
 }
 
+function renderSelectedAutomationCard(item) {
+    if (isSidebarLayout()) {
+        renderSidebarCardEditor(item.cardData);
+        syncSidebarEditorToHiddenJson();
+        return;
+    }
+    setCardEditorValue(item.cardData);
+}
+
 async function deleteSelectedCardCache() {
     const state = await loadCardCacheState().catch(() => ({ items: [], selectedId: '' }));
     const items = Array.isArray(state.items) ? state.items : [];
@@ -266,7 +275,7 @@ async function deleteSelectedCardCache() {
         throw new Error('没有可删除的自动化卡片');
     }
 
-    const selectedId = String(state.selectedId || items[0]?.id || '').trim();
+    const selectedId = String(state.selectedId || (items[0] && items[0].id) || '').trim();
     const selectedIndex = items.findIndex((item) => String(item.id || '').trim() === selectedId);
     const removeIndex = selectedIndex >= 0 ? selectedIndex : 0;
     const deletedItem = items[removeIndex] || null;
@@ -280,61 +289,16 @@ async function deleteSelectedCardCache() {
         return deletedItem;
     }
 
-    const nextSelectedId = String(nextItems[0]?.id || '').trim();
+    const nextSelectedId = String((nextItems[0] && nextItems[0].id) || '').trim();
     await saveCardCacheState(nextItems, nextSelectedId);
     const nextItem = nextItems.find((item) => item.id === nextSelectedId) || nextItems[0];
-    if (isSidebarLayout()) {
-        renderSidebarCardEditor(nextItem.cardData);
-        syncSidebarEditorToHiddenJson();
-    } else {
-        setCardEditorValue(nextItem.cardData);
-    }
+    renderSelectedAutomationCard(nextItem);
     void renderCardCacheList({
         items: nextItems,
         selectedId: nextSelectedId
     });
-    setCardFileName(nextItem.cardData?.name || nextItem.cardName || '未选择卡片');
+    setCardFileName((nextItem.cardData && nextItem.cardData.name) || nextItem.cardName || '未选择卡片');
     return deletedItem;
-}
-
-function parseImportedCardText(rawText = '', sourceName = '粘贴导入') {
-    const text = String(rawText || '').trim();
-    if (!text) {
-        throw new Error('请输入卡片流程数据');
-    }
-    let parsed;
-    try {
-        parsed = JSON.parse(text);
-    } catch (_error) {
-        throw new Error('卡片流程数据不是有效的 JSON');
-    }
-
-    let candidates = [];
-    if (Array.isArray(parsed)) {
-        candidates = parsed;
-    } else if (Array.isArray(parsed?.cards)) {
-        candidates = parsed.cards;
-    } else if (Array.isArray(parsed?.items)) {
-        candidates = parsed.items.map((item) => item?.cardData || item);
-    } else {
-        candidates = [parsed?.cardData || parsed];
-    }
-    const validCandidates = candidates.filter((item) => item && typeof item === 'object' && !Array.isArray(item));
-    if (validCandidates.length === 0) {
-        throw new Error('未识别到自动化卡片数据');
-    }
-    const cards = [];
-    validCandidates.forEach((cardData, index) => {
-        const fallbackName = validCandidates.length === 1 ? sourceName : `${sourceName}#${index + 1}`;
-        const normalized = normalizeCardData(cardData, fallbackName, { allowEmptySteps: true });
-        Object.defineProperty(normalized, '__importSourceName', {
-            value: sourceName,
-            enumerable: false,
-            configurable: true
-        });
-        cards.push(normalized);
-    });
-    return cards;
 }
 
 function sendStandaloneMessage(payload) {
@@ -477,23 +441,28 @@ async function importAndStartCard() {
 async function loopCard() {
     const isRunning = await refreshLoopButtonState();
     if (isRunning) {
-        loopCardButton && (loopCardButton.disabled = true);
-        showActionToast('正在停止执行流程...', 'info');
-        try {
-            await sendStopAction();
-            showActionToast('已停止执行流程', 'success');
-        } catch (error) {
-            showActionToast(error && error.message ? error.message : '停止执行失败', 'error');
-            await refreshLoopButtonState().catch(() => {});
-        } finally {
-            if (loopCardButton) {
-                loopCardButton.disabled = false;
-            }
-        }
-        return;
+        return stopLoopCard();
     }
 
-    loopCardButton && (loopCardButton.disabled = true);
+    return startLoopCard();
+}
+
+async function stopLoopCard() {
+    if (loopCardButton) loopCardButton.disabled = true;
+    showActionToast('正在停止执行流程...', 'info');
+    try {
+        await sendStopAction();
+        showActionToast('已停止执行流程', 'success');
+    } catch (error) {
+        showActionToast(error && error.message ? error.message : '停止执行失败', 'error');
+        await refreshLoopButtonState().catch(() => {});
+    } finally {
+        if (loopCardButton) loopCardButton.disabled = false;
+    }
+}
+
+async function startLoopCard() {
+    if (loopCardButton) loopCardButton.disabled = true;
     showActionToast('正在启动循环执行...', 'info');
     setDebugProgress({
         visible: true,
@@ -557,3 +526,4 @@ globalThis.CookieCaptureAutomationFlow = {
     importAndStartCard,
     loopCard
 };
+import { parseImportedCardText } from './automation-card-import-parser.js';

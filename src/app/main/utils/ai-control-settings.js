@@ -17,6 +17,7 @@ function getAiControlMcpCallLimit(store = {}) {
 }
 
 function normalizeCustomAiApiConfig(value = {}) {
+  /** @type {Record<string, any>} */
   const source = value && typeof value === 'object' ? value : {};
   return {
     enabled: source.enabled === true,

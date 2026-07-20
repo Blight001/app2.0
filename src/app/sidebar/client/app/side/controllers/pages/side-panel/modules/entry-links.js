@@ -2,25 +2,25 @@
 function bindTutorialLink() {
   const tutorialLink = safeGetEl('tutorial-link');
   if (!tutorialLink) return;
+  const syncTutorialLink = (url) => {
+    if (typeof setTutorialLinkHref === 'function') setTutorialLinkHref(url);
+  };
 
 // 获取/读取/解析：resolveTutorialUrl的具体业务逻辑。
   async function resolveTutorialUrl() {
     try {
-      if (window.electronAPI && typeof window.electronAPI.invoke === 'function') {
-        const refreshed = await window.electronAPI.invoke('refresh-tutorial-url');
+      const contentApi = window.aiFree && window.aiFree.content;
+      if (contentApi && typeof contentApi.refreshTutorialUrl === 'function') {
+        const refreshed = await contentApi.refreshTutorialUrl();
         const refreshedUrl = String(refreshed?.tutorialUrl || '').trim();
         if (refreshed?.ok === true && refreshedUrl) {
-          if (typeof setTutorialLinkHref === 'function') {
-            setTutorialLinkHref(refreshedUrl);
-          }
+          syncTutorialLink(refreshedUrl);
           return refreshedUrl;
         }
 
-        const latestUrl = await window.electronAPI.invoke('get-tutorial-url');
+        const latestUrl = await contentApi.getTutorialUrl();
         if (typeof latestUrl === 'string' && latestUrl.trim()) {
-          if (typeof setTutorialLinkHref === 'function') {
-            setTutorialLinkHref(latestUrl);
-          }
+          syncTutorialLink(latestUrl);
           return String(latestUrl).trim();
         }
       }
@@ -36,7 +36,7 @@ function bindTutorialLink() {
     const currentHref = await resolveTutorialUrl();
 
     if (currentHref) {
-      window.electronAPI.send('open-tutorial', currentHref);
+      window.aiFree.content.openTutorial(currentHref);
       return;
     }
 

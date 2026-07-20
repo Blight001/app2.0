@@ -151,6 +151,16 @@
     return nested || result;
   }
 
+  function getUsageField(payload, licenseUsage, names) {
+    const sources = [payload, licenseUsage].filter((source) => source && typeof source === 'object');
+    for (const source of sources) {
+      for (const name of names) {
+        if (source[name] !== undefined && source[name] !== null) return source[name];
+      }
+    }
+    return null;
+  }
+
 // 格式化/规范化：formatUsageTimesText的具体业务逻辑。
   function formatUsageTimesText(result) {
     const payload = extractValidationPayload(result);
@@ -165,9 +175,9 @@
       return Number.isFinite(num) ? num : null;
     };
 
-    const maxUsageTimes = toNumber(payload.max_usage_times ?? payload.maxUsageTimes ?? licenseUsage?.max_usage_times ?? licenseUsage?.maxUsageTimes);
-    const usedUsageTimes = toNumber(payload.used_usage_times ?? payload.usedUsageTimes ?? licenseUsage?.used_usage_times ?? licenseUsage?.usedUsageTimes);
-    const remainingUsageTimes = toNumber(payload.remaining_usage_times ?? payload.remainingUsageTimes ?? licenseUsage?.remaining_usage_times ?? licenseUsage?.remainingUsageTimes);
+    const maxUsageTimes = toNumber(getUsageField(payload, licenseUsage, ['max_usage_times', 'maxUsageTimes']));
+    const usedUsageTimes = toNumber(getUsageField(payload, licenseUsage, ['used_usage_times', 'usedUsageTimes']));
+    const remainingUsageTimes = toNumber(getUsageField(payload, licenseUsage, ['remaining_usage_times', 'remainingUsageTimes']));
 
     if (maxUsageTimes === 0) {
       return '无限制';

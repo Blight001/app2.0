@@ -1,5 +1,7 @@
 # AI-FREE 客户端彻底整理与可维护性改造计划
 
+> 实施状态（2026-07-19）：阶段 0–5 与最终门禁已完成。守卫基线为零，334 项测试、覆盖率、真实 Electron/Chromium、Windows 构建和 packaged runtime 均通过。逐项证据见 [PROGRESS.md](PROGRESS.md)，功能覆盖见 [stage0/feature-matrix.md](stage0/feature-matrix.md)。
+
 ## 1. 背景与改造目标
 
 当前客户端已经形成 Electron 主进程、Chromium Runtime、侧边栏和扩展等基本边界，但仍存在以下维护问题：

@@ -17,6 +17,7 @@ const { createTabHelpers } = require('../services/tab-helpers');
 const { createRuntimeHelpers } = require('../services/runtime-helpers');
 const { createExtensionManager } = require('../services/extension-manager');
 const { getHardwareFingerprint } = require('../utils/hardware-js');
+const { resolveVipAccess } = require('../utils/vip-access');
 const { extractValidationState, getValidationFailureMessage } = require('../utils/license-response');
 const { postJson, getJson, httpGetUniversal } = require('../lib/http');
 const { normalizeValidationRuntimeConfig } = require('../lib/http-client');
@@ -86,7 +87,14 @@ function createCoreServices({ app, fs, path, BrowserWindow, getTabManager }) {
   const browserAutomationBridge = createBrowserAutomationBridge({
     logger: console,
     cardCacheDir: resolveAutomationCardCacheDir(app),
+    externalMcpDescriptorPath: path.join(app.getPath('userData'), 'ai-free-mcp-bridge.json'),
+    getExternalMcpAccess: () => resolveVipAccess(licenseCache.getSnapshot()),
     isAllowedBrowserProcess: (processId) => browserRuntimeManager.isManagedBrowserProcess(processId),
+  });
+  licenseCache.subscribe?.(() => {
+    try { browserAutomationBridge.refreshExternalMcpAccess(); } catch (error) {
+      console.warn('[ExternalMCP] 刷新会员权限失败:', error?.message || error);
+    }
   });
   app.whenReady().then(() => browserAutomationBridge.start()).catch((error) => {
     console.error('[AutomationBridge] 启动失败:', error?.message || error);

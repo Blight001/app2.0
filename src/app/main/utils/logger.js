@@ -99,12 +99,37 @@ function writeConsoleSafely(writer, text) {
 function stripAnsi(text) {
   try {
     return String(text || '').replace(
-      // eslint-disable-next-line no-control-regex
       /\u001B\[[0-9;]*m/g,
       '',
     );
   } catch (_) {
     return String(text || '');
+  }
+}
+
+function captureOriginalConsole() {
+  const fallback = typeof console.log === 'function' ? console.log.bind(console) : () => {};
+  return {
+    log: fallback,
+    info: typeof console.info === 'function' ? console.info.bind(console) : fallback,
+    warn: typeof console.warn === 'function' ? console.warn.bind(console) : fallback,
+    error: typeof console.error === 'function' ? console.error.bind(console) : fallback,
+    debug: typeof console.debug === 'function' ? console.debug.bind(console) : fallback,
+  };
+}
+
+function openRunLogStream(logDir, prefix, originalConsole) {
+  try {
+    fs.mkdirSync(logDir, { recursive: true });
+    const logFileName = `${prefix}-${formatRunStamp()}-${process.pid}.log`;
+    const logFilePath = path.join(logDir, logFileName);
+    const stream = fs.createWriteStream(logFilePath, { flags: 'a', encoding: 'utf8' });
+    stream.on('error', () => {});
+    stream.write('\ufeff');
+    return { logFilePath, stream };
+  } catch (error) {
+    originalConsole.warn('[日志] 无法创建日志文件，将仅输出到控制台:', error?.message || error);
+    return { logFilePath: '', stream: null };
   }
 }
 
@@ -148,38 +173,16 @@ function createLogger({ getSideWebContents = () => null } = {}) {
 }
 
 // 创建/初始化：initializeRunFileLogger的具体业务逻辑。
+/** @param {{app?: any, dirName?: string, prefix?: string}} [options] */
 function initializeRunFileLogger({ app, dirName = 'logs', prefix = 'run' } = {}) {
-  if (activeRunLogger) {
-    return activeRunLogger;
-  }
-
+  if (activeRunLogger) return activeRunLogger;
   const userDataDir = resolveUserDataDir(app);
   const logDir = path.join(userDataDir, dirName);
-  const originalConsole = {
-    log: typeof console.log === 'function' ? console.log.bind(console) : () => {},
-    info: typeof console.info === 'function' ? console.info.bind(console) : console.log.bind(console),
-    warn: typeof console.warn === 'function' ? console.warn.bind(console) : console.log.bind(console),
-    error: typeof console.error === 'function' ? console.error.bind(console) : console.log.bind(console),
-    debug: typeof console.debug === 'function' ? console.debug.bind(console) : console.log.bind(console),
-  };
-
-  let logFilePath = '';
-  let stream = null;
-
-  try {
-    fs.mkdirSync(logDir, { recursive: true });
-    const logFileName = `${prefix}-${formatRunStamp()}-${process.pid}.log`;
-    logFilePath = path.join(logDir, logFileName);
-    stream = fs.createWriteStream(logFilePath, { flags: 'a', encoding: 'utf8' });
-    stream.on('error', () => {});
-    stream.write('\ufeff');
-  } catch (error) {
-    originalConsole.warn('[日志] 无法创建日志文件，将仅输出到控制台:', error?.message || error);
-  }
+  const originalConsole = captureOriginalConsole();
+  const { logFilePath, stream } = openRunLogStream(logDir, prefix, originalConsole);
 
   let closed = false;
 
-// 设置/更新/持久化：write的具体业务逻辑。
   function write(level, args) {
     try {
       if (!stream) return;

@@ -2,6 +2,10 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function reportRemoveFailure(logger, failureMessage, dirPath, error) {
+  if (logger && typeof logger.warn === 'function') logger.warn(failureMessage, dirPath, error?.message || error);
+}
+
 async function removeDirectoryWithRetries(fs, dirPath, options = {}) {
   const {
     attempts = 3,
@@ -10,7 +14,8 @@ async function removeDirectoryWithRetries(fs, dirPath, options = {}) {
     failureMessage = '删除目录失败:',
   } = options;
 
-  if (!fs || !dirPath) return false;
+  if (!fs) return false;
+  if (!dirPath) return false;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -22,7 +27,7 @@ async function removeDirectoryWithRetries(fs, dirPath, options = {}) {
       return true;
     } catch (error) {
       if (attempt >= attempts) {
-        logger?.warn?.(failureMessage, dirPath, error?.message || error);
+        reportRemoveFailure(logger, failureMessage, dirPath, error);
         return false;
       }
       await delay(delayMs);

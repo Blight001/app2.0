@@ -1,66 +1,204 @@
-// preload：window.electronAPI 契约白名单适配层（阶段 2C）。
-// 迁移期策略（方案 §3.2）：未在 contracts/ipc-channels.js 登记的通道
-// 仍然放行，但打印废弃告警——先建立可观测性，调用方迁移完成后再改为阻断。
-// 注意：push 白名单来自主进程 send 调用的静态扫描，个别经间接引用发送的
-// 通道可能漏登记，表现为告警噪音而非功能故障；发现后在 contracts 补登记。
+// preload：只向页面暴露按业务域拆分的具名能力。
+// 每个方法固定绑定单一 IPC 通道，页面无法提交任意 channel。
 const { contextBridge, ipcRenderer } = require('electron');
 
-// 沙箱化 preload（Electron 20+ 默认 sandbox:true）无法 require 项目内模块，
-// 此时降级为纯放行（无白名单校验），不影响功能；sandbox:false 的窗口才有告警能力。
-let contractsChecks = null;
-try {
-  const contracts = require('../contracts/ipc-channels');
-  contractsChecks = {
-    isRegisteredInvoke: contracts.isRegisteredInvoke,
-    isRegisteredEvent: contracts.isRegisteredEvent,
-    isRegisteredPush: contracts.isRegisteredPush,
-  };
-} catch (_) {}
-const isRegisteredInvoke = (ch) => (contractsChecks ? contractsChecks.isRegisteredInvoke(ch) : true);
-const isRegisteredEvent = (ch) => (contractsChecks ? contractsChecks.isRegisteredEvent(ch) : true);
-const isRegisteredPush = (ch) => (contractsChecks ? contractsChecks.isRegisteredPush(ch) : true);
-
-const warned = new Set();
-function warnOnce(kind, channel) {
-  const key = `${kind}:${channel}`;
-  if (warned.has(key)) return;
-  warned.add(key);
-  console.warn(`[preload] ${kind} 通道 '${channel}' 未在 contracts/ipc-channels.js 登记（迁移期放行，请补登记）`);
-}
-
-contextBridge.exposeInMainWorld('electronAPI', {
-  send: (channel, data) => {
-    if (!isRegisteredEvent(channel)) warnOnce('send', channel);
-    return ipcRenderer.send(channel, data);
-  },
-  invoke: (channel, data) => {
-    if (!isRegisteredInvoke(channel)) warnOnce('invoke', channel);
-    return ipcRenderer.invoke(channel, data);
-  },
-  on: (channel, func) => {
-    if (!isRegisteredPush(channel)) warnOnce('on', channel);
-    // Deliberately strip event as it includes `sender`
-    const wrapped = (event, ...args) => func(...args);
-    ipcRenderer.on(channel, wrapped);
-    return wrapped;
-  },
-  off: (channel, func) => ipcRenderer.removeListener(channel, func),
-  removeListener: (channel, func) => ipcRenderer.removeListener(channel, func),
+// 页面脚本异常不会自动到达主进程。这里直接走只写日志的内部通道，
+// 不向页面暴露任何额外权限，也不依赖业务 IPC 完成初始化。
+window.addEventListener('error', (event) => {
+  try {
+    ipcRenderer.send('__ai_free_renderer_error__', {
+      message: event.message || event.error?.message || 'renderer error',
+      stack: event.error?.stack || '',
+      source: event.filename || '',
+      line: event.lineno || 0,
+      column: event.colno || 0,
+    });
+  } catch (_) {}
 });
+
+window.addEventListener('unhandledrejection', (event) => {
+  try {
+    const reason = event.reason;
+    ipcRenderer.send('__ai_free_renderer_error__', {
+      message: reason?.message || String(reason || 'unhandled renderer rejection'),
+      stack: reason?.stack || '',
+      source: 'unhandledrejection',
+    });
+  } catch (_) {}
+});
+
+const invokeChannel = (channel) => (data) => ipcRenderer.invoke(channel, data);
+const sendChannel = (channel) => (data) => ipcRenderer.send(channel, data);
+const subscribeChannel = (channel) => (listener) => {
+  if (typeof listener !== 'function') throw new TypeError(`${channel} listener 必须是函数`);
+  const wrapped = (_event, ...args) => listener(...args);
+  ipcRenderer.on(channel, wrapped);
+  return () => ipcRenderer.removeListener(channel, wrapped);
+};
+
+// renderer API：每个方法固定绑定单一通道，调用方无法传入任意 channel。
+contextBridge.exposeInMainWorld('aiFree', Object.freeze({
+  ai: Object.freeze({
+    chat: invokeChannel('ai-control-chat'),
+    chatInsert: invokeChannel('ai-control-chat-insert'),
+    chatStop: invokeChannel('ai-control-chat-stop'),
+    getAutomationCards: invokeChannel('ai-control-get-automation-cards'),
+    getBrowserConnections: invokeChannel('ai-control-get-browser-connections'),
+    getModels: invokeChannel('ai-control-get-models'),
+    historyDelete: invokeChannel('ai-control-history-delete'),
+    historyGet: invokeChannel('ai-control-history-get'),
+    historyList: invokeChannel('ai-control-history-list'),
+    historyRename: invokeChannel('ai-control-history-rename'),
+    historySave: invokeChannel('ai-control-history-save'),
+    redeemGiftCode: invokeChannel('ai-control-redeem-gift-code'),
+    selectAutomationCard: invokeChannel('ai-control-select-automation-card'),
+    getCustomApi: invokeChannel('get-ai-control-custom-api'),
+    getSettings: invokeChannel('get-ai-control-settings'),
+    setCustomApi: invokeChannel('set-ai-control-custom-api'),
+    setSettings: invokeChannel('set-ai-control-settings'),
+    emitBrowserSelectionChanged: sendChannel('ai-control-browser-selection-changed'),
+    onBrowserSelectionChanged: subscribeChannel('ai-control-browser-selection-changed'),
+    onChatEvent: subscribeChannel('ai-control-chat-event'),
+  }),
+  account: Object.freeze({
+    authenticate: invokeChannel('account-authenticate'),
+    getSession: invokeChannel('account-get-session'),
+    logout: invokeChannel('account-logout'),
+    closeCenterPopup: sendChannel('close-account-center-popup'),
+    dismissCenterPopup: sendChannel('dismiss-account-center-popup'),
+    openCenterPopup: sendChannel('open-account-center-popup'),
+    resizeCenterPopup: sendChannel('resize-account-center-popup'),
+    syncShell: sendChannel('sync-app-shell-account'),
+    onPopupDismiss: subscribeChannel('account-popup-dismiss'),
+    onPopupSnapshot: subscribeChannel('account-popup-snapshot'),
+    onServerAccountCookieReceived: subscribeChannel('server-account-cookie-received'),
+    onSessionUpdated: subscribeChannel('account-session-updated'),
+  }),
+  license: Object.freeze({
+    consumeAutoValidateFlag: invokeChannel('consume-auto-validate-flag'),
+    getDeviceId: invokeChannel('license-get-device-id'),
+    getUserCredentials: invokeChannel('get-user-credentials'),
+    getVipPlans: invokeChannel('get-vip-plans'),
+    redeemVipGiftCode: invokeChannel('redeem-vip-gift-code'),
+    redeemWoolGiftCode: invokeChannel('redeem-wool-gift-code'),
+    saveUserCredentials: invokeChannel('save-user-credentials'),
+    unbindDevice: invokeChannel('unbind-device'),
+    validateKey: invokeChannel('validate-key'),
+    onCredentialsUpdated: subscribeChannel('license-credentials-updated'),
+    onOpenVipPlans: subscribeChannel('open-vip-plans'),
+    onVipAccessRequired: subscribeChannel('vip-access-required'),
+  }),
+  network: Object.freeze({
+    applyToBrowser: invokeChannel('apply-network-magic-to-browser'),
+    getActiveBrowser: invokeChannel('get-network-magic-active-browser'),
+    getAutoStartEnabled: invokeChannel('get-network-magic-auto-start-enabled'),
+    getClashConfig: invokeChannel('get-clash-config'),
+    getClashProxyOptions: invokeChannel('get-clash-mini-proxy-options'),
+    getClashStatus: invokeChannel('get-clash-mini-status'),
+    getProxyTrafficQuota: invokeChannel('get-proxy-traffic-quota'),
+    redeemProxyTrafficGiftCode: invokeChannel('redeem-proxy-traffic-gift-code'),
+    saveClashConfig: invokeChannel('save-clash-config'),
+    setAutoStartEnabled: invokeChannel('set-network-magic-auto-start-enabled'),
+    startClash: invokeChannel('start-clash-mini'),
+    stopClash: invokeChannel('stop-clash-mini'),
+    switchClashProxy: invokeChannel('switch-clash-mini-proxy'),
+    testMinLatency: invokeChannel('test-min-latency'),
+    onAppShuttingDown: subscribeChannel('app-shutting-down'),
+    onClashLatencyProgress: subscribeChannel('clash-mini-latency-progress'),
+    onClashRuntimeFailed: subscribeChannel('clash-mini-runtime-failed'),
+    onClashStatus: subscribeChannel('clash-mini-status'),
+    onProxyTrafficExhausted: subscribeChannel('proxy-traffic-exhausted'),
+    onProxyTrafficQuota: subscribeChannel('proxy-traffic-quota'),
+  }),
+  browser: Object.freeze({
+    deleteHistory: invokeChannel('delete-browser-history'),
+    extractProxy: invokeChannel('extract-ai-free-proxy'),
+    getHistory: invokeChannel('get-browser-history'),
+    getSettings: invokeChannel('get-ai-free-browser-settings'),
+    openHistory: invokeChannel('open-browser-history'),
+    renameHistory: invokeChannel('rename-browser-history'),
+    renameHistoryBatch: invokeChannel('rename-browser-history-batch'),
+    resetSettings: invokeChannel('reset-ai-free-browser-settings'),
+    resolveDataClearConfirm: invokeChannel('resolve-browser-data-clear-confirm'),
+    setSettings: invokeChannel('set-ai-free-browser-settings'),
+    testProxy: invokeChannel('test-ai-free-proxy'),
+    onAccountListUpdated: subscribeChannel('account-list-updated'),
+    onDataClearConfirmRequested: subscribeChannel('browser-data-clear-confirm-request'),
+    onHistoryChanged: subscribeChannel('browser-history-changed'),
+    onHistoryGestureSelection: subscribeChannel('browser-history-gesture-selection'),
+    onTabsUpdated: subscribeChannel('update-tabs'),
+  }),
+  content: Object.freeze({
+    getPlatformName: invokeChannel('get-platform-name'),
+    getTargetUrl: invokeChannel('get-target-url'),
+    getTutorialUrl: invokeChannel('get-tutorial-url'),
+    getWoolPlatforms: invokeChannel('get-wool-platforms'),
+    openDreamPage: invokeChannel('open-dream-page'),
+    refreshTutorialUrl: invokeChannel('refresh-tutorial-url'),
+    refreshWoolPlatforms: invokeChannel('refresh-wool-platforms'),
+    openTutorial: sendChannel('open-tutorial'),
+    onPlatformNameUpdated: subscribeChannel('platform-name-updated'),
+    onTargetUrlUpdated: subscribeChannel('target-url-updated'),
+    onTutorialUrlUpdated: subscribeChannel('tutorial-url-updated'),
+    onWoolPlatformsUpdated: subscribeChannel('wool-platforms-updated'),
+  }),
+  extensions: Object.freeze({
+    getState: invokeChannel('get-extension-manager-state'),
+    importPlugin: invokeChannel('import-extension-plugin'),
+    removePlugin: invokeChannel('remove-extension-plugin'),
+    setEnabled: invokeChannel('set-extension-enabled'),
+    onStateChanged: subscribeChannel('extension-manager-state'),
+  }),
+  updates: Object.freeze({
+    getAppVersion: invokeChannel('get-app-version'),
+    start: invokeChannel('start-app-update'),
+    onActivated: subscribeChannel('app-update-activated'),
+    onComplete: subscribeChannel('app-update-complete'),
+    onError: subscribeChannel('app-update-error'),
+    onNotice: subscribeChannel('app-update-notice'),
+    onProgress: subscribeChannel('app-update-progress'),
+    onSkip: subscribeChannel('app-update-skip'),
+  }),
+  shell: Object.freeze({
+    clearBrowserRuntimeData: invokeChannel('clear-browser-runtime-data'),
+    createIndependentBrowser: invokeChannel('create-independent-browser'),
+    openActiveWebConsole: invokeChannel('open-active-web-console'),
+    restartBrowserRuntime: invokeChannel('restart-browser-runtime'),
+    showBrowserHistoryGesturePopup: invokeChannel('show-browser-history-gesture-popup'),
+    showTabContextMenu: invokeChannel('show-tab-context-menu'),
+    closeBrowserHistoryGesturePopup: sendChannel('close-browser-history-gesture-popup'),
+    closeTab: sendChannel('close-tab'),
+    reorderTab: sendChannel('reorder-tab'),
+    switchTab: sendChannel('switch-tab'),
+    toggleAccountCenterPopup: sendChannel('toggle-account-center-popup'),
+    toggleSidebar: sendChannel('toggle-sidebar'),
+    updateBrowserHistoryGestureSelection: sendChannel('update-browser-history-gesture-popup-selection'),
+    onAccountUpdated: subscribeChannel('app-shell-account-updated'),
+    onIndependentBrowserCreateComplete: subscribeChannel('independent-browser-create-complete'),
+    onIndependentBrowserCreateFailed: subscribeChannel('independent-browser-create-failed'),
+  }),
+  ui: Object.freeze({
+    emitAppThemeChanged: sendChannel('app-theme-changed'),
+    emitServerAccountCookieReceived: sendChannel('server-account-cookie-received'),
+    focusSidebarInput: invokeChannel('focus-sidebar-input'),
+    setZoom: sendChannel('set-zoom'),
+    onAppThemeChanged: subscribeChannel('app-theme-changed'),
+    onAppVersion: subscribeChannel('app-version'),
+    onDeviceIdUpdated: subscribeChannel('update-device-id'),
+    onLicenseUsageUpdated: subscribeChannel('license-usage-updated'),
+    onServerAnnouncementsReset: subscribeChannel('server-announcements-reset'),
+    onServerMessage: subscribeChannel('server-message'),
+    onSidebarCollapse: subscribeChannel('sidebar-collapse'),
+    onSidebarExpand: subscribeChannel('sidebar-expand'),
+  }),
+  diagnostics: Object.freeze({
+    getConsoleHistory: invokeChannel('get-app-console-history'),
+    onConsoleLine: subscribeChannel('app-console-line'),
+  }),
+}));
 
 contextBridge.exposeInMainWorld('env', {
   NODE_ENV: process.env.NODE_ENV || ''
-});
-
-contextBridge.exposeInMainWorld('electron', {
-  openDreamPage: (payload) => ipcRenderer.invoke('open-dream-page', payload),
-  ensureSidebarVisible: () => ipcRenderer.send('ensure-sidebar-visible'),
-  startClashMini: (options) => ipcRenderer.invoke('start-clash-mini', options),
-  stopClashMini: () => ipcRenderer.invoke('stop-clash-mini'),
-  getClashMiniStatus: () => ipcRenderer.invoke('get-clash-mini-status'),
-  getAppConsoleHistory: () => ipcRenderer.invoke('get-app-console-history'),
-  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
-  startAppUpdate: (payload) => ipcRenderer.invoke('start-app-update', payload),
 });
 
 // --- 监听缩放更新事件并转发到页面上下文 ---

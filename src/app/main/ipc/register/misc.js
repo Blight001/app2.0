@@ -9,167 +9,139 @@ const DEFAULT_TUTORIAL_URL = 'https://www.yuque.com/kelingaishipindian/tx5gwq/xb
 // 监听/绑定：registerMiscIPC的具体业务逻辑。
 function registerMiscIPC(ctx) {
   const ipc = ctx.ipc.scope('register/misc');
-  const { licenseCache, httpClient, ui } = ctx;
+  ipc.handle('create-desktop-shortcut', (_event, payload) => createDesktopShortcut(payload));
+  ipc.handle('network:diagnose', () => diagnoseNetwork());
+  ipc.handle('get-platform-name', () => getPlatformName(ctx.licenseCache));
+  ipc.handle('get-wool-platforms', () => getWoolPlatforms(ctx.licenseCache));
+  ipc.handle('get-tutorial-url', () => getTutorialUrl(ctx));
+  ipc.handle('get-target-url', () => getTargetUrl(ctx.licenseCache));
+  ipc.handle('get-app-session-id', () => getAppSessionId());
+  ipc.handle('get-app-version', () => getAppVersion());
+  ipc.handle('start-app-update', (_event, payload) => startAppUpdate(ctx, payload));
+}
 
-  ipc.handle('create-desktop-shortcut', async (_event, { createShortcut }) => {
-    try {
-      if (!createShortcut) {
-        console.log('[Shortcut] 用户选择不创建桌面快捷方式');
-        return { ok: true };
-      }
+function getRuntimeConfig(licenseCache) {
+  return typeof licenseCache?.getRuntimeConfig === 'function' ? licenseCache.getRuntimeConfig() : {};
+}
 
-      const { createDesktopShortcut } = require('../../utils/shortcut');
-      const result = await createDesktopShortcut();
-      return result;
-    } catch (e) {
-      console.error('[Shortcut] 创建桌面快捷方式失败:', e);
-      return { ok: false, error: e.message };
+/** @param {Record<string, any>} [options] */
+async function createDesktopShortcut({ createShortcut } = {}) {
+  try {
+    if (!createShortcut) {
+      console.log('[Shortcut] 用户选择不创建桌面快捷方式');
+      return { ok: true };
     }
-  });
+    const shortcut = require('../../utils/shortcut');
+    return await shortcut.createDesktopShortcut();
+  } catch (error) {
+    console.error('[Shortcut] 创建桌面快捷方式失败:', error);
+    return { ok: false, error: error.message };
+  }
+}
 
-  ipc.handle('network:diagnose', async () => {
-    try {
-      console.log('[IPC] 开始网络连接诊断...');
-      const httpClient = createHttpClient();
-      const result = await httpClient.diagnoseConnection();
+async function diagnoseNetwork() {
+  try {
+    console.log('[IPC] 开始网络连接诊断...');
+    const result = await createHttpClient().diagnoseConnection();
+    console.log('[IPC] 网络诊断完成:', result);
+    return { ok: true, data: result };
+  } catch (error) {
+    console.error('[IPC] 网络诊断失败:', error);
+    return { ok: false, error: error.message, message: '网络诊断执行失败' };
+  }
+}
 
-      console.log('[IPC] 网络诊断完成:', result);
-      return {
-        ok: true,
-        data: result,
-      };
-    } catch (error) {
-      console.error('[IPC] 网络诊断失败:', error);
-      return {
-        ok: false,
-        error: error.message,
-        message: '网络诊断执行失败',
-      };
-    }
-  });
+function getPlatformName(licenseCache) {
+  try {
+    const config = getRuntimeConfig(licenseCache);
+    const allowed = Array.isArray(config.allowedPlatforms) ? config.allowedPlatforms : [];
+    return config.platformName || allowed[0] || 'AI-FREE';
+  } catch (error) {
+    console.error('[IPC] 获取平台名字失败:', error);
+    return 'AI-FREE';
+  }
+}
 
-  ipc.handle('get-platform-name', async () => {
-    try {
-      const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
-        ? licenseCache.getRuntimeConfig()
-        : {};
-      if (runtimeConfig.platformName) {
-        return runtimeConfig.platformName;
-      }
-      const allowedPlatforms = Array.isArray(runtimeConfig.allowedPlatforms) ? runtimeConfig.allowedPlatforms : [];
-      if (allowedPlatforms.length > 0) {
-        return allowedPlatforms[0];
-      }
-      return 'AI-FREE';
-    } catch (error) {
-      console.error('[IPC] 获取平台名字失败:', error);
-      return 'AI-FREE';
-    }
-  });
+function normalizeWoolPlatform(item) {
+  return {
+    name: firstWoolPlatformText(item, ['name', 'platform', 'platform_name']),
+    platform: firstWoolPlatformText(item, ['platform', 'name', 'platform_name']),
+    targetUrl: String(item?.targetUrl || item?.target_url || '').trim(),
+    quota: item?.quota && typeof item.quota === 'object' ? { ...item.quota } : null,
+  };
+}
 
-  ipc.handle('get-wool-platforms', async () => {
-    try {
-      const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
-        ? licenseCache.getRuntimeConfig()
-        : {};
-      const woolPlatforms = (Array.isArray(runtimeConfig.woolPlatforms) ? runtimeConfig.woolPlatforms : [])
-        .map((item) => ({
-          name: String(item?.name || item?.platform || item?.platform_name || '').trim(),
-          platform: String(item?.platform || item?.name || item?.platform_name || '').trim(),
-          targetUrl: String(item?.targetUrl || item?.target_url || '').trim(),
-          quota: item?.quota && typeof item.quota === 'object' ? { ...item.quota } : null,
-        }))
-        .filter((item) => item.name && item.targetUrl);
-      return woolPlatforms;
-    } catch (error) {
-      console.error('[IPC] 获取羊毛平台列表失败:', error);
-      return [];
-    }
-  });
+function firstWoolPlatformText(item, keys) {
+  const key = keys.find((candidate) => item?.[candidate]);
+  return String(key ? item[key] : '').trim();
+}
 
-  ipc.handle('get-tutorial-url', async () => {
-    try {
-      if (httpClient && typeof httpClient.getTutorialUrl === 'function') {
-        const response = await httpClient.getTutorialUrl();
-        const tutorialUrl = String(response?.tutorialUrl || response?.tutorial_url || '').trim();
-        if (response?.ok === true && tutorialUrl) {
-          licenseCache?.setRuntimeConfig?.({ tutorialUrl });
-          if (typeof ui?.syncTutorialTabUrl === 'function') {
-            await ui.syncTutorialTabUrl(tutorialUrl);
-          }
-          return tutorialUrl;
-        }
-      }
-      const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
-        ? licenseCache.getRuntimeConfig()
-        : {};
-      if (runtimeConfig.tutorialUrl) {
-        return runtimeConfig.tutorialUrl;
-      }
-      return DEFAULT_TUTORIAL_URL;
-    } catch (error) {
-      console.error('[IPC] 获取教程链接失败:', error);
-      return DEFAULT_TUTORIAL_URL;
-    }
-  });
+function getWoolPlatforms(licenseCache) {
+  try {
+    const items = getRuntimeConfig(licenseCache).woolPlatforms;
+    return (Array.isArray(items) ? items : []).map(normalizeWoolPlatform)
+      .filter((item) => item.name && item.targetUrl);
+  } catch (error) {
+    console.error('[IPC] 获取羊毛平台列表失败:', error);
+    return [];
+  }
+}
 
-  ipc.handle('get-target-url', async () => {
-    try {
-      const runtimeConfig = licenseCache && typeof licenseCache.getRuntimeConfig === 'function'
-        ? licenseCache.getRuntimeConfig()
-        : {};
-      if (runtimeConfig.targetUrl) {
-        return runtimeConfig.targetUrl;
-      }
-      return 'https://dreamina.capcut.com/ai-tool/home?';
-    } catch (error) {
-      console.error('[IPC] 获取目标链接失败:', error);
-      return 'https://dreamina.capcut.com/ai-tool/home?';
-    }
-  });
+async function getTutorialUrl({ httpClient, licenseCache, ui }) {
+  try {
+    const remoteUrl = await fetchRemoteTutorialUrl(httpClient, licenseCache, ui);
+    if (remoteUrl) return remoteUrl;
+    return getRuntimeConfig(licenseCache).tutorialUrl || DEFAULT_TUTORIAL_URL;
+  } catch (error) {
+    console.error('[IPC] 获取教程链接失败:', error);
+    return DEFAULT_TUTORIAL_URL;
+  }
+}
 
-  ipc.handle('get-app-session-id', async () => {
-    try {
-      return {
-        ok: true,
-        sessionId: appContext.getSessionId() || '',
-      };
-    } catch (error) {
-      console.error('[IPC] 获取启动会话ID失败:', error);
-      return { ok: false, error: error.message || String(error), sessionId: '' };
-    }
-  });
+async function fetchRemoteTutorialUrl(httpClient, licenseCache, ui) {
+  if (typeof httpClient?.getTutorialUrl !== 'function') return '';
+  const response = await httpClient.getTutorialUrl();
+  const tutorialUrl = String(response?.tutorialUrl || response?.tutorial_url || '').trim();
+  if (response?.ok !== true || !tutorialUrl) return '';
+  licenseCache?.setRuntimeConfig?.({ tutorialUrl });
+  if (typeof ui?.syncTutorialTabUrl === 'function') await ui.syncTutorialTabUrl(tutorialUrl);
+  return tutorialUrl;
+}
 
-  ipc.handle('get-app-version', async () => {
-    try {
-      return { ok: true, version: app.getVersion() };
-    } catch (error) {
-      console.error('[IPC] 获取应用版本失败:', error);
-      return { ok: false, error: error.message || String(error), version: '' };
-    }
-  });
+function getTargetUrl(licenseCache) {
+  try {
+    return getRuntimeConfig(licenseCache).targetUrl || 'https://dreamina.capcut.com/ai-tool/home?';
+  } catch (error) {
+    console.error('[IPC] 获取目标链接失败:', error);
+    return 'https://dreamina.capcut.com/ai-tool/home?';
+  }
+}
 
-  ipc.handle('start-app-update', async (_event, payload = {}) => {
-    try {
-      const startAppUpdate = typeof ctx.startAppUpdate === 'function'
-        ? ctx.startAppUpdate
-        : (ctx.ui && typeof ctx.ui.startAppUpdate === 'function' ? ctx.ui.startAppUpdate : null);
-      console.warn('[IPC] start-app-update 函数来源', JSON.stringify({
-        fromRoot: typeof ctx.startAppUpdate === 'function',
-        fromUi: !!(ctx.ui && typeof ctx.ui.startAppUpdate === 'function'),
-      }));
-      console.warn('[IPC] start-app-update 被调用', JSON.stringify(summarizeUpdatePayload(payload)));
-      if (typeof startAppUpdate !== 'function') {
-        return { ok: false, message: '更新功能不可用' };
-      }
-      const result = await startAppUpdate(payload);
-      console.warn('[IPC] start-app-update 返回', JSON.stringify(result));
-      return result;
-    } catch (error) {
-      console.error('[IPC] 启动应用更新失败:', error);
-      return { ok: false, error: error.message || String(error) };
-    }
-  });
+function getAppSessionId() {
+  try { return { ok: true, sessionId: appContext.getSessionId() || '' }; }
+  catch (error) { return { ok: false, error: error.message || String(error), sessionId: '' }; }
+}
+
+function getAppVersion() {
+  try { return { ok: true, version: app.getVersion() }; }
+  catch (error) { return { ok: false, error: error.message || String(error), version: '' }; }
+}
+
+async function startAppUpdate(ctx, payload = {}) {
+  try {
+    const operation = typeof ctx.startAppUpdate === 'function' ? ctx.startAppUpdate : ctx.ui?.startAppUpdate;
+    console.warn('[IPC] start-app-update 函数来源', JSON.stringify({
+      fromRoot: typeof ctx.startAppUpdate === 'function', fromUi: typeof ctx.ui?.startAppUpdate === 'function',
+    }));
+    console.warn('[IPC] start-app-update 被调用', JSON.stringify(summarizeUpdatePayload(payload)));
+    if (typeof operation !== 'function') return { ok: false, message: '更新功能不可用' };
+    const result = await operation(payload);
+    console.warn('[IPC] start-app-update 返回', JSON.stringify(result));
+    return result;
+  } catch (error) {
+    console.error('[IPC] 启动应用更新失败:', error);
+    return { ok: false, error: error.message || String(error) };
+  }
 }
 
 module.exports = { registerMiscIPC };

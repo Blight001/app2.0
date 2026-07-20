@@ -49,12 +49,7 @@ function normalizeResponseContent(content) {
   }).join('');
 }
 
-async function sendCustomAIControlMessage(config, messages, options = {}) {
-  const normalized = normalizeCustomAiApiConfig(config);
-  if (!normalized.enabled || !normalized.baseUrl || !normalized.model) {
-    return { ok: false, message: '自定义 API 尚未配置完整' };
-  }
-
+function buildCustomAiRequest(normalized, messages, options) {
   const headers = { 'Content-Type': 'application/json' };
   if (normalized.apiKey) headers.Authorization = `Bearer ${normalized.apiKey}`;
   const payload = {
@@ -63,6 +58,44 @@ async function sendCustomAIControlMessage(config, messages, options = {}) {
     stream: false,
   };
   if (Array.isArray(options.tools) && options.tools.length) payload.tools = options.tools;
+  return { headers, payload };
+}
+
+function getCustomAiResponseData(response) {
+  return response && response.data && typeof response.data === 'object' ? response.data : {};
+}
+
+function getCustomAiErrorDetail(data, status) {
+  const error = data && data.error;
+  return (error && error.message) || (data && data.message) || `HTTP ${status}`;
+}
+
+function normalizeCustomAiSuccess(data) {
+  const choices = Array.isArray(data.choices) ? data.choices : [];
+  const message = choices[0] && choices[0].message;
+  if (!message || typeof message !== 'object') {
+    return { ok: false, message: '自定义 API 返回格式无效：缺少 choices[0].message' };
+  }
+  return {
+    ok: true,
+    message: {
+      role: 'assistant',
+      content: normalizeResponseContent(message.content),
+      reasoning: String(message.reasoning_content || message.reasoning || ''),
+      tool_calls: Array.isArray(message.tool_calls) ? message.tool_calls : [],
+    },
+    usage: data.usage || null,
+    custom_api: true,
+  };
+}
+
+async function sendCustomAIControlMessage(config, messages, options = {}) {
+  const normalized = normalizeCustomAiApiConfig(config);
+  if (!normalized.enabled || !normalized.baseUrl || !normalized.model) {
+    return { ok: false, message: '自定义 API 尚未配置完整' };
+  }
+
+  const { headers, payload } = buildCustomAiRequest(normalized, messages, options);
 
   try {
     const response = await axios.post(resolveChatCompletionsUrl(normalized.baseUrl), payload, {
@@ -72,28 +105,15 @@ async function sendCustomAIControlMessage(config, messages, options = {}) {
       maxContentLength: 20 * 1024 * 1024,
       validateStatus: () => true,
     });
-    const data = response?.data && typeof response.data === 'object' ? response.data : {};
+    const data = getCustomAiResponseData(response);
     if (response.status < 200 || response.status >= 300) {
-      const detail = data?.error?.message || data?.message || `HTTP ${response.status}`;
+      const detail = getCustomAiErrorDetail(data, response.status);
       return { ok: false, message: `自定义 API 请求失败：${detail}` };
     }
-    const message = data?.choices?.[0]?.message;
-    if (!message || typeof message !== 'object') {
-      return { ok: false, message: '自定义 API 返回格式无效：缺少 choices[0].message' };
-    }
-    return {
-      ok: true,
-      message: {
-        role: 'assistant',
-        content: normalizeResponseContent(message.content),
-        reasoning: String(message.reasoning_content || message.reasoning || ''),
-        tool_calls: Array.isArray(message.tool_calls) ? message.tool_calls : [],
-      },
-      usage: data.usage || null,
-      custom_api: true,
-    };
+    return normalizeCustomAiSuccess(data);
   } catch (error) {
-    return { ok: false, message: `自定义 API 请求失败：${error?.message || String(error)}` };
+    const message = error && error.message ? error.message : String(error);
+    return { ok: false, message: `自定义 API 请求失败：${message}` };
   }
 }
 

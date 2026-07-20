@@ -214,25 +214,42 @@ function ensureStepIds(steps = []) {
     });
 }
 
+function getPopupFlowField(source, names, fallback = '') {
+    for (const name of names) {
+        if (source[name] !== undefined && source[name] !== null && source[name] !== '') return source[name];
+    }
+    return fallback;
+}
+
+function normalizePopupFlowNode(node, stepIdSet) {
+    const source = node && typeof node === 'object' ? node : {};
+    const id = String(getPopupFlowField(source, ['id', 'stepId'])).trim();
+    if (!id || !stepIdSet.has(id)) return null;
+    return { id, x: Number.isFinite(Number(source.x)) ? Number(source.x) : 0, y: Number.isFinite(Number(source.y)) ? Number(source.y) : 0 };
+}
+
+function normalizePopupFlowEdge(edge, index, stepIdSet, edgeKeys) {
+    const source = edge && typeof edge === 'object' ? edge : {};
+    const from = String(getPopupFlowField(source, ['from', 'source', 'fromId'])).trim();
+    const to = String(getPopupFlowField(source, ['to', 'target', 'toId'])).trim();
+    if (!from || !to || !stepIdSet.has(from) || !stepIdSet.has(to) || from === to) return null;
+    const label = String(getPopupFlowField(source, ['label', 'branch', 'condition'], 'next')).trim() || 'next';
+    const key = `${from}::${to}::${label}`;
+    if (edgeKeys.has(key)) return null;
+    edgeKeys.add(key);
+    return {
+        id: String(source.id || '').trim() || `edge_${sanitizeStepIdPart(from)}_${sanitizeStepIdPart(to)}_${sanitizeStepIdPart(label)}_${index + 1}`,
+        from, to, label
+    };
+}
+
 function normalizeFlowData(flow = null, steps = []) {
     if (!flow || typeof flow !== 'object' || Array.isArray(flow)) {
         return undefined;
     }
     const stepIds = steps.map((step, index) => String(step?.id || `step_${index + 1}`).trim()).filter(Boolean);
     const stepIdSet = new Set(stepIds);
-    const nodes = (Array.isArray(flow.nodes) ? flow.nodes : [])
-        .map((node) => {
-            const id = String(node?.id || node?.stepId || '').trim();
-            if (!id || !stepIdSet.has(id)) {
-                return null;
-            }
-            return {
-                id,
-                x: Number.isFinite(Number(node.x)) ? Number(node.x) : 0,
-                y: Number.isFinite(Number(node.y)) ? Number(node.y) : 0
-            };
-        })
-        .filter(Boolean);
+    const nodes = (Array.isArray(flow.nodes) ? flow.nodes : []).map((node) => normalizePopupFlowNode(node, stepIdSet)).filter(Boolean);
     const nodeIds = new Set(nodes.map((node) => node.id));
     stepIds.forEach((id, index) => {
         if (!nodeIds.has(id)) {
@@ -241,26 +258,7 @@ function normalizeFlowData(flow = null, steps = []) {
     });
     const edgeKeys = new Set();
     const edges = (Array.isArray(flow.edges) ? flow.edges : [])
-        .map((edge, index) => {
-            const from = String(edge?.from || edge?.source || edge?.fromId || '').trim();
-            const to = String(edge?.to || edge?.target || edge?.toId || '').trim();
-            if (!from || !to || !stepIdSet.has(from) || !stepIdSet.has(to) || from === to) {
-                return null;
-            }
-            const label = String(edge?.label || edge?.branch || edge?.condition || 'next').trim() || 'next';
-            const key = `${from}::${to}::${label}`;
-            if (edgeKeys.has(key)) {
-                return null;
-            }
-            edgeKeys.add(key);
-            return {
-                id: String(edge?.id || '').trim() || `edge_${sanitizeStepIdPart(from)}_${sanitizeStepIdPart(to)}_${sanitizeStepIdPart(label)}_${index + 1}`,
-                from,
-                to,
-                label
-            };
-        })
-        .filter(Boolean);
+        .map((edge, index) => normalizePopupFlowEdge(edge, index, stepIdSet, edgeKeys)).filter(Boolean);
     const start = String(flow.start || flow.start_node_id || flow.startNodeId || '').trim();
     return {
         version: 1,

@@ -64,6 +64,29 @@ function normalizeCookies(value) {
   return text(value, '[]', 200000);
 }
 
+function normalizeProxyPort(value) {
+  return value === '' || value == null ? '' : num(value, '', 1, 65535, true);
+}
+
+function normalizePortAllowList(value) {
+  const list = Array.isArray(value) ? value : text(value).split(/[\s,;]+/);
+  return list.map((item) => num(item, null, 1, 65535, true)).filter(Boolean).slice(0, 100);
+}
+
+function applyFlatBrowserSettingAliases(normalized, width, height) {
+  normalized.userAgent = normalized.ua.mode === 'custom' ? normalized.ua.value : '';
+  normalized.locale = normalized.language.mode === 'custom' ? normalized.language.value : '';
+  normalized.timezoneId = normalized.timezone.mode === 'custom' ? normalized.timezone.value : '';
+  normalized.acceptLanguage = normalized.locale ? `${normalized.locale},${normalized.locale.split('-')[0]};q=0.9,en;q=0.8` : '';
+  normalized.hardwareConcurrency = normalized.cpu;
+  normalized.deviceMemory = normalized.memory;
+  normalized.webglVendor = normalized.webglMetadata.vendor;
+  normalized.webglRenderer = normalized.webglMetadata.renderer;
+  normalized.viewport = { width, height };
+  normalized.screen = { width, height, availWidth: width, availHeight: Math.max(560, height - 40), colorDepth: 24, pixelDepth: 24 };
+  return normalized;
+}
+
 function normalizeAiFreeBrowserSettings(input = {}) {
   const source = object(input);
   const defaults = DEFAULT_AI_FREE_BROWSER_SETTINGS;
@@ -99,7 +122,7 @@ function normalizeAiFreeBrowserSettings(input = {}) {
       mode: pick(proxy.mode, ['default', 'none', 'custom', 'magic'], defaults.proxy.mode),
       protocol: pick(proxy.protocol, ['http', 'https', 'socks4', 'socks5'], defaults.proxy.protocol),
       host: text(proxy.host, '', 255),
-      port: proxy.port === '' || proxy.port == null ? '' : num(proxy.port, '', 1, 65535, true),
+      port: normalizeProxyPort(proxy.port),
       username: text(proxy.username, '', 255),
       password: text(proxy.password, '', 1024),
       apiUrl: text(proxy.apiUrl, '', 2048),
@@ -138,25 +161,13 @@ function normalizeAiFreeBrowserSettings(input = {}) {
     sslEnabled: bool(source.sslEnabled, defaults.sslEnabled),
     portScanProtection: {
       enabled: bool(portScanProtection.enabled, defaults.portScanProtection.enabled),
-      allowList: (Array.isArray(portScanProtection.allowList) ? portScanProtection.allowList : text(portScanProtection.allowList).split(/[\s,;]+/))
-        .map((item) => num(item, null, 1, 65535, true)).filter(Boolean).slice(0, 100),
+      allowList: normalizePortAllowList(portScanProtection.allowList),
     },
     hardwareAcceleration: bool(source.hardwareAcceleration, defaults.hardwareAcceleration),
     launchArgs: { mode: pick(launchArgs.mode, ['default', 'custom'], defaults.launchArgs.mode), value: text(launchArgs.value, '', 10000) },
   };
 
-  // Flat aliases keep the native Chromium runtime integrations compatible.
-  normalized.userAgent = normalized.ua.mode === 'custom' ? normalized.ua.value : '';
-  normalized.locale = normalized.language.mode === 'custom' ? normalized.language.value : '';
-  normalized.timezoneId = normalized.timezone.mode === 'custom' ? normalized.timezone.value : '';
-  normalized.acceptLanguage = normalized.locale ? `${normalized.locale},${normalized.locale.split('-')[0]};q=0.9,en;q=0.8` : '';
-  normalized.hardwareConcurrency = normalized.cpu;
-  normalized.deviceMemory = normalized.memory;
-  normalized.webglVendor = normalized.webglMetadata.vendor;
-  normalized.webglRenderer = normalized.webglMetadata.renderer;
-  normalized.viewport = { width, height };
-  normalized.screen = { width, height, availWidth: width, availHeight: Math.max(560, height - 40), colorDepth: 24, pixelDepth: 24 };
-  return normalized;
+  return applyFlatBrowserSettingAliases(normalized, width, height);
 }
 
 function parseCookieJson(settings = {}) {

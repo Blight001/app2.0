@@ -57,30 +57,47 @@ function normalizeExpiry(cookie) {
   return milliseconds / 1000;
 }
 
-function normalizeCookie(cookie, targetUrl) {
-  if (!cookie || typeof cookie !== 'object') fail('SESSION_COOKIE_INVALID', 'Cookie 必须是对象');
-  const name = String(cookie.name ?? cookie.Name ?? '').trim();
-  if (!name || name.length > 4096) fail('SESSION_COOKIE_INVALID', 'Cookie 缺少有效 name');
-  const value = String(cookie.value ?? cookie.Value ?? '');
-  const domain = normalizeHost(cookie.domain ?? cookie.Domain ?? '');
-  const cookieUrl = cookie.url
-    ? parseHttpUrl(cookie.url, 'SESSION_COOKIE_INVALID', `Cookie ${name} 的 url`)
-    : new URL(targetUrl.href);
+function firstSessionValue(source, fields, fallback = '') {
+  for (const field of fields) {
+    const value = source[field];
+    if (value !== undefined && value !== null) return value;
+  }
+  return fallback;
+}
+
+function validateCookieScope(name, domain, cookieUrl, targetUrl) {
   if (!hostsRelated(cookieUrl.hostname, targetUrl.hostname)) {
     fail('SESSION_DOMAIN_FORBIDDEN', `Cookie ${name} 的 URL 与 targetUrl 不相关`);
   }
   if (domain && (!hostsRelated(domain, targetUrl.hostname) || !hostsRelated(domain, cookieUrl.hostname))) {
     fail('SESSION_DOMAIN_FORBIDDEN', `Cookie ${name} 的 domain 与 targetUrl 不相关`);
   }
+}
+
+function normalizeCookieDomain(cookie, domain) {
+  if (!domain) return '';
+  return String(firstSessionValue(cookie, ['domain', 'Domain'])).trim().startsWith('.') ? `.${domain}` : domain;
+}
+
+function normalizeCookie(cookie, targetUrl) {
+  if (!cookie || typeof cookie !== 'object') fail('SESSION_COOKIE_INVALID', 'Cookie 必须是对象');
+  const name = String(firstSessionValue(cookie, ['name', 'Name'])).trim();
+  if (!name || name.length > 4096) fail('SESSION_COOKIE_INVALID', 'Cookie 缺少有效 name');
+  const value = String(firstSessionValue(cookie, ['value', 'Value']));
+  const domain = normalizeHost(firstSessionValue(cookie, ['domain', 'Domain']));
+  const cookieUrl = cookie.url
+    ? parseHttpUrl(cookie.url, 'SESSION_COOKIE_INVALID', `Cookie ${name} 的 url`)
+    : new URL(targetUrl.href);
+  validateCookieScope(name, domain, cookieUrl, targetUrl);
   const normalized = {
     name,
     value,
     url: cookieUrl.href,
-    domain: domain ? (String(cookie.domain ?? cookie.Domain).trim().startsWith('.') ? `.${domain}` : domain) : '',
-    path: String(cookie.path ?? cookie.Path ?? '/').trim() || '/',
+    domain: normalizeCookieDomain(cookie, domain),
+    path: String(firstSessionValue(cookie, ['path', 'Path'], '/')).trim() || '/',
     secure: cookie.secure === true || cookie.Secure === true,
     httpOnly: cookie.httpOnly === true || cookie.httponly === true || cookie.HttpOnly === true,
-    sameSite: normalizeSameSite(cookie.sameSite ?? cookie.same_site ?? cookie.SameSite),
+    sameSite: normalizeSameSite(firstSessionValue(cookie, ['sameSite', 'same_site', 'SameSite'])),
   };
   const expires = normalizeExpiry(cookie);
   if (expires !== undefined) normalized.expires = expires;
@@ -119,6 +136,20 @@ function normalizeStorageEntry(entry, targetUrl, counter) {
   };
 }
 
+function collectSessionEntries(entries, normalizeEntry, skippedCode) {
+  const values = [];
+  let skipped = 0;
+  for (const entry of entries) {
+    try {
+      values.push(normalizeEntry(entry));
+    } catch (error) {
+      if (error?.code !== skippedCode) throw error;
+      skipped += 1;
+    }
+  }
+  return { values, skipped };
+}
+
 function prepareSessionImport(input = {}) {
   const targetUrl = parseHttpUrl(input.targetUrl, 'SESSION_TARGET_URL_INVALID', 'targetUrl');
   const rawCookies = input.cookies == null ? [] : input.cookies;
@@ -128,41 +159,16 @@ function prepareSessionImport(input = {}) {
   if (rawCookies.length > MAX_COOKIES) fail('SESSION_COOKIE_LIMIT', 'Cookie 数量超过限制');
   if (rawStorage.length > MAX_STORAGE_ORIGINS) fail('SESSION_STORAGE_LIMIT', 'Storage origin 数量超过限制');
   const counter = { count: 0 };
-  const cookies = [];
-  let skippedCookies = 0;
-  for (const cookie of rawCookies) {
-    try {
-      cookies.push(normalizeCookie(cookie, targetUrl));
-    } catch (error) {
-      // Account exports may contain cookies from unrelated identity providers
-      // or previously visited sites. They must not be written into this
-      // profile, but one unrelated cookie should not abort the valid session.
-      if (error?.code === 'SESSION_DOMAIN_FORBIDDEN') {
-        skippedCookies += 1;
-        continue;
-      }
-      throw error;
-    }
-  }
-  const browserStorage = [];
-  let skippedStorageOrigins = 0;
-  for (const entry of rawStorage) {
-    try {
-      browserStorage.push(normalizeStorageEntry(entry, targetUrl, counter));
-    } catch (error) {
-      if (error?.code === 'SESSION_ORIGIN_FORBIDDEN') {
-        skippedStorageOrigins += 1;
-        continue;
-      }
-      throw error;
-    }
-  }
+  const cookieResult = collectSessionEntries(rawCookies,
+    (cookie) => normalizeCookie(cookie, targetUrl), 'SESSION_DOMAIN_FORBIDDEN');
+  const storageResult = collectSessionEntries(rawStorage,
+    (entry) => normalizeStorageEntry(entry, targetUrl, counter), 'SESSION_ORIGIN_FORBIDDEN');
   const prepared = {
     targetUrl: targetUrl.href,
-    cookies,
-    browserStorage,
-    skippedCookies,
-    skippedStorageOrigins,
+    cookies: cookieResult.values,
+    browserStorage: storageResult.values,
+    skippedCookies: cookieResult.skipped,
+    skippedStorageOrigins: storageResult.skipped,
   };
   const bytes = Buffer.byteLength(JSON.stringify(prepared), 'utf8');
   if (bytes > MAX_SESSION_IMPORT_BYTES) fail('SESSION_IMPORT_TOO_LARGE', '会话导入数据超过限制');

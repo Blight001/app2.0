@@ -4,6 +4,28 @@
 let currentRemainingUsageText = '';
 const woolPlatformQuotaText = new Map();
 
+function appendQuotaUsageText(parts, quota) {
+  const remaining = Number(quota.remaining_usage_times);
+  if (quota.remaining_usage_times === null || quota.remaining_usage_times === undefined) {
+    parts.push('无限次');
+  } else if (Number.isFinite(remaining)) {
+    parts.push(`剩余 ${Math.max(0, remaining)} 次`);
+  }
+}
+
+function appendQuotaValidityText(parts, quota) {
+  const seconds = Number(quota.remaining_seconds);
+  if (!Number.isFinite(seconds)) {
+    if (!quota.expiry_date && !quota.validity_seconds) parts.push('长期有效');
+    else if (quota.validity_seconds && !quota.activated_at) parts.push('首次使用计时');
+    return;
+  }
+  if (seconds <= 0) parts.push('已到期');
+  else if (seconds >= 86400) parts.push(`剩余 ${Math.ceil(seconds / 86400)} 天`);
+  else if (seconds >= 3600) parts.push(`剩余 ${Math.ceil(seconds / 3600)} 小时`);
+  else parts.push(`剩余 ${Math.max(1, Math.ceil(seconds / 60))} 分钟`);
+}
+
 function formatWoolPlatformQuotaText(quota) {
   if (!quota || typeof quota !== 'object') return '';
   if (quota.enabled === false) return '未开通';
@@ -11,24 +33,8 @@ function formatWoolPlatformQuotaText(quota) {
   if (quota.exhausted === true) return '次数已用尽';
 
   const parts = [];
-  const remaining = Number(quota.remaining_usage_times);
-  if (quota.remaining_usage_times === null || quota.remaining_usage_times === undefined) {
-    parts.push('无限次');
-  } else if (Number.isFinite(remaining)) {
-    parts.push(`剩余 ${Math.max(0, remaining)} 次`);
-  }
-
-  const seconds = Number(quota.remaining_seconds);
-  if (Number.isFinite(seconds)) {
-    if (seconds <= 0) parts.push('已到期');
-    else if (seconds >= 86400) parts.push(`剩余 ${Math.ceil(seconds / 86400)} 天`);
-    else if (seconds >= 3600) parts.push(`剩余 ${Math.ceil(seconds / 3600)} 小时`);
-    else parts.push(`剩余 ${Math.max(1, Math.ceil(seconds / 60))} 分钟`);
-  } else if (!quota.expiry_date && !quota.validity_seconds) {
-    parts.push('长期有效');
-  } else if (quota.validity_seconds && !quota.activated_at) {
-    parts.push('首次使用计时');
-  }
+  appendQuotaUsageText(parts, quota);
+  appendQuotaValidityText(parts, quota);
   return parts.join(' · ');
 }
 
@@ -288,7 +294,7 @@ function refreshFeatureAvailability() {
 // 渲染/刷新：refreshPlatformName的具体业务逻辑。
 async function refreshPlatformName() {
   try {
-    const platformName = await window.electronAPI.invoke('get-platform-name');
+    const platformName = await window.aiFree.content.getPlatformName();
     setDreamButtonPlatformName(platformName);
     return platformName;
   } catch (error) {
@@ -300,7 +306,7 @@ async function refreshPlatformName() {
 // 获取/读取/解析：从主进程缓存恢复“平台名 + 目标地址”，避免错过登录阶段的推送事件。
 async function refreshWoolPlatforms() {
   try {
-    const woolPlatforms = await window.electronAPI.invoke('get-wool-platforms');
+    const woolPlatforms = await window.aiFree.content.getWoolPlatforms();
     renderWoolPlatformButtons(Array.isArray(woolPlatforms) ? woolPlatforms : []);
     return Array.isArray(woolPlatforms) ? woolPlatforms : [];
   } catch (error) {
@@ -312,7 +318,7 @@ async function refreshWoolPlatforms() {
 // 渲染/刷新：refreshTutorialUrl的具体业务逻辑。
 async function refreshTutorialUrl() {
   try {
-    const tutorialUrl = await window.electronAPI.invoke('get-tutorial-url');
+    const tutorialUrl = await window.aiFree.content.getTutorialUrl();
     setTutorialLinkHref(tutorialUrl);
   } catch (error) {
     console.error('[侧边栏] 获取教程链接失败:', error);
@@ -322,7 +328,7 @@ async function refreshTutorialUrl() {
 // 渲染/刷新：refreshTargetUrl的具体业务逻辑。
 async function refreshTargetUrl() {
   try {
-    const targetUrl = await window.electronAPI.invoke('get-target-url');
+    const targetUrl = await window.aiFree.content.getTargetUrl();
     setTargetUrl(targetUrl);
   } catch (error) {
     console.error('[侧边栏] 获取目标链接失败:', error);
@@ -338,7 +344,9 @@ async function refreshConnectionState() {
 
 // 同步/连接：bindRuntimeValueListeners的具体业务逻辑。
 function bindRuntimeValueListeners() {
-  window.electronAPI.on('platform-name-updated', (data) => {
+  const contentApi = window.aiFree && window.aiFree.content;
+  if (!contentApi) return;
+  contentApi.onPlatformNameUpdated((data) => {
     try {
       const platformName = data && data.platformName;
       if (!platformName) return;
@@ -350,11 +358,11 @@ function bindRuntimeValueListeners() {
     }
   });
 
-  window.electronAPI.on('wool-platforms-updated', (data) => {
+  contentApi.onWoolPlatformsUpdated((data) => {
     renderWoolPlatformButtons(data?.woolPlatforms || []);
   });
 
-  window.electronAPI.on('tutorial-url-updated', (data) => {
+  contentApi.onTutorialUrlUpdated((data) => {
     try {
       const tutorialUrl = data && data.tutorialUrl;
       if (typeof tutorialUrl !== 'string') return;
@@ -364,7 +372,7 @@ function bindRuntimeValueListeners() {
     }
   });
 
-  window.electronAPI.on('target-url-updated', (data) => {
+  contentApi.onTargetUrlUpdated((data) => {
     try {
       const targetUrl = data && data.targetUrl;
       if (!targetUrl || typeof targetUrl !== 'string') return;
@@ -374,7 +382,6 @@ function bindRuntimeValueListeners() {
     }
   });
 
-  window.electronAPI.on('active-zoom', () => {});
 }
 
 // 获取/读取/解析：loadInitialConnectionState的具体业务逻辑。
@@ -387,7 +394,7 @@ function loadInitialConnectionState() {
 
 // 获取/读取/解析：loadInitialRuntimeValues的具体业务逻辑。
 function loadInitialRuntimeValues() {
-  if (!window.electronAPI || typeof window.electronAPI.invoke !== 'function') {
+  if (!window.aiFree?.content) {
     return;
   }
 

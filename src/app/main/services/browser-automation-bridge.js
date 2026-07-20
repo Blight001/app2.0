@@ -2,6 +2,11 @@ const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const { createBrowserAutomationExternalGateway } = require('./browser-automation-external-gateway');
+const {
+  normalizeBrowserToolOutcome,
+  normalizeCardCacheState,
+} = require('./browser-automation-normalizers');
 
 const DEFAULT_PORT = 18765;
 const CONNECTION_TTL_MS = 3000;
@@ -11,46 +16,8 @@ const APP_BROWSER_PID_HEADER = 'x-ai-free-browser-pid';
 const CARD_CACHE_SCHEMA_VERSION = 1;
 const CARD_CACHE_FILE_NAME = 'automation-cards.json';
 
-function normalizeCardCacheState(source = {}) {
-  const value = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
-  const items = Array.isArray(value.items)
-    ? value.items.filter((item) => item && typeof item === 'object' && !Array.isArray(item))
-    : [];
-  const requestedSelectedId = String(value.selectedId || '').trim();
-  const selectedId = items.some((item) => String(item.id || '').trim() === requestedSelectedId)
-    ? requestedSelectedId
-    : String(items[0]?.id || '').trim();
-  return { items, selectedId };
-}
-
-function normalizeBrowserToolOutcome(source = {}) {
-  const payload = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
-  const rawResult = payload.result;
-  const result = rawResult && typeof rawResult === 'object' && !Array.isArray(rawResult)
-    ? { ...rawResult }
-    : (rawResult === undefined ? {} : { value: rawResult });
-  const failed = payload.success === false || Boolean(payload.error)
-    || result.success === false || result.ok === false;
-  if (!failed) return rawResult;
-
-  // 扩展会把步骤、错误码和失败现场放在 result 中。不能因为外层
-  // success=false 就 reject 并丢掉 result，否则 UI 最终只能看到兜底文案。
-  const error = String(
-    result.error || result.errorReason || result.message || payload.error || '浏览器工具执行失败',
-  ).trim() || '浏览器工具执行失败';
-  const errorCode = String(
-    result.errorCode || result.code || payload.errorCode || 'BROWSER_TOOL_FAILED',
-  ).trim() || 'BROWSER_TOOL_FAILED';
-  return {
-    ...result,
-    success: false,
-    error,
-    errorReason: String(result.errorReason || error),
-    errorCode,
-  };
-}
-
 function createBrowserToolError(message, details = {}) {
+  /** @type {Error & {errorCode?: string, phase?: string, tool?: string, timeoutMs?: number}} */
   const error = new Error(String(message || '浏览器工具执行失败'));
   error.errorCode = String(details.errorCode || 'BROWSER_TOOL_FAILED');
   error.phase = String(details.phase || 'bridge');
@@ -127,45 +94,51 @@ async function readJson(req) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
-function createBrowserAutomationBridge(options = {}) {
-  const logger = options.logger || console;
-  const host = '127.0.0.1';
-  const port = Number(options.port || process.env.AI_FREE_AUTOMATION_BRIDGE_PORT || DEFAULT_PORT);
-  const connections = new Map();
-  const pendingTasks = new Map();
-  const cardCacheStore = createCardCacheStore({ dataDir: options.cardCacheDir });
-  const connectionTtlMs = Math.max(1000, Number(options.connectionTtlMs) || CONNECTION_TTL_MS);
-  // 该随机值仅注入软件生成的临时扩展副本，不写回安装包中的源扩展。
-  // 软件重启后自动轮换，旧副本立即失效。
-  const appBrowserToken = String(options.appBrowserToken || crypto.randomBytes(32).toString('hex'));
-  const isAllowedBrowserProcess = typeof options.isAllowedBrowserProcess === 'function'
-    ? options.isAllowedBrowserProcess
-    : null;
-  let server = null;
-
-  function hasValidAppBrowserToken(req) {
-    return constantTimeTokenEquals(req.headers[APP_BROWSER_TOKEN_HEADER], appBrowserToken);
+class BrowserAutomationBridgeRuntime {
+  constructor(options = {}) {
+    this.logger = options.logger || console;
+    this.host = '127.0.0.1';
+    this.port = Number(options.port || process.env.AI_FREE_AUTOMATION_BRIDGE_PORT || DEFAULT_PORT);
+    this.connections = new Map();
+    this.pendingTasks = new Map();
+    this.cardCacheStore = createCardCacheStore({ dataDir: options.cardCacheDir });
+    this.connectionTtlMs = Math.max(1000, Number(options.connectionTtlMs) || CONNECTION_TTL_MS);
+    this.appBrowserToken = String(options.appBrowserToken || crypto.randomBytes(32).toString('hex'));
+    this.isAllowedBrowserProcess = typeof options.isAllowedBrowserProcess === 'function'
+      ? options.isAllowedBrowserProcess
+      : null;
+    this.server = null;
+    this.externalMcpGateway = createBrowserAutomationExternalGateway({
+      descriptorPath: options.externalMcpDescriptorPath,
+      dispatch: (...args) => this.dispatch(...args),
+      getConnection: (...args) => this.getConnection(...args),
+      listConnections: () => this.listConnections(),
+      getAccess: options.getExternalMcpAccess,
+      logger: this.logger,
+    });
   }
 
-  function isManagedBrowserProcess(browserProcessId) {
+  hasValidAppBrowserToken(req) {
+    return constantTimeTokenEquals(req.headers[APP_BROWSER_TOKEN_HEADER], this.appBrowserToken);
+  }
+
+  isManagedBrowserProcess(browserProcessId) {
     const pid = Number(browserProcessId || 0) || 0;
     if (!pid) return false;
-    // 单元使用者可以不提供进程判定器；正式应用始终注入 Chromium Runtime
-    // 的活动子进程白名单。
-    if (!isAllowedBrowserProcess) return true;
+    if (!this.isAllowedBrowserProcess) return true;
     try {
-      return isAllowedBrowserProcess(pid) === true;
+      return this.isAllowedBrowserProcess(pid) === true;
     } catch (_) {
       return false;
     }
   }
 
-  function removeConnection(id, reason = '浏览器插件已断开') {
+  removeConnection(id, reason = '浏览器插件已断开') {
     const connectionId = String(id || '').trim();
-    if (!connections.delete(connectionId)) return false;
-    for (const [taskId, pending] of pendingTasks) {
+    if (!this.connections.delete(connectionId)) return false;
+    for (const [taskId, pending] of this.pendingTasks) {
       if (pending.connectionId !== connectionId) continue;
-      pendingTasks.delete(taskId);
+      this.pendingTasks.delete(taskId);
       clearTimeout(pending.timer);
       pending.reject(createBrowserToolError(reason, {
         errorCode: 'BROWSER_CONNECTION_CLOSED',
@@ -176,14 +149,14 @@ function createBrowserAutomationBridge(options = {}) {
     return true;
   }
 
-  function cleanup() {
-    const cutoff = Date.now() - connectionTtlMs;
-    for (const [id, connection] of connections) {
-      if (connection.lastSeenAt < cutoff) removeConnection(id, '浏览器插件心跳已超时');
+  cleanup() {
+    const cutoff = Date.now() - this.connectionTtlMs;
+    for (const [id, connection] of this.connections) {
+      if (connection.lastSeenAt < cutoff) this.removeConnection(id, '浏览器插件心跳已超时');
     }
   }
 
-  function publicConnection(connection) {
+  publicConnection(connection) {
     return {
       id: connection.id,
       instanceId: connection.instanceId,
@@ -195,197 +168,278 @@ function createBrowserAutomationBridge(options = {}) {
       capabilities: connection.tools.map((tool) => String(tool?.name || '')).filter(Boolean),
       connectedAt: connection.connectedAt,
       lastSeenAt: connection.lastSeenAt,
-      online: Date.now() - connection.lastSeenAt < connectionTtlMs,
+      online: Date.now() - connection.lastSeenAt < this.connectionTtlMs,
     };
   }
 
-  function getAuthorizedConnection(req, url) {
+  getAuthorizedConnection(req, url) {
     const id = String(url.searchParams.get('connection_id') || '').trim();
     const token = String(req.headers['x-bridge-token'] || url.searchParams.get('token') || '').trim();
-    const connection = connections.get(id);
+    const connection = this.connections.get(id);
     if (!connection || !token || token !== connection.token) return null;
     if (Number(req.headers[APP_BROWSER_PID_HEADER] || 0) !== connection.browserProcessId) return null;
     connection.lastSeenAt = Date.now();
     return connection;
   }
 
-  async function handle(req, res) {
+  async handle(req, res) {
+    const url = new URL(req.url, `http://${this.host}:${this.port}`);
+    if (await this.externalMcpGateway.handle(req, res, url)) return;
     const origin = String(req.headers.origin || '').trim();
     if (origin && !origin.startsWith('chrome-extension://')) {
-      return jsonResponse(res, 403, { ok: false, message: '仅允许浏览器扩展连接本机桥接' });
+      jsonResponse(res, 403, { ok: false, message: '仅允许浏览器扩展连接本机桥接' });
+      return;
     }
-    if (req.method === 'OPTIONS') return jsonResponse(res, 204, {});
-    if (!hasValidAppBrowserToken(req)) {
-      return jsonResponse(res, 403, { ok: false, message: '当前插件不属于 AI-FREE 受信浏览器环境' });
+    if (req.method === 'OPTIONS') {
+      jsonResponse(res, 204, {});
+      return;
     }
-    const requestBrowserProcessId = Number(req.headers[APP_BROWSER_PID_HEADER] || 0) || 0;
-    if (!isManagedBrowserProcess(requestBrowserProcessId)) {
-      return jsonResponse(res, 403, { ok: false, message: '请求并非来自 AI-FREE 当前托管的内置浏览器' });
+    if (!this.hasValidAppBrowserToken(req)) {
+      jsonResponse(res, 403, { ok: false, message: '当前插件不属于 AI-FREE 受信浏览器环境' });
+      return;
     }
-    const url = new URL(req.url, `http://${host}:${port}`);
+    await this.handleManagedRequest(req, res, url);
+  }
+
+  async handleManagedRequest(req, res, url) {
+    const browserProcessId = Number(req.headers[APP_BROWSER_PID_HEADER] || 0) || 0;
+    if (!this.isManagedBrowserProcess(browserProcessId)) {
+      jsonResponse(res, 403, { ok: false, message: '请求并非来自 AI-FREE 当前托管的内置浏览器' });
+      return;
+    }
     try {
-      if (req.method === 'GET' && url.pathname === '/health') {
-        cleanup();
-        return jsonResponse(res, 200, { ok: true, service: 'ai-free-browser-automation-bridge', connections: connections.size });
-      }
-
-      if (req.method === 'POST' && url.pathname === '/v1/register') {
-        const data = await readJson(req);
-        const instanceId = String(data.instanceId || data.id || '').trim();
-        const sessionId = String(data.sessionId || '').trim();
-        const browserProcessId = Number(data.browserProcessId || 0) || 0;
-        if (browserProcessId !== requestBrowserProcessId || !isManagedBrowserProcess(browserProcessId)) {
-          logger.warn?.(`[AutomationBridge] 已拒绝非受管浏览器进程连接: PID ${browserProcessId || 'unknown'}`);
-          return jsonResponse(res, 403, { ok: false, message: '仅允许 AI-FREE 当前托管的内置浏览器连接 MCP' });
-        }
-        for (const existing of connections.values()) {
-          if (instanceId && sessionId && existing.instanceId === instanceId && existing.sessionId === sessionId) {
-            existing.name = String(data.name || existing.name || 'AI自动化浏览器').trim();
-            existing.browserProcessId = browserProcessId;
-            existing.platform = String(data.platform || existing.platform || 'browser-extension').trim();
-            existing.version = String(data.version || existing.version || '').trim();
-            existing.tools = Array.isArray(data.toolDefs) ? data.toolDefs : existing.tools;
-            existing.lastSeenAt = Date.now();
-            return jsonResponse(res, 200, {
-              ok: true,
-              connectionId: existing.id,
-              token: existing.token,
-              pollIntervalMs: 650,
-            });
-          }
-        }
-        // 扩展刷新会生成新 sessionId，但仍属于同一个浏览器实例。
-        // 新连接登记时立即清除旧会话，避免 AI 控制里短时间出现两个目标浏览器。
-        for (const [existingId, existing] of connections) {
-          if (instanceId && existing.instanceId === instanceId) {
-            removeConnection(existingId, '浏览器插件已刷新并建立新连接');
-          }
-        }
-        const id = crypto.randomUUID();
-        const token = crypto.randomBytes(32).toString('hex');
-        const now = Date.now();
-        const connection = {
-          id,
-          token,
-          instanceId: instanceId || id,
-          sessionId,
-          browserProcessId,
-          name: String(data.name || 'AI自动化浏览器').trim(),
-          platform: String(data.platform || 'browser-extension').trim(),
-          version: String(data.version || '').trim(),
-          tools: Array.isArray(data.toolDefs) ? data.toolDefs : [],
-          queue: [],
-          connectedAt: now,
-          lastSeenAt: now,
-        };
-        connections.set(id, connection);
-        cleanup();
-        logger.log?.(`[AutomationBridge] 浏览器插件已连接: ${connection.name} (${id})`);
-        return jsonResponse(res, 200, { ok: true, connectionId: id, token, pollIntervalMs: 650 });
-      }
-
-      // 卡片库是软件级持久数据，不应依赖某个浏览器工具连接先完成注册。
-      // 入口仍受上方 chrome-extension:// Origin 与 loopback 监听地址约束。
-      if (req.method === 'GET' && url.pathname === '/v1/card-cache') {
-        const cached = cardCacheStore.read();
-        return jsonResponse(res, 200, { ok: true, ...cached });
-      }
-
-      if (req.method === 'PUT' && url.pathname === '/v1/card-cache') {
-        const data = await readJson(req);
-        const state = cardCacheStore.write(data?.state || data);
-        logger.log?.(`[AutomationBridge] 软件卡片库已保存: ${state.items.length} 张 (${cardCacheStore.filePath})`);
-        return jsonResponse(res, 200, { ok: true, exists: true, state });
-      }
-
-      const connection = getAuthorizedConnection(req, url);
-      if (!connection) return jsonResponse(res, 401, { ok: false, message: '浏览器插件连接已失效，请重新连接' });
-
-      if (req.method === 'POST' && url.pathname === '/v1/heartbeat') {
-        return jsonResponse(res, 200, { ok: true });
-      }
-
-      if (req.method === 'POST' && url.pathname === '/v1/disconnect') {
-        removeConnection(connection.id, '浏览器插件已主动断开');
-        return jsonResponse(res, 200, { ok: true });
-      }
-
-      if (req.method === 'GET' && url.pathname === '/v1/tasks') {
-        const tasks = connection.queue.splice(0, 4);
-        return jsonResponse(res, 200, { ok: true, tasks });
-      }
-
-      if (req.method === 'POST' && url.pathname === '/v1/task-result') {
-        const data = await readJson(req);
-        const taskId = String(data.taskId || '').trim();
-        const pending = pendingTasks.get(taskId);
-        if (pending && pending.connectionId === connection.id) {
-          pendingTasks.delete(taskId);
-          clearTimeout(pending.timer);
-          pending.resolve(normalizeBrowserToolOutcome(data));
-        }
-        return jsonResponse(res, 200, { ok: true });
-      }
-
-      if (req.method === 'POST' && url.pathname === '/v1/task-progress') {
-        return jsonResponse(res, 200, { ok: true });
-      }
-
-      return jsonResponse(res, 404, { ok: false, message: '接口不存在' });
+      const handled = await this.handlePublicRoute(req, res, url, browserProcessId);
+      if (handled) return;
+      await this.handleConnectionRoute(req, res, url);
     } catch (error) {
       if (url.pathname === '/v1/card-cache') {
-        logger.warn?.('[AutomationBridge] 软件卡片库请求失败:', error?.message || error);
+        this.logger.warn?.('[AutomationBridge] 软件卡片库请求失败:', error?.message || error);
       }
-      return jsonResponse(res, 400, { ok: false, message: error?.message || String(error) });
+      jsonResponse(res, 400, { ok: false, message: error?.message || String(error) });
     }
   }
 
-  async function start() {
-    if (server) return { host, port };
-    server = http.createServer((req, res) => { void handle(req, res); });
+  async handlePublicRoute(req, res, url, browserProcessId) {
+    const route = `${req.method} ${url.pathname}`;
+    if (route === 'GET /health') {
+      this.cleanup();
+      jsonResponse(res, 200, {
+        ok: true,
+        service: 'ai-free-browser-automation-bridge',
+        connections: this.connections.size,
+      });
+      return true;
+    }
+    if (route === 'POST /v1/register') {
+      await this.register(req, res, browserProcessId);
+      return true;
+    }
+    if (route === 'GET /v1/card-cache') {
+      jsonResponse(res, 200, { ok: true, ...this.cardCacheStore.read() });
+      return true;
+    }
+    if (route === 'PUT /v1/card-cache') {
+      await this.saveCardCache(req, res);
+      return true;
+    }
+    return false;
+  }
+
+  async register(req, res, requestBrowserProcessId) {
+    const data = await readJson(req);
+    const identifiers = {
+      instanceId: String(data.instanceId || data.id || '').trim(),
+      sessionId: String(data.sessionId || '').trim(),
+      browserProcessId: Number(data.browserProcessId || 0) || 0,
+    };
+    if (!this.isValidRegistrationProcess(identifiers.browserProcessId, requestBrowserProcessId)) {
+      this.rejectRegistration(res, identifiers.browserProcessId);
+      return;
+    }
+    const existing = this.findRegisteredSession(identifiers);
+    if (existing) {
+      this.updateRegisteredSession(existing, data, identifiers.browserProcessId);
+      this.sendRegistrationResponse(res, existing);
+      return;
+    }
+    this.removeRefreshedSessions(identifiers.instanceId);
+    const connection = this.createConnection(data, identifiers);
+    this.connections.set(connection.id, connection);
+    this.cleanup();
+    this.logger.log?.(`[AutomationBridge] 浏览器插件已连接: ${connection.name} (${connection.id})`);
+    this.sendRegistrationResponse(res, connection);
+  }
+
+  isValidRegistrationProcess(browserProcessId, requestBrowserProcessId) {
+    return browserProcessId === requestBrowserProcessId
+      && this.isManagedBrowserProcess(browserProcessId);
+  }
+
+  rejectRegistration(res, browserProcessId) {
+    this.logger.warn?.(`[AutomationBridge] 已拒绝非受管浏览器进程连接: PID ${browserProcessId || 'unknown'}`);
+    jsonResponse(res, 403, { ok: false, message: '仅允许 AI-FREE 当前托管的内置浏览器连接 MCP' });
+  }
+
+  findRegisteredSession({ instanceId, sessionId }) {
+    if (!instanceId || !sessionId) return null;
+    return Array.from(this.connections.values()).find((connection) => (
+      connection.instanceId === instanceId && connection.sessionId === sessionId
+    )) || null;
+  }
+
+  updateRegisteredSession(connection, data, browserProcessId) {
+    connection.name = String(data.name || connection.name || 'AI自动化浏览器').trim();
+    connection.browserProcessId = browserProcessId;
+    connection.platform = String(data.platform || connection.platform || 'browser-extension').trim();
+    connection.version = String(data.version || connection.version || '').trim();
+    connection.tools = Array.isArray(data.toolDefs) ? data.toolDefs : connection.tools;
+    connection.lastSeenAt = Date.now();
+  }
+
+  removeRefreshedSessions(instanceId) {
+    if (!instanceId) return;
+    for (const [existingId, existing] of this.connections) {
+      if (existing.instanceId === instanceId) {
+        this.removeConnection(existingId, '浏览器插件已刷新并建立新连接');
+      }
+    }
+  }
+
+  createConnection(data, identifiers) {
+    const id = crypto.randomUUID();
+    const now = Date.now();
+    return {
+      id,
+      token: crypto.randomBytes(32).toString('hex'),
+      instanceId: identifiers.instanceId || id,
+      sessionId: identifiers.sessionId,
+      browserProcessId: identifiers.browserProcessId,
+      name: String(data.name || 'AI自动化浏览器').trim(),
+      platform: String(data.platform || 'browser-extension').trim(),
+      version: String(data.version || '').trim(),
+      tools: Array.isArray(data.toolDefs) ? data.toolDefs : [],
+      queue: [],
+      connectedAt: now,
+      lastSeenAt: now,
+    };
+  }
+
+  sendRegistrationResponse(res, connection) {
+    jsonResponse(res, 200, {
+      ok: true,
+      connectionId: connection.id,
+      token: connection.token,
+      pollIntervalMs: 650,
+    });
+  }
+
+  async saveCardCache(req, res) {
+    const data = await readJson(req);
+    const state = this.cardCacheStore.write(data?.state || data);
+    this.logger.log?.(`[AutomationBridge] 软件卡片库已保存: ${state.items.length} 张 (${this.cardCacheStore.filePath})`);
+    jsonResponse(res, 200, { ok: true, exists: true, state });
+  }
+
+  async handleConnectionRoute(req, res, url) {
+    const connection = this.getAuthorizedConnection(req, url);
+    if (!connection) {
+      jsonResponse(res, 401, { ok: false, message: '浏览器插件连接已失效，请重新连接' });
+      return;
+    }
+    const route = `${req.method} ${url.pathname}`;
+    if (!await this.routeConnectedRequest(route, req, res, connection)) {
+      jsonResponse(res, 404, { ok: false, message: '接口不存在' });
+    }
+  }
+
+  async routeConnectedRequest(route, req, res, connection) {
+    if (route === 'POST /v1/heartbeat' || route === 'POST /v1/task-progress') {
+      jsonResponse(res, 200, { ok: true });
+      return true;
+    }
+    if (route === 'POST /v1/disconnect') {
+      this.removeConnection(connection.id, '浏览器插件已主动断开');
+      jsonResponse(res, 200, { ok: true });
+      return true;
+    }
+    if (route === 'GET /v1/tasks') {
+      jsonResponse(res, 200, { ok: true, tasks: connection.queue.splice(0, 4) });
+      return true;
+    }
+    if (route === 'POST /v1/task-result') {
+      await this.receiveTaskResult(req, res, connection);
+      return true;
+    }
+    return false;
+  }
+
+  async receiveTaskResult(req, res, connection) {
+    const data = await readJson(req);
+    const taskId = String(data.taskId || '').trim();
+    const pending = this.pendingTasks.get(taskId);
+    if (pending && pending.connectionId === connection.id) {
+      this.pendingTasks.delete(taskId);
+      clearTimeout(pending.timer);
+      pending.resolve(normalizeBrowserToolOutcome(data));
+    }
+    jsonResponse(res, 200, { ok: true });
+  }
+
+  async start() {
+    if (this.server) return { host: this.host, port: this.port };
+    this.server = http.createServer((req, res) => { void this.handle(req, res); });
     await new Promise((resolve, reject) => {
-      server.once('error', reject);
-      server.listen(port, host, () => {
-        server.off('error', reject);
-        resolve();
+      this.server.once('error', reject);
+      this.server.listen(this.port, this.host, () => {
+        this.server.off('error', reject);
+        resolve(undefined);
       });
     });
-    logger.log?.(`[AutomationBridge] 本机浏览器插件桥接已启动: http://${host}:${port}`);
-    return { host, port };
+    this.publishExternalMcp();
+    this.logger.log?.(`[AutomationBridge] 本机浏览器插件桥接已启动: http://${this.host}:${this.port}`);
+    return { host: this.host, port: this.port };
   }
 
-  function listConnections() {
-    cleanup();
-    return Array.from(connections.values()).map(publicConnection);
+  publishExternalMcp() {
+    try {
+      this.externalMcpGateway.refreshPublication({ host: this.host, port: this.port });
+    } catch (error) {
+      this.logger.warn?.('[ExternalMCP] 无法发布 Codex 桥接描述文件:', error?.message || error);
+    }
   }
 
-  function getConnection(id) {
-    cleanup();
-    const connection = connections.get(String(id || '').trim());
-    return connection ? { ...publicConnection(connection), tools: connection.tools } : null;
+  listConnections() {
+    this.cleanup();
+    return Array.from(this.connections.values()).map((connection) => this.publicConnection(connection));
   }
 
-  function getCardCacheState() {
-    return cardCacheStore.read();
+  getConnection(id) {
+    this.cleanup();
+    const connection = this.connections.get(String(id || '').trim());
+    return connection ? { ...this.publicConnection(connection), tools: connection.tools } : null;
   }
 
-  function setCardCacheState(state = {}) {
-    return cardCacheStore.write(state);
+  getCardCacheState() {
+    return this.cardCacheStore.read();
   }
 
-  function selectCard(cardId) {
+  setCardCacheState(state = {}) {
+    return this.cardCacheStore.write(state);
+  }
+
+  selectCard(cardId) {
     const id = String(cardId || '').trim();
     if (!id) throw new Error('缺少要选择的自动化卡片 ID');
-    const cached = cardCacheStore.read();
+    const cached = this.cardCacheStore.read();
     const item = cached.state.items.find((entry) => String(entry?.id || '').trim() === id);
     if (!item) throw new Error(`自动化卡片不存在或已被删除: ${id}`);
-    const state = cardCacheStore.write({ ...cached.state, selectedId: id });
+    const state = this.cardCacheStore.write({ ...cached.state, selectedId: id });
     return { state, item };
   }
 
-  function dispatch(connectionId, tool, args = {}, options = {}) {
-    cleanup();
-    const connection = connections.get(String(connectionId || '').trim());
+  dispatch(connectionId, tool, args = {}, options = {}) {
+    this.cleanup();
+    const connection = this.connections.get(String(connectionId || '').trim());
     if (!connection) return Promise.reject(createBrowserToolError('所选浏览器插件已离线，请刷新连接列表', {
       errorCode: 'BROWSER_CONNECTION_NOT_FOUND',
       phase: 'bridge_dispatch',
@@ -396,7 +450,7 @@ function createBrowserAutomationBridge(options = {}) {
     connection.queue.push({ taskId, tool: String(tool || ''), args: args && typeof args === 'object' ? args : {} });
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        pendingTasks.delete(taskId);
+        this.pendingTasks.delete(taskId);
         reject(createBrowserToolError(`浏览器工具 ${tool} 在 ${timeoutMs}ms 内未返回结果`, {
           errorCode: 'BROWSER_TOOL_TIMEOUT',
           phase: 'bridge_wait_result',
@@ -404,36 +458,58 @@ function createBrowserAutomationBridge(options = {}) {
           timeoutMs,
         }));
       }, timeoutMs);
-      pendingTasks.set(taskId, { connectionId: connection.id, tool: String(tool || ''), resolve, reject, timer });
+      this.pendingTasks.set(taskId, {
+        connectionId: connection.id,
+        tool: String(tool || ''),
+        resolve,
+        reject,
+        timer,
+      });
     });
   }
 
-  async function stop() {
-    for (const pending of pendingTasks.values()) {
+  async stop() {
+    this.externalMcpGateway.unpublish();
+    for (const pending of this.pendingTasks.values()) {
       clearTimeout(pending.timer);
       pending.reject(new Error('软件正在退出，浏览器工具任务已取消'));
     }
-    pendingTasks.clear();
-    connections.clear();
-    if (!server) return;
-    const current = server;
-    server = null;
-    await new Promise((resolve) => current.close(() => resolve()));
+    this.pendingTasks.clear();
+    this.connections.clear();
+    if (!this.server) return;
+    const current = this.server;
+    this.server = null;
+    await new Promise((resolve) => current.close(() => resolve(undefined)));
   }
 
+  refreshExternalMcpAccess() {
+    if (!this.server) return false;
+    return this.externalMcpGateway.refreshPublication({ host: this.host, port: this.port });
+  }
+
+  configureExternalMcp(context = {}) {
+    this.externalMcpGateway.configure(context);
+    return this.refreshExternalMcpAccess();
+  }
+}
+
+function createBrowserAutomationBridge(options = {}) {
+  const runtime = new BrowserAutomationBridgeRuntime(options);
   return {
-    dispatch,
-    getConnection,
-    getCardCacheState,
-    listConnections,
-    selectCard,
-    setCardCacheState,
-    getAppBrowserToken: () => appBrowserToken,
-    start,
-    stop,
-    host,
-    port,
-    cardCacheFilePath: cardCacheStore.filePath,
+    configureExternalMcp: (context) => runtime.configureExternalMcp(context),
+    dispatch: (...args) => runtime.dispatch(...args),
+    getConnection: (...args) => runtime.getConnection(...args),
+    getCardCacheState: () => runtime.getCardCacheState(),
+    listConnections: () => runtime.listConnections(),
+    selectCard: (...args) => runtime.selectCard(...args),
+    setCardCacheState: (...args) => runtime.setCardCacheState(...args),
+    getAppBrowserToken: () => runtime.appBrowserToken,
+    refreshExternalMcpAccess: () => runtime.refreshExternalMcpAccess(),
+    start: () => runtime.start(),
+    stop: () => runtime.stop(),
+    host: runtime.host,
+    port: runtime.port,
+    cardCacheFilePath: runtime.cardCacheStore.filePath,
   };
 }
 

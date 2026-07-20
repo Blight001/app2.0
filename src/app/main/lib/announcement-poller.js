@@ -1,190 +1,190 @@
-// 公告轮询器：TCP 推送移除后，客户端主动定时拉取服务器公告。
-// 通过 HTTP GET /api/user_announcement 获取活跃公告，并把新公告
-// 以 'server-message' 事件转发到侧边栏（复用既有 updateAnnouncement 展示逻辑）。
-
-const DEFAULT_INTERVAL_MS = 60000; // 服务器公告调度器每分钟检查一次，对齐 60s
+const DEFAULT_INTERVAL_MS = 60000;
 const { summarizeUpdatePayload } = require('../utils/update-payload');
 
-// 创建/初始化：createAnnouncementPoller 的具体业务逻辑。
-function createAnnouncementPoller({
-  getJson,
-  postJson,
-  getServerBase,
-  getClientIdentity,
-  shouldPoll,
-  sendToSide,
-  sendUpdateNotice,
-  logger = console,
-  intervalMs = DEFAULT_INTERVAL_MS,
-  timeoutMs = 8000,
-} = {}) {
-  let timer = null;
-  let inFlight = false;
-  let pendingPoll = false;
-  let pendingDeliveryReset = false;
-  let lastServerBase = '';
-  // 每个平台分别记录上次成功下发的内容指纹，避免相同数字 ID 在租户间互相抑制。
-  const seenByServer = new Map();
-
-  // 获取/读取/解析：resolveAnnouncementId 的具体业务逻辑。
-  function resolveAnnouncementId(ann) {
-    if (!ann || typeof ann !== 'object') return '';
-    const id = ann.announcement_id ?? ann.announcementId ?? ann.id;
-    if (id !== undefined && id !== null && String(id).trim()) {
-      return String(id).trim();
-    }
-    // 无 id 时退化为按内容摘要去重。
-    return String(ann.content || ann.message || '').trim().slice(0, 160);
+class AnnouncementPoller {
+  constructor(options = {}) {
+    this.getJson = options.getJson;
+    this.postJson = options.postJson;
+    this.getServerBase = options.getServerBase;
+    this.getClientIdentity = options.getClientIdentity;
+    this.shouldPoll = options.shouldPoll;
+    this.sendToSide = options.sendToSide;
+    this.sendUpdateNotice = options.sendUpdateNotice;
+    this.logger = options.logger || console;
+    this.intervalMs = options.intervalMs || DEFAULT_INTERVAL_MS;
+    this.timeoutMs = options.timeoutMs || 8000;
+    this.timer = null;
+    this.inFlight = false;
+    this.pendingPoll = false;
+    this.pendingDeliveryReset = false;
+    this.lastServerBase = '';
+    this.seenByServer = new Map();
   }
 
-  function resolveAnnouncementFingerprint(ann) {
-    const id = resolveAnnouncementId(ann);
+  resolveAnnouncementId(announcement) {
+    if (!announcement || typeof announcement !== 'object') return '';
+    const id = announcement.announcement_id ?? announcement.announcementId ?? announcement.id;
+    if (id !== undefined && id !== null && String(id).trim()) return String(id).trim();
+    return String(announcement.content || announcement.message || '').trim().slice(0, 160);
+  }
+
+  resolveAnnouncementFingerprint(announcement) {
+    const id = this.resolveAnnouncementId(announcement);
     if (!id) return '';
-    const update = summarizeUpdatePayload(ann);
+    const update = summarizeUpdatePayload(announcement);
     return JSON.stringify([
       id,
-      ann.message ?? ann.content ?? '',
-      ann.message_type ?? ann.announcement_type ?? '',
+      announcement.message ?? announcement.content ?? '',
+      announcement.message_type ?? announcement.announcement_type ?? '',
       update.version,
       update.downloadUrl || update.openUrl,
     ]);
   }
 
-  function resolveDeliveryChannel(ann) {
-    const messageType = String(
-      ann?.message_type ?? ann?.messageType ?? ann?.announcement_type ?? ann?.type ?? ''
+  resolveDeliveryChannel(announcement) {
+    const type = String(
+      announcement?.message_type ?? announcement?.messageType
+      ?? announcement?.announcement_type ?? announcement?.type ?? '',
     ).trim().toLowerCase();
-    const update = summarizeUpdatePayload(ann);
-    const hasUpdateMetadata = Boolean(update.version && (update.downloadUrl || update.openUrl));
-    return ['update', 'upgrade', 'app_update', 'software_update'].includes(messageType) || hasUpdateMetadata
+    const update = summarizeUpdatePayload(announcement);
+    const hasUpdate = Boolean(update.version && (update.downloadUrl || update.openUrl));
+    return ['update', 'upgrade', 'app_update', 'software_update'].includes(type) || hasUpdate
       ? 'app-update-notice'
       : 'server-message';
   }
 
-  // 处理/分发：pollOnce 的具体业务逻辑。
-  async function pollOnce({ resetDelivery = false } = {}) {
-    if (inFlight) {
-      // 登录成功、侧边栏加载完成等主动刷新不能被正在进行的轮询吞掉，
-      // 否则只能等到下一个 60 秒周期才能看到公告。
-      pendingPoll = true;
-      pendingDeliveryReset = pendingDeliveryReset || resetDelivery;
+  async pollOnce({ resetDelivery = false } = {}) {
+    if (this.inFlight) {
+      this.pendingPoll = true;
+      this.pendingDeliveryReset = this.pendingDeliveryReset || resetDelivery;
       return;
     }
-    inFlight = true;
+    this.inFlight = true;
     try {
-      if (typeof shouldPoll === 'function' && shouldPoll() !== true) {
-        return;
-      }
-      const base = String((typeof getServerBase === 'function' ? getServerBase() : '') || '').replace(/\/+$/, '');
-      if (!base) {
-        // 尚未拿到服务器地址（未验证卡密），静默跳过。
-        return;
-      }
-
-      if (base !== lastServerBase) {
-        lastServerBase = base;
-        // 平台切换后先清空侧边栏，避免继续展示上一个租户的公告。
-        sendToSide('server-announcements-reset', { serverBase: base });
-      }
-
-      // 公告请求是登录后的用户可见关键路径，先发起它；心跳仅用于在线状态
-      // 维护，失败或响应较慢都不应阻塞公告展示。
-      const url = `${base}/api/user_announcement`;
-      const announcementRequest = getJson(url, timeoutMs);
-
-      const identity = typeof getClientIdentity === 'function' ? getClientIdentity() : null;
-      const key = String(identity?.key || '').trim();
-      const deviceId = String(identity?.deviceId || identity?.device_id || '').trim();
-      let heartbeatTask = null;
-      if (key && deviceId && typeof postJson === 'function') {
-        heartbeatTask = Promise.resolve().then(async () => {
-          const heartbeatResp = await postJson(
-            `${base}/api/client/heartbeat`,
-            { key, device_id: deviceId },
-            timeoutMs
-          );
-          const heartbeatBody = heartbeatResp?.body ?? heartbeatResp;
-          if (!heartbeatBody || heartbeatBody.success !== true) {
-            logger.warn?.('[HTTP 心跳] 服务器未确认在线状态:', heartbeatBody?.message || '未知响应');
-          }
-        }).catch((e) => {
-          // 心跳失败不应阻止公告拉取；下一轮会自动重试。
-          logger.warn?.('[HTTP 心跳] 上报失败:', e?.message || e);
-        });
-      }
-
-      const resp = await announcementRequest;
-      const body = resp && typeof resp === 'object' && resp.body !== undefined ? resp.body : resp;
-      if (!body || body.success === false) {
-        throw new Error(body?.message || '公告接口返回失败');
-      }
-      const list = body && Array.isArray(body.data) ? body.data : [];
-      if (resetDelivery) {
-        seenByServer.delete(base);
-      }
-      const previous = seenByServer.get(base) || new Map();
-      const current = new Map();
-
-      for (const ann of list) {
-        const id = resolveAnnouncementId(ann);
-        const fingerprint = resolveAnnouncementFingerprint(ann);
-        if (!id || !fingerprint) continue;
-        current.set(id, fingerprint);
-        if (previous.get(id) === fingerprint) continue;
-        try {
-          const channel = resolveDeliveryChannel(ann);
-          const delivered = channel === 'app-update-notice' && typeof sendUpdateNotice === 'function'
-            ? await sendUpdateNotice(ann)
-            : sendToSide(channel, ann);
-          if (delivered === false) {
-            current.delete(id);
-            logger.warn?.('[公告轮询] 侧边栏尚未就绪，公告将在下次轮询重试:', id);
-          } else {
-            logger.log?.('[公告轮询] 公告已交给软件界面:', id);
-          }
-        } catch (e) {
-          current.delete(id);
-          logger.warn?.('[公告轮询] 下发公告到侧边栏失败:', e?.message || e);
-        }
-      }
-      // 只保留本次接口仍然返回的公告。公告被禁用后再启用时会重新展示。
-      seenByServer.set(base, current);
-      // 不让心跳延迟公告处理；但在本轮结束前收敛任务，避免无界并发。
-      if (heartbeatTask) await heartbeatTask;
-    } catch (e) {
-      logger.warn?.('[公告轮询] 拉取公告失败:', e?.message || e);
+      await this.executePoll(resetDelivery);
+    } catch (error) {
+      this.logger.warn?.('[公告轮询] 拉取公告失败:', error?.message || error);
     } finally {
-      inFlight = false;
-      if (pendingPoll || pendingDeliveryReset) {
-        pendingPoll = false;
-        const resetDelivery = pendingDeliveryReset;
-        pendingDeliveryReset = false;
-        void pollOnce({ resetDelivery });
+      this.finishPoll();
+    }
+  }
+
+  async executePoll(resetDelivery) {
+    if (typeof this.shouldPoll === 'function' && this.shouldPoll() !== true) return;
+    const base = this.resolveServerBase();
+    if (!base) return;
+    this.handleServerChange(base);
+    const announcementRequest = this.getJson(`${base}/api/user_announcement`, this.timeoutMs);
+    const heartbeatTask = this.startHeartbeat(base);
+    const list = await this.readAnnouncements(announcementRequest);
+    if (resetDelivery) this.seenByServer.delete(base);
+    await this.deliverAnnouncements(base, list);
+    if (heartbeatTask) await heartbeatTask;
+  }
+
+  resolveServerBase() {
+    const value = typeof this.getServerBase === 'function' ? this.getServerBase() : '';
+    return String(value || '').replace(/\/+$/, '');
+  }
+
+  handleServerChange(base) {
+    if (base === this.lastServerBase) return;
+    this.lastServerBase = base;
+    this.sendToSide('server-announcements-reset', { serverBase: base });
+  }
+
+  startHeartbeat(base) {
+    const identity = typeof this.getClientIdentity === 'function' ? this.getClientIdentity() : null;
+    const key = String(identity?.key || '').trim();
+    const deviceId = String(identity?.deviceId || identity?.device_id || '').trim();
+    if (!key || !deviceId || typeof this.postJson !== 'function') return null;
+    return Promise.resolve().then(async () => {
+      const response = await this.postJson(
+        `${base}/api/client/heartbeat`, { key, device_id: deviceId }, this.timeoutMs,
+      );
+      const body = response?.body ?? response;
+      if (!body || body.success !== true) {
+        this.logger.warn?.('[HTTP 心跳] 服务器未确认在线状态:', body?.message || '未知响应');
       }
+    }).catch((error) => {
+      this.logger.warn?.('[HTTP 心跳] 上报失败:', error?.message || error);
+    });
+  }
+
+  async readAnnouncements(request) {
+    const response = await request;
+    const body = response && typeof response === 'object' && response.body !== undefined
+      ? response.body
+      : response;
+    if (!body || body.success === false) throw new Error(body?.message || '公告接口返回失败');
+    return Array.isArray(body.data) ? body.data : [];
+  }
+
+  async deliverAnnouncements(base, list) {
+    const previous = this.seenByServer.get(base) || new Map();
+    const current = new Map();
+    for (const announcement of list) {
+      const id = this.resolveAnnouncementId(announcement);
+      const fingerprint = this.resolveAnnouncementFingerprint(announcement);
+      if (!id || !fingerprint) continue;
+      current.set(id, fingerprint);
+      if (previous.get(id) === fingerprint) continue;
+      await this.deliverAnnouncement(announcement, id, current);
+    }
+    this.seenByServer.set(base, current);
+  }
+
+  async deliverAnnouncement(announcement, id, current) {
+    try {
+      const channel = this.resolveDeliveryChannel(announcement);
+      const delivered = channel === 'app-update-notice' && typeof this.sendUpdateNotice === 'function'
+        ? await this.sendUpdateNotice(announcement)
+        : this.sendToSide(channel, announcement);
+      if (delivered === false) {
+        current.delete(id);
+        this.logger.warn?.('[公告轮询] 侧边栏尚未就绪，公告将在下次轮询重试:', id);
+      } else {
+        this.logger.log?.('[公告轮询] 公告已交给软件界面:', id);
+      }
+    } catch (error) {
+      current.delete(id);
+      this.logger.warn?.('[公告轮询] 下发公告到侧边栏失败:', error?.message || error);
     }
   }
 
-  // 启动/打开/显示：start 的具体业务逻辑。
-  function start() {
-    if (timer) return;
-    void pollOnce();
-    timer = setInterval(() => { void pollOnce(); }, intervalMs);
+  finishPoll() {
+    this.inFlight = false;
+    if (!this.pendingPoll && !this.pendingDeliveryReset) return;
+    this.pendingPoll = false;
+    const resetDelivery = this.pendingDeliveryReset;
+    this.pendingDeliveryReset = false;
+    void this.pollOnce({ resetDelivery });
   }
 
-  // 停止/关闭/清理：stop 的具体业务逻辑。
-  function stop() {
-    if (timer) {
-      clearInterval(timer);
-      timer = null;
-    }
+  start() {
+    if (this.timer) return;
+    void this.pollOnce();
+    this.timer = setInterval(() => { void this.pollOnce(); }, this.intervalMs);
   }
 
-  // 渲染/刷新：refreshNow 的具体业务逻辑（如卡密验证成功后立即拉取一次）。
-  function refreshNow(options = {}) {
-    return pollOnce(options);
+  stop() {
+    if (!this.timer) return;
+    clearInterval(this.timer);
+    this.timer = null;
   }
 
-  return { start, stop, refreshNow };
+  getApi() {
+    return {
+      start: () => this.start(),
+      stop: () => this.stop(),
+      refreshNow: (options) => this.pollOnce(options),
+    };
+  }
+}
+
+/** @param {Record<string, any>} [options] */
+function createAnnouncementPoller(options = {}) {
+  return new AnnouncementPoller(options).getApi();
 }
 
 module.exports = { createAnnouncementPoller };

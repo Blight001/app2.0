@@ -3,6 +3,13 @@ function toFiniteNumber(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+function firstDefinedValue(source, fields) {
+  for (const field of fields) {
+    if (source[field] !== undefined && source[field] !== null) return source[field];
+  }
+  return undefined;
+}
+
 function normalizePositiveNumber(value) {
   if (value === null || value === undefined || value === '') return null;
   const num = typeof value === 'number' ? value : Number(String(value).trim());
@@ -12,34 +19,30 @@ function normalizePositiveNumber(value) {
 
 function normalizeTimeValueToMs(value) {
   if (value === null || value === undefined || value === '') return null;
-
-  if (value instanceof Date) {
-    const ts = value.getTime();
-    return Number.isFinite(ts) ? ts : null;
-  }
-
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    if (value > 1e12) return Math.floor(value);
-    if (value > 1e9) return Math.floor(value * 1000);
-    if (value > 0) return Math.floor(value * 1000);
-    return null;
-  }
-
+  if (value instanceof Date) return normalizeDateToMs(value);
+  if (typeof value === 'number') return normalizeNumericTimeToMs(value);
   const text = String(value).trim();
   if (!text) return null;
-
-  if (/^\d+$/.test(text)) {
-    const num = Number(text);
-    if (!Number.isFinite(num)) return null;
-    if (text.length >= 13) return Math.floor(num);
-    if (text.length === 10) return Math.floor(num * 1000);
-    if (num > 1e12) return Math.floor(num);
-    if (num > 1e9) return Math.floor(num * 1000);
-    return Math.floor(num * 1000);
-  }
-
+  if (/^\d+$/.test(text)) return normalizeNumericTextTimeToMs(text);
   const parsed = Date.parse(text);
   return Number.isNaN(parsed) ? null : parsed;
+}
+
+function normalizeDateToMs(value) {
+  const timestamp = value.getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function normalizeNumericTimeToMs(value) {
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return value > 1e12 ? Math.floor(value) : Math.floor(value * 1000);
+}
+
+function normalizeNumericTextTimeToMs(text) {
+  const number = Number(text);
+  if (!Number.isFinite(number)) return null;
+  if (text.length >= 13 || number > 1e12) return Math.floor(number);
+  return Math.floor(number * 1000);
 }
 
 function normalizeCurrentAccountType(value) {
@@ -73,26 +76,19 @@ function getCurrentAccountTypeLabel(value) {
   return '';
 }
 
+/** @param {Record<string, any>} [source] */
 function normalizeLicenseUsage(source = {}) {
   if (!source || typeof source !== 'object') return null;
 
-  const maxUsageTimes = toFiniteNumber(source.max_usage_times ?? source.maxUsageTimes);
-  const usedUsageTimes = toFiniteNumber(source.used_usage_times ?? source.usedUsageTimes);
-  const remainingUsageTimes = toFiniteNumber(source.remaining_usage_times ?? source.remainingUsageTimes);
-  const expireAt = String(source.expire_at ?? source.expireAt ?? source.cardExpiryDate ?? source.expiryDate ?? '').trim();
-  const daysLeft = source.days_left ?? source.daysLeft;
-  const expiresInSeconds = source.expires_in_seconds ?? source.expiresInSeconds;
+  const maxUsageTimes = toFiniteNumber(firstDefinedValue(source, ['max_usage_times', 'maxUsageTimes']));
+  const usedUsageTimes = toFiniteNumber(firstDefinedValue(source, ['used_usage_times', 'usedUsageTimes']));
+  const remainingUsageTimes = toFiniteNumber(firstDefinedValue(source, ['remaining_usage_times', 'remainingUsageTimes']));
+  const expireAt = String(firstDefinedValue(source, ['expire_at', 'expireAt', 'cardExpiryDate', 'expiryDate']) || '').trim();
+  const daysLeft = firstDefinedValue(source, ['days_left', 'daysLeft']);
+  const expiresInSeconds = firstDefinedValue(source, ['expires_in_seconds', 'expiresInSeconds']);
 
-  if (
-    maxUsageTimes === null
-    && usedUsageTimes === null
-    && remainingUsageTimes === null
-    && !expireAt
-    && daysLeft === undefined
-    && expiresInSeconds === undefined
-  ) {
-    return null;
-  }
+  if (!hasLicenseUsageValues({ maxUsageTimes, usedUsageTimes, remainingUsageTimes,
+    expireAt, daysLeft, expiresInSeconds })) return null;
 
   const normalized = {
     max_usage_times: maxUsageTimes,
@@ -104,6 +100,12 @@ function normalizeLicenseUsage(source = {}) {
   if (daysLeft !== undefined) normalized.days_left = daysLeft;
   if (expiresInSeconds !== undefined) normalized.expires_in_seconds = expiresInSeconds;
   return normalized;
+}
+
+function hasLicenseUsageValues(values) {
+  return values.maxUsageTimes !== null || values.usedUsageTimes !== null
+    || values.remainingUsageTimes !== null || Boolean(values.expireAt)
+    || values.daysLeft !== undefined || values.expiresInSeconds !== undefined;
 }
 
 module.exports = {
