@@ -3,7 +3,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { runChatConversation } = require('../../../src/app/main/features/ai-chat/chat-conversation-runner');
+const {
+  classifyStreamedContent,
+  runChatConversation,
+} = require('../../../src/app/main/features/ai-chat/chat-conversation-runner');
 
 function createRequest(responses, overrides = {}) {
   const executed = [];
@@ -41,6 +44,17 @@ function createRequest(responses, overrides = {}) {
   };
 }
 
+test('五类文本工具外壳在流式阶段均被抑制', () => {
+  for (const content of [
+    '<mcp-call>{', '<mcp_call>{', '<invoke name="tool">', '<tool_call>{',
+    '<xai:function_call name="tool">', '```json\n{"tool":',
+  ]) {
+    assert.equal(classifyStreamedContent(content), 'suppressed');
+  }
+  assert.equal(classifyStreamedContent('<mc'), 'pending');
+  assert.equal(classifyStreamedContent('正常答复'), 'visible');
+});
+
 test('识别文本 mcp-call，执行后继续取得模型最终答复', async () => {
   const fixture = createRequest([
     {
@@ -73,4 +87,55 @@ test('不存在的 MCP 工具即时返回暂无该调用', async () => {
   const result = await runChatConversation(fixture.request, () => ({}));
   assert.equal(fixture.executed.length, 0);
   assert.match(result.message.content, /暂无该 MCP 调用：missing_tool/);
+});
+
+test('文本 MCP 工具回传遇到旧服务端会话失效时无 run_id 重试', async () => {
+  const responses = [
+    {
+      ok: true,
+      run_id: 'completed-text-run',
+      message: { content: '<mcp-call>{"tool":"software_window","arguments":{"action":"list"}}</mcp-call>' },
+    },
+    { ok: false, status: 409, message: 'AI 工具调用会话已失效，请重新发送消息' },
+    { ok: true, run_id: 'replacement-run', message: { content: '窗口列表已取得' } },
+  ];
+  const seenRunIds = [];
+  const fixture = createRequest(responses);
+  fixture.request.httpClient.sendAIControlMessage = async (_key, _device, _model, _messages, options) => {
+    seenRunIds.push(options.runId);
+    return responses.shift();
+  };
+  const result = await runChatConversation(fixture.request, () => ({}));
+  assert.deepEqual(seenRunIds, ['', 'completed-text-run', '']);
+  assert.deepEqual(fixture.executed, [{ name: 'software_window', args: { action: 'list' } }]);
+  assert.equal(result.message.content, '窗口列表已取得');
+});
+
+test('流式文本 MCP 调用不向界面发送原始外壳并在工具卡前清理内容', async () => {
+  const events = [];
+  let round = 0;
+  const fixture = createRequest([], { emit: (event) => events.push(event), useStream: true });
+  fixture.request.httpClient.streamAIControlMessage = async (
+    _key, _device, _model, _messages, _options, onEvent,
+  ) => {
+    if (round++ === 0) {
+      onEvent({ type: 'content_delta', delta: '<mcp' });
+      onEvent({ type: 'content_delta', delta: '-call>{"tool":"software_window","arguments":{"action":"list"}}</mcp-call>' });
+      return {
+        ok: true,
+        run_id: 'text-run',
+        message: { content: '<mcp-call>{"tool":"software_window","arguments":{"action":"list"}}</mcp-call>' },
+      };
+    }
+    onEvent({ type: 'content_delta', delta: '窗口列表已取得' });
+    return { ok: true, message: { content: '窗口列表已取得' } };
+  };
+  const result = await runChatConversation(fixture.request, () => ({}));
+  const visibleDeltas = events.filter((event) => event.type === 'content_delta');
+  assert.deepEqual(visibleDeltas.map((event) => event.delta), ['窗口列表已取得']);
+  const replaceIndex = events.findIndex((event) => event.type === 'content_replace');
+  const toolIndex = events.findIndex((event) => event.type === 'tool_start');
+  assert.ok(replaceIndex >= 0 && replaceIndex < toolIndex);
+  assert.equal(events[replaceIndex].content, '');
+  assert.equal(result.message.content, '窗口列表已取得');
 });

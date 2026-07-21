@@ -268,6 +268,21 @@
       renderMarkdownInto(this.ensureAnswer(), this.content);
     }
 
+    replaceContent(value, round = 0) {
+      const roundId = Number(round) || 0;
+      if (this.answer && this.answerRound !== roundId) return;
+      this.content = String(value || '');
+      if (!this.content) {
+        this.answer?.remove();
+        this.answer = null;
+        this.answerRound = -1;
+      } else {
+        this.answerRound = roundId;
+        renderMarkdownInto(this.ensureAnswer(), this.content);
+      }
+      this.scroll();
+    }
+
     upsertTool(tool, round = 0) {
       const roundId = Number(round) || 0;
       const id = String(tool?.id || tool?.name || this.toolViews.size);

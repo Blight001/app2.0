@@ -15,6 +15,11 @@ const { executeToolCalls } = require('./chat-tool-executor');
 const { parseTextMcpCalls } = require('./chat-text-mcp-parser');
 const { normalizeToolCallMessage } = require('../../lib/ai-tool-call-normalizer');
 
+const STREAMED_TOOL_PREFIXES = [
+  '<mcp-call', '<mcp_call', '<invoke', '<tool_call', '<xai:function_call',
+  '```json', '```tool_call', '```tool-call', '```function_call', '```mcp',
+];
+
 function createConversationState(request, readStoreConfigSafe) {
   return {
     ...request,
@@ -23,12 +28,16 @@ function createConversationState(request, readStoreConfigSafe) {
     latestQuota: null,
     reasoningLog: '',
     streamedRoundContent: '',
+    streamedRoundRawContent: '',
+    streamedRoundContentMode: 'pending',
     streamedRoundReasoning: '',
     toolEvents: [],
     traceEvents: [],
     mcpCallLimit: getAiControlMcpCallLimit(readStoreConfigSafe()),
     mcpCallCount: 0,
     unresolvedToolFailure: '',
+    textToolContinuationPending: false,
+    textToolSessionRecoveryAttempted: false,
   };
 }
 
@@ -44,10 +53,39 @@ function toolFailureResult(state, failure) {
   return finishAfterToolFailure({ ...state, activeRun: state.run }, failure);
 }
 
+function classifyStreamedContent(content) {
+  const value = String(content || '').trimStart().toLowerCase();
+  if (!value || STREAMED_TOOL_PREFIXES.some((prefix) => prefix.startsWith(value))) return 'pending';
+  if (STREAMED_TOOL_PREFIXES.some((prefix) => value.startsWith(prefix))) return 'suppressed';
+  return 'visible';
+}
+
+function receiveContentDelta(state, event) {
+  const delta = String(event?.delta || '');
+  state.streamedRoundRawContent += delta;
+  if (state.streamedRoundContentMode === 'pending') {
+    state.streamedRoundContentMode = classifyStreamedContent(state.streamedRoundRawContent);
+  }
+  if (state.streamedRoundContentMode !== 'visible') return null;
+  const visibleDelta = state.streamedRoundContent
+    ? delta
+    : state.streamedRoundRawContent;
+  state.streamedRoundContent += visibleDelta;
+  return { ...event, delta: visibleDelta };
+}
+
+function resetStreamedRound(state) {
+  state.streamedRoundContent = '';
+  state.streamedRoundRawContent = '';
+  state.streamedRoundContentMode = 'pending';
+  state.streamedRoundReasoning = '';
+}
+
 function receiveStreamEvent(state, round, event) {
-  if (event?.type === 'content_delta') state.streamedRoundContent += String(event.delta || '');
+  let visibleEvent = event;
+  if (event?.type === 'content_delta') visibleEvent = receiveContentDelta(state, event);
   if (event?.type === 'reasoning_delta') state.streamedRoundReasoning += String(event.delta || '');
-  if (!['result', 'error'].includes(event?.type)) state.emit({ ...event, round });
+  if (visibleEvent && !['result', 'error'].includes(visibleEvent?.type)) state.emit({ ...visibleEvent, round });
 }
 
 async function requestModelRound(state, round) {
@@ -95,6 +133,17 @@ async function recoverAndRetryModelRound(state, round, result) {
   if (!credentials?.key || !credentials?.deviceId) return result;
   state.key = credentials.key;
   state.deviceId = credentials.deviceId;
+  return requestModelRound(state, round);
+}
+
+async function retryExpiredTextToolSession(state, round, result) {
+  const message = String(result?.message || result?.error || '');
+  const expired = result?.ok === false && /AI 工具调用会话已失效/.test(message);
+  if (!expired || !state.textToolContinuationPending || state.textToolSessionRecoveryAttempted) {
+    return result;
+  }
+  state.textToolSessionRecoveryAttempted = true;
+  state.runId = '';
   return requestModelRound(state, round);
 }
 
@@ -166,8 +215,7 @@ async function executeToolRound(state, result, toolCalls, round) {
     content: String(result.message?.content || ''),
     tool_calls: toolCalls,
   });
-  state.streamedRoundContent = '';
-  state.streamedRoundReasoning = '';
+  resetStreamedRound(state);
   const content = String(result.message?.content || '').trim();
   if (content) state.traceEvents.push({ type: 'step', round, content });
   state.mcpCallCount += toolCalls.length;
@@ -194,7 +242,9 @@ async function executeToolRound(state, result, toolCalls, round) {
 async function requestRoundSafely(state, round) {
   try {
     const initialResult = await requestModelRound(state, round);
-    const result = await recoverAndRetryModelRound(state, round, initialResult);
+    const retriedResult = await retryExpiredTextToolSession(state, round, initialResult);
+    const result = await recoverAndRetryModelRound(state, round, retriedResult);
+    if (result?.ok) state.textToolContinuationPending = false;
     if (isChatStopped(state.run)) return { done: true, result: stoppedResult(state) };
     return { done: false, result };
   } catch (error) {
@@ -218,8 +268,7 @@ function handleFailedModelResult(state, result) {
 async function runChatRound(state, round) {
   if (isChatStopped(state.run)) return { done: true, result: stoppedResult(state) };
   drainInserted(state);
-  state.streamedRoundContent = '';
-  state.streamedRoundReasoning = '';
+  resetStreamedRound(state);
   state.emit({ type: 'round_start', round });
   state.modelMessages = limitAiControlMessages(state.modelMessages);
   const requested = await requestRoundSafely(state, round);
@@ -230,11 +279,14 @@ async function runChatRound(state, round) {
   const normalizedMessage = normalizeToolCallMessage(requested.result.message);
   requested.result.message.content = normalizedMessage.content;
   let toolCalls = normalizedMessage.toolCalls;
+  let parsedFromText = false;
   if (!toolCalls.length) {
     const parsed = parseTextMcpCalls(requested.result.message?.content, round);
     if (parsed.detected) {
       requested.result.message.content = parsed.content;
       toolCalls = parsed.toolCalls;
+      parsedFromText = toolCalls.length > 0;
+      state.emit({ type: 'content_replace', content: parsed.content, round });
       if (parsed.error) {
         return { done: true, result: finishWithoutTools(state, requested.result) };
       }
@@ -246,6 +298,10 @@ async function runChatRound(state, round) {
   }
   const invalid = validateToolRound(state, toolCalls);
   if (invalid) return { done: true, result: invalid };
+  if (parsedFromText) {
+    state.textToolContinuationPending = true;
+    state.textToolSessionRecoveryAttempted = false;
+  }
   const execution = await executeToolRound(state, requested.result, toolCalls, round);
   if (execution.stopped) return { done: true, result: stoppedResult(state) };
   drainInserted(state);
@@ -262,11 +318,13 @@ async function runChatConversation(request, readStoreConfigSafe) {
 
 module.exports = {
   applyResultMetadata,
+  classifyStreamedContent,
   createConversationState,
   executeToolRound,
   finishWithoutTools,
   requestModelRound,
   recoverAndRetryModelRound,
+  retryExpiredTextToolSession,
   requestRoundSafely,
   runChatRound,
   runChatConversation,

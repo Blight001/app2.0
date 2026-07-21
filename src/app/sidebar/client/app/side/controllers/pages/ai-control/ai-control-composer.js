@@ -160,21 +160,31 @@
     return { content, input, messages, select, useCustomApi, userRow, wasFirstExchange };
   }
 
+  function handleInsertedStreamMessage(run) {
+    run.insertedDuringRun = true;
+    run.streamView?.finalize();
+    run.streamView = createAssistantView({ pending: true });
+  }
+
+  const chatStreamHandlers = {
+    round_start: (run, event) => run.streamView?.addReasoning('', event.round),
+    reasoning_delta: (run, event) => run.streamView?.addReasoning(event.delta, event.round),
+    content_delta: (run, event) => run.streamView?.addContent(event.delta, event.round),
+    content_replace: (run, event) => run.streamView?.replaceContent(event.content, event.round),
+    tool_start: (run, event) => run.streamView?.upsertTool(event.tool || {}, event.round),
+    tool_result: (run, event) => run.streamView?.upsertTool(event.tool || {}, event.round),
+    user_inserted: (run) => handleInsertedStreamMessage(run),
+  };
+
+  function handleChatStreamEvent(run, event) {
+    if (!event || event.requestId !== run.requestId) return;
+    chatStreamHandlers[event.type]?.(run, event);
+  }
+
   function subscribeChatStream(run) {
     run.streamView = createAssistantView({ pending: true });
     run.insertedDuringRun = false;
-    return window.aiFree?.ai?.onChatEvent?.((event) => {
-      if (!event || event.requestId !== run.requestId) return;
-      if (event.type === 'round_start') run.streamView?.addReasoning('', event.round);
-      if (event.type === 'reasoning_delta') run.streamView?.addReasoning(event.delta, event.round);
-      if (event.type === 'content_delta') run.streamView?.addContent(event.delta, event.round);
-      if (event.type === 'tool_start' || event.type === 'tool_result') run.streamView?.upsertTool(event.tool || {}, event.round);
-      if (event.type === 'user_inserted') {
-        run.insertedDuringRun = true;
-        run.streamView?.finalize();
-        run.streamView = createAssistantView({ pending: true });
-      }
-    });
+    return window.aiFree?.ai?.onChatEvent?.((event) => handleChatStreamEvent(run, event));
   }
 
   function buildChatRequest(run) {

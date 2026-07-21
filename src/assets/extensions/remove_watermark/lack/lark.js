@@ -1,1 +1,0 @@
-chrome.runtime.onMessage.addListener((function(e,s,t){"QUERY_LARK_STATE"===e.type&&t({status:"ok",success:!0})}));
