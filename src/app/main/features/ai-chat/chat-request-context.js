@@ -79,7 +79,7 @@ function normalizeChatOptions(input) {
     : (input.browserConnectionId ? [input.browserConnectionId] : []);
   return {
     automationCardId: String(input.automationCardId || '').trim(),
-    connectionIds: [...new Set(rawIds.map((value) => String(value || '').trim()).filter(Boolean))],
+    connectionIds: [...new Set(rawIds.map((value) => String(value || '').trim()).filter(Boolean))].slice(0, 1),
     disableTools: input.disableTools === true,
     initialMessages: Array.isArray(input.messages) ? input.messages : [],
     requestId: String(input.requestId || '').trim(),
@@ -89,14 +89,17 @@ function normalizeChatOptions(input) {
 
 function resolveConnections(deps, options) {
   if (options.disableTools || !options.connectionIds.length) return { connections: [] };
-  const connections = [];
-  for (const id of options.connectionIds) {
-    const found = deps.browserAutomationBridge?.getConnection?.(id);
-    if (!found) return { error: { ok: false, message: '所选浏览器插件已离线，请刷新后重新选择' } };
-    connections.push(found);
+  const controlledConnectionId = options.connectionIds[0];
+  const publicConnections = deps.browserAutomationBridge?.listConnections?.() || [];
+  if (!publicConnections.some((item) => String(item?.id || '') === controlledConnectionId)) {
+    return { error: { ok: false, message: '当前控制浏览器插件已离线，请刷新后重新选择' } };
   }
+  const connections = publicConnections
+    .map((item) => deps.browserAutomationBridge?.getConnection?.(item.id))
+    .filter(Boolean);
   try {
     return {
+      controlledConnectionId,
       connections: enrichBrowserConnectionNames(
         connections,
         typeof deps.getTabs === 'function' ? deps.getTabs() : [],
@@ -104,7 +107,7 @@ function resolveConnections(deps, options) {
       ),
     };
   } catch (_) {
-    return { connections };
+    return { connections, controlledConnectionId };
   }
 }
 
@@ -136,6 +139,7 @@ function prepareChatRequest(deps, event, input, chatRuns, getWindowTools) {
   const windowTools = options.disableTools ? null : getWindowTools();
   const toolContext = buildChatToolContext({
     connections: resolvedConnections.connections,
+    controlledConnectionId: resolvedConnections.controlledConnectionId,
     windowTools,
     selectedAutomationCard: resolvedCard.selectedAutomationCard,
     automationCardId: options.automationCardId,
@@ -147,6 +151,7 @@ function prepareChatRequest(deps, event, input, chatRuns, getWindowTools) {
     ...started,
     bridge: deps.browserAutomationBridge,
     connections: resolvedConnections.connections,
+    controlledConnectionId: resolvedConnections.controlledConnectionId || '',
     emit: createChatEmitter(event, options),
     toolContext,
     windowTools,

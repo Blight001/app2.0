@@ -46,19 +46,12 @@ function normalizeSchema(tool = {}) {
   };
 }
 
-function addBrowserRouting(tool = {}, requireBrowserId = false) {
+function addBrowserRouting(tool = {}) {
   const inputSchema = normalizeSchema(tool);
-  inputSchema.properties.browser_id = inputSchema.properties.browser_id || {
+  inputSchema.properties.change_browser = inputSchema.properties.change_browser || {
     type: 'string',
-    description: 'AI-FREE 浏览器窗口的 MCP 连接 ID；存在多个窗口时必填，来自 ai_free_list_tools/connections。',
+    description: '可选。切换唯一的当前控制浏览器，填写 connections 中的连接 ID 或唯一窗口名称；省略则沿用当前目标。',
   };
-  inputSchema.properties.browser_name = inputSchema.properties.browser_name || {
-    type: 'string',
-    description: '窗口名称；未提供 browser_id 时可按名称精确匹配。',
-  };
-  if (requireBrowserId && !inputSchema.required.includes('browser_id')) {
-    inputSchema.required.push('browser_id');
-  }
   return {
     name: String(tool.name || '').trim(),
     description: String(tool.description || '').trim(),
@@ -109,7 +102,7 @@ function resolveDispatchTimeout(toolName, args) {
 function sanitizeDispatchArgs(source = {}) {
   const args = { ...source };
   for (const key of [
-    'browser_id', 'browser_name', 'browser', 'save_to_server', 'saveToServer',
+    'change_browser', 'browser_id', 'browser_name', 'browser', 'save_to_server', 'saveToServer',
     'server_url', 'serverUrl',
   ]) delete args[key];
   return args;
@@ -128,6 +121,8 @@ class BrowserAutomationExternalGateway {
       : (typeof options.hasAccess === 'function' ? options.hasAccess : () => false);
     this.publishedPid = 0;
     this.publishedAccessAllowed = false;
+    this.controlledConnectionId = '';
+    this.pendingControlBrowserName = '';
   }
 
   configure(context = {}) {
@@ -173,36 +168,52 @@ class BrowserAutomationExternalGateway {
       if (normalized.name) tools.set(normalized.name, normalized);
     }
     const connections = this.connections();
-    const requireBrowserId = connections.length > 1;
-    for (const connection of connections) this.addConnectionTools(tools, connection, requireBrowserId);
-    return { tools: Array.from(tools.values()), connections: connections.map(publicConnection) };
+    for (const connection of connections) this.addConnectionTools(tools, connection);
+    const pendingName = this.pendingControlBrowserName.toLocaleLowerCase();
+    const pending = pendingName
+      ? connections.find((item) => String(item.browserName || item.name || '').trim().toLocaleLowerCase() === pendingName)
+      : null;
+    const controlled = pending
+      || connections.find((item) => String(item.id || '') === this.controlledConnectionId)
+      || connections[0] || null;
+    if (controlled) {
+      this.controlledConnectionId = String(controlled.id || '');
+      if (pending?.id === controlled.id) this.pendingControlBrowserName = '';
+    }
+    return {
+      tools: Array.from(tools.values()), connections: connections.map(publicConnection),
+      controlled_browser_id: this.controlledConnectionId,
+    };
   }
 
-  addConnectionTools(tools, connection, requireBrowserId = false) {
+  addConnectionTools(tools, connection) {
     const full = this.options.getConnection?.(connection.id);
     for (const tool of full?.tools || []) {
-      const normalized = sanitizeCookieTool(addBrowserRouting(tool, requireBrowserId));
+      const normalized = sanitizeCookieTool(addBrowserRouting(tool));
       if (normalized.name && !tools.has(normalized.name)) tools.set(normalized.name, normalized);
     }
   }
 
   resolveConnection(args = {}) {
     const items = this.connections();
-    const reference = String(args.browser_id || args.browser_name || args.browser || '').trim();
-    if (!reference) return this.resolveImplicitConnection(items);
+    const reference = String(args.change_browser || args.browser_id || args.browser_name || args.browser || '').trim();
+    if (!reference) {
+      const controlled = items.find((item) => String(item.id || '') === this.controlledConnectionId);
+      return controlled || this.resolveImplicitConnection(items);
+    }
     const exactId = items.find((item) => String(item.id || '') === reference);
     if (exactId) return exactId;
     const lowered = reference.toLocaleLowerCase();
     const matches = items.filter((item) => String(item.browserName || item.name || '').trim().toLocaleLowerCase() === lowered);
     if (matches.length === 1) return matches[0];
-    if (matches.length > 1) throw new Error(`存在多个名为「${reference}」的窗口，请改用 browser_id`);
+    if (matches.length > 1) throw new Error(`存在多个名为「${reference}」的窗口，请在 change_browser 中使用连接 ID`);
     throw new Error(`未找到 AI-FREE 浏览器窗口: ${reference}`);
   }
 
   resolveImplicitConnection(items) {
     if (items.length === 1) return items[0];
     if (!items.length) throw new Error('当前没有已连接内部 MCP 的 AI-FREE 浏览器窗口');
-    throw new Error(`当前有 ${items.length} 个浏览器窗口，请通过 browser_id 指定目标窗口`);
+    throw new Error(`当前有 ${items.length} 个浏览器窗口，请通过 change_browser 选择唯一的控制窗口`);
   }
 
   async callTool(name, rawArgs = {}) {
@@ -210,8 +221,15 @@ class BrowserAutomationExternalGateway {
     const toolName = String(name || '').trim();
     const args = rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? { ...rawArgs } : {};
     const windowTools = this.getWindowTools?.();
-    if (windowTools?.has?.(toolName)) return windowTools.execute(toolName, args);
+    if (windowTools?.has?.(toolName)) {
+      const result = await windowTools.execute(toolName, args);
+      if (result?.control_browser_requested === true) {
+        this.pendingControlBrowserName = String(result.name || '').trim();
+      }
+      return result;
+    }
     const connection = this.resolveConnection(args);
+    this.controlledConnectionId = String(connection.id || '');
     this.assertBrowserTool(connection, toolName, args);
     return this.options.dispatch(
       connection.id,

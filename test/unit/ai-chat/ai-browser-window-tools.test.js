@@ -91,6 +91,9 @@ test('window tool registry lists records and validates lookup arguments', async 
   const opened = await tools.execute('software_window', { action: 'open', name: 'primary' });
   assert.equal(opened.history_id, 'history-1');
   assert.equal(opened.tab_id, 'opened-tab');
+  assert.equal(opened.browser_total, 3);
+  assert.deepEqual(opened.browser_names, ['Primary', 'Duplicate', 'Duplicate']);
+  assert.equal(opened.control_browser_requested, true);
 });
 
 test('create validates access and URL, persists before opening, and rolls back failures', async () => {
@@ -116,6 +119,8 @@ test('create validates access and URL, persists before opening, and rolls back f
   });
   assert.equal(created.name, 'Primary (2)');
   assert.equal(created.url, 'https://home.test');
+  assert.equal(created.control_browser_requested, true);
+  assert.equal(created.browser_total, 4);
   assert.equal(history.some((item) => item.id === created.history_id), true);
   assert.equal(history.find((item) => item.id === created.history_id).settings.timezone.value, 'UTC');
   assert.deepEqual(changes, ['browser-history-changed']);
@@ -164,6 +169,8 @@ test('edit updates name and per-browser settings while close preserves records',
   assert.equal(applied[0][2].restartChromium, true);
   const openClosed = await tools.execute('software_window', { action: 'close', history_id: 'history-1' });
   assert.equal(openClosed.closed, true);
+  assert.equal(openClosed.browser_total, 3);
+  assert.deepEqual(openClosed.browser_names, ['Renamed', 'Duplicate', 'Duplicate']);
   assert.deepEqual(closed, ['tab-1']);
   const alreadyClosed = await tools.execute('software_window', { action: 'close', history_id: 'history-2' });
   assert.equal(alreadyClosed.closed, false);

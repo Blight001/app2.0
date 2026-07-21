@@ -103,16 +103,17 @@
   function resolveBrowserSelection(connections, previousIds) {
     const allIds = normalizeBrowserIds(connections.map((item) => String(item.id || '')));
     const availableIds = new Set(allIds);
-    const survivingIds = previousIds.filter((id) => availableIds.has(id));
+    const survivingId = previousIds.find((id) => availableIds.has(id)) || '';
     const previousAvailableIds = new Set(state.availableBrowserIds);
     const newIds = state.browserConnectionsInitialized
       ? allIds.filter((id) => !previousAvailableIds.has(id))
       : [];
-    const initialIds = state.browserSelectionTouched && survivingIds.length ? survivingIds : allIds;
+    const initialId = state.browserSelectionTouched && survivingId ? survivingId : (allIds[0] || '');
     if (state.browserSelectionExplicitlyDisabled) return { allIds, selectedIds: [] };
-    const selectedIds = state.browserConnectionsInitialized
-      ? normalizeBrowserIds([...survivingIds, ...newIds])
-      : initialIds;
+    const selectedId = state.browserConnectionsInitialized
+      ? (newIds.at(-1) || survivingId || allIds[0] || '')
+      : initialId;
+    const selectedIds = selectedId ? [selectedId] : [];
     return { allIds, selectedIds };
   }
 
@@ -140,7 +141,7 @@
     if (selectedIds.length) state.browserSelectionExplicitlyDisabled = false;
     syncBrowserSessionSelection();
     select.title = connections.length
-      ? `已连接 ${connections.length} 个浏览器插件，可多选分开控制`
+      ? `已连接 ${connections.length} 个浏览器插件，AI 同时只控制当前选中的一个`
       : '未发现浏览器插件，请确认扩展和 AI-FREE 已启动';
     syncSelectUi(select);
     notifyBrowserSelection();

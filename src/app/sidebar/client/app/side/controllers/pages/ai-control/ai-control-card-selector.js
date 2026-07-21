@@ -104,9 +104,7 @@
     }
     const selectedOptions = options.filter((opt) => opt.selected && opt.value);
     const placeholder = options.find((opt) => !opt.value)?.textContent || '不连接浏览器';
-    valueEl.textContent = selectedOptions.length > 1
-      ? `已选 ${selectedOptions.length} 个浏览器`
-      : (selectedOptions[0]?.textContent || placeholder);
+    valueEl.textContent = selectedOptions[0]?.textContent || placeholder;
     shell.classList.toggle('has-selection', Boolean(selectedOptions.length || state.currentCardId));
     trigger.title = selectedOptions.length
       ? selectedOptions.map((opt) => opt.title || opt.textContent).join('、')
@@ -120,12 +118,7 @@
   }
 
   function toggleBrowserOption(options, next) {
-    if (!next) {
-      options.forEach((option) => { option.selected = false; });
-      return;
-    }
-    const target = options.find((option) => option.value === next);
-    if (target) target.selected = !target.selected;
+    options.forEach((option) => { option.selected = Boolean(next) && option.value === next; });
   }
 
   function createSelectOption(option, context) {
@@ -236,7 +229,7 @@
       ? menu.querySelector('#ai-browser-mcp-call-limit')
       : null;
     if (existingMcpInput) state.mcpCallLimitDraft = existingMcpInput.value;
-    // 多选勾选后重建菜单会丢焦点，记录当前项以便重建后恢复。
+    // 重建菜单前记录当前焦点，刷新后恢复键盘操作位置。
     const focusedOptionValue = resolveFocusedOption(menu);
     menu.innerHTML = '';
     appendSelectPrefix(shell, menu);

@@ -15,7 +15,7 @@ function createConnectionResolver(connections) {
     return byName[0] || null;
   };
   const describeConnections = () => connections
-    .map((item) => `“${String(item.name || 'AI自动化浏览器')}”（browser_id: ${item.id}）`)
+    .map((item) => `“${String(item.name || 'AI自动化浏览器')}”（change_browser: ${item.id}）`)
     .join('、');
   return { findConnectionByRef, describeConnections };
 }
@@ -24,24 +24,22 @@ function withBrowserRouteParam(tool) {
   const schema = tool?.input_schema && typeof tool.input_schema === 'object'
     ? tool.input_schema
     : { type: 'object', properties: {} };
-  const required = Array.isArray(schema.required) ? schema.required : [];
   return {
     ...tool,
     input_schema: {
       ...schema,
-      required: [...new Set([...required, 'browser_id'])],
       properties: {
         ...(schema.properties && typeof schema.properties === 'object' ? schema.properties : {}),
-        browser_id: {
+        change_browser: {
           type: 'string',
-          description: '目标浏览器：填所选浏览器的连接 ID 或名称。当前已选择多个浏览器，每次调用都必须指定，不同浏览器的标签页与页面状态相互独立。',
+          description: '可选。切换唯一的当前控制浏览器，填写连接 ID 或唯一名称；省略则继续控制当前浏览器。',
         },
       },
     },
   };
 }
 
-function collectConnectionTools(connections, windowTools, multiBrowser) {
+function collectConnectionTools(connections, windowTools) {
   const seenToolNames = new Set();
   const definitions = [];
   for (const item of connections) {
@@ -49,21 +47,22 @@ function collectConnectionTools(connections, windowTools, multiBrowser) {
       const toolName = String(tool?.name || '');
       if (!toolName || windowTools?.has(toolName) || seenToolNames.has(toolName)) continue;
       seenToolNames.add(toolName);
-      definitions.push(multiBrowser ? withBrowserRouteParam(tool) : tool);
+      definitions.push(withBrowserRouteParam(tool));
     }
   }
   return definitions;
 }
 
-function createMcpContext(tools, connections, resolver) {
+function createMcpContext(tools, connections, resolver, controlledConnectionId) {
   if (!tools.length) return null;
   const availableNames = tools.map((tool) => String(tool?.name || '').trim()).filter(Boolean);
   const toolNames = availableNames.join('、');
   const available = new Set(availableNames);
+  const controlled = connections.find((item) => String(item?.id || '') === String(controlledConnectionId || ''));
   const routing = connections.length > 1
-    ? `当前连接：${resolver.describeConnections()}。调用每一个浏览器工具时都必须传 browser_id；根据用户提到的窗口名称选择并在连续步骤中保持同一 ID，除非用户明确切换。目标仍不明确时先询问，禁止猜测。`
+    ? `可用连接：${resolver.describeConnections()}。当前只控制“${String(controlled?.name || controlled?.id || '未知')}”。AI 同一时间最多控制一个浏览器；要操作其他浏览器，必须在下一次浏览器工具调用中传 change_browser（连接 ID 或唯一名称），切换后后续调用沿用新目标。禁止同时控制多个目标或猜测目标。`
     : (connections.length === 1
-      ? `当前浏览器为 ${resolver.describeConnections()}；browser_id 可省略，但用户明确指定其他窗口时不要假装已控制该窗口。`
+      ? `当前唯一控制浏览器为 ${resolver.describeConnections()}；无需传 change_browser，除非之后出现新的可用连接。`
       : '当前没有可用的浏览器自动化连接，不要调用或虚构浏览器工具。');
   const workflow = [];
   if (available.has('browser_tab')) workflow.push('使用 browser_tab 确认、切换或导航标签页');
@@ -77,8 +76,8 @@ function createMcpContext(tools, connections, resolver) {
   return {
     role: 'system',
     content: `你可以使用这些 AI-FREE MCP 工具：${toolNames}。${routing}${browserWorkflow}`
-      + '只调用目录中真实存在的工具并严格遵守参数 schema。software_window 仅管理软件窗口：其 list 返回的 history_id、tab_id 和 name 不能直接当作 browser_id；要聚焦已打开窗口，调用 software_window 的 open，并传 history_id 或唯一名称。'
-      + 'browser_tab/browser_observe/browser_action/browser_wait 等浏览器工具只能使用当前连接列表明确给出的 browser_id；窗口已打开不等于其 MCP 已连接或已被当前 AI 选中。'
+      + '只调用目录中真实存在的工具并严格遵守参数 schema。software_window 仅管理软件窗口：其 list 返回的 history_id 和 tab_id 不能当作 change_browser；窗口名称只有同时出现在可用连接列表时才能用于 change_browser。要聚焦已打开窗口，调用 software_window 的 open，并传 history_id 或唯一名称。'
+      + 'browser_tab/browser_observe/browser_action/browser_wait 等浏览器工具只能控制当前目标，切换目标只能使用 change_browser；窗口已打开不等于其 MCP 已连接。'
       + '当用户目标明确且操作安全时直接完成，不要为已知信息反复询问；涉及删除、覆盖、提交、支付或发送等重要动作时，以用户授权范围为准。'
       + '必须根据工具返回值判断下一步，未收到成功结果前不得声称操作完成；完成后用简洁自然语言说明实际结果，不要暴露内部调用格式。',
     ai_free_card_context: true,
@@ -86,10 +85,9 @@ function createMcpContext(tools, connections, resolver) {
 }
 
 function buildChatToolContext(options = {}) {
-  const { connections, windowTools, selectedAutomationCard, automationCardId, initialMessages } = options;
-  const multiBrowser = connections.length > 1;
+  const { connections, controlledConnectionId, windowTools, selectedAutomationCard, automationCardId, initialMessages } = options;
   const resolver = createConnectionResolver(connections);
-  const tools = [...(windowTools?.tools || []), ...collectConnectionTools(connections, windowTools, multiBrowser)];
+  const tools = [...(windowTools?.tools || []), ...collectConnectionTools(connections, windowTools)];
   const cardName = String(
     selectedAutomationCard?.cardName || selectedAutomationCard?.cardData?.name || automationCardId,
   ).replace(/[\r\n\t]+/g, ' ').trim().slice(0, 120);
@@ -100,7 +98,7 @@ function buildChatToolContext(options = {}) {
       ai_free_card_context: true,
     }
     : null;
-  const mcpContext = createMcpContext(tools, connections, resolver);
+  const mcpContext = createMcpContext(tools, connections, resolver, controlledConnectionId);
   return {
     ...resolver,
     tools,

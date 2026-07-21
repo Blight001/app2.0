@@ -77,6 +77,18 @@ function slimHistoryItem(item = {}, includeSettings = false) {
   };
 }
 
+function windowSummary(items) {
+  const windows = items.map((item) => slimHistoryItem(item));
+  const active = windows.find((item) => item.is_active) || null;
+  return {
+    browser_total: windows.length,
+    browser_open_count: windows.filter((item) => item.is_open).length,
+    browser_names: windows.map((item) => item.name),
+    open_browser_names: windows.filter((item) => item.is_open).map((item) => item.name),
+    active_browser: active ? { history_id: active.history_id, name: active.name, tab_id: active.tab_id } : null,
+  };
+}
+
 function createToolDefinitions() {
   return [
     {
@@ -193,6 +205,8 @@ class AiBrowserWindowTools {
     return {
       success: true, history_id: text(opened.historyId || record.id), tab_id: text(opened.tabId),
       name: text(opened.name || record.name), already_open: opened.alreadyOpen === true,
+      control_browser_requested: true,
+      ...windowSummary(this.listSerialized()),
     };
   }
 
@@ -232,7 +246,11 @@ class AiBrowserWindowTools {
       });
       if (!tabId) throw new Error('新建浏览器窗口失败');
       this.ui.sendToSide?.('browser-history-changed');
-      return { success: true, history_id: id, tab_id: String(tabId), name, url };
+      return {
+        success: true, history_id: id, tab_id: String(tabId), name, url,
+        control_browser_requested: true,
+        ...windowSummary(this.listSerialized()),
+      };
     } catch (error) {
       writeBrowserHistorySafe(readBrowserHistorySafe().filter((item) => item.id !== id));
       this.ui.sendToSide?.('browser-history-changed');
@@ -255,6 +273,7 @@ class AiBrowserWindowTools {
       changed_settings: request.settingsProvided ? Object.keys(args.settings) : [],
       runtime_result: runtimeResult,
       applies_on_next_open: request.settingsProvided && !edited.tabId,
+      ...windowSummary(this.listSerialized()),
     };
   }
 
@@ -262,12 +281,18 @@ class AiBrowserWindowTools {
     const record = this.resolveRecord(args);
     const openTab = this.findOpenTab(record);
     if (!openTab?.id) {
-      return { success: true, closed: false, history_id: text(record.id), name: text(record.name), note: '该窗口当前没有打开，记录保持不变' };
+      return {
+        success: true, closed: false, history_id: text(record.id), name: text(record.name),
+        note: '该窗口当前没有打开，记录保持不变', ...windowSummary(this.listSerialized()),
+      };
     }
     if (typeof this.ui.closeTab !== 'function') throw new Error('当前浏览器窗口无法关闭');
     await this.ui.closeTab(openTab.id);
     this.ui.sendToSide?.('browser-history-changed');
-    return { success: true, closed: true, history_id: text(record.id), name: text(record.name), tab_id: text(openTab.id) };
+    return {
+      success: true, closed: true, history_id: text(record.id), name: text(record.name),
+      tab_id: text(openTab.id), ...windowSummary(this.listSerialized()),
+    };
   }
 
   createApi() {

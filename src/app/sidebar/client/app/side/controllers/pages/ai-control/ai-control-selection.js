@@ -28,18 +28,19 @@
   function sessionBrowserIds(session) {
     return normalizeBrowserIds(Array.isArray(session?.browserConnectionIds)
       ? session.browserConnectionIds
-      : (session?.browserConnectionId ? [session.browserConnectionId] : []));
+      : (session?.browserConnectionId ? [session.browserConnectionId] : [])).slice(0, 1);
   }
 
   function getSelectBrowserIds(select) {
     return Array.from(select?.selectedOptions || [])
       .map((option) => String(option.value || ''))
-      .filter(Boolean);
+      .filter(Boolean)
+      .slice(0, 1);
   }
 
   function setSelectBrowserIds(select, ids) {
     if (!select) return;
-    const wanted = new Set(normalizeBrowserIds(ids));
+    const wanted = new Set(normalizeBrowserIds(ids).slice(0, 1));
     Array.from(select.options).forEach((option) => {
       option.selected = Boolean(option.value) && wanted.has(option.value);
     });

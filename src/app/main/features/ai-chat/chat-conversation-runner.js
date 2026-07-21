@@ -38,6 +38,7 @@ function createConversationState(request, readStoreConfigSafe) {
     unresolvedToolFailure: '',
     textToolContinuationPending: false,
     textToolSessionRecoveryAttempted: false,
+    browserControl: { connectionId: String(request.controlledConnectionId || '') },
   };
 }
 
@@ -173,6 +174,7 @@ function finishWithoutTools(state, result) {
       tool_events: state.toolEvents,
       trace_events: state.traceEvents,
     },
+    browserConnectionId: String(state.browserControl?.connectionId || ''),
   };
   state.emit({ type: 'done', message: finalResult.message, quota: finalResult.quota });
   return finalResult;
@@ -221,6 +223,7 @@ async function executeToolRound(state, result, toolCalls, round) {
   state.mcpCallCount += toolCalls.length;
   const execution = await executeToolCalls({
     bridge: state.bridge,
+    browserControl: state.browserControl,
     compactToolValue,
     connections: state.connections,
     describeConnections: state.toolContext.describeConnections,

@@ -13,7 +13,7 @@ const {
   withBrowserRouteParam,
 } = require('../../../src/app/main/features/ai-chat/chat-tool-context');
 
-test('多浏览器工具 schema 将 browser_id 标记为必填且保留原必填参数', () => {
+test('浏览器工具 schema 暴露可选 change_browser 且保留原必填参数', () => {
   const tool = withBrowserRouteParam({
     name: 'browser_action',
     input_schema: {
@@ -22,8 +22,8 @@ test('多浏览器工具 schema 将 browser_id 标记为必填且保留原必填
       required: ['action'],
     },
   });
-  assert.deepEqual(tool.input_schema.required, ['action', 'browser_id']);
-  assert.equal(tool.input_schema.properties.browser_id.type, 'string');
+  assert.deepEqual(tool.input_schema.required, ['action']);
+  assert.equal(tool.input_schema.properties.change_browser.type, 'string');
 });
 
 test('AI MCP prompt 按可用工具注入准确的多浏览器路由和页面操作策略', () => {
@@ -36,6 +36,7 @@ test('AI MCP prompt 按可用工具注入准确的多浏览器路由和页面操
       ] },
       { id: 'two', name: '资料窗口', tools: [{ name: 'browser_observe', input_schema: { type: 'object' } }] },
     ],
+    controlledConnectionId: 'one',
     initialMessages: [{ role: 'user', content: '继续操作' }],
     windowTools: {
       has: (name) => name === 'software_window',
@@ -44,14 +45,15 @@ test('AI MCP prompt 按可用工具注入准确的多浏览器路由和页面操
   });
   const prompt = context.modelMessages[0].content;
   assert.match(prompt, /browser_tab、browser_observe、browser_action/);
-  assert.match(prompt, /每一个浏览器工具时都必须传 browser_id/);
+  assert.match(prompt, /同一时间最多控制一个浏览器/);
+  assert.match(prompt, /必须在下一次浏览器工具调用中传 change_browser/);
   assert.match(prompt, /页面明显变化后重新 observe/);
   assert.match(prompt, /禁止跨浏览器或跨页面复用旧 ref/);
-  assert.match(prompt, /history_id、tab_id 和 name 不能直接当作 browser_id/);
+  assert.match(prompt, /history_id 和 tab_id 不能当作 change_browser/);
   assert.match(prompt, /要聚焦已打开窗口，调用 software_window 的 open/);
   assert.match(prompt, /窗口已打开不等于其 MCP 已连接/);
   assert.match(prompt, /未收到成功结果前不得声称操作完成/);
-  assert.equal(context.tools.find((tool) => tool.name === 'browser_tab').input_schema.required.includes('browser_id'), true);
+  assert.equal(context.tools.find((tool) => tool.name === 'browser_tab').input_schema.properties.change_browser.type, 'string');
 });
 
 test('没有浏览器连接时 prompt 不会诱导 AI 虚构浏览器 MCP', () => {
@@ -70,27 +72,48 @@ test('没有浏览器连接时 prompt 不会诱导 AI 虚构浏览器 MCP', () =
 test('多浏览器工具要求明确路由，名称歧义和未知连接返回可恢复诊断', () => {
   const connections = [{ id: 'a' }, { id: 'b' }];
   const describe = () => 'A(a), B(b)';
-  assert.match(resolvePluginTarget({}, connections, () => null, describe).error, /当前选择了 2 个浏览器/);
-  assert.match(resolvePluginTarget({ browser_id: 'same' }, connections, () => ({ ambiguous: true }), describe).error, /改用 browser_id/);
-  const missing = resolvePluginTarget({ browser_id: 'missing' }, connections, () => null, describe).error;
+  assert.equal(resolvePluginTarget({}, connections, (ref) => connections.find((item) => item.id === ref), describe, 'a').connection.id, 'a');
+  assert.match(resolvePluginTarget({ change_browser: 'same' }, connections, () => ({ ambiguous: true }), describe).error, /change_browser/);
+  const missing = resolvePluginTarget({ change_browser: 'missing' }, connections, () => null, describe).error;
   assert.match(missing, /当前 AI 已选且在线/);
-  assert.match(missing, /history_id\/tab_id 不能代替 browser_id/);
+  assert.match(missing, /history_id\/tab_id 不能代替 change_browser/);
 });
 
 test('插件工具移除路由字段并限制超时，自动化卡片使用十五分钟默认值', async () => {
   const calls = [];
   const base = {
     connections: [{ id: 'browser-1' }],
+    browserControl: { connectionId: 'browser-1' },
     findConnectionByRef: (reference) => reference === 'browser-1' ? { id: 'browser-1' } : null,
     describeConnections: () => 'browser-1',
     waitForAbort: (promise) => promise,
     bridge: { dispatch: async (...args) => { calls.push(args); return { success: true }; } },
   };
-  await dispatchPluginTool(base, 'open_page', { browser_id: 'browser-1', timeout_seconds: 9999, url: 'https://example.com' });
+  await dispatchPluginTool(base, 'open_page', { change_browser: 'browser-1', timeout_seconds: 9999, url: 'https://example.com' });
   assert.deepEqual(calls[0][2], { timeout_seconds: 9999, url: 'https://example.com' });
   assert.equal(calls[0][3].timeoutMs, 1800 * 1000);
   await dispatchPluginTool(base, 'manage_card', { action: 'run' });
   assert.equal(calls[1][3].timeoutMs, 15 * 60 * 1000);
+});
+
+test('change_browser 切换唯一控制目标并由后续调用沿用', async () => {
+  const calls = [];
+  const connections = [{ id: 'one', name: '窗口一' }, { id: 'two', name: '窗口二' }];
+  const browserControl = { connectionId: 'one' };
+  const context = {
+    browserControl,
+    connections,
+    describeConnections: () => '窗口一(one)、窗口二(two)',
+    emit() {},
+    findConnectionByRef: (ref) => connections.find((item) => item.id === ref || item.name === ref),
+    waitForAbort: (promise) => promise,
+    bridge: { dispatch: async (...args) => { calls.push(args); return { success: true }; } },
+  };
+  await dispatchPluginTool(context, 'browser_observe', { change_browser: '窗口二', keyword: '标题' });
+  await dispatchPluginTool(context, 'browser_action', { action: 'click', ref: 'e1' });
+  assert.equal(browserControl.connectionId, 'two');
+  assert.deepEqual(calls.map((call) => call[0]), ['two', 'two']);
+  assert.deepEqual(calls[0][2], { keyword: '标题' });
 });
 
 test('本地窗口工具优先执行，插件失败被序列化为可恢复 tool 消息', async () => {

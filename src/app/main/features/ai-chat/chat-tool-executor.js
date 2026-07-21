@@ -13,21 +13,27 @@ function parseToolArguments(call) {
   }
 }
 
-function resolvePluginTarget(args, connections, findConnectionByRef, describeConnections) {
-  const reference = String(args?.browser_id ?? args?.browser_name ?? args?.browser ?? '').trim();
+function browserReference(args = {}) {
+  return String(args.change_browser ?? args.browser_id ?? args.browser_name ?? args.browser ?? '').trim();
+}
+
+function resolvePluginTarget(args, connections, findConnectionByRef, describeConnections, controlledConnectionId = '') {
+  const reference = browserReference(args);
   if (reference) {
     const found = findConnectionByRef(reference);
     if (found?.ambiguous) {
-      return { error: `存在多个名为 ${JSON.stringify(reference)} 的浏览器，请改用 browser_id 传连接 ID：${describeConnections()}` };
+      return { error: `存在多个名为 ${JSON.stringify(reference)} 的浏览器，请在 change_browser 中传连接 ID：${describeConnections()}` };
     }
     if (!found) {
       return { error: `未在当前 AI 已选且在线的浏览器中找到 ${JSON.stringify(reference)}。`
-        + `software_window 的窗口名称/history_id/tab_id 不能代替 browser_id；可用浏览器：${describeConnections()}` };
+        + `software_window 的 history_id/tab_id 不能代替 change_browser；可用浏览器：${describeConnections()}` };
     }
     return { connection: found };
   }
+  const controlled = connections.find((item) => String(item?.id || '') === String(controlledConnectionId || ''));
+  if (controlled) return { connection: controlled };
   if (connections.length === 1) return { connection: connections[0] };
-  return { error: `当前选择了 ${connections.length} 个浏览器，请通过 browser_id 参数指定目标浏览器（连接 ID 或名称），可用浏览器：${describeConnections()}` };
+  return { error: `当前没有唯一的控制浏览器，请通过 change_browser 指定目标（连接 ID 或名称）：${describeConnections()}` };
 }
 
 async function dispatchPluginTool(context, toolName, args) {
@@ -36,14 +42,20 @@ async function dispatchPluginTool(context, toolName, args) {
     context.connections,
     context.findConnectionByRef,
     context.describeConnections,
+    context.browserControl?.connectionId,
   );
   if (target.error) {
     return { success: false, error: target.error, errorCode: 'BROWSER_ROUTE_NOT_FOUND', phase: 'tool_route', tool: toolName };
   }
   const dispatchArgs = { ...args };
+  delete dispatchArgs.change_browser;
   delete dispatchArgs.browser_id;
   delete dispatchArgs.browser_name;
   delete dispatchArgs.browser;
+  if (context.browserControl && context.browserControl.connectionId !== target.connection.id) {
+    context.browserControl.connectionId = target.connection.id;
+    context.emit?.({ type: 'browser_control_changed', connectionId: target.connection.id, name: target.connection.name || '' });
+  }
   const requestedSeconds = Number(args?.timeout_seconds || 0);
   const isCardRun = toolName === 'manage_card'
     && String(args?.action || '').trim().toLowerCase() === 'run';
@@ -83,6 +95,31 @@ function prepareToolResult(toolResult, toolName) {
   };
 }
 
+function findConnectionByName(connections, name) {
+  const wanted = String(name || '').trim().toLowerCase();
+  if (!wanted) return null;
+  return connections.find((item) => String(item?.name || '').trim().toLowerCase() === wanted) || null;
+}
+
+function nextWindowControl(context, action, resultName) {
+  const current = context.connections.find((item) => item?.id === context.browserControl.connectionId) || null;
+  const matched = findConnectionByName(context.connections, resultName);
+  if (['open', 'create'].includes(action)) return matched || current;
+  if (action === 'close' && matched?.id === current?.id) {
+    return context.connections.find((item) => item?.id !== matched.id) || null;
+  }
+  return current;
+}
+
+function syncWindowToolControl(context, toolName, args, toolResult) {
+  if (toolName !== 'software_window' || toolResult?.success === false || !context.browserControl) return;
+  const action = String(args?.action || '').trim().toLowerCase();
+  const next = nextWindowControl(context, action, toolResult?.name);
+  if (!next || next.id === context.browserControl.connectionId) return;
+  context.browserControl.connectionId = next.id;
+  context.emit?.({ type: 'browser_control_changed', connectionId: next.id, name: next.name || '' });
+}
+
 function serializeToolResult(result, toolName) {
   try { return { content: JSON.stringify(result ?? null), failure: '' }; } catch (_) {
     const failure = `${toolName} 返回了无法序列化的结果`;
@@ -114,6 +151,7 @@ async function executeSingleTool(context, call) {
     toolResult = context.windowTools?.has(toolName)
       ? await context.waitForAbort(context.windowTools.execute(toolName, args))
       : await dispatchPluginTool(context, toolName, args);
+    syncWindowToolControl(context, toolName, args, toolResult);
   } catch (error) {
     if (context.isStopped(error)) return { stopped: true };
     toolResult = normalizeToolFailure(error, toolName);
@@ -143,6 +181,7 @@ async function executeToolCalls(context) {
 }
 
 module.exports = {
+  browserReference,
   dispatchPluginTool,
   executeSingleTool,
   executeToolCalls,
@@ -151,4 +190,5 @@ module.exports = {
   prepareToolResult,
   resolvePluginTarget,
   serializeToolResult,
+  syncWindowToolControl,
 };

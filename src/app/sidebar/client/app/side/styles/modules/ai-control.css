@@ -302,7 +302,7 @@
   cursor: not-allowed;
   pointer-events: none;
 }
-/* 浏览器目标为多选：勾选标记提示可同时选择多个 */
+/* 浏览器目标为单选：勾选标记当前唯一控制窗口 */
 .ai-browser-gear-select .ai-select-option[aria-selected="true"]:not(.ai-browser-card-option)::after {
   content: '✓';
   flex: 0 0 auto;

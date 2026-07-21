@@ -110,18 +110,19 @@ Cookie 属于登录会话数据，不属于 `software_window.settings` 的可编
 
 ## 多浏览器路由
 
-AI 对话使用当前选中的浏览器 MCP 连接；HeySure 设备端则汇总当前所有已连接浏览器的工具，并按工具名称去重。
+AI 对话和 HeySure 设备端都会发现当前所有已连接浏览器的工具，但任一时刻只维护一个“当前控制浏览器”，不允许同时控制多个目标。AI 控制栏的浏览器选择器也是单选。
 
-经 HeySure 暴露的浏览器工具会额外获得两个可选参数：
+所有浏览器工具都会额外获得一个可选参数：
 
-- `browser_id`：目标浏览器连接 ID。
-- `browser_name`：目标浏览器连接名称。
+- `change_browser`：切换当前控制浏览器，可填写连接 ID 或唯一的连接名称；省略时沿用当前控制目标。
 
-只有一个浏览器连接时可以省略路由参数；同时连接多个浏览器时，工具 JSON Schema 会将 `browser_id` 标记为必填，执行层也会拒绝没有明确目标的调用。`browser_id` 可填写连接 ID 或唯一的浏览器名称；软件窗口工具不需要路由参数。
+连接列表可以包含多个浏览器，但每次页面工具只会派发到一个连接。切换成功后，同一轮任务中的后续调用继续使用新目标，直到再次传入 `change_browser`。旧 `browser_id`、`browser_name` 和 `browser` 参数仅保留执行兼容，不再向 AI 的新工具 Schema 暴露。
 
-软件内 AI 会按当前实际工具目录动态注入 MCP 使用提示：多浏览器连续操作保持同一 `browser_id`，页面导航、标签页切换或页面状态变化后重新执行 `browser_observe`，不跨窗口或跨页面复用旧元素引用，并以工具的实际返回结果判断任务是否完成。目标窗口不明确时先向用户确认，不会猜测后执行。
+软件内 AI 会按当前实际工具目录动态注入 MCP 使用提示：同一时间最多控制一个浏览器；需要操作其他连接时先通过 `change_browser` 切换；页面导航、标签页切换或页面状态变化后重新执行 `browser_observe`，不跨窗口或跨页面复用旧元素引用，并以工具的实际返回结果判断任务是否完成。
 
-`software_window list` 返回的 `history_id`、`tab_id` 和窗口 `name` 属于软件窗口管理层，不是浏览器 MCP 连接 ID。聚焦已有窗口应调用 `software_window` 的 `open`；调用 `browser_tab` 等页面工具时，只能使用当前 AI 已选择且在线的连接列表中给出的 `browser_id`。窗口显示为已打开不代表其扩展 MCP 已在线或已被当前 AI 选中。
+`software_window list` 返回的 `history_id`、`tab_id` 和窗口 `name` 属于软件窗口管理层。聚焦已有窗口应调用 `software_window` 的 `open`；`history_id` 和 `tab_id` 不能用于 `change_browser`，窗口名称只有同时出现在 MCP 连接列表时才能用于切换。窗口显示为已打开不代表其扩展 MCP 已在线。
+
+`software_window` 的 `open`、`create`、`edit` 和 `close` 返回值包含 `browser_total`、`browser_open_count`、`browser_names`、`open_browser_names` 和 `active_browser`。打开已有窗口或创建新窗口时会请求将该窗口设为控制目标；新窗口的 MCP 连接建立后，AI 控制栏会自动切换到它。关闭当前控制窗口后会回退到仍在线的一个连接。
 
 ## HeySure 注册与可用性
 

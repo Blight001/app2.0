@@ -12,13 +12,13 @@ const {
   validateQuota,
 } = require('../../../src/app/main/features/ai-chat/chat-request-context');
 
-test('额度边界和浏览器多选输入被稳定归一化', () => {
+test('额度边界和旧多选输入被归一化为单一控制浏览器', () => {
   assert.equal(validateQuota({ unlimited: true, remaining: 0 }), null);
   assert.equal(validateQuota({ quota: 10, used: 10 }).ok, false);
   assert.equal(validateQuota({ quota: 10, remaining: 1 }), null);
   assert.deepEqual(
     normalizeChatOptions({ browserConnectionIds: [' a ', 'a', '', 'b'], stream: true, requestId: ' r ' }).connectionIds,
-    ['a', 'b'],
+    ['a'],
   );
 });
 
@@ -32,15 +32,16 @@ test('内置模型要求登录和服务可用，自定义模型同时要求 VIP 
 
 test('浏览器连接离线立即失败，正常连接保留插件元数据', () => {
   const options = { disableTools: false, connectionIds: ['one'] };
-  const missing = resolveConnections({ browserAutomationBridge: { getConnection: () => null } }, options);
+  const missing = resolveConnections({ browserAutomationBridge: { listConnections: () => [] } }, options);
   assert.match(missing.error.message, /离线/);
   const connection = { id: 'one', name: 'Browser' };
   const found = resolveConnections({
-    browserAutomationBridge: { getConnection: () => connection },
+    browserAutomationBridge: { listConnections: () => [connection], getConnection: () => connection },
     getTabs: () => [],
     browserRuntimeManager: { listStates: () => [] },
   }, options);
   assert.equal(found.connections[0].id, 'one');
+  assert.equal(found.controlledConnectionId, 'one');
 });
 
 test('流式事件仅发送到仍存活的原请求窗口', () => {

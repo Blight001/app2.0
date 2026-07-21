@@ -57,8 +57,7 @@ test('external gateway combines software and per-window MCP tools with routing f
     assert.deepEqual(listed.tools.map((tool) => tool.name), ['software_window', 'browser_observe', 'save_cookies']);
     assert.equal(listed.connections[0].name, '工作窗口');
     const observe = listed.tools.find((tool) => tool.name === 'browser_observe');
-    assert.equal(observe.inputSchema.properties.browser_id.type, 'string');
-    assert.equal(observe.inputSchema.required.includes('browser_id'), false);
+    assert.equal(observe.inputSchema.properties.change_browser.type, 'string');
     assert.equal(observe.inputSchema.properties.keyword.type, 'string');
     const cookie = listed.tools.find((tool) => tool.name === 'save_cookies');
     assert.equal(cookie.inputSchema.properties.save_to_server, undefined);
@@ -66,12 +65,12 @@ test('external gateway combines software and per-window MCP tools with routing f
 
     const software = await gateway.callTool('software_window', { action: 'create', name: 'Research' });
     assert.equal(software.args.name, 'Research');
-    const browser = await gateway.callTool('browser_observe', { browser_id: 'connection-1', keyword: '提交' });
+    const browser = await gateway.callTool('browser_observe', { change_browser: 'connection-1', keyword: '提交' });
     assert.equal(browser.connectionId, 'connection-1');
     assert.deepEqual(calls[0].args, { keyword: '提交' });
     assert.equal(calls[0].options.timeoutMs, 180000);
     await assert.rejects(
-      gateway.callTool('save_cookies', { browser_id: 'connection-1', save_to_server: true }),
+      gateway.callTool('save_cookies', { change_browser: 'connection-1', save_to_server: true }),
       /不允许回传或上传 Cookie/,
     );
   } finally {
@@ -86,11 +85,12 @@ test('external gateway requires an explicit browser route when multiple windows 
       { id: 'one', browserName: '窗口一', online: true },
       { id: 'two', browserName: '窗口二', online: true },
     ] });
-    const observe = gateway.listTools().tools.find((tool) => tool.name === 'browser_observe');
-    assert.equal(observe.inputSchema.required.includes('browser_id'), true);
-    await assert.rejects(gateway.callTool('browser_observe', {}), /通过 browser_id 指定/);
-    const result = await gateway.callTool('browser_observe', { browser_name: '窗口二' });
+    const listed = gateway.listTools();
+    assert.equal(listed.controlled_browser_id, 'one');
+    const result = await gateway.callTool('browser_observe', { change_browser: '窗口二' });
     assert.equal(result.connectionId, 'two');
+    const continued = await gateway.callTool('browser_observe', {});
+    assert.equal(continued.connectionId, 'two');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

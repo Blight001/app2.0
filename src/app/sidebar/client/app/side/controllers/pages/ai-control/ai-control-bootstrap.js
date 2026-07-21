@@ -45,7 +45,7 @@
 
   function bindBrowserSelection() {
     el('ai-chat-browser')?.addEventListener('change', (event) => {
-      state.currentBrowserIds = getSelectBrowserIds(event.target);
+      state.currentBrowserIds = getSelectBrowserIds(event.target).slice(0, 1);
       state.browserSelectionTouched = true;
       state.browserSelectionExplicitlyDisabled = !state.currentBrowserIds.length;
       if (state.currentSession) {
