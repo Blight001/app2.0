@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 
 const {
   createChatEmitter,
+  createIdentityRecovery,
   normalizeChatOptions,
   resolveChatAccess,
   resolveConnections,
@@ -50,4 +51,19 @@ test('流式事件仅发送到仍存活的原请求窗口', () => {
   sender.destroyed = true;
   emit({ type: 'late' });
   assert.deepEqual(sent, [['ai-control-chat-event', { requestId: 'request-1', type: 'done' }]]);
+});
+
+test('设备登录恢复器只在认证成功后返回最新持久化凭据', async () => {
+  let current = { key: 'old', deviceId: 'device' };
+  const recovery = createIdentityRecovery({
+    accountService: {
+      authenticate: async () => {
+        current = { key: 'new', deviceId: 'device' };
+        return { ok: true };
+      },
+    },
+    readStoreConfigSafe: () => ({ userCredentials: current }),
+  });
+  assert.deepEqual(await recovery(), { key: 'new', deviceId: 'device' });
+  assert.equal(createIdentityRecovery({}), null);
 });

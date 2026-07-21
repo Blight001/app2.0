@@ -234,6 +234,7 @@
     const logoUrl = window.aiFreeLogoAssets?.url || '../../assets/logo.ico';
     welcome.innerHTML = `<img class="ai-chat-welcome-icon" data-app-logo src="${logoUrl}" alt="" aria-hidden="true"><strong>有什么可以帮你？</strong><p>${browserText}</p>`;
     container.appendChild(welcome);
+    renderRecentHistory();
     updateSessionTitleUi();
   }
 

@@ -19,12 +19,13 @@ function eventFixture(id = 1) {
   };
 }
 
-function createService(client) {
+function createService(client, overrides = {}) {
   return createAiChatService({
     readStoreConfigSafe: () => ({ userCredentials: { key: 'key', deviceId: 'device' } }),
     getGlobalHttpClient: () => client,
     licenseCache: { getSnapshot: () => ({}) },
     logger: { warn() {} },
+    ...overrides,
   });
 }
 
@@ -59,6 +60,38 @@ test('额度耗尽时不调用模型服务', async () => {
   assert.equal(result.ok, false);
   assert.match(result.message, /额度已用尽/);
   assert.equal(calls, 0);
+});
+
+test('身份失效时通过已绑定设备刷新凭据并只重试当前模型请求', async () => {
+  const credentials = { key: 'old-key', deviceId: 'device' };
+  const calls = [];
+  let recoveryCalls = 0;
+  const client = {
+    sendAIControlMessage: async (key, deviceId) => {
+      calls.push([key, deviceId]);
+      return calls.length === 1
+        ? { ok: false, status: 403, message: '卡密不存在' }
+        : { ok: true, message: { role: 'assistant', content: '已恢复' } };
+    },
+  };
+  const service = createService(client, {
+    readStoreConfigSafe: () => ({ userCredentials: credentials }),
+    accountService: {
+      authenticate: async ({ mode }) => {
+        assert.equal(mode, 'device');
+        recoveryCalls += 1;
+        credentials.key = 'new-key';
+        return { ok: true };
+      },
+    },
+  });
+  const result = await service.chat(eventFixture().event, {
+    modelId: 'builtin', messages: [{ role: 'user', content: '开始' }], disableTools: true,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.message.content, '已恢复');
+  assert.equal(recoveryCalls, 1);
+  assert.deepEqual(calls, [['old-key', 'device'], ['new-key', 'device']]);
 });
 
 test('流式输出可停止并保留已到达的部分内容，完成后连续停止幂等', async () => {

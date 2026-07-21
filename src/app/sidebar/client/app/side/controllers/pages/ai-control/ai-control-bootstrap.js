@@ -1,35 +1,12 @@
-  async function resolveBootstrapCurrentId() {
-    const localStore = readLocalHistoryStore();
-    let currentId = String(localStore.currentId || '');
-    if (!window.aiFree?.ai?.historyList) return currentId;
-    try {
-      const list = await window.aiFree.ai.historyList();
-      if (list?.ok && list.currentId) currentId = String(list.currentId);
-    } catch (_) {}
-    return currentId;
-  }
-
-  async function loadBootstrapSession(currentId) {
-    if (!currentId) return null;
-    if (window.aiFree?.ai?.historyGet) {
-      const loaded = await window.aiFree.ai.historyGet({ id: currentId }).catch(() => null);
-      if (loaded?.ok && loaded.session?.messages?.length) return loaded.session;
-    }
-    return getLocalSession(currentId);
-  }
-
   async function bootstrapHistory() {
     try {
       await refreshHistoryList();
-      const session = await loadBootstrapSession(await resolveBootstrapCurrentId());
-      if (session && Array.isArray(session.messages) && session.messages.length) {
-        applySession(session);
-        return;
-      }
     } catch (error) {
       console.warn('[AI 控制] 初始化历史失败:', error?.message || error);
     }
-    await startNewConversation({ skipSave: true });
+    // 启动与账号刷新只补齐历史列表，不恢复上次会话。异步恢复会在用户已经
+    // 新建或开始输入后覆盖当前状态，表现为对话自动跳回旧会话。
+    if (!state.currentSession) await startNewConversation({ skipSave: true });
   }
 
   function bindAiHeaderEvents() {

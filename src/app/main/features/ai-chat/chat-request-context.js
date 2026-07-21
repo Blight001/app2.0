@@ -42,7 +42,27 @@ function resolveBuiltinAccess(deps, store, input, modelId) {
   const quota = input.quota && typeof input.quota === 'object' ? input.quota : null;
   const quotaError = validateQuota(quota);
   if (quotaError) return { error: quotaError };
-  return { customApi: null, deviceId, httpClient, key, modelId, useCustomApi: false };
+  return {
+    customApi: null,
+    deviceId,
+    httpClient,
+    key,
+    modelId,
+    recoverIdentity: createIdentityRecovery(deps),
+    useCustomApi: false,
+  };
+}
+
+function createIdentityRecovery(deps) {
+  if (typeof deps.accountService?.authenticate !== 'function') return null;
+  return async () => {
+    const refreshed = await deps.accountService.authenticate({ mode: 'device' });
+    if (refreshed?.ok !== true) return null;
+    const credentials = deps.readStoreConfigSafe()?.userCredentials || {};
+    const key = String(credentials.key || '').trim();
+    const deviceId = String(credentials.deviceId || '').trim();
+    return key && deviceId ? { key, deviceId } : null;
+  };
 }
 
 function resolveChatAccess(deps, input) {
@@ -135,6 +155,7 @@ function prepareChatRequest(deps, event, input, chatRuns, getWindowTools) {
 
 module.exports = {
   createChatEmitter,
+  createIdentityRecovery,
   normalizeChatOptions,
   prepareChatRequest,
   resolveAutomationCard,

@@ -171,9 +171,56 @@
     if (showDraft) menu.appendChild(createDraftHistoryButton(shell));
     if (!sessions.length && !showDraft) {
       menu.appendChild(createEmptyHistoryButton());
+      renderRecentHistory();
       return;
     }
     sessions.forEach((session) => menu.appendChild(createHistoryItem(session, currentId, shell)));
+    renderRecentHistory();
+  }
+
+  function createRecentHistoryButton(session) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'ai-chat-recent-item';
+
+    const title = document.createElement('span');
+    title.className = 'ai-chat-recent-title';
+    title.textContent = session.title || '新对话';
+
+    const meta = document.createElement('span');
+    meta.className = 'ai-chat-recent-meta';
+    meta.textContent = [formatRelativeTime(session.updatedAt), session.preview]
+      .filter(Boolean)
+      .join(' · ') || '历史对话';
+
+    button.append(title, meta);
+    button.addEventListener('click', () => {
+      if (!state.loading) void loadSessionById(session.id);
+    });
+    return button;
+  }
+
+  function renderRecentHistory() {
+    const welcome = el('ai-chat-messages')?.querySelector('.ai-chat-welcome');
+    if (!welcome) return;
+    welcome.querySelector('.ai-chat-recent')?.remove();
+    const currentId = String(state.currentSession?.id || '');
+    const sessions = (Array.isArray(state.sessionList) ? state.sessionList : [])
+      .filter((session) => String(session?.id || '') !== currentId)
+      .slice(0, 5);
+    if (!sessions.length) return;
+
+    const recent = document.createElement('section');
+    recent.className = 'ai-chat-recent';
+    recent.setAttribute('aria-label', '最近聊天');
+    const heading = document.createElement('span');
+    heading.className = 'ai-chat-recent-heading';
+    heading.textContent = '最近聊天';
+    const list = document.createElement('div');
+    list.className = 'ai-chat-recent-list';
+    sessions.forEach((session) => list.appendChild(createRecentHistoryButton(session)));
+    recent.append(heading, list);
+    welcome.appendChild(recent);
   }
 
   function mergeSessionLists(primary, secondary) {
@@ -241,6 +288,7 @@
   }
 
   function applySavedSession(saved, payload) {
+    if (String(state.currentSession?.id || '') !== String(payload.id || '')) return;
     const savedMessages = Array.isArray(saved.messages) ? saved.messages : payload.messages;
     state.currentSession = { ...saved, messages: savedMessages };
     if (Array.isArray(saved.messages) && saved.messages.length >= payload.messages.length) {
@@ -273,8 +321,10 @@
       return saved;
     }
 
-    state.currentSession = { ...state.currentSession, ...payload };
-    updateSessionTitleUi();
+    if (String(state.currentSession?.id || '') === String(payload.id || '')) {
+      state.currentSession = { ...state.currentSession, ...payload };
+      updateSessionTitleUi();
+    }
     await refreshHistoryList();
     return payload;
   }

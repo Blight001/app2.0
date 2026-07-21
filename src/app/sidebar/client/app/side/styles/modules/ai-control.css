@@ -646,6 +646,8 @@ html.theme-light .ai-custom-api-body input { color: #203448; background: #f7f9fc
   flex-direction: column;
   text-align: center;
   color: #94a6c2;
+  padding: 18px 0 12px;
+  box-sizing: border-box;
 }
 .ai-chat-welcome-icon {
   display: block;
@@ -657,6 +659,51 @@ html.theme-light .ai-custom-api-body input { color: #203448; background: #f7f9fc
 }
 .ai-chat-welcome strong { color: #e9f1ff; font-size: 15px; }
 .ai-chat-welcome p { margin: 6px 0 0; font-size: 12px; }
+.ai-chat-recent {
+  width: min(100%, 460px);
+  margin-top: 28px;
+  text-align: left;
+}
+.ai-chat-recent-heading {
+  display: block;
+  margin: 0 2px 8px;
+  color: #aebed5;
+  font-size: 12px;
+  font-weight: 700;
+}
+.ai-chat-recent-list {
+  display: grid;
+  gap: 7px;
+}
+.ai-chat-recent-item {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid rgba(129, 158, 199, .18);
+  border-radius: var(--r-md);
+  color: #dce7f7;
+  background: rgba(21, 33, 52, .48);
+  cursor: pointer;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  transition: border-color .14s ease, background .14s ease;
+}
+.ai-chat-recent-item:hover,
+.ai-chat-recent-item:focus-visible {
+  border-color: rgba(88, 153, 239, .5);
+  background: rgba(45, 75, 116, .44);
+  outline: none;
+}
+.ai-chat-recent-title,
+.ai-chat-recent-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-chat-recent-title { font-size: 12px; font-weight: 650; }
+.ai-chat-recent-meta { color: #8295b1; font-size: 11px; }
 
 .ai-chat-message {
   display: flex;
@@ -1140,6 +1187,18 @@ summary[aria-expanded="true"] .ai-chat-disclosure { transform: rotate(90deg); }
 html.theme-light .ai-control-panel { color: #233451; background: #f4f7fb; }
 html.theme-light .ai-chat-header h1,
 html.theme-light .ai-chat-welcome strong { color: #1f2f47; }
+html.theme-light .ai-chat-recent-heading { color: #60758f; }
+html.theme-light .ai-chat-recent-item {
+  color: #273b56;
+  border-color: rgba(75, 112, 160, .2);
+  background: rgba(255, 255, 255, .68);
+}
+html.theme-light .ai-chat-recent-item:hover,
+html.theme-light .ai-chat-recent-item:focus-visible {
+  border-color: rgba(52, 123, 211, .44);
+  background: rgba(230, 239, 252, .92);
+}
+html.theme-light .ai-chat-recent-meta { color: #70839b; }
 html.theme-light .ai-select-option-new {
   color: #1f3f6b;
   background: rgba(77, 140, 230, .1);

@@ -103,6 +103,7 @@ function createAndRegisterAccountServices(deps, ipc) {
     writeStoreConfigSafe: deps.writeStoreConfigSafe,
   });
   registerLicenseIpc({ ipc, service: licenseService });
+  return accountService;
 }
 
 function createAndRegisterAiServices(deps, ipc) {
@@ -173,8 +174,8 @@ async function bootstrapReadyApp(deps, ipc) {
   scheduleCoreDirectoryInitialization(deps);
   scheduleUpdateStorageCleanup(deps);
   scheduleDeviceIdLog(deps);
-  createAndRegisterAccountServices(deps, ipc);
-  createAndRegisterAiServices(deps, ipc);
+  const accountService = createAndRegisterAccountServices(deps, ipc);
+  createAndRegisterAiServices({ ...deps, accountService }, ipc);
   try {
     await restoreMembership(deps);
     void deps.aiServerDeviceService?.startAutomatically?.().catch((error) => {
