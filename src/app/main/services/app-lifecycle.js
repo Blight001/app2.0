@@ -21,6 +21,7 @@ function registerAppLifecycle(deps = {}) {
     getGlobalHttpClient,
     BrowserWindow,
     createMainWindow,
+    revealMainWindow,
     getMainWindow,
     logger = console,
   } = deps;
@@ -61,9 +62,12 @@ function registerAppLifecycle(deps = {}) {
   });
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
+    const mainWindow = getMainWindow?.();
+    if (mainWindow && !mainWindow.isDestroyed?.()) {
+      revealMainWindow?.();
+      return;
     }
+    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
 
   return ipcRegistry;

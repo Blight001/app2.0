@@ -25,7 +25,7 @@ const {
 const FIXED_ICON_RELATIVE_PATH = 'src/assets/logo.ico';
 
 function buildAppShellDeps({
-  electron: { app, fs, path, BrowserWindow, WebContentsView, dialog, Menu },
+  electron: { app, fs, path, BrowserWindow, WebContentsView, dialog, Menu, Tray },
   services,
   refreshAllowedPlatformsAndNotify,
   resetRuntimeTutorialUrlState,
@@ -66,6 +66,7 @@ function buildAppShellDeps({
     browserAutomationBridge,
     dialog,
     Menu,
+    Tray,
     logger: console,
     FIXED_ICON_RELATIVE_PATH,
     resolveAppIconPath,

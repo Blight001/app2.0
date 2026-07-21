@@ -52,6 +52,14 @@ for (const [channel, response] of /** @type {Array<[string, any]>} */ ([
   ['ai-control-get-browser-connections', { ok: true, connections: [] }],
   ['ai-control-history-list', { ok: true, sessions: [] }],
   ['ai-control-get-models', { ok: true, models: [], quota: null }],
+  ['get-ai-server-device-status', {
+    ok: true,
+    status: {
+      phase: 'idle', server: 'http://49.234.181.190:3000', account: '',
+      serviceName: 'AI-FREE', connected: false, registered: false,
+      serviceId: '', toolCount: 0, aiConfigId: null, message: '尚未连接 AI 服务器',
+    },
+  }],
   ['focus-sidebar-input', { ok: true }],
 ])) ipcMain.handle(channel, () => response);
 
@@ -76,6 +84,18 @@ app.whenReady().then(async () => {
     await new Promise((resolve) => setTimeout(resolve, 80));
     const mcpSaved = mcpInput?.value || '';
     const mcpStatus = document.getElementById('ai-browser-mcp-call-limit-status')?.textContent || '';
+    const configDialog = document.getElementById('ai-custom-api-dialog');
+    configDialog.hidden = false;
+    showAiConfigPage('custom');
+    document.getElementById('ai-server-device-title')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const serverDevicePage = {
+      customHidden: document.querySelector('[data-ai-config-content="custom"]')?.hidden === true,
+      serverVisible: document.querySelector('[data-ai-config-content="server"]')?.hidden === false,
+      serverDefault: document.getElementById('ai-server-device-server')?.value || '',
+      titleActive: document.getElementById('ai-server-device-title')?.classList.contains('is-active') === true,
+    };
+    configDialog.hidden = true;
     document.querySelector('[data-tab="ai-free-settings-panel"]').click();
     await new Promise((resolve) => setTimeout(resolve, 120));
     const panel = document.getElementById('ai-free-settings-panel');
@@ -91,6 +111,7 @@ app.whenReady().then(async () => {
       mcpDefault,
       mcpSaved,
       mcpStatus,
+      serverDevicePage,
       accountHistoryRemoved: !document.getElementById('account-history-toggle-btn') && !document.getElementById('account-panel'),
       removedNetworkHeading: !document.getElementById('network-tools-title') && !panel.querySelector('.settings-network-tools-hint'),
       overflowY: getComputedStyle(document.querySelector('.main-wrapper')).overflowY,
@@ -105,6 +126,10 @@ app.whenReady().then(async () => {
     || result.mcpDefault !== '100'
     || result.mcpSaved !== '125'
     || result.mcpStatus !== '已保存'
+    || result.serverDevicePage.customHidden !== true
+    || result.serverDevicePage.serverVisible !== true
+    || result.serverDevicePage.titleActive !== true
+    || result.serverDevicePage.serverDefault !== 'http://49.234.181.190:3000'
     || !result.browserHistoryText.includes('账号123456')
     || !result.browserHistoryText.includes('循环账号')
     || !result.browserHistoryText.includes('自动删除：')

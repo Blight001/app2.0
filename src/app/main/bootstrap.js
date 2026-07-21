@@ -5,7 +5,7 @@
 //   create-refresh-platforms —— 平台/目标地址/教程地址运行时刷新
 //   build-app-shell-deps     —— createAppShell 依赖装配
 //   build-lifecycle-deps     —— registerAppLifecycle 依赖装配
-const { app, BrowserWindow, WebContentsView, dialog, Menu, powerSaveBlocker } = require('electron');
+const { app, BrowserWindow, WebContentsView, dialog, Menu, Tray, powerSaveBlocker, safeStorage } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { acquireSingleInstance, applyWindowsAppUserModelId } = require('./composition/startup-guards');
@@ -29,9 +29,11 @@ function startMainApp() {
   // ---- 单例应用 ----
   acquireSingleInstance({
     onSecondInstance: () => {
+      if (appShell?.revealMainWindow?.()) return;
       const targetWin = services.appRuntime.getMainWindow() || services.appRuntime.getLicenseWindow();
       if (targetWin) {
         if (targetWin.isMinimized()) targetWin.restore();
+        targetWin.show?.();
         targetWin.focus();
       }
     },
@@ -39,7 +41,7 @@ function startMainApp() {
 
   // ---- 核心服务 ----
   let tabManager;
-  const services = createCoreServices({ app, fs, path, BrowserWindow, getTabManager: () => tabManager });
+  const services = createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabManager: () => tabManager });
   const { appRuntime, tabs, sendToSide, licenseCache } = services;
 
   // ---- 晚绑定（tabManager/auth/appShell 创建后回填）----
@@ -98,7 +100,7 @@ function startMainApp() {
 
   // ---- 应用外壳 ----
   const appShellDeps = buildAppShellDeps({
-    electron: { app, fs, path, BrowserWindow, WebContentsView, dialog, Menu },
+    electron: { app, fs, path, BrowserWindow, WebContentsView, dialog, Menu, Tray },
     services,
     refreshAllowedPlatformsAndNotify,
     resetRuntimeTutorialUrlState,

@@ -3,8 +3,8 @@
 //   · 页面观察：  browser_observe
 //   · 页面交互：  browser_action（click/double_click/right_click/scroll/type/press_key）/
 //                browser_wait
-// 移植自 device/extension/src/lib/tools/browser.ts：本插件没有 debugger/CDP 权限，
-// 点击/输入/按键都是合成事件（非 CDP trusted 事件）。真正的扫描/交互逻辑在
+// 点击由内容脚本解析目标，再经软件主进程和 Chromium Runtime Bridge 注入内核；
+// 输入/按键仍是内容脚本合成事件。真正的扫描/定位逻辑在
 // content/observe.js 的 window.__hsObserve 里（含同源 iframe / Shadow DOM / 媒体识别），
 // 这里只是薄封装 + 旧标签页补注入。
 
@@ -41,11 +41,11 @@ async function callObserveMethod(tabId, method, callArgs) {
 // 每次浏览器工具开始执行前，先把目标浏览器窗口切到前台，并让页面内的可视鼠标
 // 从视口边缘进入、自动移动一小段。该动效只用于增强操作真实性，注入失败不能影响
 // observe/action/wait 等真正的控制命令。
-async function prepareBrowserControl(tabId) {
+async function prepareBrowserControl(tabId, options = {}) {
     const id = Number(tabId || 0);
     if (!Number.isFinite(id) || id <= 0) return;
 
-    await focusTab(id).catch(() => {});
+    await focusTab(id, options).catch(() => {});
 
     const invoke = () => chrome.scripting.executeScript({
         target: { tabId: id },
@@ -76,10 +76,10 @@ function tabSummary(tab) {
     return { id: tab.id, url: tab.url, title: tab.title, active: !!tab.active, windowId: tab.windowId };
 }
 
-async function focusTab(tabId) {
+async function focusTab(tabId, options = {}) {
     const tab = await chrome.tabs.get(tabId);
     await chrome.tabs.update(tabId, { active: true });
-    if (tab.windowId !== undefined) {
+    if (options.focusWindow !== false && tab.windowId !== undefined) {
         await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
     }
     const refreshed = await chrome.tabs.get(tabId);
@@ -248,15 +248,31 @@ async function toolBrowserObserve(args = {}) {
 // ── 页面交互：browser_action ──────────────────────────────────────────────
 const BROWSER_ACTION_KINDS = ['click', 'double_click', 'right_click', 'scroll', 'type', 'press_key'];
 
+async function dispatchChromiumClick(tabId, args, variant) {
+    const prepared = await callObserveMethod(tabId, 'resolveClick', [args, variant]);
+    if (!prepared?.success || !prepared.input) return prepared;
+    const response = await requestSoftwareRuntimeInput(prepared.input);
+    if (response?.result?.dispatched !== true) {
+        throw new Error('Chromium Runtime 未确认鼠标事件已派发');
+    }
+    const { input: _input, ...result } = prepared;
+    return {
+        ...result,
+        inputMode: 'chromium-runtime',
+        dispatched: true
+    };
+}
+
 async function toolBrowserAction(args = {}) {
     const tab = await resolveAutomationTargetTab(args);
     if (!tab) throw new Error('未找到可操作的真实网页标签页');
-    await prepareBrowserControl(tab.id);
     const action = String(args.action || '').trim();
+    const isMouseClick = ['click', 'double_click', 'right_click'].includes(action);
+    await prepareBrowserControl(tab.id, { focusWindow: !isMouseClick });
     switch (action) {
-        case 'click':        return callObserveMethod(tab.id, 'click', [args, 'left']);
-        case 'double_click': return callObserveMethod(tab.id, 'click', [args, 'double']);
-        case 'right_click':  return callObserveMethod(tab.id, 'click', [args, 'right']);
+        case 'click':        return dispatchChromiumClick(tab.id, args, 'left');
+        case 'double_click': return dispatchChromiumClick(tab.id, args, 'double');
+        case 'right_click':  return dispatchChromiumClick(tab.id, args, 'right');
         case 'scroll':       return callObserveMethod(tab.id, 'scroll', [args]);
         case 'type':         return callObserveMethod(tab.id, 'type', [args]);
         case 'press_key':    return callObserveMethod(tab.id, 'pressKey', [args]);

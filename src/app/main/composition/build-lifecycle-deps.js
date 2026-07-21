@@ -3,6 +3,7 @@
 
 const { ipcMain, BrowserWindow } = require('electron');
 const { getStorePath, initializeCoreDirectory } = require('../config');
+const { createHttpClient } = require('../lib/http-client');
 const { shortcutManager } = require('../utils/removeWatermark');
 
 function buildLifecycleDeps({
@@ -18,6 +19,7 @@ function buildLifecycleDeps({
     tabs,
     browserRuntimeManager,
     browserAutomationBridge,
+    aiServerDeviceService,
     licenseCache,
     browserPartitionCleaner,
     isDevMode,
@@ -51,6 +53,7 @@ function buildLifecycleDeps({
     cleanupBrowserPartitionsRootDir: browserPartitionCleaner.cleanupBrowserPartitionsRootDir,
     browserRuntimeManager,
     browserAutomationBridge,
+    aiServerDeviceService,
     getTabs: () => tabs,
     // AI 默认窗口工具需要的标签页/窗口操作桥。tabManager 的函数在 bootstrap
     // 中解构赋值，用箭头包装保持晚绑定。
@@ -61,6 +64,7 @@ function buildLifecycleDeps({
       switchTab: (...args) => late.getSwitchTab()(...args),
       closeTab: (...args) => late.getCloseTab()(...args),
       renameTab: (...args) => late.getRenameTab()(...args),
+      setTabBrowserSettings: (...args) => late.getSetTabBrowserSettings()(...args),
       updateTabs: tabHelpers.updateTabs,
       sendToSide,
       browserRuntimeManager,
@@ -73,12 +77,15 @@ function buildLifecycleDeps({
     refreshAllowedPlatformsAndNotify,
     setRuntimeServerBase,
     setRuntimeTcpConfig,
+    createHttpClient,
     getGlobalHttpClient: appRuntime.getGlobalHttpClient,
+    setGlobalHttpClient: appRuntime.setGlobalHttpClient,
     isSwitchingToLicense: appRuntime.getIsSwitchingToLicense,
     isMainBootstrapped: appRuntime.getIsMainBootstrapped,
     getLicenseWindow: appRuntime.getLicenseWindow,
     BrowserWindow,
     createMainWindow: appShell.createMainWindow,
+    revealMainWindow: appShell.revealMainWindow,
     getMainWindow: appRuntime.getMainWindow,
     createDevConsoleWindow: appShell.createDevConsoleWindow,
     getAppConsoleHistory,

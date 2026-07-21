@@ -35,6 +35,10 @@ class BrowserRuntimeManager {
   async focus(profileId, type) { return this.runtimeFor(type).focus(profileId); }
   async reload(profileId, type) { return this.runtimeFor(type).reload(profileId); }
   async navigate(profileId, type, url) { return this.runtimeFor(type).navigate?.(profileId, url); }
+  async dispatchInput(profileId, input) { return this.chromium.dispatchInput(profileId, input); }
+  async dispatchInputByProcessId(processId, input) {
+    return this.chromium.dispatchInputByProcessId(processId, input);
+  }
   async importSession(profileId, sessionData) { return this.chromium.importSession(profileId, sessionData); }
   async setCookies(profileId, cookies) { return this.chromium.setCookies(profileId, cookies); }
   async restart(profileId, options) { return this.chromium.restart(profileId, options); }

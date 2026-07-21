@@ -10,8 +10,14 @@ const { app, BrowserWindow } = require('electron');
 const { createBrowserRuntimeManager } = require('../../../src/app/main/browser-runtime');
 const { MAX_MESSAGE_BYTES, PROTOCOL_VERSION } = require('../../../src/app/main/browser-runtime/chromium-command-client');
 
-delete process.env.AI_FREE_CHROMIUM_HANDSHAKE;
-delete process.env.AI_FREE_CHROMIUM_PATH;
+const acceptanceChromiumPath = String(process.env.AI_FREE_ACCEPTANCE_CHROMIUM_PATH || '').trim();
+if (acceptanceChromiumPath) {
+  process.env.AI_FREE_CHROMIUM_HANDSHAKE = 'prototype';
+  process.env.AI_FREE_CHROMIUM_PATH = acceptanceChromiumPath;
+} else {
+  delete process.env.AI_FREE_CHROMIUM_HANDSHAKE;
+  delete process.env.AI_FREE_CHROMIUM_PATH;
+}
 
 const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-phase3-'));
 const pageLoads = new Map();
@@ -28,9 +34,28 @@ function createTestServer() {
   return http.createServer((request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1');
     const profile = String(url.searchParams.get('profile') || 'origin');
-    requests.push({ path: url.pathname, profile, cookie: String(request.headers.cookie || '') });
+    requests.push({
+      path: url.pathname,
+      query: url.search,
+      profile,
+      cookie: String(request.headers.cookie || ''),
+    });
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
     response.setHeader('Cache-Control', 'no-store');
+    if (url.pathname === '/input-result') {
+      response.end('ok');
+      return;
+    }
+    if (url.pathname === '/input') {
+      response.end(`<!doctype html><meta charset="utf-8"><title>INPUT_READY</title>
+        <button id="target" style="position:fixed;inset:0;width:100vw;height:100vh">input target</button>
+        <script>
+          document.querySelector('#target').addEventListener('click', (event) => {
+            fetch('/input-result?profile=${profile}&trusted=' + event.isTrusted).catch(() => {});
+          });
+        </script>`);
+      return;
+    }
     if (url.pathname === '/navigate') {
       response.end(`<title>NAVIGATED_${profile.toUpperCase()}</title><h1>navigate ok</h1>`);
       return;
@@ -82,6 +107,16 @@ function waitForEvent(emitter, eventName, predicate, timeoutMs = 5000) {
     };
     emitter.on(eventName, onEvent);
   });
+}
+
+async function waitForRequest(predicate, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const found = requests.find(predicate);
+    if (found) return found;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error('等待输入事件结果超时');
 }
 
 async function launchProfile(profileId, targetUrl) {
@@ -145,9 +180,13 @@ app.whenReady().then(async () => {
   const origin = `http://127.0.0.1:${server.address().port}`;
   window = new BrowserWindow({ width: 1200, height: 800, show: true, title: 'AI-FREE Phase 3 Acceptance' });
   await window.loadURL('data:text/html,<body style="background:%23101827;color:white"><h2>Phase 3 acceptance</h2></body>');
+  const acceptanceResourcesPath = String(process.env.AI_FREE_ACCEPTANCE_RESOURCES_PATH || '').trim()
+    || (acceptanceChromiumPath
+      ? path.dirname(acceptanceChromiumPath)
+      : path.resolve(__dirname, '..', '..', '..', 'resources'));
   manager = createBrowserRuntimeManager({
     userDataDir: runtimeRoot,
-    resourcesPath: path.resolve(__dirname, '..', '..', '..', 'resources'),
+    resourcesPath: acceptanceResourcesPath,
     getParentWindow: () => window,
     logger: console,
   });
@@ -177,6 +216,20 @@ app.whenReady().then(async () => {
   assert.equal(cookieHeaderHas(latestARequest.cookie, 'secret', 'http-only-B'), false);
   await manager.hide('phase3_a', 'chromium');
   await manager.show('phase3_b', 'chromium');
+
+  const inputPage = await manager.navigate('phase3_b', 'chromium', `${origin}/input?profile=b`);
+  assert.equal(inputPage.result.title, 'INPUT_READY');
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  await manager.hide('phase3_b', 'chromium');
+  const inputDispatch = await manager.dispatchInputByProcessId(b.state.pid, {
+    inputType: 'mouse', action: 'click', x: 10, y: 10,
+    viewportWidth: 1000, viewportHeight: 600,
+  });
+  assert.equal(inputDispatch.result.dispatched, true);
+  const inputRequest = await waitForRequest((item) => item.path === '/input-result' && item.profile === 'b');
+  assert.equal(new URLSearchParams(inputRequest.query || '').get('trusted'), 'true');
+  await manager.show('phase3_b', 'chromium');
+  await manager.navigate('phase3_b', 'chromium', `${origin}/page?profile=b`);
 
   const beforeReload = pageLoads.get('b');
   const reload = await manager.reload('phase3_b', 'chromium');

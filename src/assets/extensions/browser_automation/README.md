@@ -79,8 +79,9 @@
 工具 schema 在设备登记时上报给服务器，由服务器在 `mcp.list_tools` / `describe_tool` 中呈现，无需服务端硬编码。
 
 > `browser_tab`/`browser_observe`/`browser_action`/`browser_wait`
-> 移植自 `device/extension` 的同名 MCP 工具：本插件没有 `debugger`/CDP 权限，因此点击/输入/按键都是
-> 合成事件（非 CDP trusted 事件）。`browser_observe` 已与桌面浏览器扩展的观察能力对齐——扫描主文档、
+> 移植自 `device/extension` 的同名 MCP 工具：点击由内容脚本解析目标后，经软件主进程和 Chromium
+> Runtime Bridge 注入浏览器内核，不移动 Windows 全局鼠标；输入和按键目前仍是内容脚本合成事件。
+> `browser_observe` 已与桌面浏览器扩展的观察能力对齐——扫描主文档、
 > 同源（含嵌套）iframe 内部、Shadow DOM（开放 root，封闭 root 由 `content/shadow-patch.js` 强制转开放），
 > 识别 img/video/audio 媒体元素及 `cursor:pointer` / 类名或 ID 以 btn/button/link 结尾的自定义控件，
 > 并支持 `frame`/`frame_path` 钻取单个 iframe；跨域 iframe 内部仍不可访问。

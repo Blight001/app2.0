@@ -11,6 +11,7 @@ const { stopChromiumProfile } = require('./chromium-runtime-process');
 const { snapshotAppliedChromiumProfile } = require('./chromium-profile-snapshot');
 const { attachChildWindowWithRetry } = require('./chromium-window-attachment');
 const { groupCookiesByOrigin } = require('./chromium-cookie-groups');
+const { dispatchRuntimeInput, dispatchRuntimeInputByProcessId } = require('./runtime-input');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -338,6 +339,14 @@ class ChromiumRuntime extends BrowserRuntime {
     return this.enqueueProfileOperation(profileId, () => (
       this.getReadyInstance(profileId).commandClient.send('navigate', { url: String(url || '') }, { timeoutMs: 30000 })
     ));
+  }
+
+  async dispatchInput(profileId, source) {
+    return dispatchRuntimeInput(this, profileId, source);
+  }
+
+  async dispatchInputByProcessId(processId, source) {
+    return dispatchRuntimeInputByProcessId(this, processId, source);
   }
 
   async importSession(profileId, rawSession = {}) {

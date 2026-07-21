@@ -15,12 +15,12 @@ function createFixture(root, overrides = {}) {
   const calls = [];
   const softwareTools = {
     tools: [{
-      name: 'software_window_create',
-      description: '新建软件窗口',
-      input_schema: { type: 'object', properties: { name: { type: 'string' } } },
+      name: 'software_window',
+      description: '管理软件窗口',
+      input_schema: { type: 'object', properties: { action: { type: 'string' }, name: { type: 'string' } } },
       destructive: true,
     }],
-    has: (name) => name === 'software_window_create',
+    has: (name) => name === 'software_window',
     execute: async (name, args) => ({ success: true, name, args }),
   };
   const connections = overrides.connections || [{
@@ -54,7 +54,7 @@ test('external gateway combines software and per-window MCP tools with routing f
   try {
     const { calls, gateway } = createFixture(root);
     const listed = gateway.listTools();
-    assert.deepEqual(listed.tools.map((tool) => tool.name), ['software_window_create', 'browser_observe', 'save_cookies']);
+    assert.deepEqual(listed.tools.map((tool) => tool.name), ['software_window', 'browser_observe', 'save_cookies']);
     assert.equal(listed.connections[0].name, '工作窗口');
     const observe = listed.tools.find((tool) => tool.name === 'browser_observe');
     assert.equal(observe.inputSchema.properties.browser_id.type, 'string');
@@ -63,7 +63,7 @@ test('external gateway combines software and per-window MCP tools with routing f
     assert.equal(cookie.inputSchema.properties.save_to_server, undefined);
     assert.equal(cookie.inputSchema.properties.server_url, undefined);
 
-    const software = await gateway.callTool('software_window_create', { name: 'Research' });
+    const software = await gateway.callTool('software_window', { action: 'create', name: 'Research' });
     assert.equal(software.args.name, 'Research');
     const browser = await gateway.callTool('browser_observe', { browser_id: 'connection-1', keyword: '提交' });
     assert.equal(browser.connectionId, 'connection-1');
@@ -123,7 +123,7 @@ test('external gateway publishes a protected descriptor and authenticates HTTP c
     assert.equal(authorized.status, 200);
     const payload = await authorized.json();
     assert.equal(payload.ok, true);
-    assert.equal(payload.tools.some((tool) => tool.name === 'software_window_create'), true);
+    assert.equal(payload.tools.some((tool) => tool.name === 'software_window'), true);
 
     gateway.unpublish();
     assert.equal(fs.existsSync(descriptorPath), false);

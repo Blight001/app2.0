@@ -13,7 +13,7 @@
 ## 2. AI 对话
 
 - 入口：侧边栏 `ai-control.js`（2900 行）→ `ai-control-chat` (handle，app-lifecycle.js:634)。
-- 主进程：app-lifecycle 组装消息窗口（`lib/ai-control-message-window.js` 裁剪/摘要）→ 工具目录 = `services/ai-browser-window-tools.js`（software_window_* 默认注入）+ 插件桥工具 → HTTP `/api/ai-control/chat`。
+- 主进程：app-lifecycle 组装消息窗口（`lib/ai-control-message-window.js` 裁剪/摘要）→ 工具目录 = `services/ai-browser-window-tools.js`（`software_window` 默认注入，通过 `action` 选择操作）+ 插件桥工具 → HTTP `/api/ai-control/chat`。
 - 工具派发：窗口工具本地执行优先；插件工具走 `services/browser-automation-bridge.js`；`needsPluginConnection && (!connections.length || !bridge?.dispatch)` 时报错。
 - 流事件经 `ai-control-chat-event` 推回侧边栏；停止走 `ai-control-chat-stop`。
 - 历史：`ai-control-history-*` 6 个通道 + `lib/ai-chat-history.js`。[待核] 本地/远端合并与损坏恢复细节。

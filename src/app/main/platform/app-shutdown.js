@@ -48,7 +48,11 @@ function attemptSync(logger, failureLabel, action) {
 }
 
 async function stopRuntimeProcesses(deps, isUpdateExit) {
-  const { logger, browserAutomationBridge, browserRuntimeManager, stopClashMiniProcess, sendToSide } = deps;
+  const {
+    logger, aiServerDeviceService, browserAutomationBridge,
+    browserRuntimeManager, stopClashMiniProcess, sendToSide,
+  } = deps;
+  await attemptAsync(logger, '断开 AI 服务器设备连接失败', () => aiServerDeviceService?.stop?.());
   await attemptAsync(logger, '关闭浏览器插件桥接失败', () => browserAutomationBridge?.stop?.());
   await attemptAsync(logger, 'Chromium Profile 关闭失败', async () => {
     if (typeof browserRuntimeManager?.stopAll === 'function') {

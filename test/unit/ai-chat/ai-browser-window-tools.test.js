@@ -15,7 +15,14 @@ let writes;
 
 function installDependencies({ vip = true } = {}) {
   history = [
-    { id: 'history-1', name: 'Primary', url: 'https://one.test', tabId: 'tab-1', isOpen: true },
+    {
+      id: 'history-1', name: 'Primary', url: 'https://one.test', tabId: 'tab-1', isOpen: true,
+      settings: {
+        proxy: { mode: 'default', host: 'proxy.test', username: 'user', password: 'secret', apiUrl: 'https://proxy.test/token' },
+        cookies: '[{"name":"sid","value":"secret"}]',
+        launchArgs: { mode: 'custom', value: '--fixture-secret' },
+      },
+    },
     { id: 'history-2', name: 'Duplicate', url: 'https://two.test' },
     { id: 'history-3', name: 'Duplicate', url: 'https://three.test' },
   ];
@@ -31,10 +38,12 @@ function installDependencies({ vip = true } = {}) {
     },
     openBrowserHistoryRecord: async (_ui, id) => ({ historyId: id, tabId: 'opened-tab', name: history.find((item) => item.id === id)?.name }),
     readBrowserHistorySafe: () => history.map((item) => ({ ...item })),
-    renameBrowserHistoryRecord: (_ui, id, name) => {
+    editBrowserHistoryRecord: (_ui, id, changes) => {
       const item = history.find((record) => record.id === id);
-      item.name = name;
-      return { historyId: id, name, tabId: item.tabId || '' };
+      const previousName = item.name;
+      if (changes.name) item.name = changes.name;
+      if (changes.settings) item.settings = changes.settings;
+      return { historyId: id, name: item.name, previousName, settings: item.settings, tabId: item.tabId || '' };
     },
     serializeBrowserHistory: (records) => records.map((item) => ({ ...item })),
     syncOpenTabsToBrowserHistory: () => history,
@@ -59,19 +68,27 @@ test('window tool registry lists records and validates lookup arguments', async 
     ui: { getTabs: () => new Map([['tab-1', { id: 'tab-1', browserHistoryId: 'history-1' }]]) },
     logger: { log: (line) => logLines.push(line) },
   });
-  assert.equal(tools.tools.length, 5);
-  assert.equal(tools.has('software_window_list'), true);
+  assert.equal(tools.tools.length, 1);
+  assert.equal(tools.tools[0].input_schema.properties.action.enum.includes('edit'), true);
+  assert.equal(tools.has('software_window'), true);
   assert.equal(tools.has(' unknown '), false);
-  const listed = await tools.execute('software_window_list');
+  const listed = await tools.execute('software_window', { action: 'list', include_settings: true });
   assert.equal(listed.total, 3);
   assert.equal(listed.open_count, 1);
   assert.equal(listed.items[0].history_id, 'history-1');
-  assert.match(logLines[0], /software_window_list/);
+  assert.equal(listed.items[0].settings.proxy.mode, 'default');
+  assert.equal(listed.items[0].settings.proxy.username, '[REDACTED]');
+  assert.equal(listed.items[0].settings.proxy.password, '[REDACTED]');
+  assert.equal(listed.items[0].settings.proxy.apiUrl, '[CONFIGURED]');
+  assert.equal(listed.items[0].settings.launchArgs.value, '[CONFIGURED]');
+  assert.equal('cookies' in listed.items[0].settings, false);
+  assert.match(logLines[0], /software_window\.list/);
   await assert.rejects(tools.execute('missing'), /未知的软件窗口工具/);
-  await assert.rejects(tools.execute('software_window_open', {}), /history_id 或 name/);
-  await assert.rejects(tools.execute('software_window_open', { history_id: 'missing' }), /记录不存在/);
-  await assert.rejects(tools.execute('software_window_open', { name: 'Duplicate' }), /2 个窗口/);
-  const opened = await tools.execute('software_window_open', { name: 'primary' });
+  await assert.rejects(tools.execute('software_window', {}), /未提供 action/);
+  await assert.rejects(tools.execute('software_window', { action: 'open' }), /history_id 或 name/);
+  await assert.rejects(tools.execute('software_window', { action: 'open', history_id: 'missing' }), /记录不存在/);
+  await assert.rejects(tools.execute('software_window', { action: 'open', name: 'Duplicate' }), /2 个窗口/);
+  const opened = await tools.execute('software_window', { action: 'open', name: 'primary' });
   assert.equal(opened.history_id, 'history-1');
   assert.equal(opened.tab_id, 'opened-tab');
 });
@@ -93,16 +110,19 @@ test('create validates access and URL, persists before opening, and rolls back f
       sendToSide: (channel) => changes.push(channel),
     },
   });
-  await assert.rejects(tools.execute('software_window_create', { url: 'file:///secret' }), /http\/https/);
-  const created = await tools.execute('software_window_create', { name: 'Primary' });
+  await assert.rejects(tools.execute('software_window', { action: 'create', url: 'file:///secret' }), /http\/https/);
+  const created = await tools.execute('software_window', {
+    action: 'create', name: 'Primary', settings: { timezone: { mode: 'custom', value: 'UTC' } },
+  });
   assert.equal(created.name, 'Primary (2)');
   assert.equal(created.url, 'https://home.test');
   assert.equal(history.some((item) => item.id === created.history_id), true);
+  assert.equal(history.find((item) => item.id === created.history_id).settings.timezone.value, 'UTC');
   assert.deepEqual(changes, ['browser-history-changed']);
   assert.equal(writes.length, 1);
 
   addShouldFail = true;
-  await assert.rejects(tools.execute('software_window_create', { name: 'Failure' }), /runtime failed/);
+  await assert.rejects(tools.execute('software_window', { action: 'create', name: 'Failure' }), /runtime failed/);
   assert.equal(history.some((item) => item.name === 'Failure'), false);
   assert.equal(writes.length, 3);
 
@@ -111,27 +131,40 @@ test('create validates access and URL, persists before opening, and rolls back f
     licenseCache: { getSnapshot: () => ({}) },
     ui: { getTabs: () => new Map([['a', {}], ['b', {}]]), addTab: async () => 'x' },
   });
-  await assert.rejects(limited.execute('software_window_create'), /普通用户最多/);
+  await assert.rejects(limited.execute('software_window', { action: 'create' }), /普通用户最多/);
 });
 
-test('rename and close update open windows while preserving closed records', async () => {
+test('edit updates name and per-browser settings while close preserves records', async () => {
   const { createAiBrowserWindowTools } = installDependencies();
   const closed = [];
+  const applied = [];
   const tabs = new Map([['tab-1', { id: 'tab-1', browserHistoryId: 'history-1' }]]);
   const tools = createAiBrowserWindowTools({
     ui: {
       closeTab: async (id) => closed.push(id),
       getTabs: () => tabs,
+      setTabBrowserSettings: async (...args) => { applied.push(args); return { ok: true, restarted: true }; },
       sendToSide() {},
     },
   });
-  await assert.rejects(tools.execute('software_window_rename', { history_id: 'history-1' }), /缺少新名称/);
-  const renamed = await tools.execute('software_window_rename', { history_id: 'history-1', new_name: 'Renamed' });
-  assert.equal(renamed.previous_name, 'Primary');
-  assert.equal(renamed.name, 'Renamed');
-  const openClosed = await tools.execute('software_window_close', { history_id: 'history-1' });
+  await assert.rejects(tools.execute('software_window', { action: 'edit', history_id: 'history-1' }), /至少需要/);
+  await assert.rejects(tools.execute('software_window', {
+    action: 'edit', history_id: 'history-1', settings: { cookies: '[]' },
+  }), /不支持的环境配置字段/);
+  const edited = await tools.execute('software_window', {
+    action: 'edit', history_id: 'history-1', new_name: 'Renamed',
+    settings: { proxy: { mode: 'magic' }, timezone: { mode: 'custom', value: 'Asia/Shanghai' } },
+  });
+  assert.equal(edited.previous_name, 'Primary');
+  assert.equal(edited.name, 'Renamed');
+  assert.deepEqual(edited.changed_settings, ['proxy', 'timezone']);
+  assert.equal(history[0].settings.proxy.mode, 'magic');
+  assert.equal(history[0].settings.proxy.host, 'proxy.test');
+  assert.equal(applied[0][0], 'tab-1');
+  assert.equal(applied[0][2].restartChromium, true);
+  const openClosed = await tools.execute('software_window', { action: 'close', history_id: 'history-1' });
   assert.equal(openClosed.closed, true);
   assert.deepEqual(closed, ['tab-1']);
-  const alreadyClosed = await tools.execute('software_window_close', { history_id: 'history-2' });
+  const alreadyClosed = await tools.execute('software_window', { action: 'close', history_id: 'history-2' });
   assert.equal(alreadyClosed.closed, false);
 });

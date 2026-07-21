@@ -120,7 +120,7 @@ test('serialization adds account and live tab state then sorts recent records', 
   assert.equal(historyService.buildBrowserHistoryAccountMeta({}), null);
 });
 
-test('open and rename reuse active tabs or restore closed profiles', async () => {
+test('open and edit reuse active tabs, persist settings, or restore closed profiles', async () => {
   store.browserHistory = [
     { id: 'open', name: 'Open', url: 'https://open.test', profileId: 'profile-open', settings: {}, createdAt: 1, lastOpenedAt: 1 },
     { id: 'closed', name: 'Closed', url: '', accountId: 'account-1', settings: {}, createdAt: 2, lastOpenedAt: 2 },
@@ -148,7 +148,12 @@ test('open and rename reuse active tabs or restore closed profiles', async () =>
   const rename = historyService.renameBrowserHistoryRecord(ui, 'open', 'Renamed');
   assert.equal(rename.name, 'Renamed');
   assert.deepEqual(renamed, [['profile-open', 'Renamed']]);
-  assert.equal(events.length, 3);
+  const edited = historyService.editBrowserHistoryRecord(ui, 'open', {
+    settings: { proxy: { mode: 'magic' }, timezone: { mode: 'custom', value: 'UTC' } },
+  });
+  assert.equal(edited.settings.proxy.mode, 'magic');
+  assert.equal(store.browserHistory.find((item) => item.id === 'open').settings.timezone.value, 'UTC');
+  assert.equal(events.length, 4);
   assert.throws(() => historyService.renameBrowserHistoryRecord(ui, 'missing', 'x'), /不存在/);
   await assert.rejects(historyService.openBrowserHistoryRecord(ui, 'missing'), /不存在/);
 });

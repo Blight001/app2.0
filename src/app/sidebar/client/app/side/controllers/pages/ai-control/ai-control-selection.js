@@ -291,6 +291,7 @@
     if (!dialog || !getCustomApi) return;
     if (status) status.textContent = '';
     dialog.hidden = false;
+    showAiConfigPage('custom');
     updateCustomApiDialogBusy(true);
     try {
       const result = await getCustomApi();

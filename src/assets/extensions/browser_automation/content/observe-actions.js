@@ -50,14 +50,14 @@ function dispatchClickSequence(el, center, opts = {}) {
     }
 }
 
-function validateClickTarget(el, frame, msg, viaCoords) {
+function validateClickTarget(el, frame, msg, viaCoords, allowForce = true) {
     if (viaCoords) return null;
     if (!isVisible(el)) {
         return { success: false, not_visible: true, code: 'NOT_VISIBLE',
             error: '目标元素存在于 DOM 中，但当前不可见（display:none / 尺寸为 0 / 在视口外）。',
             tag: el.tagName.toLowerCase(), text: textOf(el, 80) };
     }
-    if (msg.force || isHittable(el, frame)) return null;
+    if ((allowForce && msg.force) || isHittable(el, frame)) return null;
     const cover = occluderAtViewport(el, frame);
     return { success: false, occluded: true, code: 'OCCLUDED',
         error: '目标元素当前被遮挡或不在可视区域内，可能需要先关闭遮挡层；确认要穿透点击请传 force:true',
@@ -76,34 +76,59 @@ function dispatchClickVariant(el, center, variant) {
     dispatchClickSequence(el, center, variant === 'right' ? { button: 'right' } : {});
 }
 
-async function clickLikeUser(msg = {}, variant = 'left') {
+function isCoordinateOnlyClick(msg) {
+    return msg.x !== undefined && msg.y !== undefined
+        && (msg.ref === undefined || msg.ref === null || msg.ref === '')
+        && !msg.selector && !msg.text;
+}
+
+async function prepareClickTarget(msg = {}, variant = 'left', allowForce = true) {
     const resolved = resolveTarget(msg);
     const el = resolved.el;
     if (!el) return { success: false, error: '未找到目标元素（ref/selector/text/坐标均未命中）', code: 'TARGET_NOT_FOUND' };
     const frame = resolved.frame;
-
-    const viaCoords = msg.x !== undefined && msg.y !== undefined
-        && (msg.ref === undefined || msg.ref === null || msg.ref === '');
-
+    const viaCoords = isCoordinateOnlyClick(msg);
     try { el.scrollIntoView({ block: 'center', inline: 'center' }); } catch (_error) { /* ignore */ }
-
-    const validationError = validateClickTarget(el, frame, msg, viaCoords);
+    const validationError = validateClickTarget(el, frame, msg, viaCoords, allowForce);
     if (validationError) return validationError;
-
-    const center = elCenter(el);
-    // Always focus the element for clicks (required by many form/controls)
-    try { el.focus(); } catch (_error) { /* ignore */ }
-    // Hover visual (hand cursor glide + ripples) + hover events (in dispatch)
+    const localCenter = elCenter(el);
+    const inputPoint = viaCoords
+        ? { x: Number(msg.x), y: Number(msg.y) }
+        : elementViewportCenter(el, frame);
     await playFx(el, variant === 'right' ? 'right' : variant === 'double' ? 'double' : 'left');
+    return { success: true, el, frame, localCenter, inputPoint };
+}
 
-    dispatchClickVariant(el, center, variant);
-
+function preparedClickResult(prepared, variant) {
+    const { el, frame, inputPoint } = prepared;
     const ctx = viewportContext();
     return {
-        success: true, tag: el.tagName.toLowerCase(), text: textOf(el, 100), center,
+        success: true, tag: el.tagName.toLowerCase(), text: textOf(el, 100), center: inputPoint,
         position: { scrollY: ctx.scrollY, scrollPercent: ctx.scrollPercent, currentSection: ctx.currentSection },
         ...(variant === 'left' ? cardStepReceipt(el, frame, 'click') : {})
     };
+}
+
+async function resolveNativeClick(msg = {}, variant = 'left') {
+    const prepared = await prepareClickTarget(msg, variant, false);
+    if (!prepared.success) return prepared;
+    const actions = { left: 'click', double: 'double_click', right: 'right_click' };
+    return {
+        ...preparedClickResult(prepared, variant),
+        input: {
+            inputType: 'mouse', action: actions[variant] || 'click', ...prepared.inputPoint,
+            viewportWidth: window.innerWidth, viewportHeight: window.innerHeight
+        }
+    };
+}
+
+async function clickLikeUser(msg = {}, variant = 'left') {
+    const prepared = await prepareClickTarget(msg, variant);
+    if (!prepared.success) return prepared;
+    try { prepared.el.focus(); } catch (_error) { /* ignore */ }
+
+    dispatchClickVariant(prepared.el, prepared.localCenter, variant);
+    return preparedClickResult(prepared, variant);
 }
 
 // ── browser_action：type ──────────────────────────────────────────────────
@@ -320,6 +345,7 @@ window.__hsObserve = {
     __installed: true,
     scan,
     click: clickLikeUser,
+    resolveClick: resolveNativeClick,
     type: typeInto,
     pressKey,
     scroll: scrollPage,

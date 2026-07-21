@@ -296,20 +296,46 @@ async function openBrowserHistoryRecord(ui, historyIdInput) {
   };
 }
 
-// 重命名一条浏览器窗口记录（同时同步已打开标签页标题）。与 rename-browser-history IPC 共用。
-function renameBrowserHistoryRecord(ui, historyIdInput, requestedName) {
+function applyBrowserHistoryRecordChanges(record, history, historyId, changes) {
+  const nameProvided = Object.prototype.hasOwnProperty.call(changes, 'name');
+  const settingsProvided = Object.prototype.hasOwnProperty.call(changes, 'settings');
+  if (nameProvided) record.name = makeUniqueBrowserName(changes.name, history, historyId);
+  if (settingsProvided) record.settings = normalizeAiFreeBrowserSettings(changes.settings || {});
+  return { nameProvided };
+}
+
+function syncEditedOpenTab(ui, record, historyId, nameProvided) {
+  const openTab = findOpenHistoryTab(ui, record, historyId);
+  if (nameProvided && openTab?.id && typeof ui?.renameTab === 'function') {
+    ui.renameTab(openTab.id, record.name);
+  }
+  return openTab;
+}
+
+// 编辑一条浏览器窗口记录，并同步已打开标签页的标题。
+function editBrowserHistoryRecord(ui, historyIdInput, changes = {}) {
   const history = syncOpenTabsToBrowserHistory(ui);
   const historyId = String(historyIdInput || '').trim();
   const record = history.find((item) => item.id === historyId);
   if (!record) throw new Error('浏览器历史不存在');
-  const name = makeUniqueBrowserName(requestedName, history, historyId);
-  record.name = name;
-  if (!writeBrowserHistorySafe(history)) throw new Error('浏览器名称未能保存');
-  const openTab = Array.from(ui?.getTabs?.().values?.() || [])
-    .find((tab) => String(tab?.browserHistoryId || '') === historyId);
-  if (openTab?.id && typeof ui?.renameTab === 'function') ui.renameTab(openTab.id, name);
+  const previousName = record.name;
+  const applied = applyBrowserHistoryRecordChanges(record, history, historyId, changes);
+  if (!writeBrowserHistorySafe(history)) throw new Error('浏览器配置未能保存');
+  const openTab = syncEditedOpenTab(ui, record, historyId, applied.nameProvided);
   ui.sendToSide?.('browser-history-changed');
-  return { ok: true, historyId, name, tabId: String(openTab?.id || '') };
+  return {
+    ok: true,
+    historyId,
+    name: record.name,
+    previousName,
+    settings: record.settings,
+    tabId: String(openTab?.id || ''),
+  };
+}
+
+// 保留设置页 IPC 的重命名契约；AI 工具使用上面的 edit 统一编辑名称与环境。
+function renameBrowserHistoryRecord(ui, historyIdInput, requestedName) {
+  return editBrowserHistoryRecord(ui, historyIdInput, { name: requestedName });
 }
 
 function collectBrowserProfileReferences(history = [], ui = null) {
@@ -379,6 +405,7 @@ module.exports = {
   cleanupOrphanBrowserProfiles,
   collectBrowserProfileReferences,
   createBrowserHistoryId,
+  editBrowserHistoryRecord,
   getManagedTabUrl,
   makeUniqueBrowserName,
   openBrowserHistoryRecord,

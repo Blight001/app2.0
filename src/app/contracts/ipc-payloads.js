@@ -169,6 +169,14 @@ const IPC_PAYLOAD_SCHEMAS = Object.freeze({
     stringField(channel, input, 'apiKey', { maxLength: 4096 });
     return input;
   },
+  'ai.server-device-login': (channel, payload) => {
+    const input = objectPayload(channel, payload);
+    stringField(channel, input, 'server', { maxLength: 2048 });
+    stringField(channel, input, 'account', { maxLength: 200 });
+    stringField(channel, input, 'password', { maxLength: 4096 });
+    stringField(channel, input, 'serviceName', { maxLength: 80 });
+    return input;
+  },
   'ai.history-create': (channel, payload) => {
     const input = objectPayload(channel, payload, { optional: true });
     for (const key of ['modelId', 'browserConnectionId', 'automationCardId']) stringField(channel, input, key);

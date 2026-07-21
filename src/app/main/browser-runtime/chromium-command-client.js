@@ -4,7 +4,10 @@ const { EventEmitter } = require('events');
 
 const PROTOCOL_VERSION = 1;
 const MAX_MESSAGE_BYTES = 4 * 1024 * 1024;
-const ALLOWED_COMMANDS = new Set(['navigate', 'reload', 'close-browser', 'set-cookies', 'set-storage', 'clear-session']);
+const ALLOWED_COMMANDS = new Set([
+  'navigate', 'reload', 'dispatch-input', 'close-browser',
+  'set-cookies', 'set-storage', 'clear-session',
+]);
 
 function runtimeBridgeError(code, message) {
   const error = /** @type {Error & {code?: string, command?: string}} */ (new Error(String(message || code || 'Runtime Bridge 命令失败')));

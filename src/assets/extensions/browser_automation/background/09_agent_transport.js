@@ -1,33 +1,45 @@
-async function requestSoftwareCardCache(path, options = {}) {
+async function sendTrustedSoftwareBridgeRequest(baseUrl, path, options, label) {
+    const headers = { ...(options.headers || {}) };
+    const appBrowserToken = getAppBrowserToken();
+    if (!appBrowserToken) throw new Error('当前扩展不在 AI-FREE 受信浏览器环境中');
+    headers[APP_BROWSER_TOKEN_HEADER] = appBrowserToken;
+    headers[APP_BROWSER_PID_HEADER] = String(await getAgentBrowserProcessId());
+    if (options.body != null) headers['Content-Type'] = 'application/json';
+    const signal = typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+        ? AbortSignal.timeout(5000)
+        : undefined;
+    const response = await fetch(`${baseUrl}${path}`, { ...options, headers, signal });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) {
+        throw new Error(data.message || `${label} HTTP ${response.status}`);
+    }
+    return data;
+}
+
+async function requestTrustedSoftwareBridge(path, options = {}, label = '软件桥接') {
     const settings = await getAgentSettings();
     const baseUrl = trimUrl(settings.localBridgeUrl || AGENT_SETTINGS_DEFAULT.localBridgeUrl);
     let lastError = null;
     for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
-            const headers = { ...(options.headers || {}) };
-            const appBrowserToken = getAppBrowserToken();
-            if (!appBrowserToken) throw new Error('当前扩展不在 AI-FREE 受信浏览器环境中');
-            headers[APP_BROWSER_TOKEN_HEADER] = appBrowserToken;
-            headers[APP_BROWSER_PID_HEADER] = String(await getAgentBrowserProcessId());
-            if (options.body != null) headers['Content-Type'] = 'application/json';
-            const response = await fetch(`${baseUrl}${path}`, {
-                ...options,
-                headers,
-                signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout
-                    ? AbortSignal.timeout(5000)
-                    : undefined
-            });
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok || data.ok === false) {
-                throw new Error(data.message || `软件卡片库 HTTP ${response.status}`);
-            }
-            return data;
+            return await sendTrustedSoftwareBridgeRequest(baseUrl, path, options, label);
         } catch (error) {
             lastError = error;
             if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 150));
         }
     }
-    throw lastError || new Error('软件卡片库连接失败');
+    throw lastError || new Error(`${label}连接失败`);
+}
+
+async function requestSoftwareCardCache(path, options = {}) {
+    return requestTrustedSoftwareBridge(path, options, '软件卡片库');
+}
+
+async function requestSoftwareRuntimeInput(input) {
+    return requestTrustedSoftwareBridge('/v1/runtime-input', {
+        method: 'POST',
+        body: JSON.stringify({ input })
+    }, 'Chromium Runtime 输入通道');
 }
 
 async function readSoftwareCardCache() {

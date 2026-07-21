@@ -35,8 +35,8 @@ test('automation bridge exposes authenticated external MCP before extension auth
   bridge.configureExternalMcp({
     getConnections: () => [],
     getWindowTools: () => ({
-      tools: [{ name: 'software_window_list', description: '列出窗口', input_schema: { type: 'object', properties: {} } }],
-      has: (name) => name === 'software_window_list',
+      tools: [{ name: 'software_window', description: '管理窗口', input_schema: { type: 'object', properties: { action: { type: 'string' } } } }],
+      has: (name) => name === 'software_window',
       execute: async (name, args) => {
         executed.push({ name, args });
         return { success: true, total: 0, items: [] };
@@ -50,17 +50,17 @@ test('automation bridge exposes authenticated external MCP before extension auth
     const listedResponse = await fetch(`${descriptor.endpoint}/mcp/v1/tools`, { headers });
     assert.equal(listedResponse.status, 200);
     const listed = await listedResponse.json();
-    assert.deepEqual(listed.tools.map((tool) => tool.name), ['software_window_list']);
+    assert.deepEqual(listed.tools.map((tool) => tool.name), ['software_window']);
 
     const calledResponse = await fetch(`${descriptor.endpoint}/mcp/v1/call`, {
       method: 'POST',
       headers: { ...headers, 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'software_window_list', arguments: {} }),
+      body: JSON.stringify({ name: 'software_window', arguments: { action: 'list' } }),
     });
     assert.equal(calledResponse.status, 200);
     const called = await calledResponse.json();
     assert.equal(called.result.total, 0);
-    assert.deepEqual(executed, [{ name: 'software_window_list', args: {} }]);
+    assert.deepEqual(executed, [{ name: 'software_window', args: { action: 'list' } }]);
   } finally {
     await bridge.stop();
     assert.equal(fs.existsSync(descriptorPath), false);
@@ -84,8 +84,8 @@ test('external MCP reports VIP requirement while calls follow live membership ac
   bridge.configureExternalMcp({
     getConnections: () => [],
     getWindowTools: () => ({
-      tools: [{ name: 'software_window_list', description: '列出窗口', input_schema: { type: 'object', properties: {} } }],
-      has: (name) => name === 'software_window_list',
+      tools: [{ name: 'software_window', description: '管理窗口', input_schema: { type: 'object', properties: { action: { type: 'string' } } } }],
+      has: (name) => name === 'software_window',
       execute: async () => ({ success: true, total: 0, items: [] }),
     }),
   });
@@ -124,7 +124,7 @@ test('external MCP reports VIP requirement while calls follow live membership ac
     const revokedCall = await fetch(`${revoked.endpoint}/mcp/v1/call`, {
       method: 'POST',
       headers: { ...revokedHeaders, 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'software_window_list', arguments: {} }),
+      body: JSON.stringify({ name: 'software_window', arguments: { action: 'list' } }),
     });
     assert.equal(revokedCall.status, 403);
     assert.equal((await revokedCall.json()).error, 'AI_FREE_MCP_VIP_REQUIRED');

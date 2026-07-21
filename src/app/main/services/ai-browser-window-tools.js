@@ -2,7 +2,7 @@
 //
 // 与浏览器插件（扩展）上报的页面内工具不同，这组工具不依赖任何插件连接，
 // 始终注入 AI 控制对话，直接操作软件自身的独立浏览器窗口：
-// 列出窗口记录、从记录打开、新建、重命名、关闭。
+// 通过 software_window 的 action 子选项列出、打开、新建、编辑和关闭窗口。
 // 底层复用 ipc/register/settings 的浏览器历史（browserHistory）读写逻辑，
 // 保证 AI 操作与设置页/标签栏手工操作看到的是同一份数据。
 
@@ -10,10 +10,10 @@ const {
   DEFAULT_BROWSER_WINDOW_NAME,
   DEFAULT_BROWSER_WINDOW_URL,
   createBrowserHistoryId,
+  editBrowserHistoryRecord,
   makeUniqueBrowserName,
   openBrowserHistoryRecord,
   readBrowserHistorySafe,
-  renameBrowserHistoryRecord,
   serializeBrowserHistory,
   syncOpenTabsToBrowserHistory,
   writeBrowserHistorySafe,
@@ -21,8 +21,13 @@ const {
 const { readStoreConfigSafe } = require('../ipc/register/store-utils');
 const { normalizeAiFreeBrowserSettings } = require('../utils/ai-free-browser-settings');
 const { FREE_BROWSER_WINDOW_LIMIT, resolveVipAccess } = require('../utils/vip-access');
+const {
+  BROWSER_SETTINGS_PATCH_SCHEMA,
+  SOFTWARE_WINDOW_INPUT_SCHEMA,
+} = require('./ai-browser-window-tool-schema');
 
-const SOFTWARE_WINDOW_TOOL_PREFIX = 'software_window_';
+const SOFTWARE_WINDOW_TOOL_NAME = 'software_window';
+const SETTING_KEYS = new Set(Object.keys(BROWSER_SETTINGS_PATCH_SCHEMA.properties));
 
 function text(value) {
   return String(value || '').trim();
@@ -33,8 +38,27 @@ function optionalField(value, key) {
   return normalized ? { [key]: normalized } : {};
 }
 
-function slimHistoryItem(item = {}) {
-  return {
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function publicBrowserSettings(value) {
+  const normalized = normalizeAiFreeBrowserSettings(value || {});
+  const settings = {};
+  for (const key of SETTING_KEYS) {
+    if (normalized[key] !== undefined) settings[key] = cloneJson(normalized[key]);
+  }
+  if (settings.proxy) {
+    settings.proxy.username = settings.proxy.username ? '[REDACTED]' : '';
+    settings.proxy.password = settings.proxy.password ? '[REDACTED]' : '';
+    settings.proxy.apiUrl = settings.proxy.apiUrl ? '[CONFIGURED]' : '';
+  }
+  if (settings.launchArgs?.value) settings.launchArgs.value = '[CONFIGURED]';
+  return settings;
+}
+
+function slimHistoryItem(item = {}, includeSettings = false) {
+  const result = {
     history_id: text(item.id),
     name: text(item.name),
     url: text(item.url),
@@ -47,49 +71,72 @@ function slimHistoryItem(item = {}) {
     created_at: Number(item.createdAt) || 0,
     last_opened_at: Number(item.lastOpenedAt) || 0,
   };
+  return {
+    ...result,
+    ...(includeSettings ? { settings: publicBrowserSettings(item.settings) } : {}),
+  };
 }
 
 function createToolDefinitions() {
-  const locateProps = {
-    history_id: { type: 'string', description: `窗口记录 ID（推荐，来自 ${SOFTWARE_WINDOW_TOOL_PREFIX}list）` },
-    name: { type: 'string', description: '窗口名称（未提供 history_id 时按名称精确匹配）' },
-  };
   return [
     {
-      name: `${SOFTWARE_WINDOW_TOOL_PREFIX}list`, destructive: false,
-      description: '【软件窗口】列出软件内全部独立浏览器窗口记录（含未打开的历史记录）及其打开/激活状态。只读；操作窗口前建议先调用本工具获取 history_id。',
-      input_schema: { type: 'object', properties: {}, required: [] },
-    },
-    {
-      name: `${SOFTWARE_WINDOW_TOOL_PREFIX}open`, destructive: false,
-      description: '【软件窗口】从记录中打开一个浏览器窗口（恢复其环境与会话）；若窗口已经打开则切换为当前活动窗口。',
-      input_schema: { type: 'object', properties: { ...locateProps }, required: [] },
-    },
-    {
-      name: `${SOFTWARE_WINDOW_TOOL_PREFIX}create`, destructive: true,
-      description: '【软件窗口】新建一个独立浏览器窗口并立即打开。可指定窗口名称和初始网址（http/https）；名称重复时自动追加序号。',
-      input_schema: {
-        type: 'object', required: [],
-        properties: {
-          name: { type: 'string', description: `窗口名称，默认「${DEFAULT_BROWSER_WINDOW_NAME}」` },
-          url: { type: 'string', description: '可选，初始打开的 http/https 网址；留空使用默认起始页' },
-        },
-      },
-    },
-    {
-      name: `${SOFTWARE_WINDOW_TOOL_PREFIX}rename`, destructive: true,
-      description: '【软件窗口】重命名一个浏览器窗口记录（已打开的窗口标签标题同步更新）。',
-      input_schema: {
-        type: 'object', required: ['new_name'],
-        properties: { ...locateProps, new_name: { type: 'string', description: '新的窗口名称' } },
-      },
-    },
-    {
-      name: `${SOFTWARE_WINDOW_TOOL_PREFIX}close`, destructive: true,
-      description: '【软件窗口】关闭一个已打开的浏览器窗口。窗口记录保留，之后可以再用 software_window_open 从记录中重新打开。',
-      input_schema: { type: 'object', properties: { ...locateProps }, required: [] },
+      name: SOFTWARE_WINDOW_TOOL_NAME,
+      destructive: true,
+      description: `【软件窗口】统一管理独立浏览器窗口。通过 action=list/open/create/edit/close 选择操作；edit 可同时重命名并增量修改单个浏览器的环境配置。新建名称默认「${DEFAULT_BROWSER_WINDOW_NAME}」。`,
+      input_schema: SOFTWARE_WINDOW_INPUT_SCHEMA,
     },
   ];
+}
+
+function isPlainObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function mergeSettings(base, patch) {
+  const result = isPlainObject(base) ? { ...base } : {};
+  for (const [key, value] of Object.entries(patch || {})) {
+    if (['__proto__', 'prototype', 'constructor'].includes(key)) throw new Error(`环境配置字段不安全: ${key}`);
+    result[key] = isPlainObject(value) && isPlainObject(result[key])
+      ? mergeSettings(result[key], value)
+      : value;
+  }
+  return result;
+}
+
+function normalizeSettingsPatch(base, patch) {
+  if (!isPlainObject(patch)) throw new Error('settings 必须是环境配置对象');
+  const unknown = Object.keys(patch).filter((key) => !SETTING_KEYS.has(key));
+  if (unknown.length) throw new Error(`不支持的环境配置字段: ${unknown.join(', ')}`);
+  const normalized = normalizeAiFreeBrowserSettings(mergeSettings(base, patch));
+  if (normalized.homepage?.mode === 'custom') {
+    let parsed;
+    try { parsed = new URL(normalized.homepage.url); } catch (_) { throw new Error('自定义主页必须是有效的 HTTP/HTTPS 地址'); }
+    if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('自定义主页只支持 HTTP/HTTPS 地址');
+  }
+  return normalized;
+}
+
+function resolveEditRequest(record, args) {
+  const newName = text(args.new_name);
+  const settingsProvided = Object.prototype.hasOwnProperty.call(args, 'settings');
+  if (!newName && !settingsProvided) throw new Error('edit 至少需要 new_name 或 settings');
+  const settings = settingsProvided ? normalizeSettingsPatch(record.settings || {}, args.settings) : null;
+  return {
+    newName,
+    settings,
+    settingsProvided,
+    changes: {
+      ...(newName ? { name: newName } : {}),
+      ...(settingsProvided ? { settings } : {}),
+    },
+  };
+}
+
+async function applyEditedRuntimeSettings(ui, edited, request, restart) {
+  if (!request.settingsProvided || !edited.tabId || typeof ui.setTabBrowserSettings !== 'function') return null;
+  return ui.setTabBrowserSettings(edited.tabId, request.settings, { restartChromium: restart });
 }
 
 class AiBrowserWindowTools {
@@ -111,13 +158,13 @@ class AiBrowserWindowTools {
     const historyId = text(args.history_id);
     if (historyId) {
       const byId = serialized.find((item) => text(item?.id) === historyId);
-      if (!byId) throw new Error(`浏览器窗口记录不存在: ${historyId}，请先用 ${SOFTWARE_WINDOW_TOOL_PREFIX}list 查看`);
+      if (!byId) throw new Error(`浏览器窗口记录不存在: ${historyId}，请先调用 ${SOFTWARE_WINDOW_TOOL_NAME} 的 list 操作查看`);
       return byId;
     }
     const name = text(args.name);
     if (!name) throw new Error('请提供 history_id 或 name 来定位浏览器窗口');
     const matches = serialized.filter((item) => text(item?.name).toLocaleLowerCase() === name.toLocaleLowerCase());
-    if (!matches.length) throw new Error(`没有名为「${name}」的浏览器窗口记录，请先用 ${SOFTWARE_WINDOW_TOOL_PREFIX}list 查看`);
+    if (!matches.length) throw new Error(`没有名为「${name}」的浏览器窗口记录，请先调用 ${SOFTWARE_WINDOW_TOOL_NAME} 的 list 操作查看`);
     if (matches.length > 1) {
       const ids = matches.map((item) => text(item?.id)).join(', ');
       throw new Error(`有 ${matches.length} 个窗口都叫「${name}」（${ids}），请改用 history_id 指定`);
@@ -134,8 +181,9 @@ class AiBrowserWindowTools {
     )) || null;
   }
 
-  async list() {
-    const items = this.listSerialized().map(slimHistoryItem);
+  async list(args = {}) {
+    const includeSettings = args.include_settings === true;
+    const items = this.listSerialized().map((item) => slimHistoryItem(item, includeSettings));
     return { success: true, total: items.length, open_count: items.filter((item) => item.is_open).length, items };
   }
 
@@ -168,7 +216,8 @@ class AiBrowserWindowTools {
     const requestedUrl = text(args.url);
     this.assertCanCreate(requestedUrl);
     const history = syncOpenTabsToBrowserHistory(this.ui);
-    const settings = normalizeAiFreeBrowserSettings(readStoreConfigSafe()?.aiFreeBrowserSettings || {});
+    const defaults = normalizeAiFreeBrowserSettings(readStoreConfigSafe()?.aiFreeBrowserSettings || {});
+    const settings = args.settings === undefined ? defaults : normalizeSettingsPatch(defaults, args.settings);
     const id = createBrowserHistoryId();
     const name = makeUniqueBrowserName(args.name || DEFAULT_BROWSER_WINDOW_NAME, history);
     const url = this.resolveStartUrl(requestedUrl, settings);
@@ -191,14 +240,21 @@ class AiBrowserWindowTools {
     }
   }
 
-  async rename(args = {}) {
-    const newName = text(args.new_name);
-    if (!newName) throw new Error('缺少新名称 new_name');
+  async edit(args = {}) {
     const record = this.resolveRecord(args);
-    const renamed = renameBrowserHistoryRecord(this.ui, record.id, newName);
+    const request = resolveEditRequest(record, args);
+    const edited = editBrowserHistoryRecord(this.ui, record.id, request.changes);
+    const runtimeResult = await applyEditedRuntimeSettings(this.ui, edited, request, args.restart !== false);
     return {
-      success: true, history_id: text(renamed.historyId || record.id), name: text(renamed.name || newName),
-      previous_name: text(record.name), tab_id: text(renamed.tabId),
+      success: true,
+      history_id: text(edited.historyId || record.id),
+      name: text(edited.name || record.name),
+      previous_name: text(edited.previousName || record.name),
+      tab_id: text(edited.tabId),
+      settings_saved: request.settingsProvided,
+      changed_settings: request.settingsProvided ? Object.keys(args.settings) : [],
+      runtime_result: runtimeResult,
+      applies_on_next_open: request.settingsProvided && !edited.tabId,
     };
   }
 
@@ -216,22 +272,23 @@ class AiBrowserWindowTools {
 
   createApi() {
     const tools = createToolDefinitions();
-    const toolNames = new Set(tools.map((tool) => tool.name));
     const handlers = {
-      [`${SOFTWARE_WINDOW_TOOL_PREFIX}list`]: this.list.bind(this),
-      [`${SOFTWARE_WINDOW_TOOL_PREFIX}open`]: this.open.bind(this),
-      [`${SOFTWARE_WINDOW_TOOL_PREFIX}create`]: this.create.bind(this),
-      [`${SOFTWARE_WINDOW_TOOL_PREFIX}rename`]: this.rename.bind(this),
-      [`${SOFTWARE_WINDOW_TOOL_PREFIX}close`]: this.close.bind(this),
+      list: this.list.bind(this),
+      open: this.open.bind(this),
+      create: this.create.bind(this),
+      edit: this.edit.bind(this),
+      close: this.close.bind(this),
     };
     return {
       tools,
-      has: (name) => toolNames.has(text(name)),
+      has: (name) => text(name) === SOFTWARE_WINDOW_TOOL_NAME,
       execute: async (name, args = {}) => {
         const toolName = text(name);
-        const handler = handlers[toolName];
-        if (!handler) throw new Error(`未知的软件窗口工具: ${toolName}`);
-        this.logger.log?.(`[AI窗口工具] 执行 ${toolName}`);
+        if (toolName !== SOFTWARE_WINDOW_TOOL_NAME) throw new Error(`未知的软件窗口工具: ${toolName}`);
+        const action = text(args?.action).toLowerCase();
+        const handler = handlers[action];
+        if (!handler) throw new Error(`未知的软件窗口操作: ${action || '未提供 action'}`);
+        this.logger.log?.(`[AI窗口工具] 执行 ${toolName}.${action}`);
         return handler(args && typeof args === 'object' ? args : {});
       },
     };
@@ -243,6 +300,6 @@ function createAiBrowserWindowTools(deps = {}) {
 }
 
 module.exports = {
-  SOFTWARE_WINDOW_TOOL_PREFIX,
+  SOFTWARE_WINDOW_TOOL_NAME,
   createAiBrowserWindowTools,
 };

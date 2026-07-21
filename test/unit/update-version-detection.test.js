@@ -112,6 +112,32 @@ test('登录刷新遇到正在进行的轮询时会立即排队补拉', async ()
   assert.equal(requestCount, 2);
 });
 
+test('公告轮询启动后立即拉取并下发，不等待首个定时间隔', async () => {
+  let requestCount = 0;
+  let finishDelivery;
+  const delivered = new Promise((resolve) => { finishDelivery = resolve; });
+  const poller = createAnnouncementPoller({
+    getJson: async () => {
+      requestCount += 1;
+      return { success: true, data: [{ id: 9, content: '启动公告' }] };
+    },
+    getServerBase: () => 'https://example.test',
+    shouldPoll: () => true,
+    sendToSide: (channel) => {
+      if (channel === 'server-message') finishDelivery();
+      return true;
+    },
+    intervalMs: 60000,
+    logger: { log() {}, warn() {} },
+  });
+
+  poller.start();
+  await delivered;
+  poller.stop();
+
+  assert.equal(requestCount, 1);
+});
+
 test('主进程仅对高于当前版本的公告发出更新提醒', async () => {
   const events = [];
   const updater = createAppUpdater({

@@ -11,6 +11,8 @@ const { createBrowserRuntimeManager } = require('../browser-runtime');
 const { createLogger } = require('../utils/logger');
 const { createBrowserPartitionCleaner } = require('../services/browser-partitions');
 const { createBrowserAutomationBridge } = require('../services/browser-automation-bridge');
+const { createAiServerDeviceService } = require('../features/ai-chat/ai-server-device-service');
+const { createAiServerDeviceCredentialStore } = require('../features/ai-chat/ai-server-device-credential-store');
 const { createLicenseStore } = require('../services/license-store');
 const { createServerResolver } = require('../services/server-resolver');
 const { createTabHelpers } = require('../services/tab-helpers');
@@ -32,7 +34,7 @@ const { resolveChromiumResourcesPath, resolveAutomationCardCacheDir } = require(
 
 const APP_DISPLAY_NAME = 'AI-FREE';
 
-function createCoreServices({ app, fs, path, BrowserWindow, getTabManager }) {
+function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabManager }) {
   // ---- 全局状态 ----
   const appRuntime = createAppState();
   const tabs = appRuntime.tabs;
@@ -90,6 +92,7 @@ function createCoreServices({ app, fs, path, BrowserWindow, getTabManager }) {
     externalMcpDescriptorPath: path.join(app.getPath('userData'), 'ai-free-mcp-bridge.json'),
     getExternalMcpAccess: () => resolveVipAccess(licenseCache.getSnapshot()),
     isAllowedBrowserProcess: (processId) => browserRuntimeManager.isManagedBrowserProcess(processId),
+    dispatchRuntimeInput: (processId, input) => browserRuntimeManager.dispatchInputByProcessId(processId, input),
   });
   licenseCache.subscribe?.(() => {
     try { browserAutomationBridge.refreshExternalMcpAccess(); } catch (error) {
@@ -183,6 +186,24 @@ function createCoreServices({ app, fs, path, BrowserWindow, getTabManager }) {
     getHardwareFingerprint,
   });
 
+  const aiServerCredentialStore = createAiServerDeviceCredentialStore({
+    fs,
+    path,
+    safeStorage,
+    filePath: path.join(app.getPath('userData'), 'ai-server-device-credentials.json'),
+    logger: console,
+  });
+  const aiServerDeviceService = createAiServerDeviceService({
+    computeDeviceId: runtimeHelpers.computeDeviceId,
+    getTools: () => browserAutomationBridge.listExternalMcpTools(),
+    callTool: (...args) => browserAutomationBridge.callExternalMcpTool(...args),
+    onStatus: (status) => sendToSide('ai-server-device-status', status),
+    credentialStore: aiServerCredentialStore,
+    hasVipAccess: () => resolveVipAccess(licenseCache.getSnapshot()).isVip,
+    logger: console,
+    version: app.getVersion(),
+  });
+
   const extensionManager = createExtensionManager({
     app,
     fs,
@@ -215,6 +236,7 @@ function createCoreServices({ app, fs, path, BrowserWindow, getTabManager }) {
     applyPluginSettings,
     logger,
     browserAutomationBridge,
+    aiServerDeviceService,
     isDevMode,
     sendToSide,
     getAppConsoleHistory,

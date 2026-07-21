@@ -72,6 +72,7 @@ function jsonResponse(res, statusCode, payload) {
     'Cache-Control': 'no-store',
   });
   res.end(body);
+  return true;
 }
 
 function constantTimeTokenEquals(actual, expected) {
@@ -107,6 +108,7 @@ class BrowserAutomationBridgeRuntime {
     this.isAllowedBrowserProcess = typeof options.isAllowedBrowserProcess === 'function'
       ? options.isAllowedBrowserProcess
       : null;
+    this.dispatchRuntimeInput = typeof options.dispatchRuntimeInput === 'function' ? options.dispatchRuntimeInput : null;
     this.server = null;
     this.externalMcpGateway = createBrowserAutomationExternalGateway({
       descriptorPath: options.externalMcpDescriptorPath,
@@ -234,6 +236,7 @@ class BrowserAutomationBridgeRuntime {
       await this.register(req, res, browserProcessId);
       return true;
     }
+    if (route === 'POST /v1/runtime-input') return this.sendRuntimeInput(req, res, browserProcessId);
     if (route === 'GET /v1/card-cache') {
       jsonResponse(res, 200, { ok: true, ...this.cardCacheStore.read() });
       return true;
@@ -243,6 +246,13 @@ class BrowserAutomationBridgeRuntime {
       return true;
     }
     return false;
+  }
+
+  async sendRuntimeInput(req, res, browserProcessId) {
+    if (!this.dispatchRuntimeInput) return jsonResponse(res, 503, { ok: false, message: 'Chromium Runtime 输入通道不可用' });
+    const response = await readJson(req).then((data) => this.dispatchRuntimeInput(browserProcessId, data?.input || data));
+    jsonResponse(res, 200, { ok: true, result: response?.result || response || {} });
+    return true;
   }
 
   async register(req, res, requestBrowserProcessId) {
@@ -491,16 +501,26 @@ class BrowserAutomationBridgeRuntime {
     this.externalMcpGateway.configure(context);
     return this.refreshExternalMcpAccess();
   }
+
+  listExternalMcpTools() {
+    return this.externalMcpGateway.listTools();
+  }
+
+  callExternalMcpTool(name, args = {}) {
+    return this.externalMcpGateway.callTool(name, args);
+  }
 }
 
 function createBrowserAutomationBridge(options = {}) {
   const runtime = new BrowserAutomationBridgeRuntime(options);
   return {
     configureExternalMcp: (context) => runtime.configureExternalMcp(context),
+    callExternalMcpTool: (...args) => runtime.callExternalMcpTool(...args),
     dispatch: (...args) => runtime.dispatch(...args),
     getConnection: (...args) => runtime.getConnection(...args),
     getCardCacheState: () => runtime.getCardCacheState(),
     listConnections: () => runtime.listConnections(),
+    listExternalMcpTools: () => runtime.listExternalMcpTools(),
     selectCard: (...args) => runtime.selectCard(...args),
     setCardCacheState: (...args) => runtime.setCardCacheState(...args),
     getAppBrowserToken: () => runtime.appBrowserToken,

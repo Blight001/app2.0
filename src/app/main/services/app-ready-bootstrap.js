@@ -8,6 +8,7 @@ const { registerAccountIpc } = require('../features/account/register-account-ipc
 const { createLicenseService } = require('../features/account/license-service');
 const { registerLicenseIpc } = require('../features/account/register-license-ipc');
 const { createMembershipService } = require('../features/account/membership-service');
+const { registerAiServerDeviceIpc } = require('../features/ai-chat/register-ai-server-device-ipc');
 
 function registerConsoleHistoryIpc(deps, ipc) {
   try {
@@ -129,6 +130,9 @@ function createAndRegisterAiServices(deps, ipc) {
     getConnections: () => aiSupport.getBrowserConnections().connections,
     getWindowTools: aiChatService.getWindowTools,
   });
+  if (deps.aiServerDeviceService) {
+    registerAiServerDeviceIpc({ ipc, service: deps.aiServerDeviceService });
+  }
   registerAiHistoryIpc({
     ipc,
     historyRepository: createAiChatHistoryRepository(),
@@ -149,6 +153,20 @@ function createMembership(deps) {
   });
 }
 
+function ensureMembershipHttpClient(deps) {
+  const current = deps.getGlobalHttpClient?.();
+  if (current) return current;
+  if (typeof deps.createHttpClient !== 'function') return null;
+  const client = deps.createHttpClient({ mainWindow: null });
+  deps.setGlobalHttpClient?.(client);
+  return deps.getGlobalHttpClient?.() || client;
+}
+
+async function restoreMembership(deps) {
+  ensureMembershipHttpClient(deps);
+  return createMembership(deps).restore();
+}
+
 async function bootstrapReadyApp(deps, ipc) {
   registerConsoleHistoryIpc(deps, ipc);
   openDevConsole(deps);
@@ -158,11 +176,14 @@ async function bootstrapReadyApp(deps, ipc) {
   createAndRegisterAccountServices(deps, ipc);
   createAndRegisterAiServices(deps, ipc);
   try {
-    await createMembership(deps).restore();
+    await restoreMembership(deps);
+    void deps.aiServerDeviceService?.startAutomatically?.().catch((error) => {
+      deps.logger.warn?.('[AIServerDevice] 自动登录失败:', error?.message || error);
+    });
     await deps.bootstrapMainApp();
   } catch (error) {
     deps.logger.error?.('[启动] 打开主界面失败:', error?.message || error);
   }
 }
 
-module.exports = { bootstrapReadyApp };
+module.exports = { bootstrapReadyApp, restoreMembership };

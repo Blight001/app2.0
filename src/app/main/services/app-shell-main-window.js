@@ -1,5 +1,7 @@
 'use strict';
 
+const { createWindowBackgroundController } = require('../features/window/window-background-controller');
+
 function createWindowInstance(deps) {
   const iconPath = typeof deps.resolveAppIconPath === 'function'
     ? deps.resolveAppIconPath()
@@ -77,12 +79,6 @@ function loadSidebar(deps, sideView) {
 async function handleSidebarLoaded(deps, mainWindow) {
   deps.setSideAnnouncementReady(true);
   const shouldRestoreAnnouncements = deps.finishInitialSidebarLoad();
-  deps.sendToSide('update-device-id', await deps.computeDeviceId());
-  try {
-    const history = typeof deps.getAppConsoleHistory === 'function' ? deps.getAppConsoleHistory() : [];
-    deps.sendToSide('app-console-history', history);
-  } catch (_) {}
-  try { deps.sendToSide('app-version', deps.app.getVersion()); } catch (_) {}
   try {
     if (deps.canPollAnnouncements()) {
       await deps.ensureAnnouncementPoller().refreshNow({ resetDelivery: shouldRestoreAnnouncements });
@@ -90,6 +86,12 @@ async function handleSidebarLoaded(deps, mainWindow) {
   } catch (error) {
     deps.logger.warn?.('[公告轮询] 侧边栏加载完成后刷新失败:', error?.message || error);
   }
+  deps.sendToSide('update-device-id', await deps.computeDeviceId());
+  try {
+    const history = typeof deps.getAppConsoleHistory === 'function' ? deps.getAppConsoleHistory() : [];
+    deps.sendToSide('app-console-history', history);
+  } catch (_) {}
+  try { deps.sendToSide('app-version', deps.app.getVersion()); } catch (_) {}
   setTimeout(async () => {
     try {
       await deps.checkDesktopShortcutAndPrompt(mainWindow, deps.sendToSide);
@@ -179,7 +181,7 @@ function scheduleControlPanel(deps) {
   }, 0);
 }
 
-function createMainWindow(deps) {
+function createMainWindow(deps, backgroundController) {
   const mainWindow = createWindowInstance(deps);
   deps.setMainWindow?.(mainWindow);
   mainWindow.loadFile(deps.path.join(__dirname, '../../views/app-shell.html'));
@@ -190,6 +192,7 @@ function createMainWindow(deps) {
   bindSidebarEvents(deps, sideView, mainWindow);
   loadSidebar(deps, sideView);
   scheduleControlPanel(deps);
+  backgroundController.bindWindow(mainWindow);
   return mainWindow;
 }
 
@@ -206,9 +209,10 @@ function revealMainWindow(deps) {
 }
 
 function createAppShellMainWindowController(deps = {}) {
+  const backgroundController = createWindowBackgroundController(deps);
   return {
-    createMainWindow: () => createMainWindow(deps),
-    revealMainWindow: () => revealMainWindow(deps),
+    createMainWindow: () => createMainWindow(deps, backgroundController),
+    revealMainWindow: () => backgroundController.revealWindow() || revealMainWindow(deps),
   };
 }
 

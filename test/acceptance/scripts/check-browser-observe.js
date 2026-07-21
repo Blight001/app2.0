@@ -29,6 +29,21 @@ app.whenReady().then(async () => {
     await win.webContents.executeJavaScript(`${source}\n;undefined`);
   }
 
+  await win.webContents.executeJavaScript(`
+    window.__resolvedClickCount = 0;
+    document.querySelector('#first').addEventListener('click', () => { window.__resolvedClickCount += 1; });
+  `);
+  const resolvedClick = await win.webContents.executeJavaScript(
+    'window.__hsObserve.resolveClick({ selector: "#first" }, "left")',
+  );
+  assert.equal(resolvedClick.success, true);
+  assert.equal(resolvedClick.input.inputType, 'mouse');
+  assert.equal(resolvedClick.input.action, 'click');
+  assert.ok(resolvedClick.input.x > 0 && resolvedClick.input.x < resolvedClick.input.viewportWidth);
+  assert.ok(resolvedClick.input.y > 0 && resolvedClick.input.y < resolvedClick.input.viewportHeight);
+  assert.equal(await win.webContents.executeJavaScript('window.__resolvedClickCount'), 0,
+    '坐标解析阶段不能提前触发 DOM 合成点击');
+
   const truncated = await win.webContents.executeJavaScript(
     'window.__hsObserve.scan({ limit: 2, max_items: 3, text_limit: 10, mark: false })',
   );

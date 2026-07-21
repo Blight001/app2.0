@@ -203,8 +203,6 @@ async function runBootstrapBackgroundTasks(deps, state) {
     catch (error) { deps.logger.warn?.('[启动] 获取URL配置失败:', bootstrapError(error)); }
     await openBootstrapTutorial(deps);
     await initializeBootstrapAccountCleanup(deps);
-    try { deps.ensureAnnouncementPoller().start(); }
-    catch (error) { deps.logger.warn?.('[启动] 启动公告轮询失败:', bootstrapError(error)); }
     await cleanupResidualTabPartitions(deps);
   } catch (error) {
     deps.logger.warn?.('[启动] 初始化后台任务失败:', bootstrapError(error));
@@ -223,6 +221,8 @@ async function bootstrapMainApp(deps, state) {
   deps.setIsMainBootstrapped?.(true);
   initializeHttpAuth(deps);
   registerBootstrapIPC(deps);
+  try { deps.ensureAnnouncementPoller().start(); }
+  catch (error) { deps.logger.warn?.('[启动] 启动公告轮询失败:', bootstrapError(error)); }
   createBootstrapWindows(deps);
   void runBootstrapBackgroundTasks(deps, state).catch((error) => {
     deps.logger.warn?.('[启动] 后台初始化任务失败:', bootstrapError(error));

@@ -52,7 +52,7 @@ test('本地窗口工具优先执行，插件失败被序列化为可恢复 tool
   };
   await executeToolCalls({
     ...common,
-    toolCalls: [{ id: 'local', function: { name: 'software_window_list', arguments: '{}' } }],
+    toolCalls: [{ id: 'local', function: { name: 'software_window', arguments: '{"action":"list"}' } }],
     windowTools: { has: () => true, execute: async () => ({ success: true, windows: [] }) },
   });
   assert.equal(pluginCalls, 0);

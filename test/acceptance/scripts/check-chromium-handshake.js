@@ -79,6 +79,28 @@ function nextFrame(socket) {
   const navigateResponse = await navigatePromise;
   assert.equal(navigateResponse.result.title, 'Example Domain');
 
+  const inputPromise = server.send('dispatch-input', {
+    inputType: 'mouse', action: 'click', x: 40, y: 50,
+    viewportWidth: 800, viewportHeight: 600,
+  });
+  const inputCommand = await nextFrame(chromium);
+  assert.equal(inputCommand.type, 'dispatch-input');
+  assert.equal(inputCommand.action, 'click');
+  assert.equal(inputCommand.x, 40);
+  assert.equal(inputCommand.viewportWidth, 800);
+  chromium.write(encodeFrame({
+    type: 'response',
+    protocolVersion: PROTOCOL_VERSION,
+    profileId,
+    sessionId: accepted.sessionId,
+    requestId: inputCommand.requestId,
+    command: 'dispatch-input',
+    ok: true,
+    result: { dispatched: true },
+  }));
+  const inputResponse = await inputPromise;
+  assert.equal(inputResponse.result.dispatched, true);
+
   const reloadPromise = server.send('reload');
   const reloadCommand = await nextFrame(chromium);
   chromium.write(encodeFrame({
