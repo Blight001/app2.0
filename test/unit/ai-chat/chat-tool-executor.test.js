@@ -7,6 +7,7 @@ const {
   dispatchPluginTool,
   executeToolCalls,
   resolvePluginTarget,
+  syncWindowToolControl,
 } = require('../../../src/app/main/features/ai-chat/chat-tool-executor');
 const {
   buildChatToolContext,
@@ -114,6 +115,30 @@ test('change_browser 切换唯一控制目标并由后续调用沿用', async ()
   assert.equal(browserControl.connectionId, 'two');
   assert.deepEqual(calls.map((call) => call[0]), ['two', 'two']);
   assert.deepEqual(calls[0][2], { keyword: '标题' });
+});
+
+test('窗口 MCP 就绪后刷新同一轮连接与工具目录并切换控制目标', () => {
+  const events = [];
+  const context = {
+    bridge: { getConnection: () => ({ id: 'new-mcp', name: '插件窗口', tools: [
+      { name: 'browser_tab', input_schema: { type: 'object', properties: {} } },
+    ] }) },
+    browserControl: { connectionId: 'old-mcp' },
+    connections: [{ id: 'old-mcp', name: '旧窗口' }],
+    emit: (event) => events.push(event),
+    toolDefinitions: [{ name: 'software_window', input_schema: { type: 'object' } }],
+    windowTools: { has: (name) => name === 'software_window' },
+  };
+  syncWindowToolControl(context, 'software_window', { action: 'open' }, {
+    success: true,
+    name: '新窗口',
+    control_browser_id: 'new-mcp',
+    control_browser_name: '新窗口',
+  });
+  assert.equal(context.browserControl.connectionId, 'new-mcp');
+  assert.equal(context.connections.at(-1).name, '新窗口');
+  assert.equal(context.toolDefinitions.at(-1).input_schema.properties.change_browser.type, 'string');
+  assert.equal(events.at(-1).type, 'browser_control_changed');
 });
 
 test('本地窗口工具优先执行，插件失败被序列化为可恢复 tool 消息', async () => {

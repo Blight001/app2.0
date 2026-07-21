@@ -139,6 +139,30 @@ test('create validates access and URL, persists before opening, and rolls back f
   await assert.rejects(limited.execute('software_window', { action: 'create' }), /普通用户最多/);
 });
 
+test('open waits for the matching MCP connection and reports timeout as partial failure', async () => {
+  const { createAiBrowserWindowTools } = installDependencies();
+  const base = {
+    ui: { getTabs: () => new Map([['tab-1', { id: 'tab-1', browserHistoryId: 'history-1' }]]) },
+  };
+  const ready = createAiBrowserWindowTools({
+    ...base,
+    waitForBrowserConnection: async (target) => ({ id: 'mcp-primary', name: target.name }),
+  });
+  const connected = await ready.execute('software_window', { action: 'open', name: 'Primary' });
+  assert.equal(connected.success, true);
+  assert.equal(connected.mcp_connected, true);
+  assert.equal(connected.control_browser_id, 'mcp-primary');
+
+  const unavailable = createAiBrowserWindowTools({
+    ...base,
+    waitForBrowserConnection: async () => null,
+  });
+  const timedOut = await unavailable.execute('software_window', { action: 'open', name: 'Primary' });
+  assert.equal(timedOut.success, false);
+  assert.equal(timedOut.mcp_connected, false);
+  assert.match(timedOut.error, /窗口.*已打开.*插件未在等待时间内连接/);
+});
+
 test('edit updates name and per-browser settings while close preserves records', async () => {
   const { createAiBrowserWindowTools } = installDependencies();
   const closed = [];

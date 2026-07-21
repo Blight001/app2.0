@@ -156,9 +156,38 @@ class AiBrowserWindowTools {
     this.ui = deps.ui;
     this.licenseCache = deps.licenseCache || null;
     this.logger = deps.logger || console;
+    this.waitForBrowserConnection = typeof deps.waitForBrowserConnection === 'function'
+      ? deps.waitForBrowserConnection
+      : null;
     if (!this.ui || typeof this.ui.getTabs !== 'function') {
       throw new Error('AI 窗口工具缺少 ui 桥接（getTabs 等）');
     }
+  }
+
+  async withMcpReady(result) {
+    if (!this.waitForBrowserConnection) return result;
+    let connection = null;
+    try {
+      connection = await this.waitForBrowserConnection({
+        historyId: result.history_id, tabId: result.tab_id, name: result.name,
+      });
+    } catch (error) {
+      this.logger.warn?.('[AI窗口工具] 等待浏览器 MCP 连接失败:', error?.message || error);
+    }
+    if (!connection?.id) {
+      return {
+        ...result,
+        success: false,
+        mcp_connected: false,
+        error: `窗口“${result.name}”已打开，但 AI 自动化浏览器插件未在等待时间内连接，暂时无法控制该窗口`,
+      };
+    }
+    return {
+      ...result,
+      mcp_connected: true,
+      control_browser_id: text(connection.id),
+      control_browser_name: text(connection.name || result.name),
+    };
   }
 
   listSerialized() {
@@ -202,12 +231,12 @@ class AiBrowserWindowTools {
   async open(args = {}) {
     const record = this.resolveRecord(args);
     const opened = await openBrowserHistoryRecord(this.ui, record.id);
-    return {
+    return this.withMcpReady({
       success: true, history_id: text(opened.historyId || record.id), tab_id: text(opened.tabId),
       name: text(opened.name || record.name), already_open: opened.alreadyOpen === true,
       control_browser_requested: true,
       ...windowSummary(this.listSerialized()),
-    };
+    });
   }
 
   assertCanCreate(requestedUrl) {
@@ -246,11 +275,11 @@ class AiBrowserWindowTools {
       });
       if (!tabId) throw new Error('新建浏览器窗口失败');
       this.ui.sendToSide?.('browser-history-changed');
-      return {
+      return this.withMcpReady({
         success: true, history_id: id, tab_id: String(tabId), name, url,
         control_browser_requested: true,
         ...windowSummary(this.listSerialized()),
-      };
+      });
     } catch (error) {
       writeBrowserHistorySafe(readBrowserHistorySafe().filter((item) => item.id !== id));
       this.ui.sendToSide?.('browser-history-changed');

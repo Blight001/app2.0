@@ -3,7 +3,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { createAiChatService } = require('../../../src/app/main/features/ai-chat/ai-chat-service');
+const {
+  createAiChatService,
+  waitForBrowserConnection,
+} = require('../../../src/app/main/features/ai-chat/ai-chat-service');
 
 function eventFixture(id = 1) {
   const sent = [];
@@ -28,6 +31,19 @@ function createService(client, overrides = {}) {
     ...overrides,
   });
 }
+
+test('等待新窗口对应的自动化 MCP 连接后返回完整连接', async () => {
+  const connection = { id: 'mcp-1', name: '新窗口', tools: [{ name: 'browser_tab' }] };
+  const found = await waitForBrowserConnection({
+    browserAutomationBridge: {
+      listConnections: () => [connection],
+      getConnection: () => connection,
+    },
+    getTabs: () => [],
+    browserRuntimeManager: { listStates: () => [] },
+  }, { name: '新窗口' }, 100);
+  assert.equal(found.id, 'mcp-1');
+});
 
 test('内置模型正常返回完整消息链并发布流式完成事件', async () => {
   const client = {

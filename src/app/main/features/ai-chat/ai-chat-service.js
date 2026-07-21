@@ -4,6 +4,34 @@ const { createAiBrowserWindowTools } = require('../../services/ai-browser-window
 const { createChatRunRegistry } = require('./chat-run-registry');
 const { prepareChatRequest } = require('./chat-request-context');
 const { runChatConversation } = require('./chat-conversation-runner');
+const { enrichBrowserConnectionNames } = require('./connection-names');
+
+function namedBrowserConnections(deps) {
+  const bridge = deps.browserAutomationBridge;
+  const connections = (bridge?.listConnections?.() || [])
+    .map((item) => bridge.getConnection?.(item.id))
+    .filter(Boolean);
+  return enrichBrowserConnectionNames(
+    connections,
+    typeof deps.getTabs === 'function' ? deps.getTabs() : [],
+    deps.browserRuntimeManager?.listStates?.() || [],
+  );
+}
+
+async function waitForBrowserConnection(deps, target = {}, timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs;
+  const wantedName = String(target.name || '').trim().toLowerCase();
+  const wantedProfile = String(target.tabId || target.profileId || '').trim();
+  do {
+    const found = namedBrowserConnections(deps).find((item) => (
+      (wantedProfile && String(item.profileId || '') === wantedProfile)
+      || (wantedName && String(item.name || '').trim().toLowerCase() === wantedName)
+    ));
+    if (found) return found;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  } while (Date.now() < deadline);
+  return null;
+}
 
 function createAiChatService(deps = {}) {
   const {
@@ -24,6 +52,7 @@ function createAiChatService(deps = {}) {
           ui: deps.browserWindowUi,
           licenseCache,
           logger,
+          waitForBrowserConnection: (target) => waitForBrowserConnection(deps, target),
         });
       } catch (error) {
         logger.warn?.('[AI窗口工具] 初始化失败:', error?.message || error);
@@ -65,4 +94,4 @@ function createAiChatService(deps = {}) {
     return { chat, getWindowTools: getAiBrowserWindowTools, insert, stop };
 }
 
-module.exports = { createAiChatService };
+module.exports = { createAiChatService, namedBrowserConnections, waitForBrowserConnection };

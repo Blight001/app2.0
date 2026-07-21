@@ -78,6 +78,7 @@ function createMcpContext(tools, connections, resolver, controlledConnectionId) 
     content: `你可以使用这些 AI-FREE MCP 工具：${toolNames}。${routing}${browserWorkflow}`
       + '只调用目录中真实存在的工具并严格遵守参数 schema。software_window 仅管理软件窗口：其 list 返回的 history_id 和 tab_id 不能当作 change_browser；窗口名称只有同时出现在可用连接列表时才能用于 change_browser。要聚焦已打开窗口，调用 software_window 的 open，并传 history_id 或唯一名称。'
       + 'browser_tab/browser_observe/browser_action/browser_wait 等浏览器工具只能控制当前目标，切换目标只能使用 change_browser；窗口已打开不等于其 MCP 已连接。'
+      + 'software_window 的 open/create 会等待目标窗口的 AI 自动化插件连接；只有返回 success=true、mcp_connected=true 和 control_browser_id 后才算可控，此时目标已自动切换，不要在连接就绪前调用页面工具。'
       + '当用户目标明确且操作安全时直接完成，不要为已知信息反复询问；涉及删除、覆盖、提交、支付或发送等重要动作时，以用户授权范围为准。'
       + '必须根据工具返回值判断下一步，未收到成功结果前不得声称操作完成；完成后用简洁自然语言说明实际结果，不要暴露内部调用格式。',
     ai_free_card_context: true,

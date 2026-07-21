@@ -1,5 +1,7 @@
 'use strict';
 
+const { withBrowserRouteParam } = require('./chat-tool-context');
+
 function parseToolArguments(call) {
   const raw = String(call?.function?.arguments || '{}');
   try {
@@ -111,10 +113,38 @@ function nextWindowControl(context, action, resultName) {
   return current;
 }
 
+function appendReadyConnectionTools(context, connection) {
+  if (!Array.isArray(context.toolDefinitions)) return;
+  const known = new Set(context.toolDefinitions.map((tool) => String(tool?.name || '')));
+  for (const tool of (Array.isArray(connection.tools) ? connection.tools : [])) {
+    const name = String(tool?.name || '').trim();
+    if (!name || known.has(name) || context.windowTools?.has?.(name)) continue;
+    context.toolDefinitions.push(withBrowserRouteParam(tool));
+    known.add(name);
+  }
+}
+
+function readyWindowConnection(context, toolResult) {
+  const id = String(toolResult?.control_browser_id || '').trim();
+  if (!id) return null;
+  const existing = context.connections.find((item) => String(item?.id || '') === id);
+  const live = existing || context.bridge?.getConnection?.(id);
+  if (!live) return null;
+  const connection = existing || {
+    ...live, name: String(toolResult?.control_browser_name || live.name || '').trim(),
+  };
+  if (!existing) context.connections.push(connection);
+  appendReadyConnectionTools(context, connection);
+  context.browserReadyMessage = `浏览器“${connection.name || id}”的 AI 自动化 MCP 已连接，`
+    + `当前控制连接为 ${id}。现在可以调用浏览器工具；无需再次传 change_browser，除非要切换到其他浏览器。`;
+  return connection;
+}
+
 function syncWindowToolControl(context, toolName, args, toolResult) {
   if (toolName !== 'software_window' || toolResult?.success === false || !context.browserControl) return;
   const action = String(args?.action || '').trim().toLowerCase();
-  const next = nextWindowControl(context, action, toolResult?.name);
+  const next = readyWindowConnection(context, toolResult)
+    || nextWindowControl(context, action, toolResult?.name);
   if (!next || next.id === context.browserControl.connectionId) return;
   context.browserControl.connectionId = next.id;
   context.emit?.({ type: 'browser_control_changed', connectionId: next.id, name: next.name || '' });
@@ -167,6 +197,12 @@ async function executeSingleTool(context, call) {
     name: toolName,
     content: serialized.content,
   });
+  if (context.browserReadyMessage) {
+    context.modelMessages.push({
+      role: 'system', content: context.browserReadyMessage, ai_free_card_context: true,
+    });
+    context.browserReadyMessage = '';
+  }
   return { failure: serialized.failure || prepared.failure };
 }
 
