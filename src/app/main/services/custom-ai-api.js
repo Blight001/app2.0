@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { normalizeCustomAiApiConfig } = require('../utils/ai-control-settings');
+const { normalizeToolCallMessage } = require('../lib/ai-tool-call-normalizer');
 
 function resolveChatCompletionsUrl(baseUrl) {
   const raw = String(baseUrl || '').trim();
@@ -40,15 +41,6 @@ function normalizeMessages(messages = []) {
   });
 }
 
-function normalizeResponseContent(content) {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return content == null ? '' : String(content);
-  return content.map((part) => {
-    if (typeof part === 'string') return part;
-    return String(part?.text || part?.content || '');
-  }).join('');
-}
-
 function buildCustomAiRequest(normalized, messages, options) {
   const headers = { 'Content-Type': 'application/json' };
   if (normalized.apiKey) headers.Authorization = `Bearer ${normalized.apiKey}`;
@@ -76,13 +68,14 @@ function normalizeCustomAiSuccess(data) {
   if (!message || typeof message !== 'object') {
     return { ok: false, message: '自定义 API 返回格式无效：缺少 choices[0].message' };
   }
+  const normalizedMessage = normalizeToolCallMessage(message);
   return {
     ok: true,
     message: {
       role: 'assistant',
-      content: normalizeResponseContent(message.content),
+      content: normalizedMessage.content,
       reasoning: String(message.reasoning_content || message.reasoning || ''),
-      tool_calls: Array.isArray(message.tool_calls) ? message.tool_calls : [],
+      tool_calls: normalizedMessage.toolCalls,
     },
     usage: data.usage || null,
     custom_api: true,

@@ -12,6 +12,8 @@ const {
   waitForChatAbort,
 } = require('./chat-execution-state');
 const { executeToolCalls } = require('./chat-tool-executor');
+const { parseTextMcpCalls } = require('./chat-text-mcp-parser');
+const { normalizeToolCallMessage } = require('../../lib/ai-tool-call-normalizer');
 
 function createConversationState(request, readStoreConfigSafe) {
   return {
@@ -128,6 +130,16 @@ function finishWithoutTools(state, result) {
 }
 
 function validateToolRound(state, toolCalls) {
+  const knownTools = new Set(
+    (state.toolContext.tools || []).map((tool) => String(tool?.name || '').trim()).filter(Boolean),
+  );
+  const unknownTool = toolCalls.find(
+    (call) => !knownTools.has(String(call?.function?.name || '').trim()),
+  );
+  if (unknownTool) {
+    const name = String(unknownTool?.function?.name || '').trim() || '未提供工具名';
+    return toolFailureResult(state, `暂无该 MCP 调用：${name}`);
+  }
   const needsPlugin = toolCalls.some(
     (call) => !state.windowTools?.has(String(call?.function?.name || '').trim()),
   );
@@ -215,9 +227,19 @@ async function runChatRound(state, round) {
   const failed = handleFailedModelResult(state, requested.result);
   if (failed) return { done: true, result: failed.result };
   applyResultMetadata(state, requested.result, round);
-  const toolCalls = Array.isArray(requested.result.message?.tool_calls)
-    ? requested.result.message.tool_calls
-    : [];
+  const normalizedMessage = normalizeToolCallMessage(requested.result.message);
+  requested.result.message.content = normalizedMessage.content;
+  let toolCalls = normalizedMessage.toolCalls;
+  if (!toolCalls.length) {
+    const parsed = parseTextMcpCalls(requested.result.message?.content, round);
+    if (parsed.detected) {
+      requested.result.message.content = parsed.content;
+      toolCalls = parsed.toolCalls;
+      if (parsed.error) {
+        return { done: true, result: finishWithoutTools(state, requested.result) };
+      }
+    }
+  }
   if (!toolCalls.length) {
     const finalResult = finishWithoutTools(state, requested.result);
     return finalResult ? { done: true, result: finalResult } : { done: false };

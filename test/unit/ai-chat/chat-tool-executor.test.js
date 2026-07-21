@@ -66,3 +66,31 @@ test('本地窗口工具优先执行，插件失败被序列化为可恢复 tool
   assert.equal(payload.recoverable, true);
   assert.equal(payload.error, 'offline');
 });
+
+test('工具参数 JSON 错误时返回格式诊断且不执行工具', async () => {
+  const modelMessages = [];
+  let executions = 0;
+  const result = await executeToolCalls({
+    compactToolValue: (value) => value,
+    connections: [],
+    describeConnections: () => '',
+    emit() {},
+    findConnectionByRef: () => null,
+    isStopped: () => false,
+    modelMessages,
+    round: 0,
+    toolCalls: [{ id: 'bad-json', function: { name: 'software_window', arguments: '{bad}' } }],
+    toolEvents: [],
+    traceEvents: [],
+    waitForAbort: (promise) => promise,
+    windowTools: {
+      has: () => true,
+      execute: async () => { executions += 1; return { success: true }; },
+    },
+  });
+  assert.equal(executions, 0);
+  assert.match(result.unresolvedToolFailure, /MCP 调用格式错误/);
+  const payload = JSON.parse(modelMessages.at(-1).content);
+  assert.equal(payload.errorCode, 'MCP_ARGUMENTS_INVALID');
+  assert.equal(payload.phase, 'tool_parse');
+});

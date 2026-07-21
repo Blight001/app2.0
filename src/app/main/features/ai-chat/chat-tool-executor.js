@@ -1,7 +1,16 @@
 'use strict';
 
 function parseToolArguments(call) {
-  try { return JSON.parse(String(call?.function?.arguments || '{}')); } catch (_) { return {}; }
+  const raw = String(call?.function?.arguments || '{}');
+  try {
+    const args = JSON.parse(raw);
+    if (!args || typeof args !== 'object' || Array.isArray(args)) {
+      return { args: {}, error: 'arguments 必须是 JSON 对象' };
+    }
+    return { args, error: '' };
+  } catch (_) {
+    return { args: {}, error: 'arguments 不是有效的 JSON' };
+  }
 }
 
 function resolvePluginTarget(args, connections, findConnectionByRef, describeConnections) {
@@ -80,7 +89,8 @@ function serializeToolResult(result, toolName) {
 
 async function executeSingleTool(context, call) {
   const toolName = String(call?.function?.name || '').trim();
-  const args = parseToolArguments(call);
+  const parsedArguments = parseToolArguments(call);
+  const args = parsedArguments.args;
   const activity = {
     id: String(call.id || ''),
     name: toolName,
@@ -91,7 +101,13 @@ async function executeSingleTool(context, call) {
   context.traceEvents.push({ type: 'tool', round: context.round, tool: activity });
   context.emit({ type: 'tool_start', tool: { ...activity }, round: context.round });
   let toolResult;
-  try {
+  if (parsedArguments.error) {
+    toolResult = normalizeToolFailure({
+      message: `MCP 调用格式错误：${parsedArguments.error}`,
+      errorCode: 'MCP_ARGUMENTS_INVALID',
+      phase: 'tool_parse',
+    }, toolName);
+  } else try {
     toolResult = context.windowTools?.has(toolName)
       ? await context.waitForAbort(context.windowTools.execute(toolName, args))
       : await dispatchPluginTool(context, toolName, args);
