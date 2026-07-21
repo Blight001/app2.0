@@ -58,6 +58,7 @@ test('external gateway combines software and per-window MCP tools with routing f
     assert.equal(listed.connections[0].name, '工作窗口');
     const observe = listed.tools.find((tool) => tool.name === 'browser_observe');
     assert.equal(observe.inputSchema.properties.browser_id.type, 'string');
+    assert.equal(observe.inputSchema.required.includes('browser_id'), false);
     assert.equal(observe.inputSchema.properties.keyword.type, 'string');
     const cookie = listed.tools.find((tool) => tool.name === 'save_cookies');
     assert.equal(cookie.inputSchema.properties.save_to_server, undefined);
@@ -85,6 +86,8 @@ test('external gateway requires an explicit browser route when multiple windows 
       { id: 'one', browserName: '窗口一', online: true },
       { id: 'two', browserName: '窗口二', online: true },
     ] });
+    const observe = gateway.listTools().tools.find((tool) => tool.name === 'browser_observe');
+    assert.equal(observe.inputSchema.required.includes('browser_id'), true);
     await assert.rejects(gateway.callTool('browser_observe', {}), /通过 browser_id 指定/);
     const result = await gateway.callTool('browser_observe', { browser_name: '窗口二' });
     assert.equal(result.connectionId, 'two');

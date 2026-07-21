@@ -147,8 +147,10 @@ async function toolBrowserTabReplace(args = {}) {
     const currentUrl = normalizeTargetUrl(String(tab.url || '').trim());
     if (currentUrl === href) {
         await focusTab(tab.id).catch(() => {});
+        await chrome.tabs.reload(tab.id);
+        await waitForTabComplete(tab.id, 20000).catch(() => {});
         const refreshed = await chrome.tabs.get(tab.id);
-        return { success: true, action: 'replace', ...tabSummary(refreshed), cardStep: navigateCardStep(href), note: '已在目标网页，无需跳转' };
+        return { success: true, action: 'replace', ...tabSummary(refreshed), cardStep: navigateCardStep(href), note: '已在目标网页，已刷新页面' };
     }
     await chrome.tabs.update(tab.id, { url: href, active: true });
     await focusTab(tab.id);

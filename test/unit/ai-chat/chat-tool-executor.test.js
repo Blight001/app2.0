@@ -8,13 +8,73 @@ const {
   executeToolCalls,
   resolvePluginTarget,
 } = require('../../../src/app/main/features/ai-chat/chat-tool-executor');
+const {
+  buildChatToolContext,
+  withBrowserRouteParam,
+} = require('../../../src/app/main/features/ai-chat/chat-tool-context');
+
+test('多浏览器工具 schema 将 browser_id 标记为必填且保留原必填参数', () => {
+  const tool = withBrowserRouteParam({
+    name: 'browser_action',
+    input_schema: {
+      type: 'object',
+      properties: { action: { type: 'string' } },
+      required: ['action'],
+    },
+  });
+  assert.deepEqual(tool.input_schema.required, ['action', 'browser_id']);
+  assert.equal(tool.input_schema.properties.browser_id.type, 'string');
+});
+
+test('AI MCP prompt 按可用工具注入准确的多浏览器路由和页面操作策略', () => {
+  const context = buildChatToolContext({
+    connections: [
+      { id: 'one', name: '工作窗口', tools: [
+        { name: 'browser_tab', input_schema: { type: 'object' } },
+        { name: 'browser_observe', input_schema: { type: 'object' } },
+        { name: 'browser_action', input_schema: { type: 'object' } },
+      ] },
+      { id: 'two', name: '资料窗口', tools: [{ name: 'browser_observe', input_schema: { type: 'object' } }] },
+    ],
+    initialMessages: [{ role: 'user', content: '继续操作' }],
+    windowTools: {
+      has: (name) => name === 'software_window',
+      tools: [{ name: 'software_window', input_schema: { type: 'object' } }],
+    },
+  });
+  const prompt = context.modelMessages[0].content;
+  assert.match(prompt, /browser_tab、browser_observe、browser_action/);
+  assert.match(prompt, /每一个浏览器工具时都必须传 browser_id/);
+  assert.match(prompt, /页面明显变化后重新 observe/);
+  assert.match(prompt, /禁止跨浏览器或跨页面复用旧 ref/);
+  assert.match(prompt, /history_id、tab_id 和 name 不能直接当作 browser_id/);
+  assert.match(prompt, /要聚焦已打开窗口，调用 software_window 的 open/);
+  assert.match(prompt, /窗口已打开不等于其 MCP 已连接/);
+  assert.match(prompt, /未收到成功结果前不得声称操作完成/);
+  assert.equal(context.tools.find((tool) => tool.name === 'browser_tab').input_schema.required.includes('browser_id'), true);
+});
+
+test('没有浏览器连接时 prompt 不会诱导 AI 虚构浏览器 MCP', () => {
+  const context = buildChatToolContext({
+    connections: [],
+    initialMessages: [{ role: 'user', content: '打开窗口' }],
+    windowTools: {
+      has: (name) => name === 'software_window',
+      tools: [{ name: 'software_window', input_schema: { type: 'object' } }],
+    },
+  });
+  assert.match(context.modelMessages[0].content, /没有可用的浏览器自动化连接/);
+  assert.doesNotMatch(context.modelMessages[0].content, /网页操作应先用 browser_tab/);
+});
 
 test('多浏览器工具要求明确路由，名称歧义和未知连接返回可恢复诊断', () => {
   const connections = [{ id: 'a' }, { id: 'b' }];
   const describe = () => 'A(a), B(b)';
   assert.match(resolvePluginTarget({}, connections, () => null, describe).error, /当前选择了 2 个浏览器/);
   assert.match(resolvePluginTarget({ browser_id: 'same' }, connections, () => ({ ambiguous: true }), describe).error, /改用 browser_id/);
-  assert.match(resolvePluginTarget({ browser_id: 'missing' }, connections, () => null, describe).error, /未找到/);
+  const missing = resolvePluginTarget({ browser_id: 'missing' }, connections, () => null, describe).error;
+  assert.match(missing, /当前 AI 已选且在线/);
+  assert.match(missing, /history_id\/tab_id 不能代替 browser_id/);
 });
 
 test('插件工具移除路由字段并限制超时，自动化卡片使用十五分钟默认值', async () => {

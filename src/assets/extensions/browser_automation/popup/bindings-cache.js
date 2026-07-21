@@ -83,21 +83,6 @@ saveCardEditorButton?.addEventListener('click', () => {
     })();
 });
 
-exportCardButton?.addEventListener('click', () => {
-    void (async () => {
-        exportCardButton.disabled = true;
-        try {
-            const result = await exportCard();
-            if (cardDataExportOutput) cardDataExportOutput.value = String(result.text || '');
-            setCardDataExportOpen(true);
-        } catch (error) {
-            showActionToast(error && error.message ? error.message : '导出自动化卡片失败', 'error');
-        } finally {
-            exportCardButton.disabled = false;
-        }
-    })();
-});
-
 appendStepButton?.addEventListener('click', () => {
     void (async () => {
         appendStepButton.disabled = true;

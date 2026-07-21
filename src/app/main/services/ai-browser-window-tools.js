@@ -228,7 +228,7 @@ class AiBrowserWindowTools {
       const tabId = await this.ui.addTab(record.url, {
         tabId: `browser-tab-${id.replace(/[^a-z0-9_-]/gi, '_')}`, fixedTitle: record.name,
         browserHistoryId: record.id, runtimeType: 'chromium', browserSettings: record.settings,
-        resolveProfileInBackground: true, showLoadingPage: true, focusBrowser: false,
+        resolveProfileInBackground: true, showLoadingPage: true, focusBrowser: false, restoreSideFocus: true,
       });
       if (!tabId) throw new Error('新建浏览器窗口失败');
       this.ui.sendToSide?.('browser-history-changed');

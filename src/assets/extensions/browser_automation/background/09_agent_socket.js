@@ -83,7 +83,7 @@ const CARD_FORMAT_RULES = `# 自动化卡片规范（cardData）—— 步骤类
 - optional: true 时该步骤失败直接跳过；不设置则任一步骤失败后立即结束，找不到元素或等待超时均只尝试 1 次（见运行规则第 2 条）
 
 ## 步骤类型（type，仅以下 10 种）
-- navigate: 跳转 url（省略 url 时用卡片 website；当前已在目标地址则跳过跳转；timeout 默认 15000）
+- navigate: 跳转 url（省略 url 时用卡片 website；当前已在目标地址则刷新页面；timeout 默认 15000）
 - click: 点击 selector 元素（timeout 默认 5000，poll_interval_ms 默认 200）
 - type: 向 selector 输入 text（支持 <input>（非 button/checkbox 等）、<textarea>、[contenteditable]、role=textbox/searchbox 等可编辑元素；timeout 默认 5000）；clear_first=true 输入前清空；click_before_type=true 输入前先点击。找到非输入元素会立即报错（失败后不重试）
 - wait: 等待元素出现（selector + timeout，默认 3000）；或改用 wait_for_text 等文本出现 / wait_for_element_hidden 等元素消失 / wait_for_text_hidden 等文本消失

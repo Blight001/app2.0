@@ -89,6 +89,50 @@ test('新建栏目在慢速环境探测完成前立即发布 starting 占位', a
   assert.equal(tabs.get('async-browser')?.runtimeStatus, 'ready');
 });
 
+test('侧栏输入中创建浏览器会在 HWND 附着完成后恢复侧栏原生焦点', async () => {
+  const chromium = new EventEmitter();
+  const tabs = new Map();
+  const calls = [];
+  let activeTabId = null;
+  const browserRuntimeManager = {
+    chromium,
+    async launchProfile() { return { status: 'ready' }; },
+    async hide() {},
+    async show() {},
+    async focus() { calls.push('browser-focus'); },
+    releaseFocus(profileId, type) { calls.push(`release:${profileId}:${type}`); },
+  };
+  const manager = createTabManager({
+    browserRuntimeManager,
+    getTabs: () => tabs,
+    getMainWindow: () => ({
+      webContents: { isDestroyed: () => false, focus: () => calls.push('shell-focus') },
+      isDestroyed: () => false,
+      isFocused: () => true,
+      getContentSize: () => [1200, 800],
+      emit() {},
+    }),
+    getSideView: () => ({ webContents: {
+      isDestroyed: () => false,
+      isFocused: () => true,
+      focus: () => calls.push('sidebar-focus'),
+    } }),
+    getActiveTabId: () => activeTabId,
+    setActiveTabId: (tabId) => { activeTabId = tabId; },
+    getIsSidebarVisible: () => true,
+    updateTabs() {},
+    sendToSide() {},
+    logger: { warn() {}, error() {} },
+  });
+
+  await manager.addTab('chrome://newtab/', { tabId: 'background-browser', focusBrowser: false });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.ok(calls.includes('release:background-browser:chromium'));
+  assert.ok(calls.includes('sidebar-focus'));
+  assert.equal(calls.includes('browser-focus'), false);
+});
+
 test('异步创建失败时移除占位并恢复之前的栏目', async () => {
   const chromium = new EventEmitter();
   const tabs = new Map([['existing-browser', {

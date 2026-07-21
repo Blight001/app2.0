@@ -33,6 +33,7 @@ class BrowserRuntimeManager {
   async hide(profileId, type) { return this.runtimeFor(type).hide(profileId); }
   async resize(profileId, type, bounds) { return this.runtimeFor(type).resize(profileId, bounds); }
   async focus(profileId, type) { return this.runtimeFor(type).focus(profileId); }
+  releaseFocus(profileId, type) { return this.runtimeFor(type).releaseFocus(profileId); }
   async reload(profileId, type) { return this.runtimeFor(type).reload(profileId); }
   async navigate(profileId, type, url) { return this.runtimeFor(type).navigate?.(profileId, url); }
   async dispatchInput(profileId, input) { return this.chromium.dispatchInput(profileId, input); }

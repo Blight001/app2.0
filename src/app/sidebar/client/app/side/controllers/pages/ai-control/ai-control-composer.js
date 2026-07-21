@@ -83,15 +83,16 @@
   async function insertMessageDuringRun(content, input) {
     if (!state.activeRequestId || state.stopping) return;
     const messages = currentMessages();
-    const insertedMessage = { role: 'user', content };
-    messages.push(insertedMessage);
-    const userRow = appendMessage('user', content, { messageIndex: messages.length - 1 });
+    messages.push({ role: 'user', content });
+    appendMessage('user', content, { messageIndex: messages.length - 1 });
     if (input) {
       input.value = '';
       resizeInput();
       flushDeferredAiControlRefresh();
     }
     syncSendState();
+    // 用户输入先同步写入 localStorage，再通知正在运行的服务端会话。
+    void persistCurrentSession();
     try {
       const result = await window.aiFree.ai.chatInsert({
         requestId: state.activeRequestId,
@@ -99,14 +100,11 @@
       });
       if (!result?.ok) throw new Error(result?.message || '当前 AI 回复已经结束');
     } catch (error) {
-      const index = messages.indexOf(insertedMessage);
-      if (index >= 0) messages.splice(index, 1);
-      userRow?.remove();
-      if (input && !input.value) {
-        input.value = content;
-        resizeInput();
-      }
-      setStatus(error?.message || String(error), 'warning');
+      const message = error?.message || String(error);
+      messages.push({ role: 'assistant', content: `请求失败：${message}` });
+      appendMessage('assistant', `请求失败：${message}`);
+      await persistCurrentSession();
+      setStatus(message, 'warning');
       syncSendState();
     }
   }
@@ -134,21 +132,14 @@
     } catch (_) {}
   }
 
-  async function prepareChatSend(input, select, content) {
+  function prepareChatSend(input, select, content) {
     const useCustomApi = selectedModelIsCustom();
-    if (!useCustomApi && !await ensureAuthenticatedForChat()) return null;
     if (!select?.value) return null;
-    await refreshQuotaBeforeSend(useCustomApi);
-    if (!useCustomApi && isQuotaExhausted()) {
-      showChatBusinessError('AI 对话额度已用尽，请联系管理员');
-      syncSendState();
-      return null;
-    }
     ensureSessionForSend();
     const messages = currentMessages();
     const wasFirstExchange = !messages.some((message) => message.role === 'assistant' && String(message.content || '').trim());
     messages.push({ role: 'user', content });
-    const userRow = appendMessage('user', content, { messageIndex: messages.length - 1 });
+    appendMessage('user', content, { messageIndex: messages.length - 1 });
     updateSessionTitleUi();
     input.value = '';
     resizeInput();
@@ -156,8 +147,12 @@
     state.loading = true;
     state.stopping = false;
     setStatus('');
+    const run = { content, input, messages, select, useCustomApi, wasFirstExchange };
+    updateCurrentSessionAfterChat(run);
     syncSendState();
-    return { content, input, messages, select, useCustomApi, userRow, wasFirstExchange };
+    // 本地写入在函数首次 await 前同步完成；主进程文件保存排队在后台，不阻塞请求发送。
+    void persistCurrentSession();
+    return run;
   }
 
   function handleInsertedStreamMessage(run) {
@@ -200,25 +195,15 @@
     };
   }
 
-  function removeFailedChatRows(run, removeUser = true) {
-    run.messages.pop();
-    if (removeUser) run.userRow?.remove();
-    run.streamView?.row?.remove();
-    if (!run.messages.length) renderWelcome();
-  }
-
-  function handleChatBusinessFailure(run, result) {
+  function handleChatBusinessFailure(result) {
     const message = String(result?.message || result?.error || '对话请求失败');
     if (/请先.*登录|未登录/.test(message)) {
-      removeFailedChatRows(run, false);
       openPersonalLogin();
-      return true;
     }
-    if (!isQuotaFailure(message)) return false;
-    removeFailedChatRows(run);
-    if (result?.quota) renderQuota(result.quota);
-    showChatBusinessError(message);
-    return true;
+    if (isQuotaFailure(message)) {
+      if (result?.quota) renderQuota(result.quota);
+      showChatBusinessError(message);
+    }
   }
 
   function applyReturnedMessages(run, result) {
@@ -268,19 +253,29 @@
     if (run.wasFirstExchange) void maybeGenerateTitle(run.select.value);
   }
 
-  function handleChatSendError(run, error) {
-    run.messages.pop();
+  async function handleChatSendError(run, error) {
     const message = error?.message || String(error);
-    if (isQuotaFailure(message)) {
-      run.userRow?.remove();
-      run.streamView?.row?.remove();
-      if (!run.messages.length) renderWelcome();
-      showChatBusinessError(message);
-      return;
-    }
-    run.streamView?.addContent(`\n\n请求失败：${message}`);
+    const failureContent = `请求失败：${message}`;
+    run.messages.push({ role: 'assistant', content: failureContent });
+    run.streamView?.setContent(failureContent);
     run.streamView?.finalize();
+    updateCurrentSessionAfterChat(run);
+    await persistCurrentSession();
     setStatus(message);
+  }
+
+  async function requestChatResult(run) {
+    if (!run.useCustomApi && !await ensureAuthenticatedForChat()) {
+      throw new Error('请先在个人中心登录账号');
+    }
+    await refreshQuotaBeforeSend(run.useCustomApi);
+    if (!run.useCustomApi && isQuotaExhausted()) {
+      throw new Error('AI 对话额度已用尽，请联系管理员');
+    }
+    const result = await window.aiFree.ai.chat(buildChatRequest(run));
+    if (result?.ok) return result;
+    handleChatBusinessFailure(result);
+    throw new Error(String(result?.message || result?.error || '对话请求失败'));
   }
 
   function finishChatSend(run) {
@@ -303,21 +298,17 @@
       return;
     }
 
-    const run = await prepareChatSend(input, select, content);
+    const run = prepareChatSend(input, select, content);
     if (!run) return;
     run.requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     state.activeRequestId = run.requestId;
     run.unsubscribeStream = subscribeChatStream(run);
 
     try {
-      const result = await window.aiFree.ai.chat(buildChatRequest(run));
-      if (!result?.ok) {
-        if (handleChatBusinessFailure(run, result)) return;
-        throw new Error(String(result?.message || result?.error || '对话请求失败'));
-      }
+      const result = await requestChatResult(run);
       await applyChatResult(run, result);
     } catch (error) {
-      handleChatSendError(run, error);
+      await handleChatSendError(run, error);
     } finally {
       finishChatSend(run);
     }

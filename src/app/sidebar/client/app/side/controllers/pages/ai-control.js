@@ -45,6 +45,8 @@ const state = {
   accountSessionRefreshQueued: false,
   dynamicDataRefreshQueued: false,
   dynamicUiRefreshPending: false,
+  historySaveChains: new Map(),
+  historySaveLatestPayloads: new Map(),
 };
 
 const HISTORY_LS_PREFIX = 'ai-free.ai-chat-history.v1.';

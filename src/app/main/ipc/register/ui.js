@@ -2,6 +2,7 @@ const { BrowserWindow, nativeTheme } = require('electron');
 const { resolveTabTitle } = require('../../services/tab-common');
 const { createAccountCenterPopupController } = require('../../features/account/account-center-popup-controller');
 const { createTabContextMenuController } = require('../../features/browser/tab-context-menu-controller');
+const { createSidebarFocusHandler } = require('../../features/browser/sidebar-focus-controller');
 
 function uiIpcError(error) {
   return error?.message || String(error);
@@ -208,62 +209,6 @@ function createTabBridgeHandler(ui) {
       return action({ activeTab, targetTab, payload });
     } catch (error) {
       return { ok: false, message: uiIpcError(error) };
-    }
-  };
-}
-
-function resolveSidebarFocusTarget(ui, event) {
-  const sideView = typeof ui?.getSideView === 'function' ? ui.getSideView() : null;
-  if (sideView?.webContents && !sideView.webContents.isDestroyed?.()) return sideView.webContents;
-  return event.sender && !event.sender.isDestroyed?.() ? event.sender : null;
-}
-
-function focusMainWindow(mainWindow) {
-  if (!mainWindow || mainWindow.isDestroyed?.()) return;
-  if (mainWindow.isMinimized?.()) {
-    try { mainWindow.restore?.(); } catch (_) {}
-  }
-  if (!mainWindow.isFocused?.()) {
-    try { mainWindow.focus?.(); } catch (_) {}
-  }
-}
-
-function createSidebarFocusAction(mainWindow, sideContents, event) {
-  return () => {
-    try {
-      if (sideContents && !sideContents.isDestroyed?.()) {
-        if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed?.()) mainWindow.webContents.focus();
-        sideContents.focus();
-        return true;
-      }
-      if (event.sender && !event.sender.isDestroyed?.()) {
-        event.sender.focus();
-        return true;
-      }
-    } catch (_) {}
-    return false;
-  };
-}
-
-function createSidebarFocusHandler(ui, isPopupOpen) {
-  return async (event, request = {}) => {
-    try {
-      const passive = request?.interaction === 'passive';
-      const textInput = request?.interaction === 'text-input';
-      if (passive && isPopupOpen()) return { ok: true, skipped: true, reason: 'account-center-popup-open' };
-      const mainWindow = ui?.getMainWindow?.();
-      const sideContents = resolveSidebarFocusTarget(ui, event);
-      focusMainWindow(mainWindow);
-      const focusSide = createSidebarFocusAction(mainWindow, sideContents, event);
-      focusSide();
-      if (textInput) return { ok: true, stableTextInput: true };
-      await new Promise((resolve) => setImmediate(resolve));
-      focusSide();
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      focusSide();
-      return { ok: true, sideFocused: Boolean(sideContents?.isFocused?.()) };
-    } catch (error) {
-      return { ok: false, error: uiIpcError(error) };
     }
   };
 }

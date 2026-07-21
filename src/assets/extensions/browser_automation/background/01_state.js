@@ -238,7 +238,8 @@ async function navigateTabToUrl(tabId = 0, pageUrl = '') {
 
     const currentUrl = normalizeTargetUrl(String(tab.url || '').trim());
     if (currentUrl === normalizedPageUrl) {
-        return tab;
+        await chrome.tabs.reload(normalizedTabId);
+        return waitForTabComplete(normalizedTabId, 20000);
     }
 
     await chrome.tabs.update(normalizedTabId, { url: normalizedPageUrl });

@@ -78,12 +78,15 @@ function createRuntimeHelpers(deps = {}) {
         if (dir && fs.existsSync(dir) && fs.statSync(dir).isDirectory()) return dir;
       } catch (_) {}
     }
-    logger.warn?.('[TranslateExt] 未找到可加载的扩展目录，候选路径如下:', candidates);
-    return candidates[0] || path.join(__dirname, '../../../assets/extensions/transform');
+    // transform 是可选的内置插件。用户从源码或打包配置中移除它时，
+    // 用空值表示“未安装”，避免把正常的缺失状态当作启动错误反复打印。
+    return '';
   }
 
   async function loadTranslateExtension(session, label = '') {
-    return loadTranslateExtensionIntoSession(session, label, getTranslateExtDir(), logger);
+    const extDir = getTranslateExtDir();
+    if (!extDir) return null;
+    return loadTranslateExtensionIntoSession(session, label, extDir, logger);
   }
 
 // 处理：computeDeviceId的具体业务逻辑。

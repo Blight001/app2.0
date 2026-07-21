@@ -100,6 +100,9 @@ class BrowserTabLauncher {
       bounds: this.resolveBounds(mainWindow),
       tab: this.createStartingTab(id, url, options, identity, browserSettings, proxy, urls),
       previouslyActiveTabId: String(this.deps.resolveActiveTabId() || ''),
+      restoreSideFocus: options.focusBrowser !== true && (
+        options.restoreSideFocus === true || this.deps.isSideViewFocused?.() === true
+      ),
     };
   }
 
@@ -207,9 +210,19 @@ class BrowserTabLauncher {
     await this.applyConfiguredCookies(context);
     this.deps.switchTab(context.id, { focusBrowser: context.options.focusBrowser === true });
     this.navigateFromLoadingPage(context);
+    this.restoreSideFocusAfterLaunch(context);
     if (context.options.resolveProfileInBackground === true && context.proxy.value?.enabled !== true) {
       this.deps.refreshBrowserProfileInBackground(context.id, context.browserSettings);
     }
+  }
+
+  restoreSideFocusAfterLaunch(context) {
+    if (!context.restoreSideFocus || typeof this.deps.restoreSideViewFocus !== 'function') return;
+    const restore = () => this.deps.restoreSideViewFocus();
+    restore();
+    setImmediate(restore);
+    const timer = setTimeout(restore, 80);
+    timer.unref?.();
   }
 
   async resolveBrowserProfile(context) {

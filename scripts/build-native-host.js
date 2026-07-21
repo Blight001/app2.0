@@ -10,6 +10,7 @@ const nativeRoot = path.join(root, 'native', 'browser-host');
 const electronVersion = String(require(path.join(root, 'node_modules', 'electron', 'package.json')).version || '').trim();
 const outputDir = path.join(nativeRoot, 'build', 'Release');
 const outputFile = path.join(outputDir, 'browser_host.node');
+const dpiTestFile = path.join(outputDir, 'dpi_scaling_test.exe');
 
 function quote(value) {
   return `"${String(value).replace(/"/g, '""')}"`;
@@ -111,6 +112,16 @@ function runManualMsvcBuild() {
     '/link', `/OUT:${outputFile}`, '/DELAYLOAD:node.exe', sdk.nodeLib,
     'delayimp.lib', 'user32.lib', 'gdi32.lib', 'dwmapi.lib',
   ];
+  const testResult = spawnSync('cl.exe', [
+    '/nologo', '/O2', '/EHsc', '/std:c++17', '/MT', '/utf-8',
+    '/DUNICODE', '/D_UNICODE', '/DWIN32_LEAN_AND_MEAN', '/DNOMINMAX',
+    path.join(nativeRoot, 'test', 'dpi_scaling_test.cc'),
+    '/link', `/OUT:${dpiTestFile}`, 'user32.lib',
+  ], { cwd: nativeRoot, env: msvcEnv, stdio: 'inherit' });
+  if (testResult.status !== 0 || !fs.existsSync(dpiTestFile)) {
+    throw new Error(`DPI 换算测试构建失败，退出码 ${testResult.status}`);
+  }
+
   const result = spawnSync('cl.exe', compileArgs, {
     cwd: nativeRoot,
     env: msvcEnv,

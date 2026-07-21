@@ -154,6 +154,11 @@
     window.setInterval(loadAutomationCards, 1000);
   }
 
+  // 正常关闭/刷新时再做一次同步本地检查点；即使 IPC 来不及完成，消息也不会丢失。
+  window.addEventListener('pagehide', () => {
+    if (currentMessages().length) checkpointCurrentSession();
+  });
+
   document.addEventListener('DOMContentLoaded', () => {
     initCustomSelects();
     bindAiHeaderEvents();

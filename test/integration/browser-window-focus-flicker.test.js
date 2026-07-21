@@ -43,4 +43,21 @@ test('refocusing the app keeps Chromium above delayed Electron renderer reorderi
 test('an already loaded legacy native host skips focus repaint safely', () => {
   const bridge = new ChromiumWindowBridge({ binding: {} });
   assert.equal(bridge.raiseHostWindow('host-1'), true);
+  assert.equal(bridge.releaseChildWindowFocus('child-1'), true);
+});
+
+test('releasing Chromium focus delegates the active browser HWND to the native bridge', () => {
+  const calls = [];
+  const runtime = new ChromiumRuntime({
+    store: { getState: () => ({ browserHwnd: 'child-1' }) },
+    windowBridge: {
+      releaseChildWindowFocus: (hwnd) => {
+        calls.push(hwnd);
+        return true;
+      },
+    },
+  });
+
+  assert.equal(runtime.releaseFocus('profile-1'), true);
+  assert.deepEqual(calls, ['child-1']);
 });

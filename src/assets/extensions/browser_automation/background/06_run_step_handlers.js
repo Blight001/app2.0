@@ -49,12 +49,16 @@ async function executeNavigateAutomationStep(state) {
         }
         const currentTab = await chrome.tabs.get(run.tabId).catch(() => null);
         const currentTabUrl = normalizeTargetUrl(String(currentTab?.url || '').trim());
-        if (currentTabUrl !== url) {
+        const refreshCurrentPage = currentTabUrl === url;
+        if (refreshCurrentPage) {
+            await chrome.tabs.reload(run.tabId);
+            await waitForTabComplete(run.tabId, Number(step.timeout || 15000));
+        } else {
             await chrome.tabs.update(run.tabId, { url });
             await waitForTabComplete(run.tabId, Number(step.timeout || 15000));
         }
-        return completeAutomationStep(state, currentTabUrl === url
-            ? `${stepLabel} · 已在目标网页，无需跳转`
+        return completeAutomationStep(state, refreshCurrentPage
+            ? `${stepLabel} · 已在目标网页，已刷新页面`
             : `${stepLabel} · 已跳转`);
     } catch (error) {
         return handleNavigateStepFailure(state, error, false);

@@ -8,9 +8,7 @@
     "timeoutSec": 8
   },
   "packagedExtensions": [
-    "browser_automation",
-    "remove_watermark",
-    "transform"
+    "browser_automation"
   ],
   "platforms": {
     "default": {

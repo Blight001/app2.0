@@ -61,10 +61,45 @@ bool FocusBrowserChildWindow(HWND child) {
   return focused;
 }
 
+bool ReleaseBrowserChildWindowFocus(HWND child) {
+  if (!IsWindow(child)) return false;
+  HWND root = GetAncestor(child, GA_ROOT);
+  if (!root || GetForegroundWindow() != root) return false;
+  if (!IsFocusedWindowOrDescendant(child)) return true;
+
+  const DWORD child_thread = GetWindowThreadProcessId(child, nullptr);
+  const DWORD root_thread = GetWindowThreadProcessId(root, nullptr);
+  const DWORD current_thread = GetCurrentThreadId();
+  const bool attached_child = child_thread != 0 &&
+      child_thread != current_thread &&
+      AttachThreadInput(current_thread, child_thread, TRUE) != FALSE;
+  const bool attached_root = root_thread != 0 &&
+      root_thread != current_thread &&
+      root_thread != child_thread &&
+      AttachThreadInput(current_thread, root_thread, TRUE) != FALSE;
+
+  SetFocus(root);
+  const bool released = !IsFocusedWindowOrDescendant(child);
+
+  if (attached_root) {
+    AttachThreadInput(current_thread, root_thread, FALSE);
+  }
+  if (attached_child) {
+    AttachThreadInput(current_thread, child_thread, FALSE);
+  }
+  return released;
+}
+
 napi_value FocusChildWindow(napi_env env, napi_callback_info info) {
   napi_value options = SingleObjectArg(env, info);
   HWND child = ReadHwnd(env, GetNamed(env, options, "childHwnd"));
   if (!IsWindow(child)) return BoolValue(env, false);
   ShowWindow(child, SW_SHOW);
   return BoolValue(env, FocusBrowserChildWindow(child));
+}
+
+napi_value ReleaseChildWindowFocus(napi_env env, napi_callback_info info) {
+  napi_value options = SingleObjectArg(env, info);
+  HWND child = ReadHwnd(env, GetNamed(env, options, "childHwnd"));
+  return BoolValue(env, ReleaseBrowserChildWindowFocus(child));
 }

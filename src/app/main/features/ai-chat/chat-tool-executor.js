@@ -20,7 +20,10 @@ function resolvePluginTarget(args, connections, findConnectionByRef, describeCon
     if (found?.ambiguous) {
       return { error: `存在多个名为 ${JSON.stringify(reference)} 的浏览器，请改用 browser_id 传连接 ID：${describeConnections()}` };
     }
-    if (!found) return { error: `未找到名为 ${JSON.stringify(reference)} 的浏览器连接，可用浏览器：${describeConnections()}` };
+    if (!found) {
+      return { error: `未在当前 AI 已选且在线的浏览器中找到 ${JSON.stringify(reference)}。`
+        + `software_window 的窗口名称/history_id/tab_id 不能代替 browser_id；可用浏览器：${describeConnections()}` };
+    }
     return { connection: found };
   }
   if (connections.length === 1) return { connection: connections[0] };

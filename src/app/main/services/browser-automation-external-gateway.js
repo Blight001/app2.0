@@ -46,7 +46,7 @@ function normalizeSchema(tool = {}) {
   };
 }
 
-function addBrowserRouting(tool = {}) {
+function addBrowserRouting(tool = {}, requireBrowserId = false) {
   const inputSchema = normalizeSchema(tool);
   inputSchema.properties.browser_id = inputSchema.properties.browser_id || {
     type: 'string',
@@ -56,6 +56,9 @@ function addBrowserRouting(tool = {}) {
     type: 'string',
     description: '窗口名称；未提供 browser_id 时可按名称精确匹配。',
   };
+  if (requireBrowserId && !inputSchema.required.includes('browser_id')) {
+    inputSchema.required.push('browser_id');
+  }
   return {
     name: String(tool.name || '').trim(),
     description: String(tool.description || '').trim(),
@@ -170,14 +173,15 @@ class BrowserAutomationExternalGateway {
       if (normalized.name) tools.set(normalized.name, normalized);
     }
     const connections = this.connections();
-    for (const connection of connections) this.addConnectionTools(tools, connection);
+    const requireBrowserId = connections.length > 1;
+    for (const connection of connections) this.addConnectionTools(tools, connection, requireBrowserId);
     return { tools: Array.from(tools.values()), connections: connections.map(publicConnection) };
   }
 
-  addConnectionTools(tools, connection) {
+  addConnectionTools(tools, connection, requireBrowserId = false) {
     const full = this.options.getConnection?.(connection.id);
     for (const tool of full?.tools || []) {
-      const normalized = sanitizeCookieTool(addBrowserRouting(tool));
+      const normalized = sanitizeCookieTool(addBrowserRouting(tool, requireBrowserId));
       if (normalized.name && !tools.has(normalized.name)) tools.set(normalized.name, normalized);
     }
   }

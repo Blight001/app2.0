@@ -59,6 +59,10 @@ class TabManagerRuntime {
     const webContents = this.resolveSideView()?.webContents;
     if (!isUsableWebContents(webContents)) return false;
     try {
+      const activeTabId = this.resolveActiveTabId();
+      if (activeTabId) {
+        this.deps.browserRuntimeManager?.releaseFocus?.(activeTabId, 'chromium');
+      }
       focusMainWindowShell(mainWindow);
       webContents.focus();
       return true;
@@ -120,6 +124,7 @@ class TabManagerRuntime {
       getBrowserProxyEndpoint: this.getBrowserProxyEndpoint,
       hasPersistedChromiumProfile: (id) => this.hasPersistedChromiumProfile(id),
       httpGetUniversal: this.deps.httpGetUniversal,
+      isSideViewFocused: () => this.isSideViewFocused(),
       licenseCache: this.deps.licenseCache,
       logger: this.logger,
       readPersistedBrowserSettings: () => this.readPersistedBrowserSettings(),
@@ -130,6 +135,7 @@ class TabManagerRuntime {
       resolveMainWindow: () => this.resolveMainWindow(),
       resolveTabBrowserProfile: this.deps.resolveTabBrowserProfile,
       resolveTabs: () => this.resolveTabs(),
+      restoreSideViewFocus: () => this.restoreSideViewFocus(),
       sendToSide: this.deps.sendToSide,
       setActiveTabId: this.deps.setActiveTabId,
       switchTab: (...args) => this.switchTab(...args),

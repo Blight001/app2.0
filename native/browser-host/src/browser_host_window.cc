@@ -1,4 +1,5 @@
 #include "browser_host_window.h"
+#include "dpi_manager.h"
 #include "native_helpers.h"
 
 namespace {
@@ -45,6 +46,23 @@ bool EnsureHostClass() {
   registered = RegisterClassExW(&wc) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
   return registered;
 }
+
+struct PhysicalBounds {
+  int x;
+  int y;
+  int width;
+  int height;
+};
+
+PhysicalBounds ReadPhysicalBounds(napi_env env, napi_value options, HWND parent) {
+  const UINT dpi = GetWindowDpiOrDefault(parent);
+  return {
+    DipToPhysicalPixel(ReadInt32(env, options, "x"), dpi),
+    DipToPhysicalPixel(ReadInt32(env, options, "y"), dpi),
+    DipToPhysicalPixel(ReadInt32(env, options, "width"), dpi),
+    DipToPhysicalPixel(ReadInt32(env, options, "height"), dpi),
+  };
+}
 }
 
 napi_value CreateHostWindow(napi_env env, napi_callback_info info) {
@@ -59,10 +77,11 @@ napi_value CreateHostWindow(napi_env env, napi_callback_info info) {
     ThrowLastError(env, "RegisterClassExW");
     return nullptr;
   }
-  int x = ReadInt32(env, options, "x");
-  int y = ReadInt32(env, options, "y");
-  int width = ReadInt32(env, options, "width");
-  int height = ReadInt32(env, options, "height");
+  // Electron layout APIs use device-independent pixels. This native child is
+  // positioned by a Per-Monitor-DPI-aware Win32 thread, where coordinates are
+  // physical pixels. Convert against the owner window so mixed-DPI monitors do
+  // not shrink or offset the embedded Chromium surface.
+  const PhysicalBounds bounds = ReadPhysicalBounds(env, options, parent);
   HWND hwnd = CreateWindowExW(
       WS_EX_NOPARENTNOTIFY,
       kHostWindowClass,
@@ -71,7 +90,7 @@ napi_value CreateHostWindow(napi_env env, napi_callback_info info) {
       // synchronously sized. This avoids exposing an empty black rectangle
       // during the runtime handshake.
       WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
-      x, y, width, height,
+      bounds.x, bounds.y, bounds.width, bounds.height,
       parent, nullptr, GetModuleHandleW(nullptr), nullptr);
   if (!hwnd) {
     ThrowLastError(env, "CreateWindowExW");
@@ -90,6 +109,9 @@ napi_value SetHostBounds(napi_env env, napi_callback_info info) {
   napi_value options = SingleObjectArg(env, info);
   HWND hwnd = ReadHwnd(env, GetNamed(env, options, "hostHwnd"));
   if (!IsWindow(hwnd)) return BoolValue(env, false);
+  HWND parent = GetParent(hwnd);
+  const PhysicalBounds bounds = ReadPhysicalBounds(
+      env, options, IsWindow(parent) ? parent : hwnd);
   // Electron's renderer owns a sibling Chrome_RenderWidgetHostHWND that spans
   // the whole client area. Keeping SWP_NOZORDER here leaves this native host
   // behind that renderer, so the attached Chromium window is alive but the
@@ -97,8 +119,7 @@ napi_value SetHostBounds(napi_env env, napi_callback_info info) {
   // bounds are synchronized.
   const bool visible = IsWindowVisible(hwnd) != FALSE;
   bool ok = SetWindowPos(hwnd, visible ? HWND_TOP : nullptr,
-      ReadInt32(env, options, "x"), ReadInt32(env, options, "y"),
-      ReadInt32(env, options, "width"), ReadInt32(env, options, "height"),
+      bounds.x, bounds.y, bounds.width, bounds.height,
       SWP_NOACTIVATE | (visible ? SWP_SHOWWINDOW : SWP_NOZORDER)) != FALSE;
   return BoolValue(env, ok);
 }

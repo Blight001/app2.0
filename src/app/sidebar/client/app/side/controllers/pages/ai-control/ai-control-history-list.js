@@ -272,6 +272,13 @@
   }
 
   function buildCurrentSessionPayload(modelId, extra) {
+    let messages;
+    try {
+      // 保存的是当前时刻的快照，避免后台 IPC 排队期间被后续流式响应改写。
+      messages = JSON.parse(JSON.stringify(currentMessages()));
+    } catch (_) {
+      messages = currentMessages().map((message) => ({ ...message }));
+    }
     return {
       id: state.currentSession.id,
       title: state.currentSession.title || '新对话',
@@ -280,7 +287,7 @@
       browserConnectionId: state.currentBrowserIds[0] || '',
       browserConnectionIds: [...state.currentBrowserIds],
       automationCardId: state.currentCardId,
-      messages: currentMessages(),
+      messages,
       createdAt: state.currentSession.createdAt || Date.now(),
       updatedAt: Date.now(),
       ...extra,
@@ -289,6 +296,8 @@
 
   function applySavedSession(saved, payload) {
     if (String(state.currentSession?.id || '') !== String(payload.id || '')) return;
+    // 更早的后台保存可能晚于新消息返回，不能用旧快照覆盖当前内存状态。
+    if (state.historySaveLatestPayloads.get(String(payload.id || '')) !== payload) return;
     const savedMessages = Array.isArray(saved.messages) ? saved.messages : payload.messages;
     state.currentSession = { ...saved, messages: savedMessages };
     if (Array.isArray(saved.messages) && saved.messages.length >= payload.messages.length) {
@@ -299,21 +308,41 @@
 
   async function saveSessionToMain(payload) {
     if (!window.aiFree?.ai?.historySave) return null;
-    try {
-      const result = await window.aiFree.ai.historySave({ session: payload, setCurrent: true });
-      if (result?.ok && result.session) return result.session;
-      if (result?.ok === false) console.warn('[AI 控制] 主进程保存历史失败:', result.message || result);
-    } catch (error) {
-      console.warn('[AI 控制] 保存历史失败:', error?.message || error);
-    }
-    return null;
+    const sessionId = String(payload.id || '');
+    const previous = state.historySaveChains.get(sessionId);
+    const runSave = async () => {
+      try {
+        const result = await window.aiFree.ai.historySave({ session: payload, setCurrent: true });
+        if (result?.ok && result.session) return result.session;
+        if (result?.ok === false) console.warn('[AI 控制] 主进程保存历史失败:', result.message || result);
+      } catch (error) {
+        console.warn('[AI 控制] 保存历史失败:', error?.message || error);
+      }
+      return null;
+    };
+    const saving = previous ? previous.then(runSave) : runSave();
+    state.historySaveChains.set(sessionId, saving);
+    saving.finally(() => {
+      if (state.historySaveChains.get(sessionId) === saving) state.historySaveChains.delete(sessionId);
+    });
+    return saving;
   }
 
-  async function persistCurrentSession(extra = {}) {
+  function checkpointCurrentSession(extra = {}) {
     const modelId = String(el('ai-chat-model')?.value || state.currentSession?.modelId || '');
     ensureCurrentSession(modelId);
     const payload = buildCurrentSessionPayload(modelId, extra);
+    state.historySaveLatestPayloads.set(String(payload.id || ''), payload);
     upsertLocalSession(payload);
+    if (String(state.currentSession?.id || '') === String(payload.id || '')) {
+      state.currentSession = { ...state.currentSession, ...payload };
+      updateSessionTitleUi();
+    }
+    return payload;
+  }
+
+  async function persistCurrentSession(extra = {}) {
+    const payload = checkpointCurrentSession(extra);
     const saved = await saveSessionToMain(payload);
     if (saved) {
       applySavedSession(saved, payload);
@@ -321,10 +350,6 @@
       return saved;
     }
 
-    if (String(state.currentSession?.id || '') === String(payload.id || '')) {
-      state.currentSession = { ...state.currentSession, ...payload };
-      updateSessionTitleUi();
-    }
     await refreshHistoryList();
     return payload;
   }

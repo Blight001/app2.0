@@ -73,6 +73,11 @@ class ChromiumWindowBridge {
   showHostWindow(hostHwnd) { return this.load().showHostWindow({ hostHwnd }); }
   hideHostWindow(hostHwnd) { return this.load().hideHostWindow({ hostHwnd }); }
   focusChildWindow(childHwnd) { return this.load().focusChildWindow({ childHwnd }); }
+  releaseChildWindowFocus(childHwnd) {
+    const binding = this.load();
+    if (typeof binding.releaseChildWindowFocus !== 'function') return true;
+    return binding.releaseChildWindowFocus({ childHwnd });
+  }
   isWindowAlive(hwnd) { return this.load().isWindowAlive({ hwnd }); }
   getWindowProcessId(hwnd) { return this.load().getWindowProcessId({ hwnd }); }
   findMainWindowByProcessId(pid) { return this.load().findMainWindowByProcessId({ pid }); }

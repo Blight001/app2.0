@@ -26,6 +26,23 @@
           }
         }]
       ]
+    },
+    {
+      "target_name": "dpi_scaling_test",
+      "type": "executable",
+      "sources": ["test/dpi_scaling_test.cc"],
+      "defines": ["UNICODE", "_UNICODE", "WIN32_LEAN_AND_MEAN", "NOMINMAX"],
+      "conditions": [
+        ["OS=='win'", {
+          "libraries": ["user32.lib"],
+          "msvs_settings": {
+            "VCCLCompilerTool": {
+              "RuntimeLibrary": 0,
+              "AdditionalOptions": ["/std:c++17", "/utf-8"]
+            }
+          }
+        }]
+      ]
     }
   ]
 }

@@ -2,9 +2,7 @@ const crypto = require('crypto');
 const { BrowserRuntime } = require('./browser-runtime');
 const { ChromiumCommandClient, createPipeName } = require('./chromium-command-client');
 const { ChromiumHealthMonitor } = require('./chromium-health');
-const {
-  launchChromium,
-} = require('./chromium-launcher');
+const { launchChromium } = require('./chromium-launcher');
 const { prepareSessionImport } = require('./session-import');
 const { normalizeBounds, RUNTIME_STATUS, RUNTIME_TYPES } = require('./runtime-types');
 const { stopChromiumProfile } = require('./chromium-runtime-process');
@@ -296,6 +294,7 @@ class ChromiumRuntime extends BrowserRuntime {
     const state = this.store.getState(profileId);
     return state?.browserHwnd ? this.windowBridge.focusChildWindow(state.browserHwnd) : false;
   }
+  releaseFocus(profileId) { const state = this.store.getState(profileId); return state?.browserHwnd ? this.windowBridge.releaseChildWindowFocus(state.browserHwnd) : false; }
   async getState(profileId) { const state = this.store.getState(profileId); return state ? { ...state } : null; }
   getReadyInstance(profileId) {
     const id = String(profileId || '').trim();
