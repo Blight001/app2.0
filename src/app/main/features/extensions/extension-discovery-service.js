@@ -12,7 +12,6 @@ class ExtensionDiscoveryService {
       candidates.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'assets', 'extensions'));
       candidates.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'extensions'));
       candidates.push(path.join(process.resourcesPath, 'src', 'assets', 'extensions'));
-      candidates.push(path.join(process.resourcesPath, 'app.asar', 'src', 'assets', 'extensions'));
     }
     if (app && typeof app.getAppPath === 'function') {
       candidates.push(path.join(app.getAppPath(), 'src', 'assets', 'extensions'));

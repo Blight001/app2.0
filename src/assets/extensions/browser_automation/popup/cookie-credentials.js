@@ -61,7 +61,6 @@ const cookieManagerSubtitleNode = document.getElementById('cookie-manager-subtit
 const cookieManagerCountNode = document.getElementById('cookie-manager-count');
 const cookieManagerListNode = document.getElementById('cookie-manager-list');
 
-let editingCookieCredentialId = '';
 async function getCurrentActiveTabForCookieImport() {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
     const tab = Array.isArray(tabs) ? tabs.find((item) => item && Number(item.id || 0) > 0) || null : null;
@@ -178,9 +177,8 @@ async function saveCookieCredentialRecord() {
     }
 
     const state = await loadCookieCredentialCacheState().catch(() => ({ items: [] }));
-    const editingId = String(editingCookieCredentialId || '').trim();
     const nextItem = normalizeCookieCredentialCacheEntry({
-        id: editingId || buildCookieCredentialCacheId({ account, password, note, cardKey }),
+        id: buildCookieCredentialCacheId({ account, password, note, cardKey }),
         account,
         password,
         note,
@@ -191,7 +189,7 @@ async function saveCookieCredentialRecord() {
     nextItems.unshift(nextItem);
     nextItems.splice(COOKIE_CREDENTIAL_CACHE_MAX_ITEMS);
     await saveCookieCredentialCacheState(nextItems);
-    cookieCredentialSelectedDate = nextItem.dateKey || getTodayCookieCredentialDateKey();
+    setCookieCredentialSelectedDate(nextItem.dateKey || getTodayCookieCredentialDateKey());
     await saveCookieCredentialFilterState();
     renderCookieCredentialCacheList({ items: nextItems });
     await savePreset();

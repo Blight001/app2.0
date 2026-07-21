@@ -1,5 +1,5 @@
 import * as formatters from './cookie-credential-formatters.js';
-const { formatCookieCredentialTime, getCookieCredentialDateKey, getCookieCredentialYesterdayKey, formatCookieCredentialDateLabel, formatCookieCredentialTimeLabel, buildCookieCredentialSearchText, normalizeCookieCredentialSearchQuery, cookieCredentialItemMatchesQuery, buildCookieCredentialCacheId, normalizeCookieCredentialCacheEntry, buildCookieCredentialListLabel, buildCookieCredentialClipboardText, buildCookieCredentialAccountPasswordText, buildCookieCredentialGroupAccountPasswordText } = formatters;
+const { formatCookieCredentialTime, getTodayCookieCredentialDateKey, getCookieCredentialDateKey, getCookieCredentialYesterdayKey, formatCookieCredentialDateLabel, formatCookieCredentialTimeLabel, buildCookieCredentialSearchText, normalizeCookieCredentialSearchQuery, cookieCredentialItemMatchesQuery, buildCookieCredentialCacheId, normalizeCookieCredentialCacheEntry, buildCookieCredentialListLabel, buildCookieCredentialClipboardText, buildCookieCredentialAccountPasswordText, buildCookieCredentialGroupAccountPasswordText } = formatters;
 const shared = globalThis.CookieCaptureShared || {};
 const { copyTextToClipboard, setStatus, showActionToast, escapeHtml } = shared;
 const COOKIE_CREDENTIAL_CACHE_LIST_KEY = shared.STORAGE_KEYS.COOKIE_CREDENTIAL_CACHE_LIST_KEY;
@@ -19,6 +19,7 @@ const cookieCredentialListNode = document.getElementById('cookie-credential-list
 
 let cookieCredentialSelectedDate = '';
 let cookieCredentialSearchQuery = '';
+let editingCookieCredentialId = '';
 
 function focusCookieCredentialEditPanel() {
     if (!cookieCredentialEditPanelNode || !cookieCredentialEditPanelNode.classList.contains('is-visible')) {

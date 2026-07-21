@@ -137,6 +137,26 @@ test('extension manager injects the rotating token into a separate runtime copy 
   assert.match(sourceEnvironment, /protectedRuntime: false/);
   assert.ok(!sourceEnvironment.includes(accessToken));
 
+  const loadedPaths = [];
+  await manager.loadEnabledIntoSession({
+    extensions: {
+      getAllExtensions: () => [],
+      loadExtension: async (loadPath) => {
+        loadedPaths.push(loadPath);
+        return { id: `loaded-${loadedPaths.length}`, path: loadPath };
+      },
+    },
+  }, '真实加载路径验证');
+  const loadedAutomationPath = loadedPaths.find(
+    (item) => path.basename(item).toLowerCase() === 'browser_automation',
+  );
+  assert.ok(loadedAutomationPath, '自动化插件必须进入实际 session.extensions.loadExtension 调用');
+  assert.ok(path.resolve(loadedAutomationPath).startsWith(path.resolve(userData)));
+  assert.match(
+    fs.readFileSync(path.join(loadedAutomationPath, 'background/00_environment.js'), 'utf8'),
+    /protectedRuntime":true/,
+  );
+
   accessToken = 'next-start-token-uses-another-extension-path';
   const rotatedRuntimePath = manager.getEnabledExtensionPaths()
     .find((item) => path.basename(item).toLowerCase() === 'browser_automation');

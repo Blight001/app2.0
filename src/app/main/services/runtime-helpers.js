@@ -49,7 +49,6 @@ function createRuntimeHelpers(deps = {}) {
       candidates.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'assets', 'extensions', 'transform'));
       candidates.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'extensions', 'transform'));
       candidates.push(path.join(process.resourcesPath, 'src', 'assets', 'extensions', 'transform'));
-      candidates.push(path.join(process.resourcesPath, 'app.asar', 'src', 'assets', 'extensions', 'transform'));
     }
 
     if (app && typeof app.getAppPath === 'function') {

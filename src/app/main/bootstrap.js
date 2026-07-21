@@ -27,7 +27,7 @@ function startMainApp() {
   tuneElectronRuntime({ app, fs, powerSaveBlocker, getStorePath });
 
   // ---- 单例应用 ----
-  acquireSingleInstance({
+  const isPrimaryInstance = acquireSingleInstance({
     onSecondInstance: () => {
       if (appShell?.revealMainWindow?.()) return;
       const targetWin = services.appRuntime.getMainWindow() || services.appRuntime.getLicenseWindow();
@@ -38,6 +38,7 @@ function startMainApp() {
       }
     },
   });
+  if (!isPrimaryInstance) return;
 
   // ---- 核心服务 ----
   let tabManager;

@@ -14,6 +14,15 @@ const REQUIRED_CLASH_ASSETS = [
   'providers/private_domain.mrs',
   'providers/geolocation-!cn.mrs',
 ];
+const REQUIRED_WATCHDOG_FILES = [
+  'entry.js',
+  'launcher.js',
+  'payload.js',
+  'pending-store.js',
+  'shared.js',
+  'transport.js',
+  'worker.js',
+];
 
 function assertFile(filePath, minimumSize = 1) {
   let size = 0;
@@ -84,7 +93,31 @@ function assertDirectoryMirror(sourceDir, targetDir, label) {
   return source.size;
 }
 
-function verifyAsarIntegrity(appOutDir) {
+function configuredPackagedExtensions(projectDir) {
+  const configPath = path.join(projectDir, 'platforms-config.json');
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  if (!Array.isArray(config.packagedExtensions) || !config.packagedExtensions.length) {
+    throw new Error('platforms-config.json 未配置 packagedExtensions');
+  }
+  return config.packagedExtensions;
+}
+
+function verifyUnpackedRuntimeFiles(projectDir, resourcesDir, extractDir) {
+  const unpackedRoot = path.join(resourcesDir, 'app.asar.unpacked', 'src');
+  for (const name of configuredPackagedExtensions(projectDir)) {
+    const relative = path.join('assets', 'extensions', name, 'manifest.json');
+    assertFile(path.join(projectDir, 'src', relative), 20);
+    assertFile(path.join(unpackedRoot, relative), 20);
+    assertFile(path.join(extractDir, 'src', relative), 20);
+  }
+  for (const name of REQUIRED_WATCHDOG_FILES) {
+    const watchdogRelative = path.join('app', 'main', 'runtime', 'crash-watchdog', name);
+    assertFile(path.join(unpackedRoot, watchdogRelative), 128);
+    assertFile(path.join(extractDir, 'src', watchdogRelative), 128);
+  }
+}
+
+function verifyAsarIntegrity(projectDir, appOutDir) {
   const resourcesDir = path.join(appOutDir, 'resources');
   const archivePath = path.join(resourcesDir, 'app.asar');
   assertFile(archivePath, 1024);
@@ -106,6 +139,7 @@ function verifyAsarIntegrity(appOutDir) {
     // extractAll 会同时读取 app.asar.unpacked；任何被标记为 unpacked 但实际
     // 缺失的文件都会在这里直接失败，禁止继续生成安装包。
     asar.extractAll(archivePath, extractDir);
+    verifyUnpackedRuntimeFiles(projectDir, resourcesDir, extractDir);
     const sidebarPath = path.join(extractDir, 'src', 'app', 'sidebar', 'index.html');
     const appShellPath = path.join(extractDir, 'src', 'app', 'views', 'app-shell.html');
     const logoResolverPath = path.join(
@@ -168,8 +202,8 @@ function verifyPackagedRuntime(options = {}) {
     path.join(resourcesDir, 'chromium'),
     'Chromium',
   );
-  verifyAsarIntegrity(appOutDir);
-  console.log(`[packaged-runtime] 校验通过: Chromium ${chromiumCount} 个文件，ASAR/unpacked/Native/Logo/Clash 资源完整`);
+  verifyAsarIntegrity(projectDir, appOutDir);
+  console.log(`[packaged-runtime] 校验通过: Chromium ${chromiumCount} 个文件，ASAR/unpacked/Watchdog/Extensions/Native/Logo/Clash 资源完整`);
   return { ok: true, chromiumCount, appOutDir };
 }
 

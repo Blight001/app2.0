@@ -121,3 +121,23 @@ test('invalid manifests and unsafe cache failures fall back to source', () => {
     assert.ok(fixture.logs.some((line) => line.includes('回退原目录')));
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('interrupted compatibility copy never publishes or leaves a partial directory', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-compat-atomic-'));
+  try {
+    const source = path.join(root, 'source');
+    writeExtension(source, { manifest_version: 3, background: { service_worker: 'worker.js' } }, {
+      'worker.js': 'run()',
+    });
+    const fixture = createFixture(root, {
+      copyDirectoryRecursive: (_source, target) => {
+        fs.mkdirSync(target, { recursive: true });
+        fs.writeFileSync(path.join(target, 'partial.js'), 'partial');
+        throw new Error('simulated interrupted compatibility copy');
+      },
+    });
+    assert.equal(fixture.service.prepareCompatExtensionPath({ id: 'atomic', path: source }), source);
+    assert.deepEqual(fs.existsSync(fixture.cacheRoot) ? fs.readdirSync(fixture.cacheRoot) : [], []);
+    assert.ok(fixture.logs.some((line) => line.includes('simulated interrupted compatibility copy')));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});

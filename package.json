@@ -1,6 +1,6 @@
 {
   "name": "ai-free",
-  "version": "2.6.9",
+  "version": "2.6.11",
   "private": true,
   "description": "Assistant to help creators use AI more conveniently",
   "main": "src/app/main/main.js",
@@ -151,7 +151,8 @@
       "smartUnpack": true
     },
     "asarUnpack": [
-      "**/assets/extensions/**/*"
+      "**/assets/extensions/**/*",
+      "**/app/main/runtime/crash-watchdog/**/*"
     ],
     "compression": "maximum",
     "electronLanguages": [

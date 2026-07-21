@@ -36,6 +36,8 @@ class ExtensionWatcher {
   }
 
   watchRoot(root) {
+    const normalized = String(root || '').replace(/\\/g, '/').toLowerCase();
+    if (normalized.includes('.asar/') && !normalized.includes('.asar.unpacked/')) return null;
     try {
       return this.createWatcher(root, true);
     } catch (error) {

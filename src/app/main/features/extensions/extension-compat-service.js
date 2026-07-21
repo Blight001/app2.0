@@ -79,12 +79,15 @@ function patchCompatExtensionDirectory(deps, compatDir) {
 
 function buildCompatPaths(deps, plugin, sourcePath, scan) {
   const cacheRoot = deps.resolveCompatCacheRoot();
-  const cacheName = `${deps.toSafeFileName(plugin?.id || deps.path.basename(sourcePath))}-${deps.hashId(sourcePath)}`;
-  const compatDir = deps.path.join(cacheRoot, cacheName);
   const signature = deps.hashId([
     sourcePath, plugin?.version || '', scan.latestMtimeMs, scan.fileCount, scan.requiredApiRoots.join(','),
     deps.compatShimMarker, deps.compatShimFile, deps.compatCacheSchema,
   ].join('|'));
+  const cacheName = [
+    deps.toSafeFileName(plugin?.id || deps.path.basename(sourcePath)),
+    deps.hashId(sourcePath), signature,
+  ].join('-');
+  const compatDir = deps.path.join(cacheRoot, cacheName);
   return { cacheRoot, compatDir, signature, signaturePath: deps.path.join(compatDir, '.compat-signature') };
 }
 
@@ -98,24 +101,46 @@ function isCompatCacheCurrent(deps, paths) {
   }
 }
 
-function clearCompatDirectory(deps, paths) {
-  if (!deps.fs.existsSync(paths.compatDir)) return;
-  if (!deps.isPathInside(paths.cacheRoot, paths.compatDir)) throw new Error('兼容缓存目录校验失败');
-  deps.fs.rmSync(paths.compatDir, { recursive: true, force: true });
+function createCompatStagingPath(deps, paths) {
+  const suffix = deps.hashId(`${process.pid}|${Date.now()}|${Math.random()}|${paths.signature}`);
+  return `${paths.compatDir}.staging-${process.pid}-${suffix}`;
+}
+
+function removeCompatDirectory(deps, cacheRoot, directory) {
+  if (!directory || !deps.fs.existsSync(directory)) return;
+  if (!deps.isPathInside(cacheRoot, directory)) throw new Error('兼容缓存目录校验失败');
+  deps.fs.rmSync(directory, { recursive: true, force: true });
+}
+
+function publishCompatCopy(deps, paths, stagingDir) {
+  if (isCompatCacheCurrent(deps, paths)) {
+    removeCompatDirectory(deps, paths.cacheRoot, stagingDir);
+    return paths.compatDir;
+  }
+  deps.fs.renameSync(stagingDir, paths.compatDir);
+  if (!isCompatCacheCurrent(deps, paths)) throw new Error('兼容副本原子发布后校验失败');
+  return paths.compatDir;
+}
+
+function recoverCompatCopyFailure(deps, plugin, sourcePath, paths, stagingDir, error) {
+  try { removeCompatDirectory(deps, paths.cacheRoot, stagingDir); } catch (_) {}
+  if (isCompatCacheCurrent(deps, paths)) return paths.compatDir;
+  deps.logger.warn?.('[Extensions] 创建插件兼容副本失败，回退原目录:', plugin?.name || plugin?.id || sourcePath, error?.message || error);
+  return sourcePath;
 }
 
 function createCompatCopy(deps, plugin, sourcePath, paths) {
+  const stagingDir = createCompatStagingPath(deps, paths);
   try {
     deps.fs.mkdirSync(paths.cacheRoot, { recursive: true });
-    clearCompatDirectory(deps, paths);
-    deps.copyDirectoryRecursive(sourcePath, paths.compatDir);
-    patchCompatExtensionDirectory(deps, paths.compatDir);
-    deps.fs.writeFileSync(paths.signaturePath, paths.signature, 'utf8');
+    deps.copyDirectoryRecursive(sourcePath, stagingDir);
+    patchCompatExtensionDirectory(deps, stagingDir);
+    deps.fs.writeFileSync(deps.path.join(stagingDir, '.compat-signature'), paths.signature, 'utf8');
+    publishCompatCopy(deps, paths, stagingDir);
     deps.logger.log?.('[Extensions] 已为插件创建 Electron 兼容副本:', plugin?.name || plugin?.id || sourcePath);
     return paths.compatDir;
   } catch (error) {
-    deps.logger.warn?.('[Extensions] 创建插件兼容副本失败，回退原目录:', plugin?.name || plugin?.id || sourcePath, error?.message || error);
-    return sourcePath;
+    return recoverCompatCopyFailure(deps, plugin, sourcePath, paths, stagingDir, error);
   }
 }
 

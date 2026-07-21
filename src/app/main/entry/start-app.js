@@ -8,6 +8,7 @@ const { getCrashReporter } = require('../runtime/crash-reporter');
 // 启动/打开/显示：startApp的具体业务逻辑。
 function startApp() {
   const crashReports = getCrashReporter();
+  crashReports?.setServerBaseResolver(getServerBase);
   crashReports?.setStartupPhase('initialize-run-logger');
   const runLogger = initializeRunFileLogger({ app, prefix: 'run' });
   crashReports?.attachRunLog(runLogger?.logFilePath);
@@ -23,6 +24,7 @@ function startApp() {
     crashReports?.setStartupPhase('app-ready');
     const serverBase = getServerBase();
     console.log('[崩溃上报] 日志目录:', crashReports?.rootDir || '不可用');
+    console.log('[崩溃上报] 独立看门狗 PID:', crashReports?.watchdogPid || '未启动');
     if (!serverBase) {
       console.warn('[崩溃上报] 尚未解析到服务器地址，报告将保留并稍后重试');
       return;

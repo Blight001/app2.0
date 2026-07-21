@@ -62,9 +62,10 @@ class ExtensionSessionController {
 
   resolveEnabledPluginPath(plugin) {
     if (plugin?.enabled !== true || plugin?.missing === true) return '';
+    const compatPath = this.deps.prepareCompatExtensionPath(plugin) || plugin.path;
     const source = this.deps.isBuiltinBrowserAutomationPlugin(plugin)
-      ? this.deps.prepareProtectedBrowserAutomationPath(plugin)
-      : plugin.path;
+      ? this.deps.prepareProtectedBrowserAutomationPath({ ...plugin, path: compatPath })
+      : compatPath;
     return this.deps.normalizeAbsolutePath(source);
   }
 
@@ -143,7 +144,10 @@ class ExtensionSessionController {
   }
 
   async loadNewExtension(plugin, session, label, map) {
-    const loadPath = this.deps.prepareCompatExtensionPath(plugin) || plugin.path;
+    const loadPath = this.resolveEnabledPluginPath(plugin);
+    if (!loadPath || !this.hasManifest(loadPath)) {
+      throw new Error(`插件运行目录无效: ${loadPath || plugin?.path || '(空路径)'}`);
+    }
     const extension = await session.extensions.loadExtension(loadPath, { allowFileAccess: true });
     if (extension?.id) map.set(plugin.id, extension.id);
     this.logger.log?.('[Extensions] 插件已加载', label ? `(${label})` : '', plugin.name, extension?.id || '');
