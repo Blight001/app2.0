@@ -11,6 +11,7 @@ const { snapshotAppliedChromiumProfile } = require('./chromium-profile-snapshot'
 const { attachChildWindowWithRetry } = require('./chromium-window-attachment');
 const { groupCookiesByOrigin } = require('./chromium-cookie-groups');
 const { dispatchRuntimeInput, dispatchRuntimeInputByProcessId } = require('./runtime-input');
+const { dispatchRuntimeAutomationByProcessId } = require('./runtime-automation');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -361,6 +362,10 @@ class ChromiumRuntime extends BrowserRuntime {
 
   async dispatchInputByProcessId(processId, source) {
     return dispatchRuntimeInputByProcessId(this, processId, source);
+  }
+
+  async dispatchAutomationByProcessId(processId, command, source) {
+    return dispatchRuntimeAutomationByProcessId(this, processId, command, source);
   }
 
   async importSession(profileId, rawSession = {}) {

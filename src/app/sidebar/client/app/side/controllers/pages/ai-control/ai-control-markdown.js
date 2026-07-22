@@ -170,6 +170,7 @@
   const TOOL_DISPLAY_NAMES = Object.freeze({
     manage_card: '自动化卡片',
     save_cookies: '保存浏览器数据',
+    browser_download: '下载与保存会话',
     browser_tab: '浏览器标签页',
     browser_observe: '观察页面',
     browser_action: '操作页面',

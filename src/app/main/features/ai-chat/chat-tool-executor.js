@@ -149,10 +149,41 @@ function syncWindowToolControl(context, toolName, args, toolResult) {
 }
 
 function serializeToolResult(result, toolName) {
-  try { return { content: JSON.stringify(result ?? null), failure: '' }; } catch (_) {
-    const failure = `${toolName} 返回了无法序列化的结果`;
-    return { content: JSON.stringify({ success: false, error: failure, recoverable: true }), failure };
+  let serializedResult = result ?? null;
+  let imageMessage = null;
+  if (toolName === 'browser_screenshot' && result?.success === true
+      && /^data:image\/[a-z0-9.+-]+;base64,/i.test(String(result.dataUrl || ''))) {
+    const { dataUrl, ...metadata } = result;
+    serializedResult = { ...metadata, image_attached: true };
+    imageMessage = {
+      role: 'user',
+      content: [
+        { type: 'text', text: '以下图片是 browser_screenshot 刚刚截取的页面，请直接分析图片内容。' },
+        { type: 'image_url', image_url: { url: dataUrl } },
+      ],
+      ai_free_transient_image: true,
+    };
   }
+  try { return { content: JSON.stringify(serializedResult), failure: '', imageMessage }; } catch (_) {
+    const failure = `${toolName} 返回了无法序列化的结果`;
+    return {
+      content: JSON.stringify({ success: false, error: failure, recoverable: true }),
+      failure,
+      imageMessage: null,
+    };
+  }
+}
+
+function compactToolActivityResult(context, result, toolName) {
+  if (toolName === 'browser_screenshot' && result?.dataUrl) {
+    const { dataUrl: _dataUrl, ...metadata } = result;
+    return context.compactToolValue({ ...metadata, image_attached: true });
+  }
+  return context.compactToolValue(result ?? null);
+}
+
+function appendPendingImage(context, imageMessage) {
+  if (imageMessage) context.pendingImageMessages?.push(imageMessage);
 }
 
 async function executeSingleTool(context, call) {
@@ -186,7 +217,7 @@ async function executeSingleTool(context, call) {
   }
   const prepared = prepareToolResult(toolResult, toolName);
   activity.status = prepared.failed ? 'error' : 'success';
-  activity.result = context.compactToolValue(toolResult ?? null);
+  activity.result = compactToolActivityResult(context, toolResult, toolName);
   context.emit({ type: 'tool_result', tool: { ...activity }, round: context.round });
   const serialized = serializeToolResult(prepared.result, toolName);
   context.modelMessages.push({
@@ -195,16 +226,20 @@ async function executeSingleTool(context, call) {
     name: toolName,
     content: serialized.content,
   });
+  appendPendingImage(context, serialized.imageMessage);
   return { failure: serialized.failure || prepared.failure };
 }
 
 async function executeToolCalls(context) {
   let unresolvedToolFailure = '';
+  const pendingImageMessages = [];
+  const executionContext = { ...context, pendingImageMessages };
   for (const call of context.toolCalls) {
-    const result = await executeSingleTool(context, call);
+    const result = await executeSingleTool(executionContext, call);
     if (result.stopped) return { stopped: true, unresolvedToolFailure };
     if (result.failure) unresolvedToolFailure = result.failure;
   }
+  context.modelMessages.push(...pendingImageMessages);
   return { stopped: false, unresolvedToolFailure };
 }
 

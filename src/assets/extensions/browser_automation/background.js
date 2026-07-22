@@ -20,6 +20,7 @@ importScripts(
     'background/07_events.js',
     'background/08_agent_settings.js',
     'background/10_browser_tools.js',
+    'background/10_browser_download.js',
     'background/11_browser_screenshot.js',
     'background/09_agent_socket.js',
     'background/09_agent_protocol.js',

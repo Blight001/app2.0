@@ -12,7 +12,13 @@ function createCustomModel(store, licenseCache) {
   const config = getCustomAiApiConfig(store);
   const vip = resolveVipAccess(callOptional(licenseCache, 'getSnapshot') || {}).isVip;
   return vip && isCustomAiApiConfigured(config)
-    ? { id: CUSTOM_AI_MODEL_ID, name: config.name, model: config.model, custom_api: true }
+    ? {
+      id: CUSTOM_AI_MODEL_ID,
+      name: config.name,
+      model: config.model,
+      custom_api: true,
+      supports_image_input: config.supportsImageInput,
+    }
     : null;
 }
 

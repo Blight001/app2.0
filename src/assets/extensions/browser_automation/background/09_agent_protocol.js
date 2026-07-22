@@ -1,7 +1,7 @@
 const EFFECTIVE_AGENT_TOOL_DEFS = [
         {
             name: 'manage_card',
-            description: '自动化卡片唯一入口（管理 + 执行合一）。action=rules 返回卡片步骤类型（10 种 type，含 condition 判断分支）与 flow 流程图结构（nodes/edges/start）、运行规则（失败重试、变量输入、需显式 save_cookies 步骤保存 Cookie 等）——写卡片前必须先调用，字段与步骤类型只能取自规范，不要凭空编造；action=list 列出所有已保存卡片的基本信息；action=get 读取指定卡片完整 JSON；action=write 创建新卡片或用同一个 id 覆盖已有卡片（需完整 cardData）；action=patch_step 合并/替换某一步，insert_step 插入步骤，delete_step 删除步骤，move_step 移动步骤（step_index 均为 1-based，局部编辑后仍会按完整规范校验）；action=delete 删除整张卡片（可用 id/card_name 指定，都省略则删除当前选中卡片）；action=run 在当前活动标签页执行卡片，可用 inputs 覆盖 type 步骤输入，执行中通过 task:progress 及时反馈完整过程。run 失败时返回结构化现场：errorCode、失败步骤 stepIndex/selector、failureSnapshot 与 context；页面停留在失败现场，修复卡片后可用 action=run + start_step=stepIndex 续跑。',
+            description: '自动化卡片唯一入口（管理 + 执行合一）。action=rules 返回卡片步骤类型（9 种 type，不允许任意 JS）与 flow 流程图结构（nodes/edges/start）、运行规则（失败重试、变量输入、需显式 save_cookies 步骤保存 Cookie 等）——写卡片前必须先调用，字段与步骤类型只能取自规范，不要凭空编造；action=list 列出所有已保存卡片的基本信息；action=get 读取指定卡片完整 JSON；action=write 创建新卡片或用同一个 id 覆盖已有卡片（需完整 cardData）；action=patch_step 合并/替换某一步，insert_step 插入步骤，delete_step 删除步骤，move_step 移动步骤（step_index 均为 1-based，局部编辑后仍会按完整规范校验）；action=delete 删除整张卡片（可用 id/card_name 指定，都省略则删除当前选中卡片）；action=run 在当前活动标签页执行卡片，可用 inputs 覆盖 type 步骤输入，执行中通过 task:progress 及时反馈完整过程。run 失败时返回结构化现场：errorCode、失败步骤 stepIndex/selector、failureSnapshot 与 context；页面停留在失败现场，修复卡片后可用 action=run + start_step=stepIndex 续跑。',
             input_schema: {
                 type: 'object',
                 properties: {
@@ -27,18 +27,24 @@ const EFFECTIVE_AGENT_TOOL_DEFS = [
             }
         },
         {
-            name: 'save_cookies',
-            description: '抓取当前活动标签页的 Cookie、localStorage、sessionStorage，默认保存为本地 JSON 文件；若提供 server_url 会额外把数据 POST 到该地址。若 save_to_server=true（推荐给 AI 使用），则将完整数据返回服务器，服务器会自动保存到该 AI 对应的工作目录（cookies/ 子文件夹）中，返回的 result 只保留元数据与保存路径，不含原始 Cookie 内容。',
+            name: 'browser_download',
+            description: 'AI 专用下载与浏览器会话保存工具。action=download 从 HTTP/HTTPS url 下载文件到 AI-Workspace，默认自动携带当前标签页中与下载域名、路径和 HTTPS 属性匹配的 Cookie；action=save_session 将当前页 Cookie、localStorage、sessionStorage 保存为 JSON；action=info 返回 AI 工作区路径。directory 只能是 AI-Workspace 内相对子目录，默认下载到根目录，save_session 默认 sessions。下载采用大小/超时限制及临时文件原子落盘，不返回 Cookie 原文。browser_observe 返回的 downloadLinks[].url 或 item.downloadUrl 可直接作为 url。',
+            destructive: true,
             input_schema: {
                 type: 'object',
+                additionalProperties: false,
                 properties: {
-                    account: { type: 'string', description: '可选：关联账号，用于文件命名。' },
-                    password: { type: 'string', description: '可选：关联密码，用于文件命名。' },
-                    server_url: { type: 'string', description: '可选：抓取结果额外 POST 上传的服务器地址。' },
-                    card_key: { type: 'string', description: '可选：随上传附带的卡密/凭证标识。' },
-                    save_to_server: { type: 'boolean', description: 'AI 调用时设为 true：将抓取的完整 Cookie 数据随任务结果返回服务器，由服务器持久化保存到对应 AI 的目录（cookies/ 下）。不回传原始内容到聊天记录。' },
-                    tab_id: { type: 'number', description: '可选：指定要抓取的真实网页标签页；省略时使用最近操作目标。' }
-                }
+                    action: { type: 'string', enum: ['download', 'save_session', 'info'], description: 'download 下载链接；save_session 保存 Cookie/Storage；info 查看工作区。默认 download。' },
+                    url: { type: 'string', description: 'action=download 必填；可直接使用 browser_observe 的 downloadUrl。仅支持 HTTP/HTTPS。' },
+                    directory: { type: 'string', description: 'AI-Workspace 内相对子目录，如 downloads/models；不允许 .. 或绝对路径。download 默认根目录，save_session 默认 sessions。' },
+                    filename: { type: 'string', description: '可选文件名；省略时依次使用 Content-Disposition 与 URL 文件名。' },
+                    use_cookies: { type: 'boolean', description: '下载时是否携带当前标签页中与目标 URL 匹配的 Cookie，默认 true。跨域 Cookie 不会发送。' },
+                    overwrite: { type: 'boolean', description: '是否覆盖同名文件，默认 false；false 时自动生成不冲突文件名。' },
+                    timeout_ms: { type: 'number', description: '下载超时，默认 120000，范围 1000-300000。' },
+                    max_bytes: { type: 'number', description: '最大文件字节数，默认 262144000，硬上限 1073741824。' },
+                    tab_id: { type: 'number', description: '读取 Cookie/Storage 的标签页；省略时使用最近操作目标。' }
+                },
+                required: ['action']
             }
         },
         // ── 导航与搜索 ─────────────────────────────────────────────────────
@@ -60,7 +66,7 @@ const EFFECTIVE_AGENT_TOOL_DEFS = [
         // ── 页面观察 ───────────────────────────────────────────────────────
         {
             name: 'browser_observe',
-            description: '感知当前视口里用户能看到的内容：返回 items 单一混排列表（按位置排序、已去重），kind=interactive 是最顶层、未被遮挡的按钮/链接/输入框/下拉/菜单项等（每项带临时 id + tag/selector/name/placeholder/ariaLabel/value/optionsSample 等基本信息），kind=text 是普通可见文本，kind=media 是图片/视频/音频（category=image/video/audio，不可点击），kind=frame 是页面内 iframe 边界（accessible=true 表示同源已扫描，其子元素以 inFrame=true 的 interactive 返回）。会扫描主文档、同源（含嵌套）iframe 内部内容以及 Shadow DOM（开放与被强制开放的封闭 root），并识别 img/video/audio 媒体元素；跨域 iframe 内部仍不可访问。除固定的按钮/链接/表单控件外，还会识别 cursor:pointer 或类名/ID 以 btn/button/link 结尾的自定义控件。若匹配条目超过 limit/max_items，默认截断并返回上限内的真实 items，同时设置 truncated=true；可用 filter/tag/keyword 缩小范围，也可传 frame（iframe 的 frameSelector）或 frame_path 只观察某个 iframe 内部。默认会在页面上绘制描边标记：绿色=可点击、红色=被遮挡/禁用/不可点、紫色虚线=iframe 边界。用途：点击/输入前的首选观察手段 + 卡片信息收集。场景：observe 后优先使用返回的 selector 或 text+tag 构造自动化卡片步骤（持久化推荐）；ref 可用于临时 browser_action 操作；页面变化后重新 observe（id 只在下一次 observe 前有效）。',
+            description: '感知当前视口里用户能看到的内容：返回 items 单一混排列表（按位置排序、已去重），kind=interactive 是最顶层、未被遮挡的按钮/链接/输入框/下拉/菜单项等（每项带临时 id + tag/selector/name/placeholder/ariaLabel/value/optionsSample 等基本信息），kind=text 是普通可见文本，kind=media 是图片/视频/音频（category=image/video/audio，不可点击），kind=frame 是页面内 iframe 边界（accessible=true 表示同源已扫描，其子元素以 inFrame=true 的 interactive 返回）。可见 HTTP/HTTPS 链接在 item.downloadUrl 中标记，并汇总为顶层 downloadLinks，可直接交给 browser_download。会扫描主文档、同源（含嵌套）iframe 内部内容以及 Shadow DOM（开放与被强制开放的封闭 root），并识别 img/video/audio 媒体元素；跨域 iframe 内部仍不可访问。除固定的按钮/链接/表单控件外，还会识别 cursor:pointer 或类名/ID 以 btn/button/link 结尾的自定义控件。若匹配条目超过 limit/max_items，默认截断并返回上限内的真实 items，同时设置 truncated=true；可用 filter/tag/keyword 缩小范围，也可传 frame（iframe 的 frameSelector）或 frame_path 只观察某个 iframe 内部。默认会在页面上绘制描边标记：绿色=可点击、红色=被遮挡/禁用/不可点、紫色虚线=iframe 边界。用途：点击/输入前的首选观察手段 + 卡片信息收集。场景：observe 后优先使用返回的 selector 或 text+tag 构造自动化卡片步骤（持久化推荐）；ref 可用于临时 browser_action 操作；页面变化后重新 observe（id 只在下一次 observe 前有效）。',
             input_schema: {
                 type: 'object',
                 properties: {

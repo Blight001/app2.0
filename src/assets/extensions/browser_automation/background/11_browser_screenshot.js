@@ -269,6 +269,19 @@ async function toolBrowserScreenshot(args = {}) {
     if (!tab) throw new Error('未找到可截图的真实网页标签页');
     const unsupported = screenshotUnsupportedReason(tab.url);
     if (unsupported) return screenshotFailure(tab, new Error(unsupported));
+    const nativeTimeoutMs = screenshotBoundedNumber(args.native_timeout_ms, 3000, 100, 10000);
+    const nativeResult = typeof trySoftwareRuntimeAutomation === 'function'
+        ? await screenshotTimeout(
+            trySoftwareRuntimeAutomation('capture-screenshot', args),
+            nativeTimeoutMs,
+            'Chromium 原生截图'
+        ).catch(() => null)
+        : null;
+    if (nativeResult?.success === true && nativeResult.dataUrl) {
+        ensureScreenshotPayloadSize(nativeResult.dataUrl, args);
+        return { ...nativeResult, tabId: tab.id, url: tab.url, method: 'chromium-runtime' };
+    }
+    await requireBrowserScriptCompatibility('扩展截图回退');
     const showFx = args.screenshot_fx !== false && args.fx !== false;
     await focusTab(tab.id).catch(() => {});
     if (showFx) await playBrowserScreenshotFx(tab.id, 'before');

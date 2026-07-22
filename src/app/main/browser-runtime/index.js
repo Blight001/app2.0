@@ -48,6 +48,9 @@ class BrowserRuntimeManager {
   async dispatchInputByProcessId(processId, input) {
     return this.chromium.dispatchInputByProcessId(processId, input);
   }
+  async dispatchAutomationByProcessId(processId, command, input) {
+    return this.chromium.dispatchAutomationByProcessId(processId, command, input);
+  }
   async selectFilesByProcessId(processId, selection) {
     return selectRuntimeFilesByProcessId(this.chromium, processId, selection, { sandboxDir: this.sandboxDir });
   }

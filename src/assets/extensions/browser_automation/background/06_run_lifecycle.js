@@ -87,6 +87,7 @@ function attachRunFailureDetails(run, error) {
 async function runStandaloneCard(payload = {}) {
     let run = null;
     try {
+        await requireBrowserScriptCompatibility('自动化卡片执行');
         run = await createStandaloneRunContext(payload);
         await prepareStandaloneRun(run);
         const result = await executeStandaloneRunSteps(run, createStandaloneRunResult(run));

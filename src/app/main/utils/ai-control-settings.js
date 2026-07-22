@@ -25,6 +25,7 @@ function normalizeCustomAiApiConfig(value = {}) {
     baseUrl: String(source.baseUrl || '').trim().slice(0, 2048),
     apiKey: String(source.apiKey || '').trim().slice(0, 4096),
     model: String(source.model || '').trim().slice(0, 200),
+    supportsImageInput: source.supportsImageInput === true,
   };
 }
 
@@ -48,6 +49,7 @@ function toPublicCustomAiApiConfig(config = {}) {
     name: normalized.name,
     baseUrl: normalized.baseUrl,
     model: normalized.model,
+    supportsImageInput: normalized.supportsImageInput,
     hasApiKey: Boolean(normalized.apiKey),
   };
 }

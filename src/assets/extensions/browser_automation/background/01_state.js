@@ -29,6 +29,7 @@ function collectStorageSnapshot() {
 
 const AUTOMATION_TARGET_TAB_KEY = 'heysure-automation-target-tab-id';
 let automationTargetTabId = 0;
+let nativeSessionSnapshotCache = null;
 
 function isControllableWebTab(tab) {
     return !!(tab && Number(tab.id || 0) > 0 && /^https?:\/\//i.test(String(tab.url || '')));
@@ -166,6 +167,19 @@ async function getOrFindActiveTab(url = '') {
 }
 
 async function readPageSnapshot(tabId) {
+    const nativeSnapshot = typeof trySoftwareRuntimeAutomation === 'function'
+        ? await trySoftwareRuntimeAutomation('get-session-data').catch(() => null)
+        : null;
+    if (nativeSnapshot?.success === true) {
+        nativeSessionSnapshotCache = nativeSnapshot;
+        return {
+            url: nativeSnapshot.url || '',
+            origin: nativeSnapshot.origin || '',
+            title: nativeSnapshot.title || '',
+            localStorage: nativeSnapshot.localStorage || {},
+            sessionStorage: nativeSnapshot.sessionStorage || {}
+        };
+    }
     const results = await chrome.scripting.executeScript({
         target: { tabId },
         func: collectStorageSnapshot
@@ -179,6 +193,20 @@ async function readCookies(pageUrl = '') {
     const normalizedUrl = normalizeCaptureUrl(pageUrl);
     if (!normalizedUrl) {
         return [];
+    }
+
+    if (nativeSessionSnapshotCache?.success === true
+        && String(nativeSessionSnapshotCache.url || '') === normalizedUrl) {
+        const cached = nativeSessionSnapshotCache;
+        nativeSessionSnapshotCache = null;
+        return Array.isArray(cached.cookies) ? cached.cookies : [];
+    }
+
+    const nativeSnapshot = typeof trySoftwareRuntimeAutomation === 'function'
+        ? await trySoftwareRuntimeAutomation('get-session-data').catch(() => null)
+        : null;
+    if (nativeSnapshot?.success === true) {
+        return Array.isArray(nativeSnapshot.cookies) ? nativeSnapshot.cookies : [];
     }
 
     try {

@@ -28,7 +28,15 @@ function summarizeAgentBrowserResult(tool, result) {
     if (tool === 'browser_screenshot') return summarizeAgentBrowserScreenshot(result);
     if (tool === 'browser_action') return summarizeAgentBrowserAction(result);
     if (tool === 'browser_wait') return summarizeAgentBrowserWait(result);
+    if (tool === 'browser_download') return summarizeAgentBrowserDownload(result);
     return '';
+}
+
+function summarizeAgentBrowserDownload(result) {
+    if (result.success === false) return `下载失败: ${result.error || '未知原因'}`;
+    if (result.action === 'info') return `AI 工作区: ${result.workspace_path || ''}`;
+    if (result.action === 'save_session') return `浏览器会话已保存: ${result.relative_path || result.file_name || ''}`;
+    return `文件已下载: ${result.relative_path || result.file_name || ''}`;
 }
 
 function summarizeAgentBrowserScreenshot(result) {
@@ -57,11 +65,7 @@ function summarizeAgentBrowserWait(result) {
 function summarizeAgentResult(tool, result) {
     if (!result || typeof result !== 'object') return `${tool} 执行完成`;
     if (typeof result.summary === 'string' && result.summary.trim()) return result.summary.trim();
-    if (tool === 'save_cookies') {
-        const count = Number(result.cookieCount || 0);
-        return result.saved_to_server && result.file_name
-            ? `已抓取 Cookie ${count} 条，已保存到服务器 AI 目录: ${result.file_name}` : `已抓取 Cookie ${count} 条`;
-    }
+    if (tool === 'save_cookies') return summarizeAgentBrowserDownload(result);
     if (['manage_card', 'write_card', 'get_status', 'run_card'].includes(tool)) {
         return summarizeAgentCardResult(result) || `${tool} 执行完成`;
     }

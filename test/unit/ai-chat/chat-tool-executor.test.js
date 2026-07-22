@@ -231,3 +231,36 @@ test('工具参数 JSON 错误时返回格式诊断且不执行工具', async ()
   assert.equal(payload.errorCode, 'MCP_ARGUMENTS_INVALID');
   assert.equal(payload.phase, 'tool_parse');
 });
+
+test('截图结果转为模型可读取的临时 image_url 消息且不把 dataUrl 塞进 tool 文本', async () => {
+  const modelMessages = [];
+  const toolEvents = [];
+  await executeToolCalls({
+    compactToolValue: (value) => value,
+    connections: [{ id: 'one' }],
+    describeConnections: () => 'one',
+    emit() {},
+    findConnectionByRef: () => ({ id: 'one' }),
+    isStopped: () => false,
+    modelMessages,
+    round: 0,
+    toolCalls: [{ id: 'shot', function: { name: 'browser_screenshot', arguments: '{}' } }],
+    toolEvents,
+    traceEvents: [],
+    waitForAbort: (promise) => promise,
+    bridge: { dispatch: async () => ({
+      success: true,
+      dataUrl: 'data:image/png;base64,SCREENSHOT',
+      method: 'captureVisibleTab',
+    }) },
+  });
+  assert.equal(modelMessages[0].role, 'tool');
+  assert.equal(JSON.parse(modelMessages[0].content).image_attached, true);
+  assert.doesNotMatch(modelMessages[0].content, /SCREENSHOT/);
+  assert.equal(modelMessages[1].role, 'user');
+  assert.equal(modelMessages[1].content[1].type, 'image_url');
+  assert.equal(modelMessages[1].content[1].image_url.url, 'data:image/png;base64,SCREENSHOT');
+  assert.equal(modelMessages[1].ai_free_transient_image, true);
+  assert.equal(toolEvents[0].result.image_attached, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(toolEvents[0].result, 'dataUrl'), false);
+});

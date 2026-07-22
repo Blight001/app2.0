@@ -41,6 +41,15 @@ function normalizeMessages(messages = []) {
   });
 }
 
+function messagesHaveImageInput(messages = []) {
+  return (Array.isArray(messages) ? messages : []).some((message) => (
+    Array.isArray(message?.content) && message.content.some((part) => (
+      String(part?.type || '').toLowerCase() === 'image_url'
+      && Boolean(part?.image_url?.url)
+    ))
+  ));
+}
+
 function buildCustomAiRequest(normalized, messages, options) {
   const headers = { 'Content-Type': 'application/json' };
   if (normalized.apiKey) headers.Authorization = `Bearer ${normalized.apiKey}`;
@@ -87,6 +96,13 @@ async function sendCustomAIControlMessage(config, messages, options = {}) {
   if (!normalized.enabled || !normalized.baseUrl || !normalized.model) {
     return { ok: false, message: '自定义 API 尚未配置完整' };
   }
+  if (messagesHaveImageInput(messages) && !normalized.supportsImageInput) {
+    return {
+      ok: false,
+      message: `当前模型“${normalized.name}”未启用图片输入，无法读取 browser_screenshot 截图。请在自定义 API 配置中开启“支持图片输入”，或切换到视觉模型。`,
+      errorCode: 'MODEL_IMAGE_INPUT_UNSUPPORTED',
+    };
+  }
 
   const { headers, payload } = buildCustomAiRequest(normalized, messages, options);
 
@@ -96,6 +112,7 @@ async function sendCustomAIControlMessage(config, messages, options = {}) {
       signal: options.signal,
       timeout: 240000,
       maxContentLength: 20 * 1024 * 1024,
+      maxBodyLength: 20 * 1024 * 1024,
       validateStatus: () => true,
     });
     const data = getCustomAiResponseData(response);
@@ -111,6 +128,7 @@ async function sendCustomAIControlMessage(config, messages, options = {}) {
 }
 
 module.exports = {
+  messagesHaveImageInput,
   normalizeMessages,
   resolveChatCompletionsUrl,
   sendCustomAIControlMessage,

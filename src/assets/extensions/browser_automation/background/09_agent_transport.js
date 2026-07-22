@@ -39,6 +39,37 @@ async function requestSoftwareRuntimeInput(input) {
     }, 'Chromium Runtime 输入通道');
 }
 
+async function requestSoftwareRuntimeAutomation(command, input = {}) {
+    if (!agentSocket?.connected || !agentSocket.connectionId || !agentSocket.token) {
+        throw new Error('浏览器插件尚未完成受认证的软件连接');
+    }
+    return agentSocket.request('/v1/runtime-automation', {
+        method: 'POST',
+        body: JSON.stringify({ command, input })
+    });
+}
+
+async function requestSoftwareBrowserDownload(input = {}) {
+    if (!agentSocket?.connected || !agentSocket.connectionId || !agentSocket.token) {
+        throw new Error('浏览器插件尚未完成受认证的软件连接');
+    }
+    const response = await agentSocket.request('/v1/browser-download', {
+        method: 'POST', body: JSON.stringify(input)
+    });
+    return response?.result || response || {};
+}
+
+async function trySoftwareRuntimeAutomation(command, input = {}) {
+    try {
+        const response = await requestSoftwareRuntimeAutomation(command, input);
+        return response && response.result && typeof response.result === 'object'
+            ? response.result
+            : null;
+    } catch (_error) {
+        return null;
+    }
+}
+
 async function requestSoftwareRuntimeFileSelection(selection) {
     return requestTrustedSoftwareBridge('/v1/runtime-file-selection', {
         method: 'POST',
@@ -372,8 +403,10 @@ function buildAgentStandaloneRunPayload(payload, entry) {
 async function runAgentCard(payload, taskId) {
     const state = await loadCardCacheState();
     const targetId = String(payload.id || '').trim();
-    const entry = targetId ? state.items.find((item) => item.id === targetId) : null;
+    const resolvedId = targetId || state.selectedId;
+    const entry = resolvedId ? state.items.find((item) => item.id === resolvedId) : null;
     if (targetId && !entry) throw new Error(`未找到自动化卡片: ${targetId}`);
+    if (entry) assertMcpSafeCardData(entry.cardData);
     activeMcpCardTask = taskId ? { taskId } : null;
     try {
         if (Number(payload.tab_id ?? payload.tabId ?? 0) > 0) await resolveAutomationTargetTab(payload);
@@ -388,43 +421,6 @@ async function runAgentCard(payload, taskId) {
     } finally {
         activeMcpCardTask = null;
     }
-}
-
-async function captureAgentCookies(payload) {
-    const saveToServer = Boolean(payload.saveToServer || payload.save_to_server);
-    const raw = await captureCurrentTab(buildCaptureAgentCookieRequest(payload, saveToServer));
-    const result = buildCapturedCookieSummary(raw);
-    if (saveToServer && raw) appendCapturedCookieData(result, raw);
-    return result;
-}
-
-function buildCaptureAgentCookieRequest(payload, saveToServer) {
-    return {
-        tab_id: payload.tab_id ?? payload.tabId ?? 0,
-        account: payload.account || '',
-        password: payload.password || '',
-        serverUrl: payload.serverUrl || payload.server_url || '',
-        cardKey: payload.cardKey || payload.card_key || '',
-        saveToServer
-    };
-}
-
-function buildCapturedCookieSummary(raw) {
-    return {
-        success: raw && raw.success !== false,
-        fileName: raw && raw.fileName,
-        cookieCount: raw && raw.cookieCount,
-        browserStorageCount: raw && raw.browserStorageCount,
-        pageUrl: raw && raw.pageUrl,
-        upload: raw && raw.upload
-    };
-}
-
-function appendCapturedCookieData(result, raw) {
-    if (raw.cookies) result.cookies = raw.cookies;
-    if (raw.browserStorage) result.browserStorage = raw.browserStorage;
-    if (raw.data) result.data = raw.data;
-    result.save_to_server = true;
 }
 
 async function runAgentCardManagement(tool, payload, taskId) {
@@ -446,7 +442,8 @@ async function runAgentToolCommand(tool, args, taskId = null) {
         browser_observe: toolBrowserObserve,
         browser_screenshot: toolBrowserScreenshot,
         browser_action: toolBrowserAction,
-        browser_wait: toolBrowserWait
+        browser_wait: toolBrowserWait,
+        browser_download: toolBrowserDownload
     };
     if (browserHandlers[tool]) return await browserHandlers[tool](payload);
     switch (tool) {
@@ -457,7 +454,7 @@ async function runAgentToolCommand(tool, args, taskId = null) {
             return runAgentCardManagement(tool, payload, taskId);
         case 'save_cookies':
         case 'capture_cookies':
-            return captureAgentCookies(payload);
+            return toolBrowserDownload({ ...payload, action: 'save_session' });
         default:
             throw new Error(`未知工具: ${tool || '(空)'}`);
     }

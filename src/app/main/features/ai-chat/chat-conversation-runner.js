@@ -164,7 +164,9 @@ function finishWithoutTools(state, result) {
   state.modelMessages.push({ role: 'assistant', content: String(result.message?.content || '') });
   if (drainInserted(state)) return null;
   const messages = limitAiControlMessages(
-    state.modelMessages.filter((message) => message?.ai_free_card_context !== true),
+    state.modelMessages.filter((message) => (
+      message?.ai_free_card_context !== true && message?.ai_free_transient_image !== true
+    )),
   );
   const finalResult = {
     ...result,

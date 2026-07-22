@@ -269,6 +269,7 @@
     el('ai-custom-api-key').value = '';
     el('ai-custom-api-key').placeholder = state.customApiHasKey ? '已保存，留空则保持不变' : '可选，支持无鉴权的本地接口';
     el('ai-custom-api-model').value = String(config.model || '');
+    el('ai-custom-api-image-input').checked = config.supportsImageInput === true;
     el('ai-custom-api-clear').hidden = !config.enabled;
   }
 
@@ -312,6 +313,7 @@
       name: String(el('ai-custom-api-name')?.value || '').trim(),
       baseUrl: String(el('ai-custom-api-base-url')?.value || '').trim(),
       model: String(el('ai-custom-api-model')?.value || '').trim(),
+      supportsImageInput: el('ai-custom-api-image-input')?.checked === true,
     };
     const apiKey = String(el('ai-custom-api-key')?.value || '').trim();
     if (apiKey || !state.customApiHasKey) payload.apiKey = apiKey;

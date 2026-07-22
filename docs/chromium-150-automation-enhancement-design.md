@@ -4,7 +4,7 @@
 **基线日期**：2026-07-22  
 **目标版本**：Chromium `150.0.7871.114`  
 **基线提交**：`f405107495a07cb1bfcf687d4af8d91117098db6`  
-**状态**：`0014` 权限策略与 `0015` 文件选择已实现；`0016`–`0019` 待实施
+**状态**：`0014` 权限策略、`0015` 文件选择、`0020` 页面自动化原生通道、`0021` 可见原生指针、`0022` 下载链接观察与 `0023` 原生键盘/滚轮已实现；`0016`–`0019` 待实施
 
 ## 1. 目标与边界
 
@@ -544,6 +544,10 @@ OAuth、支付、WebAuthn、权限设备选择器等窗口必须保持 Chromium 
 |---|---|---|
 | `select-files` | 主进程 → Chromium | 入队一次性文件选择 |
 | `set-download-directory` | 主进程 → Chromium | 设置 Profile 下载目录 |
+| `observe-page` | 主进程 → Chromium | 在隔离世界读取页面可见结构 |
+| `capture-screenshot` | 主进程 → Chromium | 从 RenderWidget Surface 截取页面 |
+| `perform-action` | 主进程 → Chromium | 定位目标并执行输入、滚动或等待 |
+| `get-session-data` | 主进程 → Chromium | 读取当前站点 Cookie 与 Storage |
 
 `cancel-file-selection` 与 `file-selection-consumed` 可在协议 v2 按需要增加，不属于 `0015` 已实现契约。
 
@@ -569,9 +573,36 @@ DOWNLOAD_DIRECTORY_UNAVAILABLE
 0017-ai-free-auto-dismiss-js-dialogs.patch
 0018-ai-free-silent-notifications-and-promos.patch
 0019-ai-free-popup-routing.patch
+0020-ai-free-page-automation.patch
+0021-ai-free-visible-pointer.patch
+0022-ai-free-observe-download-links.patch
+0023-ai-free-native-keyboard-wheel.patch
 ```
 
 不创建通用 `0020-automation-security-bypass.patch`。证书和 Mixed Content 的开发绕过由启动器显式添加 Chromium 现有参数，并由构建类型与嵌入模式双重门禁。
+
+`0020-ai-free-page-automation.patch` 与安全绕过无关。它通过既有认证 Named Pipe
+提供 `observe-page`、`capture-screenshot`、`perform-action` 和
+`get-session-data`：观察与 Storage 读取运行在 Chromium 隔离世界，截图读取
+RenderWidget Surface，Cookie 由 Browser 进程 CookieManager 返回，鼠标点击由
+RenderWidgetHost 派发。扩展仅在外部 Chrome 缺少该通道时按需回退。
+
+`0021-ai-free-visible-pointer.patch` 将点击从“瞬时坐标派发”升级为 Chromium
+Views 层的可见虚拟指针。指针层不进入页面 DOM、不参与命中测试、不会移动
+Windows 全局鼠标；移动期间按固定 16ms 节拍将缓入缓出轨迹逐点交给
+RenderWidgetHost，点击使用独立的按下、抬起和双击间隔，并显示短暂轨迹与点击
+波纹。动画时长只按像素距离确定，不加入随机抖动或规避检测逻辑。标签页或窗口
+销毁时会取消未完成动作并释放覆盖层。
+
+`0022-ai-free-observe-download-links.patch` 让隔离世界观察结果为可见 HTTP/HTTPS
+链接增加 `downloadUrl`，并在结果顶层汇总 `downloadLinks` 与
+`downloadLinkCount`。实际网络下载不在页面或扩展进程执行，而由认证本机桥接后的
+AI 工作区下载服务负责；Cookie 只按目标 URL 重新匹配后使用。
+
+`0023-ai-free-native-keyboard-wheel.patch` 将滚动改为 RenderWidgetHost
+`WebMouseWheelEvent`，文本输入改为 `NativeWebKeyboardEvent` 字符事件，并将
+Enter/Tab/Escape/Backspace/方向键改为原生 RawKeyDown/KeyUp。元素定位与聚焦
+仍是固定的 Chromium 隔离世界脚本；后续再向 AXTree/Renderer IPC 迁移。
 
 ## 17. 实施顺序
 

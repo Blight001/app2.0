@@ -26,7 +26,13 @@ async function callObserveMethod(tabId, method, callArgs) {
 
     if (value && value.__hsObserveMissing === true) {
         // 扩展安装/刷新之前就打开的标签页不会自动获得 manifest 声明的内容脚本，这里补注入一次再重试。
-        await chrome.scripting.executeScript({ target: { tabId }, files: ['content/observe.js'] }).catch(() => {});
+        await chrome.scripting.executeScript({
+            target: { tabId },
+            files: [
+                'content/observe.js', 'content/observe-targets.js',
+                'content/observe-records.js', 'content/observe-actions.js'
+            ]
+        }).catch(() => {});
         results = await invoke();
         value = Array.isArray(results) && results[0] ? results[0].result : undefined;
     }
@@ -185,7 +191,7 @@ async function toolBrowserTabClose(args = {}) {
 async function toolBrowserTabBack(args = {}) {
     const tab = await resolveTargetTabForAction(args);
     await focusTab(tab.id);
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => history.back() });
+    await chrome.tabs.goBack(tab.id);
     await sleep(250);
     await waitForTabComplete(tab.id, 15000).catch(() => {});
     const refreshed = await chrome.tabs.get(tab.id);
@@ -195,7 +201,7 @@ async function toolBrowserTabBack(args = {}) {
 async function toolBrowserTabForward(args = {}) {
     const tab = await resolveTargetTabForAction(args);
     await focusTab(tab.id);
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => history.forward() });
+    await chrome.tabs.goForward(tab.id);
     await sleep(250);
     await waitForTabComplete(tab.id, 15000).catch(() => {});
     const refreshed = await chrome.tabs.get(tab.id);
@@ -240,9 +246,35 @@ async function toolBrowserTab(args = {}) {
 }
 
 // ── 页面观察：browser_observe ─────────────────────────────────────────────
+let nativeObserveSelectors = new Map();
+
+function rememberNativeObserveSelectors(result) {
+    const entries = Array.isArray(result?.items) ? result.items : [];
+    nativeObserveSelectors = new Map(entries
+        .map(item => [String(item?.id || ''), String(item?.selector || '')])
+        .filter(([id, selector]) => id && selector));
+}
+
+function resolveNativeActionArgs(args = {}) {
+    if (args.selector || args.ref === undefined || args.ref === null) return args;
+    const selector = nativeObserveSelectors.get(String(args.ref));
+    return selector ? { ...args, selector } : args;
+}
+
+async function tryForkAutomation(command, args = {}) {
+    if (typeof trySoftwareRuntimeAutomation !== 'function') return null;
+    return trySoftwareRuntimeAutomation(command, args);
+}
+
 async function toolBrowserObserve(args = {}) {
     const tab = await resolveAutomationTargetTab(args);
     if (!tab) throw new Error('未找到可观察的真实网页标签页');
+    const nativeResult = await tryForkAutomation('observe-page', args);
+    if (nativeResult?.success === true) {
+        rememberNativeObserveSelectors(nativeResult);
+        return nativeResult;
+    }
+    await requireBrowserScriptCompatibility('页面 Observe 脚本回退');
     await prepareBrowserControl(tab.id);
     return callObserveMethod(tab.id, 'scan', [args]);
 }
@@ -268,8 +300,6 @@ async function dispatchChromiumClick(tabId, args, variant) {
 }
 
 async function dispatchChromiumFileUpload(tab, args) {
-    const prepared = await callObserveMethod(tab.id, 'resolveClick', [args, 'left']);
-    if (!prepared?.success || !prepared.input) return prepared;
     const paths = Array.isArray(args.paths) ? args.paths : [args.path].filter(Boolean);
     const mode = String(args.mode || '').trim()
         || (paths.length > 1 ? 'open-multiple' : 'open');
@@ -282,14 +312,32 @@ async function dispatchChromiumFileUpload(tab, args) {
     if (queued?.result?.queued !== true) {
         throw new Error('Chromium Runtime 未确认本地文件已排队');
     }
+    const nativeResult = await tryForkAutomation('perform-action', {
+        ...args,
+        action: 'upload_file'
+    });
+    if (nativeResult?.success === true) {
+        return { ...nativeResult, uploadedFileCount: paths.length, fileSelectionMode: mode };
+    }
+    const prepared = await callObserveMethod(tab.id, 'resolveClick', [args, 'left']);
+    if (!prepared?.success || !prepared.input) return prepared;
     const result = await dispatchPreparedChromiumClick(prepared);
     return { ...result, uploadedFileCount: paths.length, fileSelectionMode: mode };
+}
+
+async function tryNativeBrowserAction(action, args) {
+    if (action === 'upload_file') return null;
+    const result = await tryForkAutomation('perform-action', resolveNativeActionArgs(args));
+    return result?.success === true || result?.success === false ? result : null;
 }
 
 async function toolBrowserAction(args = {}) {
     const tab = await resolveAutomationTargetTab(args);
     if (!tab) throw new Error('未找到可操作的真实网页标签页');
     const action = String(args.action || '').trim();
+    const nativeResult = await tryNativeBrowserAction(action, args);
+    if (nativeResult) return nativeResult;
+    await requireBrowserScriptCompatibility(`browser_action ${action || 'fallback'}`);
     const isMouseClick = ['click', 'double_click', 'right_click', 'upload_file'].includes(action);
     await prepareBrowserControl(tab.id, { focusWindow: !isMouseClick });
     switch (action) {
@@ -309,6 +357,9 @@ async function toolBrowserAction(args = {}) {
 async function toolBrowserWait(args = {}) {
     const tab = await resolveAutomationTargetTab(args);
     if (!tab) throw new Error('未找到可等待的真实网页标签页');
+    const nativeResult = await tryForkAutomation('perform-action', { ...args, action: 'wait' });
+    if (nativeResult?.success === true || nativeResult?.success === false) return nativeResult;
+    await requireBrowserScriptCompatibility('browser_wait 脚本回退');
     await prepareBrowserControl(tab.id);
     return callObserveMethod(tab.id, 'wait', [args]);
 }

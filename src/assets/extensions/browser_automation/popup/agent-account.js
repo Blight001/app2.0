@@ -7,6 +7,7 @@
     const modal = $('agent-modal');
     const chip = $('agent-account-chip');
     const mouseFxInput = $('agent-mousefx');
+    const scriptCompatibilityInput = $('agent-script-compatibility');
     const nameInput = $('agent-name');
     const saveOptionsBtn = $('agent-save-options');
     const optionsFeedback = $('agent-options-feedback');
@@ -14,6 +15,17 @@
     const aiStatus = $('agent-ai-status');
 
     const send = (message) => chrome.runtime.sendMessage(message);
+
+    async function updateScriptCompatibilityAccess(enabled) {
+        const access = {
+            permissions: ['cookies', 'downloads', 'scripting'],
+            origins: ['http://*/*', 'https://*/*']
+        };
+        const updated = enabled
+            ? await chrome.permissions.request(access)
+            : await chrome.permissions.remove(access);
+        if (enabled && !updated) throw new Error('未授予脚本兼容权限');
+    }
 
     function feedback(node, text, ok = true) {
         if (!node) return;
@@ -40,6 +52,7 @@
 
     function applySettings(settings = {}) {
         if (mouseFxInput) mouseFxInput.checked = settings.mouseFx !== false;
+        if (scriptCompatibilityInput) scriptCompatibilityInput.checked = settings.scriptCompatibility === true;
         if (nameInput) nameInput.value = settings.agentName || 'AI自动化浏览器';
         if (accountName) accountName.textContent = settings.agentName || 'AI自动化浏览器';
     }
@@ -61,11 +74,14 @@
 
     saveOptionsBtn?.addEventListener('click', async () => {
         try {
+            const scriptCompatibility = scriptCompatibilityInput?.checked === true;
+            await updateScriptCompatibilityAccess(scriptCompatibility);
             const result = await send({
                 type: 'agent:save-settings',
                 payload: {
                     agentName: nameInput?.value?.trim() || 'AI自动化浏览器',
-                    mouseFx: mouseFxInput?.checked !== false
+                    mouseFx: mouseFxInput?.checked !== false,
+                    scriptCompatibility
                 }
             });
             feedback(optionsFeedback, result?.ok ? '已保存并重新连接' : (result?.error || '保存失败'), !!result?.ok);

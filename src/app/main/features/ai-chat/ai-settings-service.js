@@ -31,6 +31,7 @@ function buildCustomApiConfig(currentStore, payload, clear) {
     name: payload.name,
     baseUrl: payload.baseUrl,
     model: payload.model,
+    supportsImageInput: payload.supportsImageInput,
     apiKey: Object.prototype.hasOwnProperty.call(payload, 'apiKey') ? payload.apiKey : previous.apiKey,
   });
 }

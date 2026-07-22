@@ -3,6 +3,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { createBrowserAutomationExternalGateway } = require('./browser-automation-external-gateway');
+const { handleBrowserDownloadRequest } = require('./browser-download-route');
 const {
   APP_BROWSER_PID_HEADER,
   jsonResponse,
@@ -76,9 +77,13 @@ class BrowserAutomationBridgeRuntime {
       ? options.isAllowedBrowserProcess
       : null;
     this.dispatchRuntimeInput = typeof options.dispatchRuntimeInput === 'function' ? options.dispatchRuntimeInput : null;
+    this.dispatchRuntimeAutomation = typeof options.dispatchRuntimeAutomation === 'function'
+      ? options.dispatchRuntimeAutomation
+      : null;
     this.dispatchRuntimeFileSelection = typeof options.dispatchRuntimeFileSelection === 'function'
       ? options.dispatchRuntimeFileSelection
       : null;
+    this.browserDownloadService = options.browserDownloadService || null;
     this.server = null;
     this.externalMcpGateway = createBrowserAutomationExternalGateway({
       descriptorPath: options.externalMcpDescriptorPath,
@@ -219,6 +224,23 @@ class BrowserAutomationBridgeRuntime {
     return true;
   }
 
+  async sendRuntimeAutomation(req, res, browserProcessId) {
+    if (!this.isManagedBrowserProcess(browserProcessId)) {
+      return jsonResponse(res, 403, { ok: false, message: '当前浏览器不支持 AI-FREE 原生自动化通道' });
+    }
+    if (!this.dispatchRuntimeAutomation) {
+      return jsonResponse(res, 503, { ok: false, message: 'Chromium Runtime 自动化通道不可用' });
+    }
+    const data = await readJson(req);
+    const response = await this.dispatchRuntimeAutomation(
+      browserProcessId,
+      String(data?.command || ''),
+      data?.input,
+    );
+    jsonResponse(res, 200, { ok: true, result: response?.result || response || {} });
+    return true;
+  }
+
   async sendRuntimeFileSelection(req, res, browserProcessId) {
     if (!this.isManagedBrowserProcess(browserProcessId)) {
       return jsonResponse(res, 403, { ok: false, message: '当前浏览器不支持 AI-FREE 原生文件选择通道' });
@@ -327,6 +349,12 @@ class BrowserAutomationBridgeRuntime {
   }
 
   async routeConnectedRequest(route, req, res, connection) {
+    if (route === 'POST /v1/runtime-automation') {
+      return this.sendRuntimeAutomation(req, res, connection.browserProcessId);
+    }
+    if (route === 'POST /v1/browser-download') {
+      return handleBrowserDownloadRequest(req, res, this.browserDownloadService);
+    }
     if (route === 'POST /v1/heartbeat' || route === 'POST /v1/task-progress') {
       jsonResponse(res, 200, { ok: true });
       return true;

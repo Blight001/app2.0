@@ -18,6 +18,7 @@ function createScreenshotContext(chrome, tab = { id: 7, windowId: 3, url: 'https
   const context = vm.createContext({
     chrome,
     resolveAutomationTargetTab: async () => tab,
+    requireBrowserScriptCompatibility: async () => true,
     focusTab: async () => tab,
     ensureAgentOffscreen: async () => {},
     sleep: async () => {},
@@ -120,6 +121,36 @@ test('browser_screenshot stitches full-page captureVisibleTab tiles without debu
   assert.deepEqual(plain(scrolls), [[0, 0], [0, 600], [10, 20]]);
 });
 
+test('browser_screenshot falls back when native full-page capture does not return', async () => {
+  const chrome = {
+    tabs: { async captureVisibleTab() { return 'data:image/png;base64,TILE'; } },
+    scripting: {
+      async executeScript(options) {
+        if (!options.args) return [{ result: {
+          scrollX: 0, scrollY: 0, viewportWidth: 800, viewportHeight: 600,
+          pageWidth: 800, pageHeight: 600,
+        } }];
+        return [{ result: { x: options.args[0], y: options.args[1] } }];
+      },
+    },
+    runtime: {
+      async sendMessage() {
+        return { ok: true, dataUrl: 'data:image/png;base64,FALLBACK' };
+      },
+    },
+  };
+  const context = createScreenshotContext(chrome);
+  context.trySoftwareRuntimeAutomation = async () => new Promise(() => {});
+  const result = await vm.runInContext(
+    'toolBrowserScreenshot({full_page:true, screenshot_fx:false, native_timeout_ms:10})',
+    context,
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(result.method, 'captureVisibleTab.stitched');
+  assert.equal(result.dataUrl, 'data:image/png;base64,FALLBACK');
+});
+
 test('browser_screenshot returns a structured failure when tile composition fails', async () => {
   const chrome = {
     tabs: { async captureVisibleTab() { return 'data:image/png;base64,TILE'; } },
@@ -161,7 +192,14 @@ test('extension publishes browser_screenshot without debugger permission or API 
   const manifest = JSON.parse(fs.readFileSync(path.join(extensionRoot, 'manifest.json'), 'utf8'));
 
   assert.ok(names.includes('browser_screenshot'));
+  assert.ok(names.includes('browser_download'));
+  assert.equal(names.includes('save_cookies'), false);
   assert.equal(manifest.permissions.includes('debugger'), false);
+  assert.equal(manifest.permissions.includes('scripting'), false);
+  assert.equal(manifest.permissions.includes('cookies'), false);
+  assert.equal(manifest.permissions.includes('downloads'), false);
+  assert.ok(manifest.optional_permissions.includes('scripting'));
+  assert.deepEqual(manifest.optional_host_permissions, ['http://*/*', 'https://*/*']);
   assert.equal(screenshotSource.includes('chrome.debugger'), false);
 });
 
@@ -178,6 +216,7 @@ test('agent transport routes browser_screenshot through the screenshot executor'
     toolBrowserScreenshot: async (args) => { calls.push(args); return { success: true }; },
     toolBrowserAction: unused,
     toolBrowserWait: unused,
+    toolBrowserDownload: unused,
     Promise,
     Object,
     String,

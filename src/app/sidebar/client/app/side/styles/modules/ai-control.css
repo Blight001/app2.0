@@ -523,6 +523,8 @@
 .ai-custom-api-body label { display: grid; gap: 5px; color: #b9c8dc; font-size: 11px; font-weight: 650; }
 .ai-custom-api-body input { width: 100%; height: 34px; box-sizing: border-box; padding: 6px 9px; border: 1px solid rgba(120,150,200,.28); border-radius: 8px; outline: none; color: #e8f1ff; background: rgba(7,12,21,.62); font: inherit; font-size: 12px; }
 .ai-custom-api-body input:focus { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+.ai-custom-api-body .ai-custom-api-checkbox { display: flex; align-items: center; gap: 8px; }
+.ai-custom-api-body .ai-custom-api-checkbox input { width: 15px; height: 15px; padding: 0; margin: 0; }
 .ai-custom-api-status { min-height: 14px; margin: -2px 0 0; color: #ff8f99; font-size: 10px; }
 .ai-custom-api-status[data-type="success"] { color: #70c998; }
 .ai-custom-api-status[data-type="info"] { color: #8da0b9; }

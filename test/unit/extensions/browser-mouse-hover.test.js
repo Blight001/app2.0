@@ -164,6 +164,7 @@ test('browser observe focuses and hovers the browser before scanning the page', 
       },
     },
     resolveAutomationTargetTab: async () => ({ id: 7, windowId: 3, url: 'https://example.com' }),
+    requireBrowserScriptCompatibility: async () => true,
     rememberAutomationTargetTab: async () => {},
     normalizeTargetUrl: (value) => value,
     waitForTabComplete: async () => {},
@@ -204,6 +205,7 @@ test('browser upload queues local files before dispatching the trusted Chromium 
       },
     },
     resolveAutomationTargetTab: async () => tab,
+    requireBrowserScriptCompatibility: async () => true,
     rememberAutomationTargetTab: async () => {},
     requestSoftwareRuntimeFileSelection: async (selection) => {
       calls.push({ kind: 'selection', selection });

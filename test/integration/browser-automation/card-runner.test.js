@@ -54,6 +54,7 @@ function createRunner(cardData, options = {}) {
     AbortSignal,
     URL,
     STANDALONE_LAST_CARD_KEY: 'last-card',
+    requireBrowserScriptCompatibility: async () => true,
     stoppedTabs: stopped,
     standaloneSessions: sessions,
     loadCardCache: async () => null,

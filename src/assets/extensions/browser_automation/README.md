@@ -65,8 +65,8 @@
 
 | 分类 | 工具 | 功能说明 |
 |------|------|----------|
-| 自动化卡片 | `manage_card`   | 卡片唯一入口（管理 + 执行合一）：rules 获取步骤类型、`flow.nodes/edges/start` 流程图结构与运行规则（写卡片前必看，write 和局部步骤编辑都会按规范校验拒绝非法步骤类型）、list 列出全部卡片、get 获取卡片完整 JSON、write 创建/覆盖完整卡片、patch_step 修改某一步、insert_step 插入步骤、delete_step 删除步骤、move_step 移动步骤、delete 删除整张卡片、run 在当前活动标签页执行卡片（可通过 inputs 指定账号等变量，耗时操作）。没有 flow 时仍按 steps 顺序执行；有 flow 时按连线执行，`condition` 节点根据 true/false 出边分支。步骤索引使用 1-based，与失败结果 stepIndex 对齐；insert_step 不传 step_index 时默认追加。run 失败时返回结构化现场（errorCode + 失败步骤 stepIndex/selector + failureSnapshot 候选元素 + context 实际凭证），页面停留在失败现场，修复卡片后可用 `start_step` 从失败步骤续跑，形成「失败 → 修卡 → 续跑」闭环。旧工具名 `get_status`/`run_card`/`write_card` 仍兼容执行（分别等价 list/run/write） |
-| 自动化卡片 | `save_cookies`  | 抓取当前页面的 Cookie + localStorage + sessionStorage，可选上传到指定服务器 |
+| 自动化卡片 | `manage_card`   | 卡片唯一入口（管理 + 执行合一）：rules 获取 9 种固定步骤与 `flow.nodes/edges/start`；MCP 不暴露 `external_script` 或 JS 条件，并会在 write、局部编辑和 run 时拒绝任意页面脚本。其余 list/get/write/patch_step/insert_step/delete_step/move_step/delete/run 行为及结构化失败现场保持不变。 |
+| 文件与会话 | `browser_download` | 下载 `browser_observe` 发现的 HTTP/HTTPS 链接到 `AI-Workspace`，或用 `save_session` 保存当前页 Cookie + localStorage + sessionStorage |
 | 导航与搜索 | `browser_tab`   | 标签页管理与导航：list / switch / replace / navigate / close / back / forward |
 | 页面观察   | `browser_observe`    | 感知当前视口的可交互元素、媒体、可见文本与 iframe 边界，返回带 tag/selector/name/placeholder/ariaLabel 等基本信息的 items 列表（含临时 id）；支持用 selector/text 定位构造卡片步骤或 ref 快速操作，便于卡片创建/修改与表单信息填入 |
 | 页面观察   | `browser_screenshot` | 截取当前标签页可视区、完整页面、指定元素或坐标区域，返回可供 AI 视觉分析和发送给用户的图片 dataUrl |
@@ -76,18 +76,24 @@
 `browser_observe` 超过 `limit` / `max_items` 时默认返回截断后的真实 `items` 并设置
 `truncated=true`，避免复杂页面因条目过多而表现为观察内容为空。只有显式传
 `allow_truncate:false` 时才只返回分类统计与筛选提示。
+可见链接会同时出现在 item 的 `downloadUrl` 与顶层 `downloadLinks` 中，可直接作为
+`browser_download action=download` 的 `url`。`directory` 只能指定 AI 工作区内子目录。
 
 工具 schema 在设备登记时上报给服务器，由服务器在 `mcp.list_tools` / `describe_tool` 中呈现，无需服务端硬编码。
 
-> `browser_tab`/`browser_observe`/`browser_screenshot`/`browser_action`/`browser_wait`
-> 移植自 `device/extension` 的同名 MCP 工具：点击由内容脚本解析目标后，经软件主进程和 Chromium
-> Runtime Bridge 注入浏览器内核，不移动 Windows 全局鼠标；输入和按键目前仍是内容脚本合成事件。
-> `browser_observe` 已与桌面浏览器扩展的观察能力对齐——扫描主文档、
-> 同源（含嵌套）iframe 内部、Shadow DOM（开放 root，封闭 root 由 `content/shadow-patch.js` 强制转开放），
+> AI-FREE Chromium Fork 中，`browser_observe`、`browser_screenshot`、`browser_action`、
+> `browser_wait` 以及 Cookie/Storage 读取优先经受认证 Runtime Bridge 在浏览器进程执行；
+> 不再常驻注入内容脚本，也不再修改页面主世界的 `Element.prototype.attachShadow`。
+> 脚本兼容回退默认关闭。只有用户在插件连接选项中显式开启后，才会按需申请 `scripting/cookies/downloads` 与 HTTP/HTTPS 页面权限；关闭时同步撤销。
+> 内置 Chromium 的点击使用浏览器 UI 层可见虚拟指针：页面 DOM 不会出现光标节点，
+> 覆盖层不拦截事件，也不会移动 Windows 全局鼠标；`content/fx.js` 只服务于外部 Chrome 回退。
+> 原生 `browser_observe` 扫描主文档、同源（含嵌套）iframe 与开放 Shadow DOM，
 > 识别 img/video/audio 媒体元素及 `cursor:pointer` / 类名或 ID 以 btn/button/link 结尾的自定义控件，
 > 并支持 `frame`/`frame_path` 钻取单个 iframe；跨域 iframe 内部仍不可访问。
 > observe 现返回元素基本信息（tag/selector/attrs），AI 推荐用 selector/text 进行卡片步骤定位（不再依赖临时 id），便于自动化卡片的修改和创建。
-> 截图只使用 `captureVisibleTab` 与 offscreen canvas 分片拼接，不使用 `chrome.debugger`，不会触发浏览器调试提示。执行逻辑见 `background/10_browser_tools.js`、`background/11_browser_screenshot.js` + `content/observe.js`（+ `content/shadow-patch.js`）。
+> 原生截图读取 Chromium RenderWidget Surface；外部 Chrome 回退使用 `captureVisibleTab`
+> 与 offscreen canvas 分片拼接。原生执行逻辑见 `ai_free_page_automation.cc`，扩展回退见
+> `background/10_browser_tools.js`、`background/11_browser_screenshot.js` 与 `content/observe*.js`。
 
 ## 项目结构
 
@@ -108,7 +114,7 @@ browser_automation/
 │   ├── 10_browser_tools.js     # browser_tab/observe/action/wait 工具封装
 │   └── 11_browser_screenshot.js # browser_screenshot 可视区/分片拼接截图
 ├── content/
-│   ├── shadow-patch.js         # document_start / MAIN world：强制 shadow root 转 open（供 observe 扫描封闭 root）
+│   ├── shadow-patch.js         # 历史兼容文件；Manifest 不再自动注入
 │   ├── fx.js                   # 页面操作动效（手型光标 / 点击涟漪 / 输入高亮）
 │   └── observe.js              # 页面观察与交互底座（window.__hsObserve，供 10_browser_tools.js 调用）
 ├── cursors/
@@ -128,7 +134,7 @@ browser_automation/
 
 - Chrome Extension Manifest V3
 - 原生 JavaScript (ES Modules)
-- Chrome APIs: cookies、storage、scripting、tabs、downloads、alarms、offscreen 等
+- Chrome APIs: 默认仅 storage、tabs、alarms、offscreen 与 `127.0.0.1` 桥接；cookies、scripting、downloads 及 HTTP/HTTPS 页面访问为显式兼容模式可选权限
 - 本机 HTTP 轮询桥接用于与 AI-FREE 通信（仅监听 `127.0.0.1`）
 
 ## 注意事项

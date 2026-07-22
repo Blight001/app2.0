@@ -7,7 +7,13 @@ const AGENT_SETTINGS_DEFAULT = {
     agentGroup: '',
     deviceId: '',
     offlineMode: false,
-    mouseFx: true
+    mouseFx: true,
+    scriptCompatibility: false
+};
+
+const SCRIPT_COMPATIBILITY_ACCESS = {
+    permissions: ['cookies', 'downloads', 'scripting'],
+    origins: ['http://*/*', 'https://*/*']
 };
 
 function trimUrl(value) {
@@ -26,4 +32,17 @@ async function saveAgentSettings(partial) {
     next.localBridgeUrl = trimUrl(next.localBridgeUrl || AGENT_SETTINGS_DEFAULT.localBridgeUrl);
     await chrome.storage.local.set({ [AGENT_SETTINGS_KEY]: next });
     return next;
+}
+
+async function isBrowserScriptCompatibilityEnabled() {
+    const settings = await getAgentSettings();
+    if (settings.scriptCompatibility !== true) return false;
+    return chrome.permissions.contains(SCRIPT_COMPATIBILITY_ACCESS).catch(() => false);
+}
+
+async function requireBrowserScriptCompatibility(feature = '该操作') {
+    if (await isBrowserScriptCompatibilityEnabled()) return true;
+    const error = new Error(`${feature}需要在插件选项中显式开启“脚本兼容模式”`);
+    error.code = 'SCRIPT_COMPATIBILITY_DISABLED';
+    throw error;
 }

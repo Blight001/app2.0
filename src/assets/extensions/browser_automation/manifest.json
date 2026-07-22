@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI自动化插件",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "AI自动化插件：支持自动化卡片、Cookie 抓取，并自动接入本机 AI-FREE 的 AI 控制；无需插件内单独登录。",
   "icons": {
     "16": "icon16.png",
@@ -20,60 +20,35 @@
   "background": {
     "service_worker": "background.js"
   },
-  "content_scripts": [
-    {
-      "matches": [
-        "http://*/*",
-        "https://*/*"
-      ],
-      "js": [
-        "content/shadow-patch.js"
-      ],
-      "run_at": "document_start",
-      "all_frames": true,
-      "match_about_blank": true,
-      "world": "MAIN"
-    },
-    {
-      "matches": [
-        "http://*/*",
-        "https://*/*"
-      ],
-      "js": [
-        "content/fx.js",
-        "content/observe.js",
-        "content/observe-targets.js",
-        "content/observe-records.js",
-        "content/observe-actions.js"
-      ],
-      "run_at": "document_idle"
-    }
-  ],
   "permissions": [
     "activeTab",
     "alarms",
-    "cookies",
-    "downloads",
     "offscreen",
     "processes",
-    "scripting",
     "storage",
     "tabs"
   ],
   "host_permissions": [
+    "http://127.0.0.1/*"
+  ],
+  "optional_permissions": [
+    "cookies",
+    "downloads",
+    "scripting"
+  ],
+  "optional_host_permissions": [
     "http://*/*",
-    "https://*/*",
-    "file://*/*"
+    "https://*/*"
   ],
   "web_accessible_resources": [
     {
       "resources": [
         "popup.html",
-        "popup.js",
         "cursors/hand.png"
       ],
       "matches": [
-        "<all_urls>"
+        "http://*/*",
+        "https://*/*"
       ]
     }
   ],

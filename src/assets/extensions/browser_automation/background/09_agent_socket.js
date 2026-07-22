@@ -32,7 +32,7 @@ let activeMcpCardTask = null;
 // 执行引擎实际支持的步骤类型全集（write 校验与 rules 均以此为准）。
 const CARD_STEP_TYPES = [
     'navigate', 'click', 'type', 'wait',
-    'condition', 'save_cookies', 'clear_current_page_cache', 'get_credits', 'external_script', 'screenshot'
+    'condition', 'save_cookies', 'clear_current_page_cache', 'get_credits', 'screenshot'
 ];
 const CARD_STEP_BY_VALUES = ['css_selector', 'text', 'auto'];
 const CARD_MANAGE_ACTIONS = [
@@ -67,7 +67,7 @@ const CARD_FORMAT_RULES = `# 自动化卡片规范（cardData）—— 步骤类
 ## 步骤通用字段
 - name: string，步骤名（仅用于展示/日志，不再影响填充逻辑）
 - id: string，推荐，流程图节点唯一 id；使用 flow 时必填且 edges/nodes 必须引用这个 id
-- type: string，必填，只能取下方 10 种步骤类型之一
+- type: string，必填，只能取下方 9 种步骤类型之一
 - selector: string，目标元素定位，语法见「选择器语法」
 - text: string，type 步骤要输入的默认文本（即变量默认值，见运行规则第 4 条「变量输入」）
 - variable: string，可选，仅 type 步骤有效；该变量的键名，运行前可用 inputs 按此键覆盖输入文本；不填则按其在全部 type 步骤中的顺序回退为 var1/var2/...
@@ -77,16 +77,15 @@ const CARD_FORMAT_RULES = `# 自动化卡片规范（cardData）—— 步骤类
 - poll_interval_ms: number，毫秒，可选，轮询间隔
 - optional: true 时该步骤失败直接跳过；不设置则任一步骤失败后立即结束，找不到元素或等待超时均只尝试 1 次（见运行规则第 2 条）
 
-## 步骤类型（type，仅以下 10 种）
+## 步骤类型（type，仅以下 9 种）
 - navigate: 跳转 url（省略 url 时用卡片 website；当前已在目标地址则刷新页面；timeout 默认 15000）
 - click: 点击 selector 元素（timeout 默认 5000，poll_interval_ms 默认 200）
 - type: 向 selector 输入 text（支持 <input>（非 button/checkbox 等）、<textarea>、[contenteditable]、role=textbox/searchbox 等可编辑元素；timeout 默认 5000）；clear_first=true 输入前清空；click_before_type=true 输入前先点击。找到非输入元素会立即报错（失败后不重试）
 - wait: 等待元素出现（selector + timeout，默认 3000）；或改用 wait_for_text 等文本出现 / wait_for_element_hidden 等元素消失 / wait_for_text_hidden 等文本消失
-- condition: 判断分支节点，不操作页面，只计算 true/false 并按 flow.edges 中对应 label 出边跳转。condition_mode 可取 selector_exists（默认）/ selector_missing / text_exists / text_missing / url_matches / js；selector 用于元素判断，text 或 wait_for_text 用于文本判断，url_matches 用 text/selector/url 作为 URL 包含匹配文本，js 使用 expression 或 script 返回布尔值。condition 节点的出边推荐写 label:"true" 与 label:"false"；缺少对应 label 时会尝试 default/next，仍无出边则流程结束
+- condition: 判断分支节点，不操作页面，只计算 true/false 并按 flow.edges 中对应 label 出边跳转。condition_mode 可取 selector_exists（默认）/ selector_missing / text_exists / text_missing / url_matches；MCP 不允许 JS 条件。condition 节点的出边推荐写 label:"true" 与 label:"false"；缺少对应 label 时会尝试 default/next，仍无出边则流程结束
 - save_cookies: 抓取并保存当前页 Cookie + localStorage/sessionStorage（必须显式放在 steps 里才会执行；缺少 account/password 上下文时该步跳过并在进度中记录原因）
 - clear_current_page_cache: 清理当前页 Cookie/localStorage/sessionStorage/CacheStorage/IndexedDB
 - get_credits: 读取 selector 元素文本作为积分写入执行结果
-- external_script: 在页面上下文执行 script 字段中的 JS 代码（CSP 严格站点可能被拦截，此时建议使用 browser_action 或调整卡片避免依赖 eval）
 - screenshot: 截图步骤（当前实现会捕获当前标签页可见区域并下载 PNG）
 
 ## 选择器语法（selector）
@@ -171,6 +170,20 @@ function validateCardWriteStep(step, index, problems) {
     if (by && !CARD_STEP_BY_VALUES.includes(by)) {
         problems.push(`${label} 的 by "${step.by}" 不存在（可选 ${CARD_STEP_BY_VALUES.join('/')}）`);
     }
+    const conditionMode = agentSocketText(step.condition_mode, step.condition, step.mode).toLowerCase();
+    if (type === 'condition' && conditionMode === 'js') {
+        problems.push(`${label} 不允许使用 JS 条件`);
+    }
+}
+
+function assertMcpSafeCardData(cardData) {
+    const steps = Array.isArray(cardData?.steps) ? cardData.steps : [];
+    const unsafe = steps.find((step) => {
+        const type = agentSocketText(step?.type).toLowerCase();
+        const mode = agentSocketText(step?.condition_mode, step?.condition, step?.mode).toLowerCase();
+        return type === 'external_script' || (type === 'condition' && mode === 'js');
+    });
+    if (unsafe) throw new Error('MCP 禁止创建或运行任意页面脚本；请改用固定的观察、点击、输入和条件操作。');
 }
 
 function validateCardFlowNode(node, index, stepIdSet, problems) {

@@ -11,6 +11,7 @@ const { createBrowserRuntimeManager } = require('../browser-runtime');
 const { createLogger } = require('../utils/logger');
 const { createBrowserPartitionCleaner } = require('../services/browser-partitions');
 const { createBrowserAutomationBridge } = require('../services/browser-automation-bridge');
+const { createBrowserDownloadService } = require('../services/browser-download-service');
 const { createAiServerDeviceService } = require('../features/ai-chat/ai-server-device-service');
 const { createAiServerDeviceCredentialStore } = require('../features/ai-chat/ai-server-device-credential-store');
 const { createLicenseStore } = require('../services/license-store');
@@ -100,10 +101,14 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
   const browserAutomationBridge = createBrowserAutomationBridge({
     logger: console,
     cardCacheDir: resolveAutomationCardCacheDir(app),
+    browserDownloadService: createBrowserDownloadService({ sandboxDir: aiSandboxDir }),
     externalMcpDescriptorPath: path.join(app.getPath('userData'), 'ai-free-mcp-bridge.json'),
     getExternalMcpAccess: () => resolveVipAccess(licenseCache.getSnapshot()),
     isAllowedBrowserProcess: (processId) => browserRuntimeManager.isManagedBrowserProcess(processId),
     dispatchRuntimeInput: (processId, input) => browserRuntimeManager.dispatchInputByProcessId(processId, input),
+    dispatchRuntimeAutomation: (processId, command, input) => (
+      browserRuntimeManager.dispatchAutomationByProcessId(processId, command, input)
+    ),
     dispatchRuntimeFileSelection: (processId, selection) => (
       browserRuntimeManager.selectFilesByProcessId(processId, selection)
     ),

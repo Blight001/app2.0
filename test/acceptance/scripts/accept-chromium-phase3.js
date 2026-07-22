@@ -43,7 +43,7 @@ function createTestServer() {
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
     response.setHeader('Cache-Control', 'no-store');
     if (url.pathname === '/input-result' || url.pathname === '/file-click' ||
-        url.pathname === '/file-result') {
+        url.pathname === '/file-result' || url.pathname === '/native-event') {
       response.end('ok');
       return;
     }
@@ -69,6 +69,27 @@ function createTestServer() {
           document.querySelector('#target').addEventListener('click', (event) => {
             fetch('/input-result?profile=${profile}&trusted=' + event.isTrusted).catch(() => {});
           });
+        </script>`);
+      return;
+    }
+    if (url.pathname === '/native-input') {
+      response.end(`<!doctype html><meta charset="utf-8"><title>NATIVE_INPUT_READY</title>
+        <input id="native-input" style="position:fixed;left:20px;top:20px;width:300px;height:50px">
+        <div style="height:2400px"></div>
+        <script>
+          const input = document.querySelector('#native-input');
+          input.addEventListener('input', (event) => fetch('/native-event?kind=input&trusted=' +
+            event.isTrusted + '&value=' + encodeURIComponent(input.value)).catch(() => {}));
+          input.addEventListener('keydown', (event) => fetch('/native-event?kind=key&trusted=' +
+            event.isTrusted + '&key=' + encodeURIComponent(event.key)).catch(() => {}));
+          addEventListener('wheel', (event) => fetch('/native-event?kind=wheel&trusted=' +
+            event.isTrusted).catch(() => {}), { once: true });
+          setTimeout(() => {
+            const delayed = document.createElement('button');
+            delayed.id = 'delayed-native-target';
+            delayed.textContent = 'ready';
+            document.body.append(delayed);
+          }, 500);
         </script>`);
       return;
     }
@@ -269,6 +290,38 @@ app.whenReady().then(async () => {
   assert.equal(Number(fileQuery.get('size')), fs.statSync(uploadPath).size);
   await manager.navigate('phase3_b', 'chromium', `${origin}/page?profile=b`);
 
+  const nativePage = await manager.navigate('phase3_b', 'chromium', `${origin}/native-input?profile=b`);
+  assert.equal(nativePage.result.title, 'NATIVE_INPUT_READY');
+  const waited = await manager.dispatchAutomationByProcessId(b.state.pid, 'perform-action', {
+    action: 'wait', selector: '#delayed-native-target', timeout: 3000,
+  });
+  assert.equal(waited.result.found, true);
+  const typed = await manager.dispatchAutomationByProcessId(b.state.pid, 'perform-action', {
+    action: 'type', selector: '#native-input', text: 'Native42',
+  });
+  assert.equal(typed.result.inputMode, 'chromium-native-keyboard');
+  const typedRequest = await waitForRequest((item) => item.path === '/native-event'
+    && new URLSearchParams(item.query).get('kind') === 'input'
+    && new URLSearchParams(item.query).get('value') === 'Native42');
+  assert.equal(new URLSearchParams(typedRequest.query).get('trusted'), 'true');
+  assert.equal(new URLSearchParams(typedRequest.query).get('value'), 'Native42');
+  const pressed = await manager.dispatchAutomationByProcessId(b.state.pid, 'perform-action', {
+    action: 'press_key', selector: '#native-input', key: 'Enter',
+  });
+  assert.equal(pressed.result.inputMode, 'chromium-native-keyboard');
+  const keyRequest = await waitForRequest((item) => item.path === '/native-event'
+    && new URLSearchParams(item.query).get('kind') === 'key');
+  assert.equal(new URLSearchParams(keyRequest.query).get('trusted'), 'true');
+  assert.equal(new URLSearchParams(keyRequest.query).get('key'), 'Enter');
+  const scrolled = await manager.dispatchAutomationByProcessId(b.state.pid, 'perform-action', {
+    action: 'scroll', direction: 'down', amount: 300,
+  });
+  assert.equal(scrolled.result.inputMode, 'chromium-native-wheel');
+  const wheelRequest = await waitForRequest((item) => item.path === '/native-event'
+    && new URLSearchParams(item.query).get('kind') === 'wheel');
+  assert.equal(new URLSearchParams(wheelRequest.query).get('trusted'), 'true');
+  await manager.navigate('phase3_b', 'chromium', `${origin}/page?profile=b`);
+
   const beforeReload = pageLoads.get('b');
   const reload = await manager.reload('phase3_b', 'chromium');
   assert(pageLoads.get('b') > beforeReload, 'reload 必须触发新的 HTTP 页面请求');
@@ -347,6 +400,7 @@ app.whenReady().then(async () => {
 
   console.log('[phase3-acceptance] navigate/reload command responses passed');
   console.log('[phase3-acceptance] trusted local file selection reached the real HTML file input');
+  console.log('[phase3-acceptance] native keyboard and wheel events reached the page as trusted input');
   console.log('[phase3-acceptance] visible + HttpOnly cookies reached real Chromium requests');
   console.log('[phase3-acceptance] LocalStorage/SessionStorage verification and two-Profile isolation passed');
   console.log('[phase3-acceptance] invalid session/profile/origin/oversized message rejection passed');

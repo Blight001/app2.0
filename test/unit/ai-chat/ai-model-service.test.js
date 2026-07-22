@@ -18,6 +18,7 @@ test('custom model requires both verified VIP access and complete configuration'
   const vipCache = { getSnapshot: () => verifiedVip };
   assert.deepEqual(createCustomModel(customStore, vipCache), {
     id: '__custom_openai_api__', name: 'Private', model: 'fixture-model', custom_api: true,
+    supports_image_input: false,
   });
   assert.equal(createCustomModel(customStore, { getSnapshot: () => ({}) }), null);
   assert.equal(createCustomModel({ aiControlSettings: { customApi: { enabled: true } } }, vipCache), null);

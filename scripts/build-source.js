@@ -92,6 +92,64 @@ function writeRuntimeFiles(outputRoot) {
   }
 }
 
+function stampExtensionServiceWorkers(outputRoot) {
+  const extensionsRoot = path.join(sourceRoot, 'assets', 'extensions');
+  if (!fs.existsSync(extensionsRoot)) return [];
+  const stamps = [];
+  for (const entry of fs.readdirSync(extensionsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const extensionRoot = path.join(extensionsRoot, entry.name);
+    const manifestPath = path.join(extensionRoot, 'manifest.json');
+    if (!fs.existsSync(manifestPath)) continue;
+    const extensionManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const serviceWorker = extensionManifest?.background?.service_worker;
+    if (!serviceWorker) continue;
+    const sourceWorkerPath = path.join(extensionRoot, serviceWorker);
+    const outputWorkerPath = path.join(
+      outputRoot, 'src', 'assets', 'extensions', entry.name, serviceWorker,
+    );
+    if (!fs.existsSync(sourceWorkerPath) || !fs.existsSync(outputWorkerPath)) continue;
+    const extensionHash = crypto.createHash('sha256');
+    for (const filePath of listFiles(extensionRoot).sort()) {
+      extensionHash.update(path.relative(extensionRoot, filePath)).update(fs.readFileSync(filePath));
+    }
+    const digest = extensionHash.digest('hex');
+    const workerSource = fs.readFileSync(outputWorkerPath, 'utf8');
+    const cacheBustedSource = workerSource.replace(
+      /(['"])([^'"\r\n]+\.js)\1/g,
+      (_match, quote, scriptPath) => `${quote}${scriptPath}?v=${digest}${quote}`,
+    );
+    const parsedWorkerPath = path.parse(serviceWorker);
+    const generatedServiceWorker = path.join(
+      parsedWorkerPath.dir,
+      `${parsedWorkerPath.name}.${digest}${parsedWorkerPath.ext}`,
+    ).replace(/\\/g, '/');
+    const generatedWorkerPath = path.join(
+      outputRoot, 'src', 'assets', 'extensions', entry.name, generatedServiceWorker,
+    );
+    const stampedWorker = `${cacheBustedSource}\n// build-source-extension-hash:${digest}\n`;
+    fs.writeFileSync(
+      outputWorkerPath,
+      stampedWorker,
+      'utf8',
+    );
+    fs.writeFileSync(generatedWorkerPath, stampedWorker, 'utf8');
+    const outputManifestPath = path.join(
+      outputRoot, 'src', 'assets', 'extensions', entry.name, 'manifest.json',
+    );
+    const outputManifest = JSON.parse(fs.readFileSync(outputManifestPath, 'utf8'));
+    outputManifest.background.service_worker = generatedServiceWorker;
+    fs.writeFileSync(outputManifestPath, `${JSON.stringify(outputManifest, null, 2)}\n`, 'utf8');
+    stamps.push({
+      extension: entry.name,
+      serviceWorker,
+      generatedServiceWorker,
+      hash: digest,
+    });
+  }
+  return stamps;
+}
+
 function buildSource() {
   assertBuildRoot(buildRoot);
   fs.rmSync(buildRoot, { recursive: true, force: true });
@@ -106,6 +164,7 @@ function buildSource() {
     hash.update(result.relativePath).update(fs.readFileSync(filePath));
   }
   compileTypeScriptProjects(totals.pendingTypeScript);
+  const extensionServiceWorkers = stampExtensionServiceWorkers(buildRoot);
   writeRuntimeFiles(buildRoot);
   const manifest = {
     version: 1,
@@ -114,6 +173,7 @@ function buildSource() {
     copiedFiles: totals.copied,
     mainFormat: 'commonjs',
     rendererFormat: 'esmodule',
+    extensionServiceWorkers,
   };
   fs.writeFileSync(path.join(buildRoot, 'build-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   if (!fs.existsSync(path.join(buildRoot, 'src', 'app', 'main', 'main.js'))) {
@@ -127,4 +187,10 @@ if (require.main === module) {
   console.log(`[build:source] 完成：${manifest.compiledFiles} 个脚本，${manifest.copiedFiles} 个资源，${manifest.sourceHash.slice(0, 12)}`);
 }
 
-module.exports = { buildRoot, buildSource, compileTypeScriptProjects, moduleKindFor };
+module.exports = {
+  buildRoot,
+  buildSource,
+  compileTypeScriptProjects,
+  moduleKindFor,
+  stampExtensionServiceWorkers,
+};

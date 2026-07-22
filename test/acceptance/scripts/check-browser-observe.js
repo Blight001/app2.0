@@ -19,6 +19,7 @@ app.whenReady().then(async () => {
     <button id="first">第一个按钮</button>
     <button id="second">第二个按钮</button>
     <button id="third">第三个按钮</button>
+    <a id="download" href="https://files.example.test/archive.zip" download="archive.zip">下载压缩包</a>
     <p>第一段页面文字</p><p>第二段页面文字</p><p>第三段页面文字</p>
   </body></html>`;
   await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
@@ -43,6 +44,15 @@ app.whenReady().then(async () => {
   assert.ok(resolvedClick.input.y > 0 && resolvedClick.input.y < resolvedClick.input.viewportHeight);
   assert.equal(await win.webContents.executeJavaScript('window.__resolvedClickCount'), 0,
     '坐标解析阶段不能提前触发 DOM 合成点击');
+
+  const downloads = await win.webContents.executeJavaScript(
+    'window.__hsObserve.scan({ filter: "link", mark: false })',
+  );
+  assert.deepEqual(downloads.downloadLinks, [{
+    url: 'https://files.example.test/archive.zip', text: '下载压缩包',
+    selector: '#download', filename: 'archive.zip',
+  }]);
+  assert.equal(downloads.items[0].downloadUrl, 'https://files.example.test/archive.zip');
 
   const truncated = await win.webContents.executeJavaScript(
     'window.__hsObserve.scan({ limit: 2, max_items: 3, text_limit: 10, mark: false })',

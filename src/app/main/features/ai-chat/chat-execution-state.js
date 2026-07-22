@@ -49,7 +49,8 @@ function buildStoppedResult(context) {
     ? [...context.traceEvents, { type: 'reasoning', round: context.traceEvents.length, content: partialReasoning }]
     : [...context.traceEvents];
   const cleanMessages = context.modelMessages
-    .filter((message) => message?.ai_free_card_context !== true && message?.role !== 'tool')
+    .filter((message) => message?.ai_free_card_context !== true
+      && message?.ai_free_transient_image !== true && message?.role !== 'tool')
     .map((message) => message?.role === 'assistant'
       ? { role: 'assistant', content: String(message.content || '') }
       : message)
@@ -80,7 +81,9 @@ function finishAfterToolFailure(context, failureMessage) {
   const detail = String(failureMessage || context.unresolvedToolFailure || '浏览器插件执行失败').trim().slice(0, 1000);
   const content = `浏览器插件操作失败：${detail}\n\n当前对话已保留，你可以检查浏览器连接或调整操作后重试。`;
   const finalMessages = limitAiControlMessages([
-    ...context.modelMessages.filter((message) => message?.ai_free_card_context !== true),
+    ...context.modelMessages.filter((message) => (
+      message?.ai_free_card_context !== true && message?.ai_free_transient_image !== true
+    )),
     { role: 'assistant', content },
   ]);
   const result = {

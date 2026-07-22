@@ -57,7 +57,12 @@ function appendInteractiveStateInfo(item, rec) {
     const element = rec.el;
     if (element.disabled || element.getAttribute?.('aria-disabled') === 'true') item.disabled = true;
     if (element.readOnly) item.readOnly = true;
-    if ((rec.tag === 'a' || rec.category === 'link') && element.href) item.href = String(element.href).slice(0, 200);
+    if ((rec.tag === 'a' || rec.category === 'link') && element.href) {
+        item.href = String(element.href).slice(0, 2048);
+        if (/^https?:/i.test(item.href)) item.downloadUrl = item.href;
+        const downloadName = element.getAttribute?.('download');
+        if (downloadName) item.downloadFilename = String(downloadName).slice(0, 160);
+    }
     if (rec.category === 'checkbox' || rec.category === 'radio') item.checked = !!element.checked;
     if (rec.tag === 'select') appendInteractiveSelectInfo(item, element);
 }
@@ -218,6 +223,12 @@ function countItemsByCategory(items) {
     const counts = {};
     for (const item of items) { const key = itemCategory(item); counts[key] = (counts[key] || 0) + 1; }
     return Object.fromEntries(Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0])));
+}
+function observeDownloadLinks(items) {
+    return items.filter((item) => item.downloadUrl).map((item) => ({
+        url: item.downloadUrl, text: item.text || item.title || '', selector: item.selector || '',
+        ...(item.downloadFilename ? { filename: item.downloadFilename } : {})
+    }));
 }
 function kindSortRank(kind) {
     if (kind === 'text') return 0;
@@ -461,6 +472,7 @@ function buildObserveSuccessResult(msg, config, candidateState, records, itemSta
     const wasTruncated = records.interactiveRecords.length > records.slicedRecords.length
         || availableItems.length > items.length;
     const marked = applyObserveMarks(msg, config, candidateState, itemState);
+    const downloadLinks = observeDownloadLinks(items);
     return {
         success: true, source: 'browser_observe', url: location.href, title: document.title,
         count: items.filter((item) => item.kind === 'interactive').length,
@@ -475,7 +487,8 @@ function buildObserveSuccessResult(msg, config, candidateState, records, itemSta
         stats, truncated: wasTruncated,
         textTruncated: config.includeText && itemState.rawTexts.length >= config.textLimit,
         tooMany: false, maxItems: config.maxItems, categoryCounts: itemState.categoryCounts, marked,
-        ...observeViewportFields(config), items: items.map(slimItem),
+        ...observeViewportFields(config), downloadLinks,
+        downloadLinkCount: downloadLinks.length, items: items.map(slimItem),
         hint: buildObserveHint(config, itemState, items, wasTruncated, marked)
     };
 }
