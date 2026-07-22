@@ -41,20 +41,26 @@ test('Chromium 新建标签页不经过 data URL 启动占位页', async () => {
     showLoadingPage: true,
   });
 
-  assert.equal(launchedProfile.initialUrl, '');
+  assert.equal(launchedProfile.initialUrl, 'chrome://new-tab-page/');
   assert.equal(tabs.get('new-tab').runtimeUrl, 'chrome://newtab/');
 });
 
-test('新建栏目在慢速环境探测完成前立即发布 starting 占位', async () => {
+test('代理出口探测不阻塞 Chromium 启动并在后台写入 Profile 缓存', async () => {
   const chromium = new EventEmitter();
   const tabs = new Map();
   let finishProfileLookup;
   let launchCount = 0;
+  const lookups = [];
+  const cachedProfiles = [];
   const profileLookup = new Promise((resolve) => { finishProfileLookup = resolve; });
   let activeTabId = null;
   const manager = createTabManager({
     browserRuntimeManager: {
       chromium,
+      getCachedBrowserProfile() { return null; },
+      cacheBrowserProfile(profileId, cacheKey, profile) {
+        cachedProfiles.push({ profileId, cacheKey, profile });
+      },
       async launchProfile() {
         launchCount += 1;
         return { status: 'ready' };
@@ -63,7 +69,10 @@ test('新建栏目在慢速环境探测完成前立即发布 starting 占位', a
       async show() {},
       async focus() {},
     },
-    resolveTabBrowserProfile: () => profileLookup,
+    resolveTabBrowserProfile: (options) => {
+      lookups.push(options);
+      return options.skipGeoLookup ? Promise.resolve({ locale: 'zh-CN' }) : profileLookup;
+    },
     getTabs: () => tabs,
     getMainWindow: () => ({ isDestroyed: () => false, getContentSize: () => [1200, 800], emit() {} }),
     getActiveTabId: () => activeTabId,
@@ -77,16 +86,23 @@ test('新建栏目在慢速环境探测完成前立即发布 starting 占位', a
   const creation = manager.addTab('chrome://newtab/', {
     tabId: 'async-browser',
     fixedTitle: '异步窗口',
+    browserSettings: {
+      proxy: { mode: 'custom', protocol: 'http', host: '127.0.0.1', port: 7897 },
+    },
   });
 
   assert.equal(tabs.get('async-browser')?.runtimeStatus, 'starting');
   assert.equal(activeTabId, 'async-browser');
-  assert.equal(launchCount, 0);
-
-  finishProfileLookup({ locale: 'zh-CN' });
   assert.equal(await creation, 'async-browser');
   assert.equal(launchCount, 1);
   assert.equal(tabs.get('async-browser')?.runtimeStatus, 'ready');
+  assert.equal(lookups[0].skipGeoLookup, true);
+  assert.equal(lookups[1].geoProxyServer, 'http://127.0.0.1:7897');
+
+  finishProfileLookup({ locale: 'ja-JP', sourceIp: '203.0.113.8' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(cachedProfiles.length, 1);
+  assert.equal(cachedProfiles[0].profileId, 'async-browser');
 });
 
 test('侧栏输入中创建浏览器会在 HWND 附着完成后恢复侧栏原生焦点', async () => {
@@ -235,7 +251,7 @@ test('普通空白栏目不会把服务器教程地址当作默认主页', async
 
   await manager.addTab('', { tabId: 'ordinary-browser' });
 
-  assert.equal(launchedProfile.initialUrl, '');
+  assert.equal(launchedProfile.initialUrl, 'chrome://new-tab-page/');
   assert.equal(tabs.get('ordinary-browser')?.runtimeUrl, 'chrome://newtab/');
   assert.equal(tabs.get('ordinary-browser')?.isTutorialTab, false);
 });

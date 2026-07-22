@@ -19,6 +19,7 @@ const {
   resolveConfiguredBrowserProxy,
   resolveConfiguredHomepage,
 } = require('./browser-environment');
+const { buildBrowserProfileCacheKey } = require('./browser-profile-cache');
 
 class BrowserTabLauncher {
   constructor(deps = {}) {
@@ -96,6 +97,7 @@ class BrowserTabLauncher {
       restoreLastSession,
       browserSettings,
       proxy,
+      profileCacheKey: buildBrowserProfileCacheKey(browserSettings, proxy.value?.server),
       urls,
       bounds: this.resolveBounds(mainWindow),
       tab: this.createStartingTab(id, url, options, identity, browserSettings, proxy, urls),
@@ -153,7 +155,8 @@ class BrowserTabLauncher {
         : (url || resolveConfiguredHomepage(browserSettings, this.deps.resolveDefaultTabUrl()));
     const opensNativeNewTab = /^chrome:\/\/newtab\/?$/i.test(target);
     let initial = target;
-    if (restoreLastSession || opensNativeNewTab) initial = '';
+    if (restoreLastSession) initial = '';
+    else if (opensNativeNewTab) initial = 'chrome://new-tab-page/';
     else if (options.showLoadingPage === true) {
       initial = buildBrowserStatusPageUrl(fixedTitle || '新建窗口', '正在启动独立浏览器…');
     }
@@ -211,9 +214,9 @@ class BrowserTabLauncher {
     this.deps.switchTab(context.id, { focusBrowser: context.options.focusBrowser === true });
     this.navigateFromLoadingPage(context);
     this.restoreSideFocusAfterLaunch(context);
-    if (context.options.resolveProfileInBackground === true && context.proxy.value?.enabled !== true) {
-      this.deps.refreshBrowserProfileInBackground(context.id, context.browserSettings);
-    }
+    this.deps.refreshBrowserProfileInBackground(
+      context.id, context.browserSettings, context.proxy.value?.server || '', context.profileCacheKey,
+    );
   }
 
   restoreSideFocusAfterLaunch(context) {
@@ -227,14 +230,15 @@ class BrowserTabLauncher {
 
   async resolveBrowserProfile(context) {
     if (typeof this.deps.resolveTabBrowserProfile !== 'function') return null;
-    const proxy = context.proxy.value;
+    const cached = this.deps.browserRuntimeManager.getCachedBrowserProfile?.(
+      context.id, context.profileCacheKey,
+    );
+    if (cached) return cached;
     return this.deps.resolveTabBrowserProfile({
       browserSettings: context.browserSettings,
       httpGetUniversal: this.deps.httpGetUniversal,
       logger: this.logger,
-      skipGeoLookup: context.options.resolveProfileInBackground === true && proxy?.enabled !== true,
-      geoProxyServer: proxy?.enabled ? proxy.server : '',
-      forceGeoLookup: proxy?.enabled === true,
+      skipGeoLookup: true,
     });
   }
 
@@ -260,6 +264,7 @@ class BrowserTabLauncher {
       extensionPaths: resolveChromiumExtensionPaths(browserSettings, this.deps.extensionManager),
       allowPrototypeWindowDiscovery: browserSettings.allowPrototypeWindowDiscovery === true,
       remoteDebuggingPipe: browserSettings.remoteDebuggingPipe === true,
+      autoGrantPermissionOrigins: browserSettings.automation?.permissionOrigins || [],
     };
   }
 

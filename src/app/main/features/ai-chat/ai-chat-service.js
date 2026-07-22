@@ -1,6 +1,7 @@
 'use strict';
 
 const { createAiBrowserWindowTools } = require('../../services/ai-browser-window-tools');
+const { createAiSandboxFileTools } = require('../../services/ai-sandbox-file-tools');
 const { createChatRunRegistry } = require('./chat-run-registry');
 const { prepareChatRequest } = require('./chat-request-context');
 const { runChatConversation } = require('./chat-conversation-runner');
@@ -48,12 +49,20 @@ function createAiChatService(deps = {}) {
       if (aiBrowserWindowTools) return aiBrowserWindowTools;
       if (!deps.browserWindowUi) return null;
       try {
-        aiBrowserWindowTools = createAiBrowserWindowTools({
+        const windowTools = createAiBrowserWindowTools({
           ui: deps.browserWindowUi,
           licenseCache,
           logger,
           waitForBrowserConnection: (target) => waitForBrowserConnection(deps, target),
         });
+        const fileTools = createAiSandboxFileTools({ sandboxDir: deps.aiSandboxDir });
+        aiBrowserWindowTools = {
+          tools: [...windowTools.tools, ...fileTools.tools],
+          has: (name) => windowTools.has(name) || fileTools.has(name),
+          execute: (name, args) => (windowTools.has(name)
+            ? windowTools.execute(name, args)
+            : fileTools.execute(name, args)),
+        };
       } catch (error) {
         logger.warn?.('[AI窗口工具] 初始化失败:', error?.message || error);
       }

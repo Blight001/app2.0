@@ -141,6 +141,35 @@ test('窗口 MCP 就绪后刷新同一轮连接与工具目录并切换控制目
   assert.equal(events.at(-1).type, 'browser_control_changed');
 });
 
+test('窗口 MCP 就绪不会在工具结果后追加 system 消息', async () => {
+  const modelMessages = [];
+  await executeToolCalls({
+    bridge: { getConnection: () => ({ id: 'new-mcp', name: '新窗口', tools: [] }) },
+    browserControl: { connectionId: 'old-mcp' },
+    compactToolValue: (value) => value,
+    connections: [{ id: 'old-mcp', name: '旧窗口' }],
+    describeConnections: () => '旧窗口、新窗口',
+    emit() {},
+    findConnectionByRef: () => null,
+    isStopped: () => false,
+    modelMessages,
+    round: 0,
+    toolCalls: [{ id: 'open', function: { name: 'software_window', arguments: '{"action":"open","name":"新窗口"}' } }],
+    toolDefinitions: [],
+    toolEvents: [],
+    traceEvents: [],
+    waitForAbort: (promise) => promise,
+    windowTools: {
+      has: (name) => name === 'software_window',
+      execute: async () => ({
+        success: true, name: '新窗口', mcp_connected: true,
+        control_browser_id: 'new-mcp', control_browser_name: '新窗口',
+      }),
+    },
+  });
+  assert.equal(modelMessages.at(-1).role, 'tool');
+});
+
 test('本地窗口工具优先执行，插件失败被序列化为可恢复 tool 消息', async () => {
   const modelMessages = [];
   let pluginCalls = 0;

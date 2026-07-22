@@ -42,6 +42,13 @@ async function requestSoftwareRuntimeInput(input) {
     }, 'Chromium Runtime 输入通道');
 }
 
+async function requestSoftwareRuntimeFileSelection(selection) {
+    return requestTrustedSoftwareBridge('/v1/runtime-file-selection', {
+        method: 'POST',
+        body: JSON.stringify(selection)
+    }, 'Chromium Runtime 文件选择通道');
+}
+
 async function readSoftwareCardCache() {
     return requestSoftwareCardCache('/v1/card-cache');
 }

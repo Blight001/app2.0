@@ -92,9 +92,20 @@ async function stopChromiumProfile(runtime, profileId, options = {}) {
   if (![RUNTIME_STATUS.STOPPING, RUNTIME_STATUS.STOPPED].includes(state.status)) {
     runtime.store.transition(id, RUNTIME_STATUS.STOPPING);
   }
-  if (instance) await shutdownChromiumInstance(runtime, id, instance, options);
+  try {
+    if (instance) await shutdownChromiumInstance(runtime, id, instance, options);
+  } catch (error) {
+    await markChromiumStopFailed(runtime, id, instance, state, error);
+    throw error;
+  }
+  finalizeStoppedProfile(runtime, id, instance, state);
+  runtime.emit('state-changed', runtime.getState(id));
+  return runtime.getState(id);
+}
+
+function finalizeStoppedProfile(runtime, id, instance, state) {
   destroyEmbeddedWindow(runtime, state);
-  runtime.instances.delete(id);
+  if (!instance || runtime.instances.get(id) === instance) runtime.instances.delete(id);
   runtime.store.releaseLock(id);
   runtime.store.patchState(id, {
     status: RUNTIME_STATUS.STOPPED,
@@ -106,8 +117,75 @@ async function stopChromiumProfile(runtime, profileId, options = {}) {
     bridgeConnected: false,
     embedded: false,
   });
+}
+
+async function markChromiumStopFailed(runtime, id, instance, state, error) {
+  try { await instance?.commandClient?.close(); } catch (_) {}
+  destroyEmbeddedWindow(runtime, state);
+  runtime.store.patchState(id, {
+    status: RUNTIME_STATUS.CRASHED,
+    browserHwnd: null,
+    hostHwnd: null,
+    bridgeConnected: false,
+    embedded: false,
+    lastError: { code: error.code || 'CHROMIUM_STOP_FAILED', message: error.message },
+  });
+  scheduleLateExitCleanup(runtime, id, instance);
   runtime.emit('state-changed', runtime.getState(id));
-  return runtime.getState(id);
+}
+
+function scheduleLateExitCleanup(runtime, id, instance) {
+  if (!instance?.child || instance.child.exitCode !== null) return;
+  instance.child.once('exit', () => {
+    if (runtime.instances.get(id) !== instance) return;
+    runtime.instances.delete(id);
+    runtime.store.releaseLock(id);
+    const current = runtime.store.getState(id);
+    if (!current || Number(current.pid || 0) !== Number(instance.child.pid || 0)) return;
+    runtime.store.patchState(id, { status: RUNTIME_STATUS.STOPPED, pid: 0, stoppedAt: Date.now() });
+    runtime.emit('state-changed', runtime.getState(id));
+  });
+}
+
+async function cleanupFailedChromiumLaunch(runtime, profileId, context) {
+  const id = String(profileId);
+  const instance = runtime.instances.get(id);
+  runtime.unbindParentWindowFocus(instance);
+  const processExited = await terminateFailedLaunch(instance);
+  try { await context.commandClient?.close(); } catch (_) {}
+  try { if (context.hostHwnd) runtime.windowBridge.destroyHostWindow(context.hostHwnd); } catch (_) {}
+  if (processExited) {
+    runtime.instances.delete(id);
+    runtime.store.releaseLock(id);
+  }
+  patchFailedLaunchState(runtime, id, instance, context.error, processExited);
+  if (!processExited) scheduleLateExitCleanup(runtime, id, instance);
+}
+
+async function terminateFailedLaunch(instance) {
+  if (!instance?.child || instance.child.exitCode !== null) return true;
+  instance.expectedExit = true;
+  try { await terminateProcessTree(instance.child.pid, 5000); } catch (_) {}
+  return waitForChildExit(instance.child, 5000);
+}
+
+function patchFailedLaunchState(runtime, id, instance, error, processExited) {
+  const state = runtime.store.getState(id);
+  if (!state) return;
+  const cleanupFailed = !processExited;
+  runtime.store.patchState(id, {
+    status: RUNTIME_STATUS.CRASHED,
+    pid: cleanupFailed ? Number(instance?.child?.pid || state.pid || 0) : 0,
+    hostHwnd: null,
+    browserHwnd: null,
+    sessionId: '',
+    bridgeConnected: false,
+    embedded: false,
+    lastError: {
+      code: cleanupFailed ? 'CHROMIUM_PROCESS_EXIT_TIMEOUT' : (error.code || 'CHROMIUM_LAUNCH_FAILED'),
+      message: cleanupFailed ? `${error.message}；失败进程未能退出` : error.message,
+    },
+  });
 }
 
 async function shutdownChromiumInstance(runtime, id, instance, options) {
@@ -168,6 +246,7 @@ function destroyEmbeddedWindow(runtime, state) {
 }
 
 module.exports = {
+  cleanupFailedChromiumLaunch,
   stopChromiumProfile,
   terminateProcessTree,
   waitForChildExit,

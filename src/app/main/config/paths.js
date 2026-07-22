@@ -32,4 +32,31 @@ function resolveAutomationCardCacheDir(app) {
   return path.join(app.getPath('userData'), 'extensions', 'browser_automation');
 }
 
-module.exports = { resolveChromiumResourcesPath, resolveAutomationCardCacheDir };
+function findSourceRoot(startDirectory, fileSystem = fs) {
+  let current = path.resolve(startDirectory);
+  for (let depth = 0; depth < 6; depth += 1) {
+    if (fileSystem.existsSync(path.join(current, 'package.json'))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return path.resolve(startDirectory);
+}
+
+function resolveInstallDirectory(app, options = {}) {
+  if (app?.isPackaged) return path.dirname(path.resolve(app.getPath('exe')));
+  const workingDirectory = path.resolve(options.workingDirectory || process.cwd());
+  const appPath = typeof app?.getAppPath === 'function' ? app.getAppPath() : workingDirectory;
+  return findSourceRoot(appPath || workingDirectory, options.fs || fs);
+}
+
+function resolveAiSandboxDir(app, options = {}) {
+  return path.join(resolveInstallDirectory(app, options), 'AI-Workspace');
+}
+
+module.exports = {
+  resolveAiSandboxDir,
+  resolveAutomationCardCacheDir,
+  resolveChromiumResourcesPath,
+  resolveInstallDirectory,
+};

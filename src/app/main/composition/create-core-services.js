@@ -30,7 +30,11 @@ const {
   setRuntimeTcpConfig,
   setRuntimeServerBase,
 } = require('../config');
-const { resolveChromiumResourcesPath, resolveAutomationCardCacheDir } = require('../config/paths');
+const {
+  resolveAiSandboxDir,
+  resolveAutomationCardCacheDir,
+  resolveChromiumResourcesPath,
+} = require('../config/paths');
 
 const APP_DISPLAY_NAME = 'AI-FREE';
 
@@ -39,9 +43,16 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
   const appRuntime = createAppState();
   const tabs = appRuntime.tabs;
 
+  const aiSandboxDir = resolveAiSandboxDir(app);
+  try {
+    fs.mkdirSync(aiSandboxDir, { recursive: true });
+  } catch (error) {
+    console.warn('[AI工作区] 无法创建安装目录工作区:', error?.message || error);
+  }
   const browserRuntimeManager = createBrowserRuntimeManager({
     userDataDir: app.getPath('userData'),
     resourcesPath: resolveChromiumResourcesPath(app),
+    sandboxDir: aiSandboxDir,
     getParentWindow: appRuntime.getMainWindow,
     logger: console,
   });
@@ -93,6 +104,9 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
     getExternalMcpAccess: () => resolveVipAccess(licenseCache.getSnapshot()),
     isAllowedBrowserProcess: (processId) => browserRuntimeManager.isManagedBrowserProcess(processId),
     dispatchRuntimeInput: (processId, input) => browserRuntimeManager.dispatchInputByProcessId(processId, input),
+    dispatchRuntimeFileSelection: (processId, selection) => (
+      browserRuntimeManager.selectFilesByProcessId(processId, selection)
+    ),
   });
   licenseCache.subscribe?.(() => {
     try { browserAutomationBridge.refreshExternalMcpAccess(); } catch (error) {
@@ -230,6 +244,7 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
     appRuntime,
     tabs,
     browserRuntimeManager,
+    aiSandboxDir,
     licenseCache,
     browserPartitionCleaner,
     state,

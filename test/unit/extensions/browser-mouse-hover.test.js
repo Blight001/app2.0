@@ -184,3 +184,49 @@ test('browser observe focuses and hovers the browser before scanning the page', 
   assert.equal(result.success, true);
   assert.deepEqual(calls, ['focus-tab:7', 'focus-window:3', 'hover', 'scan']);
 });
+
+test('browser upload queues local files before dispatching the trusted Chromium click', async () => {
+  const calls = [];
+  const tab = { id: 9, windowId: 4, url: 'https://video.example.test/create' };
+  const prepared = {
+    success: true,
+    input: {
+      inputType: 'mouse', action: 'click', x: 20, y: 30,
+      viewportWidth: 800, viewportHeight: 600,
+    },
+  };
+  const context = vm.createContext({
+    chrome: {
+      tabs: { get: async () => tab, update: async () => {} },
+      windows: { update: async () => {} },
+      scripting: {
+        executeScript: async ({ args }) => [{ result: args ? prepared : true }],
+      },
+    },
+    resolveAutomationTargetTab: async () => tab,
+    rememberAutomationTargetTab: async () => {},
+    requestSoftwareRuntimeFileSelection: async (selection) => {
+      calls.push({ kind: 'selection', selection });
+      return { result: { queued: true } };
+    },
+    requestSoftwareRuntimeInput: async (input) => {
+      calls.push({ kind: 'input', input });
+      return { result: { dispatched: true } };
+    },
+    URL, Number, Array, Error,
+  });
+  const source = fs.readFileSync(
+    path.join(root, 'src/assets/extensions/browser_automation/background/10_browser_tools.js'),
+    'utf8',
+  );
+  vm.runInContext(source, context);
+
+  const result = await vm.runInContext(
+    'toolBrowserAction({action:"upload_file", selector:"#upload", path:"C:\\\\media\\\\clip.mp4"})',
+    context,
+  );
+  assert.equal(result.uploadedFileCount, 1);
+  assert.equal(calls[0].kind, 'selection');
+  assert.equal(calls[0].selection.pageUrl, tab.url);
+  assert.equal(calls[1].kind, 'input');
+});

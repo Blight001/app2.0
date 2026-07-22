@@ -2,13 +2,21 @@ const path = require('path');
 const { ChromiumRuntime } = require('./chromium-runtime');
 const { ChromiumWindowBridge } = require('./chromium-window-bridge');
 const { ProfileRuntimeStore } = require('./profile-runtime-store');
+const { cleanupLocalModels } = require('./chromium-local-model-policy');
 const { RUNTIME_TYPES } = require('./runtime-types');
+const { selectRuntimeFilesByProcessId } = require('./runtime-file-selection');
 
 class BrowserRuntimeManager {
   constructor(options = {}) {
     const userDataDir = options.userDataDir;
     this.logger = options.logger || console;
-    this.store = options.store || new ProfileRuntimeStore({ rootDir: path.join(userDataDir, 'chromium-profiles'), logger: this.logger });
+    this.sandboxDir = options.sandboxDir ? path.resolve(String(options.sandboxDir)) : '';
+    this.store = options.store || new ProfileRuntimeStore({
+      rootDir: path.join(userDataDir, 'chromium-profiles'),
+      downloadsDir: this.sandboxDir,
+      logger: this.logger,
+    });
+    this.localModelCleanup = cleanupLocalModels(this.store.rootDir, this.logger);
     this.windowBridge = options.windowBridge || new ChromiumWindowBridge({
       logger: this.logger,
       resourcesPath: options.resourcesPath,
@@ -40,6 +48,9 @@ class BrowserRuntimeManager {
   async dispatchInputByProcessId(processId, input) {
     return this.chromium.dispatchInputByProcessId(processId, input);
   }
+  async selectFilesByProcessId(processId, selection) {
+    return selectRuntimeFilesByProcessId(this.chromium, processId, selection, { sandboxDir: this.sandboxDir });
+  }
   async importSession(profileId, sessionData) { return this.chromium.importSession(profileId, sessionData); }
   async setCookies(profileId, cookies) { return this.chromium.setCookies(profileId, cookies); }
   async restart(profileId, options) { return this.chromium.restart(profileId, options); }
@@ -48,6 +59,12 @@ class BrowserRuntimeManager {
   async stopAll(options) { return this.chromium.stopAll(options); }
   getState(profileId) { return this.store.getState(profileId); }
   listStates() { return this.store.listStates(); }
+  getCachedBrowserProfile(profileId, cacheKey) {
+    return this.store.readBrowserProfileCache?.(profileId, cacheKey) || null;
+  }
+  cacheBrowserProfile(profileId, cacheKey, profile) {
+    return this.store.writeBrowserProfileCache?.(profileId, cacheKey, profile) || false;
+  }
   isManagedBrowserProcess(processId) {
     const pid = Number(processId || 0) || 0;
     if (!pid) return false;
@@ -65,6 +82,7 @@ class BrowserRuntimeManager {
     }
     return this.store.deleteProfile(profileId);
   }
+  async waitForLocalModelCleanup() { return this.localModelCleanup; }
   isChromiumAvailable() { return this.windowBridge.isAvailable(); }
 }
 

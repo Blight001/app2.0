@@ -2,6 +2,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const {
   createAiChatService,
@@ -43,6 +46,18 @@ test('等待新窗口对应的自动化 MCP 连接后返回完整连接', async 
     browserRuntimeManager: { listStates: () => [] },
   }, { name: '新窗口' }, 100);
   assert.equal(found.id, 'mcp-1');
+});
+
+test('AI 默认工具包含安装目录沙盒文件入口', async (t) => {
+  const sandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-chat-workspace-'));
+  t.after(() => fs.rmSync(sandboxDir, { recursive: true, force: true }));
+  const service = createService({}, {
+    aiSandboxDir: sandboxDir,
+    browserWindowUi: { getTabs: () => new Map() },
+  });
+  const tools = service.getWindowTools();
+  assert.equal(tools.has('sandbox_files'), true);
+  assert.equal((await tools.execute('sandbox_files', { action: 'info' })).workspace_path, sandboxDir);
 });
 
 test('内置模型正常返回完整消息链并发布流式完成事件', async () => {

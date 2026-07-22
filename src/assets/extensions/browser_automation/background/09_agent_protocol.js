@@ -89,8 +89,9 @@ const EFFECTIVE_AGENT_TOOL_DEFS = [
         // ── 页面交互 ───────────────────────────────────────────────────────
         {
             name: 'browser_action',
-            description: '页面交互聚合工具：用 action 指定要做的动作——点击 click（单击）、双击 double_click、右键 right_click、滚动 scroll、输入文本 type、键盘按键 press_key。定位优先级：selector（observe 返回的稳定 CSS）或 text > ref（临时 id，仅本次有效） > 坐标；非坐标点击会先做遮挡检测，被遮挡时返回 occluded 诊断。\n' +
+            description: '页面交互聚合工具：用 action 指定要做的动作——点击 click（单击）、双击 double_click、右键 right_click、本地文件上传 upload_file、滚动 scroll、输入文本 type、键盘按键 press_key。定位优先级：selector（observe 返回的稳定 CSS）或 text > ref（临时 id，仅本次有效） > 坐标；非坐标点击会先做遮挡检测，被遮挡时返回 occluded 诊断。\n' +
                 '· click / double_click / right_click：内容脚本解析视口坐标后，经软件主进程和 Chromium Runtime Bridge 派发浏览器内核鼠标事件；不移动 Windows 全局鼠标、不要求软件窗口位于前台，并遵循页面正常命中测试，不能穿透遮挡层。\n' +
+                '· upload_file：先把绝对本地路径通过受信主进程排队，再用 Chromium 内核鼠标点击上传控件；下一次同 origin 文件选择器会直接收到文件，不弹系统对话框。多文件使用 paths，目录上传需 mode=upload-folder。\n' +
                 '· scroll：滚动页面，返回滚动前后位置与移动像素数。\n' +
                 '· type：向 input/textarea/可编辑区输入文本（单字段；多字段请多次 type）；submit:true 时优先调用所在表单的 requestSubmit()（合成键盘事件不会触发浏览器原生 Enter 提交，这里用等效方式兜底）。\n' +
                 '· press_key：在焦点元素或指定 selector 上派发合成键盘事件，可带 Ctrl/Shift/Alt/Meta 修饰键；同样不是 CDP trusted 事件，按 Enter 时会尝试兜底 requestSubmit()。\n' +
@@ -99,10 +100,13 @@ const EFFECTIVE_AGENT_TOOL_DEFS = [
             input_schema: {
                 type: 'object',
                 properties: {
-                    action: { type: 'string', enum: ['click', 'double_click', 'right_click', 'scroll', 'type', 'press_key'], description: '要执行的交互动作。' },
+                    action: { type: 'string', enum: ['click', 'double_click', 'right_click', 'upload_file', 'scroll', 'type', 'press_key'], description: '要执行的交互动作。' },
                     ref: { type: ['number', 'string'], description: 'browser_observe 返回的元素临时 id（click/double_click/right_click/type 均可用）；仅本次 observe 有效。优先推荐使用 observe 返回的 selector 或 text（现包含 tag/name/placeholder 等基本信息），适合构造持久化自动化卡片步骤。' },
                     selector: { type: 'string', description: '目标元素的 CSS selector（click/double_click/right_click 定位；type 指定输入框；press_key 指定先聚焦的元素；scroll 可指定滚动进视口的元素）。' },
                     text: { type: 'string', description: 'action=click/double_click/right_click 时用可见文本定位元素；action=type 时为「要输入的文本」。' },
+                    path: { type: 'string', description: 'action=upload_file 时的单个本地文件绝对路径。' },
+                    paths: { type: 'array', items: { type: 'string' }, description: 'action=upload_file 时的本地文件绝对路径数组，最多 32 个。' },
+                    mode: { type: 'string', enum: ['open', 'open-multiple', 'upload-folder'], description: 'action=upload_file 的选择模式；单文件默认 open，多文件默认 open-multiple，目录必须显式传 upload-folder。' },
                     x: { type: 'number', description: 'click/double_click/right_click 的 X 坐标（像素，视口坐标）。' },
                     y: { type: 'number', description: 'click/double_click/right_click 的 Y 坐标（像素，视口坐标）。' },
                     force: { type: 'boolean', description: '兼容参数；Chromium 内核点击始终遵循正常命中测试，被遮挡时不会穿透点击。' },

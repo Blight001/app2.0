@@ -28,6 +28,7 @@ function safeProfileId(value) {
 class ProfileRuntimeStore {
   constructor(options = {}) {
     this.rootDir = path.resolve(String(options.rootDir || 'chromium-profiles'));
+    this.downloadsDir = options.downloadsDir ? path.resolve(String(options.downloadsDir)) : '';
     this.logger = options.logger || console;
     this.states = new Map();
     this.locks = new Map();
@@ -45,7 +46,7 @@ class ProfileRuntimeStore {
       extensions: path.join(root, 'extensions.json'),
       proxy: path.join(root, 'proxy.enc'),
       fingerprint: path.join(root, 'fingerprint.json'),
-      downloads: path.join(root, 'downloads'),
+      downloads: this.downloadsDir || path.join(root, 'downloads'),
       crashpad: path.join(root, 'crashpad'),
       logs: path.join(root, 'logs'),
       lock: path.join(root, '.runtime.lock'),
@@ -116,6 +117,32 @@ class ProfileRuntimeStore {
     } catch (_) {
       return {};
     }
+  }
+
+  readBrowserProfileCache(profileId, cacheKey) {
+    const filePath = this.getProfilePaths(profileId).fingerprint;
+    try {
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      const cache = data && data.browserProfileCache;
+      if (!cache || cache.cacheKey !== cacheKey || !cache.profile) return null;
+      return { ...cache.profile };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  writeBrowserProfileCache(profileId, cacheKey, profile) {
+    const paths = this.getProfilePaths(profileId);
+    fs.mkdirSync(paths.root, { recursive: true });
+    /** @type {Record<string, any>} */
+    let data = {};
+    try { data = JSON.parse(fs.readFileSync(paths.fingerprint, 'utf8')); } catch (_) {}
+    if (!data || typeof data !== 'object' || Array.isArray(data)) data = {};
+    data.browserProfileCache = { cacheKey, resolvedAt: Date.now(), profile: { ...profile } };
+    const temporary = `${paths.fingerprint}.${process.pid}.tmp`;
+    fs.writeFileSync(temporary, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+    fs.renameSync(temporary, paths.fingerprint);
+    return true;
   }
 
   acquireLock(profileId, metadata = {}) {

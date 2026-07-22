@@ -4,8 +4,8 @@ const { ChromiumCommandClient, createPipeName } = require('./chromium-command-cl
 const { ChromiumHealthMonitor } = require('./chromium-health');
 const { launchChromium } = require('./chromium-launcher');
 const { prepareSessionImport } = require('./session-import');
-const { normalizeBounds, RUNTIME_STATUS, RUNTIME_TYPES } = require('./runtime-types');
-const { stopChromiumProfile } = require('./chromium-runtime-process');
+const { assertActiveChromiumLaunch, normalizeBounds, RUNTIME_STATUS, RUNTIME_TYPES } = require('./runtime-types');
+const { cleanupFailedChromiumLaunch, stopChromiumProfile } = require('./chromium-runtime-process');
 const { snapshotAppliedChromiumProfile } = require('./chromium-profile-snapshot');
 const { attachChildWindowWithRetry } = require('./chromium-window-attachment');
 const { groupCookiesByOrigin } = require('./chromium-cookie-groups');
@@ -55,11 +55,16 @@ class ChromiumRuntime extends BrowserRuntime {
       await this.completeProfileLaunch(profileId, instance, context.bounds);
       return this.getState(profileId);
     } catch (error) {
-      await this.cleanupFailedLaunch(profileId, {
-        hostHwnd: context.hostHwnd,
-        commandClient: context.commandClient,
-        error,
-      });
+      const state = this.store.getState(profileId);
+      const stopOwnsCleanup = error?.code === 'CHROMIUM_LAUNCH_CANCELLED'
+        && [RUNTIME_STATUS.STOPPING, RUNTIME_STATUS.STOPPED].includes(state?.status);
+      if (!stopOwnsCleanup) {
+        await cleanupFailedChromiumLaunch(this, profileId, {
+          hostHwnd: context.hostHwnd,
+          commandClient: context.commandClient,
+          error,
+        });
+      }
       throw error;
     }
   }
@@ -69,6 +74,12 @@ class ChromiumRuntime extends BrowserRuntime {
   }
 
   prepareProfileLaunch(profileId, rawProfile, rawBounds) {
+    const existing = this.instances.get(profileId);
+    if (existing?.child?.exitCode === null) {
+      const error = /** @type {Error & {code?: string}} */ (new Error(`Chromium Profile ${profileId} 仍在运行`));
+      error.code = 'CHROMIUM_PROFILE_ALREADY_RUNNING';
+      throw error;
+    }
     const bounds = normalizeBounds(rawBounds);
     const paths = this.store.ensureProfile({ ...rawProfile, profileId, runtimeType: RUNTIME_TYPES.CHROMIUM });
     const runtimeProfileId = String(paths.id || '').trim();
@@ -140,6 +151,7 @@ class ChromiumRuntime extends BrowserRuntime {
 
   async completeProfileLaunch(profileId, instance, bounds) {
     const browserHwnd = await this.waitForBrowserWindow(profileId, instance);
+    assertActiveChromiumLaunch(this.instances.get(String(profileId)) === instance, this.store.getState(profileId)?.status);
     this.assertCompleteHandshake(profileId, browserHwnd);
     await this.attachProfileWindow(profileId, instance, browserHwnd, bounds);
     instance.monitor = new ChromiumHealthMonitor({
@@ -161,6 +173,7 @@ class ChromiumRuntime extends BrowserRuntime {
   }
 
   async attachProfileWindow(profileId, instance, browserHwnd, bounds) {
+    assertActiveChromiumLaunch(this.instances.get(String(profileId)) === instance, this.store.getState(profileId)?.status);
     this.store.transition(profileId, RUNTIME_STATUS.ATTACHING, { browserHwnd });
     const attached = await attachChildWindowWithRetry(this.windowBridge, {
       hostHwnd: instance.hostHwnd,
@@ -247,11 +260,12 @@ class ChromiumRuntime extends BrowserRuntime {
 
   async waitForBrowserWindow(profileId, instance) {
     const allowPrototype = String(process.env.AI_FREE_CHROMIUM_HANDSHAKE || '').toLowerCase() === 'prototype';
-    const timeoutMs = Math.max(3000, Number(instance.profile.launchTimeoutMs) || 20000);
+    const timeoutMs = Math.max(3000, Number(instance.profile.launchTimeoutMs) || 30000);
     let helloWindow = String(instance.commandClient.lastHello?.browserHwnd || '');
     instance.commandClient.once('hello', (message) => { helloWindow = String(message.browserHwnd || ''); });
     const startedAt = Date.now();
     while (Date.now() - startedAt < timeoutMs) {
+      assertActiveChromiumLaunch(this.instances.get(String(profileId)) === instance, this.store.getState(profileId)?.status);
       if (helloWindow) return helloWindow;
       if (allowPrototype) {
         const found = this.windowBridge.findMainWindowByProcessId(instance.child.pid);
@@ -526,26 +540,6 @@ class ChromiumRuntime extends BrowserRuntime {
   }
 
   async stopAll(options = {}) { return Promise.all(this.store.listStates().filter((s) => s.runtimeType === RUNTIME_TYPES.CHROMIUM).map((s) => this.stop(s.profileId, options))); }
-
-  async cleanupFailedLaunch(profileId, context) {
-    const instance = this.instances.get(String(profileId));
-    this.unbindParentWindowFocus(instance);
-    if (instance?.child && instance.child.exitCode === null) {
-      try { instance.child.kill(); } catch (_) {}
-    }
-    this.instances.delete(String(profileId));
-    try { await context.commandClient?.close(); } catch (_) {}
-    try { if (context.hostHwnd) this.windowBridge.destroyHostWindow(context.hostHwnd); } catch (_) {}
-    this.store.releaseLock(profileId);
-    const state = this.store.getState(profileId);
-    if (state) this.store.patchState(profileId, {
-      status: RUNTIME_STATUS.CRASHED,
-      sessionId: '',
-      bridgeConnected: false,
-      embedded: false,
-      lastError: { code: context.error.code || 'CHROMIUM_LAUNCH_FAILED', message: context.error.message },
-    });
-  }
 
   markCrashed(profileId, error) {
     const state = this.store.getState(profileId);

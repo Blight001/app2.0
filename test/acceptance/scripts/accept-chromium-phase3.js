@@ -42,8 +42,24 @@ function createTestServer() {
     });
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
     response.setHeader('Cache-Control', 'no-store');
-    if (url.pathname === '/input-result') {
+    if (url.pathname === '/input-result' || url.pathname === '/file-click' ||
+        url.pathname === '/file-result') {
       response.end('ok');
+      return;
+    }
+    if (url.pathname === '/file-input') {
+      response.end(`<!doctype html><meta charset="utf-8"><title>FILE_INPUT_READY</title>
+        <input id="file" type="file" style="position:fixed;inset:0;width:100vw;height:100vh">
+        <script>
+          document.querySelector('#file').addEventListener('click', (event) => {
+            fetch('/file-click?trusted=' + event.isTrusted).catch(() => {});
+          });
+          document.querySelector('#file').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            fetch('/file-result?name=' + encodeURIComponent(file?.name || '')
+              + '&size=' + Number(file?.size || 0)).catch(() => {});
+          });
+        </script>`);
       return;
     }
     if (url.pathname === '/input') {
@@ -228,7 +244,29 @@ app.whenReady().then(async () => {
   assert.equal(inputDispatch.result.dispatched, true);
   const inputRequest = await waitForRequest((item) => item.path === '/input-result' && item.profile === 'b');
   assert.equal(new URLSearchParams(inputRequest.query || '').get('trusted'), 'true');
+
+  const uploadPath = path.join(runtimeRoot, 'input-video.mp4');
+  fs.writeFileSync(uploadPath, 'ai-free-upload-acceptance');
   await manager.show('phase3_b', 'chromium');
+  const filePageUrl = `${origin}/file-input?profile=b`;
+  const filePage = await manager.navigate('phase3_b', 'chromium', filePageUrl);
+  assert.equal(filePage.result.title, 'FILE_INPUT_READY');
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const selection = await manager.selectFilesByProcessId(b.state.pid, {
+    pageUrl: filePageUrl, path: uploadPath, ttlMs: 5000,
+  });
+  assert.equal(selection.result.queued, true);
+  const fileInputDispatch = await manager.dispatchInputByProcessId(b.state.pid, {
+    inputType: 'mouse', action: 'click', x: 10, y: 10,
+    viewportWidth: 1000, viewportHeight: 600,
+  });
+  assert.equal(fileInputDispatch.result.dispatched, true);
+  const fileClick = await waitForRequest((item) => item.path === '/file-click');
+  assert.equal(new URLSearchParams(fileClick.query || '').get('trusted'), 'true');
+  const fileRequest = await waitForRequest((item) => item.path === '/file-result');
+  const fileQuery = new URLSearchParams(fileRequest.query || '');
+  assert.equal(fileQuery.get('name'), 'input-video.mp4');
+  assert.equal(Number(fileQuery.get('size')), fs.statSync(uploadPath).size);
   await manager.navigate('phase3_b', 'chromium', `${origin}/page?profile=b`);
 
   const beforeReload = pageLoads.get('b');
@@ -308,6 +346,7 @@ app.whenReady().then(async () => {
   assert.equal(isPidAlive(oversized.pid), false);
 
   console.log('[phase3-acceptance] navigate/reload command responses passed');
+  console.log('[phase3-acceptance] trusted local file selection reached the real HTML file input');
   console.log('[phase3-acceptance] visible + HttpOnly cookies reached real Chromium requests');
   console.log('[phase3-acceptance] LocalStorage/SessionStorage verification and two-Profile isolation passed');
   console.log('[phase3-acceptance] invalid session/profile/origin/oversized message rejection passed');

@@ -4,15 +4,18 @@ const http = require('http');
 const path = require('path');
 const { createBrowserAutomationExternalGateway } = require('./browser-automation-external-gateway');
 const {
+  APP_BROWSER_PID_HEADER,
+  APP_BROWSER_TOKEN_HEADER,
+  jsonResponse,
+  readJson,
+} = require('./browser-automation-http');
+const {
   normalizeBrowserToolOutcome,
   normalizeCardCacheState,
 } = require('./browser-automation-normalizers');
 
 const DEFAULT_PORT = 18765;
 const CONNECTION_TTL_MS = 3000;
-const MAX_BODY_BYTES = 5 * 1024 * 1024;
-const APP_BROWSER_TOKEN_HEADER = 'x-ai-free-browser-token';
-const APP_BROWSER_PID_HEADER = 'x-ai-free-browser-pid';
 const CARD_CACHE_SCHEMA_VERSION = 1;
 const CARD_CACHE_FILE_NAME = 'automation-cards.json';
 
@@ -61,38 +64,12 @@ function createCardCacheStore(options = {}) {
   return { dataDir, filePath, read, write };
 }
 
-function jsonResponse(res, statusCode, payload) {
-  const body = Buffer.from(JSON.stringify(payload), 'utf8');
-  res.writeHead(statusCode, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': body.length,
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Bridge-Token, X-AI-Free-Browser-Token, X-AI-Free-Browser-Pid',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
-    'Cache-Control': 'no-store',
-  });
-  res.end(body);
-  return true;
-}
-
 function constantTimeTokenEquals(actual, expected) {
   const actualBuffer = Buffer.from(String(actual || ''), 'utf8');
   const expectedBuffer = Buffer.from(String(expected || ''), 'utf8');
   return actualBuffer.length > 0
     && actualBuffer.length === expectedBuffer.length
     && crypto.timingSafeEqual(actualBuffer, expectedBuffer);
-}
-
-async function readJson(req) {
-  const chunks = [];
-  let size = 0;
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size > MAX_BODY_BYTES) throw new Error('请求内容过大');
-    chunks.push(chunk);
-  }
-  if (!chunks.length) return {};
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
 class BrowserAutomationBridgeRuntime {
@@ -109,6 +86,9 @@ class BrowserAutomationBridgeRuntime {
       ? options.isAllowedBrowserProcess
       : null;
     this.dispatchRuntimeInput = typeof options.dispatchRuntimeInput === 'function' ? options.dispatchRuntimeInput : null;
+    this.dispatchRuntimeFileSelection = typeof options.dispatchRuntimeFileSelection === 'function'
+      ? options.dispatchRuntimeFileSelection
+      : null;
     this.server = null;
     this.externalMcpGateway = createBrowserAutomationExternalGateway({
       descriptorPath: options.externalMcpDescriptorPath,
@@ -237,6 +217,9 @@ class BrowserAutomationBridgeRuntime {
       return true;
     }
     if (route === 'POST /v1/runtime-input') return this.sendRuntimeInput(req, res, browserProcessId);
+    if (route === 'POST /v1/runtime-file-selection') {
+      return this.sendRuntimeFileSelection(req, res, browserProcessId);
+    }
     if (route === 'GET /v1/card-cache') {
       jsonResponse(res, 200, { ok: true, ...this.cardCacheStore.read() });
       return true;
@@ -251,6 +234,16 @@ class BrowserAutomationBridgeRuntime {
   async sendRuntimeInput(req, res, browserProcessId) {
     if (!this.dispatchRuntimeInput) return jsonResponse(res, 503, { ok: false, message: 'Chromium Runtime 输入通道不可用' });
     const response = await readJson(req).then((data) => this.dispatchRuntimeInput(browserProcessId, data?.input || data));
+    jsonResponse(res, 200, { ok: true, result: response?.result || response || {} });
+    return true;
+  }
+
+  async sendRuntimeFileSelection(req, res, browserProcessId) {
+    if (!this.dispatchRuntimeFileSelection) {
+      return jsonResponse(res, 503, { ok: false, message: 'Chromium Runtime 文件选择通道不可用' });
+    }
+    const selection = await readJson(req);
+    const response = await this.dispatchRuntimeFileSelection(browserProcessId, selection);
     jsonResponse(res, 200, { ok: true, result: response?.result || response || {} });
     return true;
   }

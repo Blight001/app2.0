@@ -6,7 +6,7 @@ const PROTOCOL_VERSION = 1;
 const MAX_MESSAGE_BYTES = 4 * 1024 * 1024;
 const ALLOWED_COMMANDS = new Set([
   'navigate', 'reload', 'dispatch-input', 'close-browser',
-  'set-cookies', 'set-storage', 'clear-session',
+  'set-cookies', 'set-storage', 'clear-session', 'select-files',
 ]);
 
 function runtimeBridgeError(code, message) {

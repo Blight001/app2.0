@@ -70,6 +70,9 @@ function createMcpContext(tools, connections, resolver, controlledConnectionId) 
     workflow.push('网页操作前先用 browser_observe 获取当前状态，再用 browser_action 操作；导航、切换标签页或页面明显变化后重新 observe，禁止跨浏览器或跨页面复用旧 ref');
   } else if (available.has('browser_observe')) workflow.push('用 browser_observe 读取当前页面，不虚构未返回的元素');
   if (available.has('browser_wait')) workflow.push('仅在页面确实需要加载或等待元素时使用 browser_wait');
+  if (available.has('sandbox_files')) {
+    workflow.push('上传本地资产前先用 sandbox_files 列出 AI-Workspace，再把返回的 absolute_path 交给 browser_action.upload_file；浏览器下载也会自动保存到该工作区');
+  }
   const browserWorkflow = workflow.length
     ? `${workflow.join('；')}。操作失败时根据错误调整策略，不要原样盲目重试。`
     : '';

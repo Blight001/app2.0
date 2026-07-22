@@ -35,6 +35,7 @@ const DEFAULT_AI_FREE_BROWSER_SETTINGS = Object.freeze({
   portScanProtection: { enabled: true, allowList: [] },
   hardwareAcceleration: true,
   launchArgs: { mode: 'default', value: '' },
+  automation: { permissionOrigins: [] },
 });
 
 const pick = (value, allowed, fallback) => allowed.includes(String(value || '').toLowerCase())
@@ -73,6 +74,20 @@ function normalizePortAllowList(value) {
   return list.map((item) => num(item, null, 1, 65535, true)).filter(Boolean).slice(0, 100);
 }
 
+function normalizePermissionOriginValues(value) {
+  const list = Array.isArray(value) ? value : text(value).split(/[\s,;]+/);
+  return list.map((item) => text(item, '', 2048)).filter(Boolean).slice(0, 64);
+}
+
+function normalizeAutomationSettings(source) {
+  const automation = object(source.automation);
+  return {
+    permissionOrigins: normalizePermissionOriginValues(
+      automation.permissionOrigins ?? source.autoGrantPermissionOrigins,
+    ),
+  };
+}
+
 function applyFlatBrowserSettingAliases(normalized, width, height) {
   normalized.userAgent = normalized.ua.mode === 'custom' ? normalized.ua.value : '';
   normalized.locale = normalized.language.mode === 'custom' ? normalized.language.value : '';
@@ -88,8 +103,7 @@ function applyFlatBrowserSettingAliases(normalized, width, height) {
 }
 
 function normalizeAiFreeBrowserSettings(input = {}) {
-  const source = object(input);
-  const defaults = DEFAULT_AI_FREE_BROWSER_SETTINGS;
+  const source = object(input), defaults = DEFAULT_AI_FREE_BROWSER_SETTINGS;
   const proxy = object(source.proxy);
   const homepage = object(source.homepage);
   const ua = object(source.ua);
@@ -165,6 +179,7 @@ function normalizeAiFreeBrowserSettings(input = {}) {
     },
     hardwareAcceleration: bool(source.hardwareAcceleration, defaults.hardwareAcceleration),
     launchArgs: { mode: pick(launchArgs.mode, ['default', 'custom'], defaults.launchArgs.mode), value: text(launchArgs.value, '', 10000) },
+    automation: normalizeAutomationSettings(source),
   };
 
   return applyFlatBrowserSettingAliases(normalized, width, height);

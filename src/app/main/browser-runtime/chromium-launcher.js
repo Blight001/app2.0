@@ -2,6 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { ensureChromiumSandboxAccess } = require('./chromium-sandbox-access');
+const { enforceLocalModelDisabled } = require('./chromium-local-model-policy');
+const { buildChromiumProfileArgs } = require('./chromium-profile-args');
 const { callOptional, firstText } = require('../../shared/safe-values');
 
 const SESSION_FILE_PATTERN = /^(Session|Tabs)_(\d+)$/;
@@ -405,31 +407,6 @@ function restoreChromiumSessionFiles(snapshot, logger = console) {
   }
 }
 
-function pushChromiumArg(args, condition, value) {
-  if (condition) args.push(value);
-}
-
-function configuredExtensionPaths(profile) {
-  const source = Array.isArray(profile.extensionPaths) ? profile.extensionPaths : [];
-  return source.map((item) => path.resolve(String(item || ''))).filter((item) => fs.existsSync(item));
-}
-
-function appendChromiumProfileArgs(args, options, profile, bounds) {
-  pushChromiumArg(args, options.hostHwnd, `--hs-embed-parent-hwnd=${options.hostHwnd}`);
-  pushChromiumArg(args, profile.proxyServer, `--proxy-server=${profile.proxyServer}`);
-  pushChromiumArg(args, profile.proxyBypassList, `--proxy-bypass-list=${profile.proxyBypassList}`);
-  pushChromiumArg(args, profile.locale, `--lang=${profile.locale}`);
-  pushChromiumArg(args, profile.timezoneId, `--hs-timezone-id=${profile.timezoneId}`);
-  pushChromiumArg(args, profile.userAgent, `--user-agent=${profile.userAgent}`);
-  const width = Number(bounds.width);
-  const height = Number(bounds.height);
-  pushChromiumArg(args, width > 0 && height > 0, `--window-size=${Math.round(width)},${Math.round(height)}`);
-  const extensions = configuredExtensionPaths(profile);
-  pushChromiumArg(args, extensions.length > 0, `--load-extension=${extensions.join(',')}`);
-  pushChromiumArg(args, profile.remoteDebuggingPipe === true, '--remote-debugging-pipe');
-  pushChromiumArg(args, profile.restoreLastSession === true, '--restore-last-session');
-}
-
 function buildChromiumArgs(options = {}) {
   const profile = options.profile || {};
   const paths = options.paths || {};
@@ -452,14 +429,15 @@ function buildChromiumArgs(options = {}) {
     '--disable-session-crashed-bubble',
     '--disable-backgrounding-occluded-windows',
   ];
-  appendChromiumProfileArgs(args, options, profile, bounds);
+  args.push(...buildChromiumProfileArgs(options, profile, bounds));
   args.push(...(Array.isArray(profile.extraArgs) ? profile.extraArgs : []));
+  const modelSafeArgs = enforceLocalModelDisabled(args);
   // Chromium 在握手完成前还是独立顶层窗口。强制放到虚拟屏幕外，且放在
   // 自定义参数之后，避免用户参数覆盖；嵌入后 native host 会重新定位。
-  args.push('--window-position=-32000,-32000');
-  if (profile.initialUrl) args.push(String(profile.initialUrl));
-  assertSafeChromiumArgs(args);
-  return args;
+  modelSafeArgs.push('--window-position=-32000,-32000');
+  if (profile.initialUrl) modelSafeArgs.push(String(profile.initialUrl));
+  assertSafeChromiumArgs(modelSafeArgs);
+  return modelSafeArgs;
 }
 
 function resolveChromiumLaunchOptions(options) {
@@ -497,7 +475,11 @@ function attachChromiumLogging(child, executablePath, options) {
 
 function launchChromium(options = {}) {
   const executablePath = resolveChromiumExecutable(options);
-  ensureChromiumSandboxAccess(executablePath, options.logger);
+  const profileRoot = String(options.paths?.root || '').trim();
+  const cacheFile = profileRoot
+    ? path.join(path.dirname(profileRoot), '.chromium-sandbox-access.json')
+    : '';
+  ensureChromiumSandboxAccess(executablePath, options.logger, { cacheFile });
   const launchOptions = resolveChromiumLaunchOptions(options);
   applyChromiumSessionStartupPolicy(launchOptions.paths, launchOptions.logger, launchOptions.profile);
   const args = buildChromiumArgs(launchOptions);

@@ -24,11 +24,11 @@ async function reservePort() {
   return port;
 }
 
-function postJson(port, token, pid, payload) {
+function postJson(port, token, pid, payload, route = '/v1/runtime-input') {
   const body = Buffer.from(JSON.stringify(payload));
   return new Promise((resolve, reject) => {
     const request = http.request({
-      host: '127.0.0.1', port, path: '/v1/runtime-input', method: 'POST',
+      host: '127.0.0.1', port, path: route, method: 'POST',
       headers: {
         'content-type': 'application/json',
         'content-length': body.length,
@@ -90,6 +90,47 @@ test('trusted runtime-input route dispatches only for a managed Chromium process
         viewportWidth: 800, viewportHeight: 600,
       },
     });
+    assert.equal(rejected.statusCode, 403);
+    assert.equal(calls.length, 1);
+  } finally {
+    await bridge.stop();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('trusted runtime-file-selection route stays bound to the managed Chromium process', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-runtime-selection-'));
+  const port = await reservePort();
+  const calls = [];
+  const bridge = createBrowserAutomationBridge({
+    port,
+    appBrowserToken: 'trusted-app-browser-token',
+    cardCacheDir: root,
+    externalMcpDescriptorPath: path.join(root, 'mcp.json'),
+    isAllowedBrowserProcess: (pid) => pid === 4321,
+    dispatchRuntimeFileSelection: async (pid, selection) => {
+      calls.push({ pid, selection });
+      return { result: { queued: true, count: selection.paths.length } };
+    },
+    logger: { log() {}, warn() {} },
+  });
+
+  try {
+    await bridge.start();
+    const payload = {
+      pageUrl: 'https://video.example.test/create',
+      paths: ['C:\\media\\clip.mp4'], mode: 'open', ttlMs: 5000,
+    };
+    const accepted = await postJson(
+      port, 'trusted-app-browser-token', 4321, payload, '/v1/runtime-file-selection',
+    );
+    assert.equal(accepted.statusCode, 200);
+    assert.equal(accepted.data.result.queued, true);
+    assert.deepEqual(calls, [{ pid: 4321, selection: payload }]);
+
+    const rejected = await postJson(
+      port, 'trusted-app-browser-token', 9999, payload, '/v1/runtime-file-selection',
+    );
     assert.equal(rejected.statusCode, 403);
     assert.equal(calls.length, 1);
   } finally {

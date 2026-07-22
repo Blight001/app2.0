@@ -66,11 +66,20 @@ function canTransition(from, to) {
   return (ALLOWED_TRANSITIONS[from] || []).includes(to);
 }
 
+function assertActiveChromiumLaunch(isCurrentInstance, status) {
+  const launchStatuses = [RUNTIME_STATUS.STARTING, RUNTIME_STATUS.WAITING_PIPE, RUNTIME_STATUS.WAITING_WINDOW];
+  if (isCurrentInstance && launchStatuses.includes(status)) return;
+  const error = /** @type {Error & {code?: string}} */ (new Error('浏览器栏目已在启动过程中关闭'));
+  error.code = 'CHROMIUM_LAUNCH_CANCELLED';
+  throw error;
+}
+
 module.exports = {
   ALLOWED_TRANSITIONS,
   DEFAULT_BOUNDS,
   RUNTIME_STATUS,
   RUNTIME_TYPES,
+  assertActiveChromiumLaunch,
   canTransition,
   createRuntimeState,
   normalizeBounds,

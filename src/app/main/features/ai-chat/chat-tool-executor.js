@@ -135,8 +135,6 @@ function readyWindowConnection(context, toolResult) {
   };
   if (!existing) context.connections.push(connection);
   appendReadyConnectionTools(context, connection);
-  context.browserReadyMessage = `浏览器“${connection.name || id}”的 AI 自动化 MCP 已连接，`
-    + `当前控制连接为 ${id}。现在可以调用浏览器工具；无需再次传 change_browser，除非要切换到其他浏览器。`;
   return connection;
 }
 
@@ -197,12 +195,6 @@ async function executeSingleTool(context, call) {
     name: toolName,
     content: serialized.content,
   });
-  if (context.browserReadyMessage) {
-    context.modelMessages.push({
-      role: 'system', content: context.browserReadyMessage, ai_free_card_context: true,
-    });
-    context.browserReadyMessage = '';
-  }
   return { failure: serialized.failure || prepared.failure };
 }
 

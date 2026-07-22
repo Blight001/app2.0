@@ -1,7 +1,7 @@
 // background/10_browser_tools.js — 三类浏览器 MCP 工具的后台封装：
 //   · 导航与搜索：browser_tab（list/switch/replace/navigate/close/back/forward）
 //   · 页面观察：  browser_observe
-//   · 页面交互：  browser_action（click/double_click/right_click/scroll/type/press_key）/
+//   · 页面交互：  browser_action（click/double_click/right_click/upload_file/scroll/type/press_key）/
 //                browser_wait
 // 点击由内容脚本解析目标，再经软件主进程和 Chromium Runtime Bridge 注入内核；
 // 输入/按键仍是内容脚本合成事件。真正的扫描/定位逻辑在
@@ -248,33 +248,55 @@ async function toolBrowserObserve(args = {}) {
 }
 
 // ── 页面交互：browser_action ──────────────────────────────────────────────
-const BROWSER_ACTION_KINDS = ['click', 'double_click', 'right_click', 'scroll', 'type', 'press_key'];
+const BROWSER_ACTION_KINDS = [
+    'click', 'double_click', 'right_click', 'upload_file', 'scroll', 'type', 'press_key'
+];
 
-async function dispatchChromiumClick(tabId, args, variant) {
-    const prepared = await callObserveMethod(tabId, 'resolveClick', [args, variant]);
-    if (!prepared?.success || !prepared.input) return prepared;
+async function dispatchPreparedChromiumClick(prepared) {
     const response = await requestSoftwareRuntimeInput(prepared.input);
     if (response?.result?.dispatched !== true) {
         throw new Error('Chromium Runtime 未确认鼠标事件已派发');
     }
     const { input: _input, ...result } = prepared;
-    return {
-        ...result,
-        inputMode: 'chromium-runtime',
-        dispatched: true
-    };
+    return { ...result, inputMode: 'chromium-runtime', dispatched: true };
+}
+
+async function dispatchChromiumClick(tabId, args, variant) {
+    const prepared = await callObserveMethod(tabId, 'resolveClick', [args, variant]);
+    if (!prepared?.success || !prepared.input) return prepared;
+    return dispatchPreparedChromiumClick(prepared);
+}
+
+async function dispatchChromiumFileUpload(tab, args) {
+    const prepared = await callObserveMethod(tab.id, 'resolveClick', [args, 'left']);
+    if (!prepared?.success || !prepared.input) return prepared;
+    const paths = Array.isArray(args.paths) ? args.paths : [args.path].filter(Boolean);
+    const mode = String(args.mode || '').trim()
+        || (paths.length > 1 ? 'open-multiple' : 'open');
+    const queued = await requestSoftwareRuntimeFileSelection({
+        pageUrl: tab.url,
+        paths,
+        mode,
+        ttlMs: 5000
+    });
+    if (queued?.result?.queued !== true) {
+        throw new Error('Chromium Runtime 未确认本地文件已排队');
+    }
+    const result = await dispatchPreparedChromiumClick(prepared);
+    return { ...result, uploadedFileCount: paths.length, fileSelectionMode: mode };
 }
 
 async function toolBrowserAction(args = {}) {
     const tab = await resolveAutomationTargetTab(args);
     if (!tab) throw new Error('未找到可操作的真实网页标签页');
     const action = String(args.action || '').trim();
-    const isMouseClick = ['click', 'double_click', 'right_click'].includes(action);
+    const isMouseClick = ['click', 'double_click', 'right_click', 'upload_file'].includes(action);
     await prepareBrowserControl(tab.id, { focusWindow: !isMouseClick });
     switch (action) {
         case 'click':        return dispatchChromiumClick(tab.id, args, 'left');
         case 'double_click': return dispatchChromiumClick(tab.id, args, 'double');
         case 'right_click':  return dispatchChromiumClick(tab.id, args, 'right');
+        case 'upload_file':  return dispatchChromiumFileUpload(tab, args);
         case 'scroll':       return callObserveMethod(tab.id, 'scroll', [args]);
         case 'type':         return callObserveMethod(tab.id, 'type', [args]);
         case 'press_key':    return callObserveMethod(tab.id, 'pressKey', [args]);

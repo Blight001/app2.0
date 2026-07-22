@@ -202,25 +202,32 @@ class TabManagerRuntime {
     this.deps.updateTabs();
   }
 
-  refreshBrowserProfileInBackground(tabId, browserSettings, attempt = 0) {
+  refreshBrowserProfileInBackground(tabId, browserSettings, proxyServer = '', cacheKey = '', attempt = 0) {
     if (typeof this.deps.resolveTabBrowserProfile !== 'function') return;
     void this.deps.resolveTabBrowserProfile({
       browserSettings,
       httpGetUniversal: this.deps.httpGetUniversal,
       logger: this.logger,
+      geoProxyServer: proxyServer,
       forceGeoLookup: true,
-    }).then((profile) => this.applyBackgroundProfile(tabId, browserSettings, attempt, profile))
-      .catch((error) => this.handleProfileRefreshFailure(tabId, browserSettings, attempt, error));
+    }).then((profile) => this.applyBackgroundProfile(
+      tabId, browserSettings, proxyServer, cacheKey, attempt, profile,
+    )).catch((error) => this.handleProfileRefreshFailure(
+      tabId, browserSettings, proxyServer, cacheKey, attempt, error,
+    ));
   }
 
-  applyBackgroundProfile(tabId, browserSettings, attempt, profile) {
+  applyBackgroundProfile(tabId, browserSettings, proxyServer, cacheKey, attempt, profile) {
     const tab = this.resolveTabs().get(String(tabId || ''));
     if (!tab || !profile) return;
     tab.browserProfile = profile;
+    if (cacheKey) this.deps.browserRuntimeManager?.cacheBrowserProfile?.(tab.id, cacheKey, profile);
     this.resolveTabs().set(tab.id, tab);
     if (String(tab.runtimeType || '') === 'chromium') this.updateChromiumInstanceProfile(tab.id, profile);
     this.deps.updateTabs(true);
-    if (!String(profile.sourceIp || '').trim()) this.scheduleProfileRefresh(tabId, browserSettings, attempt);
+    if (!String(profile.sourceIp || '').trim()) {
+      this.scheduleProfileRefresh(tabId, browserSettings, proxyServer, cacheKey, attempt);
+    }
   }
 
   updateChromiumInstanceProfile(tabId, profile) {
@@ -244,16 +251,16 @@ class TabManagerRuntime {
     ].map((key) => [key, String(profile[key] || '').trim()]));
   }
 
-  handleProfileRefreshFailure(tabId, settings, attempt, error) {
+  handleProfileRefreshFailure(tabId, settings, proxyServer, cacheKey, attempt, error) {
     this.logger.warn?.('[BrowserMask] 后台更新浏览器地区参数失败:', error?.message || error);
-    this.scheduleProfileRefresh(tabId, settings, attempt);
+    this.scheduleProfileRefresh(tabId, settings, proxyServer, cacheKey, attempt);
   }
 
-  scheduleProfileRefresh(tabId, settings, attempt) {
+  scheduleProfileRefresh(tabId, settings, proxyServer, cacheKey, attempt) {
     const followsIp = ['language', 'timezone', 'geolocation'].some((key) => settings?.[key]?.mode === 'ip');
     if (!followsIp || attempt + 1 >= MAX_PROFILE_REFRESH_ATTEMPTS) return;
     setTimeout(
-      () => this.refreshBrowserProfileInBackground(tabId, settings, attempt + 1),
+      () => this.refreshBrowserProfileInBackground(tabId, settings, proxyServer, cacheKey, attempt + 1),
       PROFILE_REFRESH_RETRY_DELAY_MS,
     );
   }
