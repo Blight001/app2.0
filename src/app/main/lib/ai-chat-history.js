@@ -6,9 +6,6 @@ const path = require('path');
 const { app } = require('electron');
 const { readJsonFileSafe, writeJsonFileSafe } = require('../utils/json-store');
 
-const MAX_SESSIONS = 80;
-const MAX_MESSAGES = 40;
-
 function accountScope(credentials = {}) {
   const key = String(credentials.key || credentials.credential || '').trim();
   const username = String(credentials.username || '').trim();
@@ -73,7 +70,7 @@ function normalizeHistoryContext(options = {}) {
 function sanitizeMessages(raw) {
   if (!Array.isArray(raw)) return [];
   const messages = [];
-  for (const item of raw.slice(-MAX_MESSAGES)) {
+  for (const item of raw) {
     const message = sanitizeMessage(item);
     if (message) messages.push(message);
   }
@@ -95,12 +92,12 @@ function sanitizeMessage(item) {
 
 function appendAssistantHistory(message, item) {
   if (Array.isArray(item.tool_calls) && item.tool_calls.length) message.tool_calls = item.tool_calls;
-  if (typeof item.reasoning === 'string') message.reasoning = item.reasoning.slice(0, 50000);
+  if (typeof item.reasoning === 'string') message.reasoning = item.reasoning;
   if (Array.isArray(item.tool_events)) {
-    message.tool_events = item.tool_events.slice(0, 32).map(sanitizeToolEvent);
+    message.tool_events = item.tool_events.map(sanitizeToolEvent);
   }
   if (Array.isArray(item.trace_events)) {
-    message.trace_events = item.trace_events.slice(0, 64).map(sanitizeTraceEvent);
+    message.trace_events = item.trace_events.map(sanitizeTraceEvent);
   }
 }
 
@@ -108,7 +105,7 @@ function compactHistoryValue(value) {
   let text = '';
   try { text = typeof value === 'string' ? value : JSON.stringify(value, null, 2); } catch (_) { text = String(value ?? ''); }
   if (typeof text !== 'string') text = String(value ?? '');
-  return text.length > 12000 ? `${text.slice(0, 12000)}\n…` : text;
+  return text;
 }
 
 function sanitizeToolEvent(entry) {
@@ -134,7 +131,7 @@ function normalizeTraceType(entry) {
 }
 
 function sanitizeTextTraceEvent(entry, type) {
-  return { type, round: Number(entry?.round) || 0, content: String(entry?.content || '').slice(0, 50000) };
+  return { type, round: Number(entry?.round) || 0, content: String(entry?.content || '') };
 }
 
 function sanitizeToolTraceEvent(entry, index, type) {
@@ -258,9 +255,6 @@ function saveSession(credentials, rawSession, options = {}, context = DEFAULT_HI
     const msgs = Array.isArray(item.messages) ? item.messages : [];
     return msgs.length > 0 || String(item.id) === session.id;
   });
-  if (store.sessions.length > MAX_SESSIONS) {
-    store.sessions = store.sessions.slice(0, MAX_SESSIONS);
-  }
   if (options.setCurrent !== false) store.currentId = session.id;
   const written = context.writeStore(scope, store);
   if (!written) {
@@ -379,8 +373,6 @@ function createAiChatHistoryRepository(options = {}) {
 }
 
 module.exports = {
-  MAX_SESSIONS,
-  MAX_MESSAGES,
   createAiChatHistoryRepository,
   listSessions,
   getSession,

@@ -19,6 +19,7 @@ function createScreenshotContext(chrome, tab = { id: 7, windowId: 3, url: 'https
     chrome,
     resolveAutomationTargetTab: async () => tab,
     focusTab: async () => tab,
+    ensureAgentOffscreen: async () => {},
     sleep: async () => {},
     setTimeout,
     clearTimeout,
@@ -56,21 +57,51 @@ test('browser_screenshot captures the visible target tab and returns delivery me
   assert.deepEqual(plain(calls), [{ windowId: 3, options: { format: 'png' } }]);
 });
 
-test('browser_screenshot uses CDP for a full-page capture and always detaches', async () => {
-  const commands = [];
-  let detached = false;
+test('browser_screenshot backs off before retrying capture quota errors', async () => {
+  const delays = [];
+  let attempts = 0;
   const chrome = {
-    tabs: { async captureVisibleTab() { throw new Error('visible capture should not run'); } },
-    debugger: {
-      async attach(target, version) { commands.push({ method: 'attach', target, version }); },
-      async detach(target) { detached = true; commands.push({ method: 'detach', target }); },
-      async sendCommand(_target, method, params) {
-        commands.push({ method, params });
-        if (method === 'Page.getLayoutMetrics') {
-          return { cssContentSize: { width: 1200, height: 2400 } };
+    tabs: {
+      async captureVisibleTab() {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error('This request exceeds the MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND quota.');
         }
-        if (method === 'Page.captureScreenshot') return { data: 'FULL_PAGE' };
-        return {};
+        return 'data:image/png;base64,RETRIED';
+      },
+    },
+  };
+  const context = createScreenshotContext(chrome);
+  context.sleep = async (ms) => { delays.push(ms); };
+  const result = await vm.runInContext(
+    'toolBrowserScreenshot({screenshot_fx:false, retries:2})',
+    context,
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(attempts, 2);
+  assert.ok(delays.includes(1100));
+});
+
+test('browser_screenshot stitches full-page captureVisibleTab tiles without debugger', async () => {
+  const scrolls = [];
+  let composedPayload;
+  const chrome = {
+    tabs: { async captureVisibleTab() { return 'data:image/png;base64,TILE'; } },
+    scripting: {
+      async executeScript(options) {
+        if (!options.args) return [{ result: {
+          scrollX: 10, scrollY: 20, viewportWidth: 800, viewportHeight: 600,
+          pageWidth: 800, pageHeight: 1200,
+        } }];
+        scrolls.push(options.args);
+        return [{ result: { x: options.args[0], y: options.args[1] } }];
+      },
+    },
+    runtime: {
+      async sendMessage(message) {
+        composedPayload = message.payload;
+        return { ok: true, dataUrl: 'data:image/png;base64,FULL_PAGE' };
       },
     },
   };
@@ -81,27 +112,27 @@ test('browser_screenshot uses CDP for a full-page capture and always detaches', 
   );
 
   assert.equal(result.success, true);
-  assert.equal(result.method, 'debugger.Page.captureScreenshot');
+  assert.equal(result.method, 'captureVisibleTab.stitched');
   assert.equal(result.dataUrl, 'data:image/png;base64,FULL_PAGE');
-  assert.equal(detached, true);
-  const capture = commands.find((entry) => entry.method === 'Page.captureScreenshot');
-  assert.deepEqual(plain(capture.params.clip), { x: 0, y: 0, width: 1200, height: 2400, scale: 1 });
-  assert.equal(capture.params.captureBeyondViewport, true);
+  assert.equal(composedPayload.tiles.length, 2);
+  assert.equal(composedPayload.width, 800);
+  assert.equal(composedPayload.height, 1200);
+  assert.deepEqual(plain(scrolls), [[0, 0], [0, 600], [10, 20]]);
 });
 
-test('browser_screenshot returns a structured failure and detaches after a CDP error', async () => {
-  let detached = false;
+test('browser_screenshot returns a structured failure when tile composition fails', async () => {
   const chrome = {
-    tabs: { async captureVisibleTab() { return 'data:image/png;base64,FALLBACK'; } },
-    debugger: {
-      async attach() {},
-      async detach() { detached = true; },
-      async sendCommand(_target, method) {
-        if (method === 'Page.captureScreenshot') throw new Error('capture denied');
-        if (method === 'Page.getLayoutMetrics') return { cssContentSize: { width: 800, height: 1200 } };
-        return {};
+    tabs: { async captureVisibleTab() { return 'data:image/png;base64,TILE'; } },
+    scripting: {
+      async executeScript(options) {
+        if (!options.args) return [{ result: {
+          scrollX: 0, scrollY: 0, viewportWidth: 800, viewportHeight: 600,
+          pageWidth: 800, pageHeight: 600,
+        } }];
+        return [{ result: { x: options.args[0], y: options.args[1] } }];
       },
     },
+    runtime: { async sendMessage() { return { ok: false, error: 'canvas unavailable' }; } },
   };
   const context = createScreenshotContext(chrome);
   const result = await vm.runInContext(
@@ -111,11 +142,10 @@ test('browser_screenshot returns a structured failure and detaches after a CDP e
 
   assert.equal(result.success, false);
   assert.equal(result.errorCode, 'SCREENSHOT_FAILED');
-  assert.match(result.error, /capture denied/);
-  assert.equal(detached, true);
+  assert.match(result.error, /canvas unavailable/);
 });
 
-test('extension publishes browser_screenshot and declares debugger permission', () => {
+test('extension publishes browser_screenshot without debugger permission or API usage', () => {
   const protocolSource = fs.readFileSync(
     path.join(extensionRoot, 'background/09_agent_protocol.js'),
     'utf8',
@@ -131,7 +161,8 @@ test('extension publishes browser_screenshot and declares debugger permission', 
   const manifest = JSON.parse(fs.readFileSync(path.join(extensionRoot, 'manifest.json'), 'utf8'));
 
   assert.ok(names.includes('browser_screenshot'));
-  assert.ok(manifest.permissions.includes('debugger'));
+  assert.equal(manifest.permissions.includes('debugger'), false);
+  assert.equal(screenshotSource.includes('chrome.debugger'), false);
 });
 
 test('agent transport routes browser_screenshot through the screenshot executor', async () => {
@@ -161,4 +192,62 @@ test('agent transport routes browser_screenshot through the screenshot executor'
 
   assert.equal(result.success, true);
   assert.deepEqual(plain(calls), [{ tab_id: 12, full_page: true }]);
+});
+
+test('offscreen document composes captured tiles with canvas', async () => {
+  const source = fs.readFileSync(path.join(extensionRoot, 'offscreen.js'), 'utf8');
+  const drawCalls = [];
+  let listener;
+  class FakeImage {
+    constructor() { this.naturalWidth = 800; this.naturalHeight = 600; }
+    set src(_value) { queueMicrotask(() => this.onload()); }
+  }
+  const context = vm.createContext({
+    chrome: {
+      runtime: {
+        sendMessage: async () => ({}),
+        onMessage: { addListener(callback) { listener = callback; } },
+      },
+    },
+    document: {
+      createElement() {
+        return {
+          width: 0,
+          height: 0,
+          getContext: () => ({ drawImage: (...args) => drawCalls.push(args) }),
+          toDataURL: (type) => `data:${type};base64,COMPOSED`,
+        };
+      },
+    },
+    Image: FakeImage,
+    Date,
+    Error,
+    Number,
+    String,
+    Promise,
+    queueMicrotask,
+    setInterval: () => 1,
+  });
+  vm.runInContext(source, context, { filename: 'offscreen.js' });
+  const response = await new Promise((resolve) => {
+    const pending = listener({
+      type: 'screenshot:compose',
+      payload: {
+        width: 400,
+        height: 300,
+        scale: 1,
+        format: 'png',
+        tiles: [{
+          dataUrl: 'data:image/png;base64,TILE',
+          viewportWidth: 800, viewportHeight: 600,
+          sx: 0, sy: 0, sw: 400, sh: 300, dx: 0, dy: 0,
+        }],
+      },
+    }, {}, resolve);
+    assert.equal(pending, true);
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.dataUrl, 'data:image/png;base64,COMPOSED');
+  assert.equal(drawCalls.length, 1);
 });

@@ -88,7 +88,7 @@ const EFFECTIVE_AGENT_TOOL_DEFS = [
         },
         {
             name: 'browser_screenshot',
-            description: '截取当前真实网页标签页并返回图片 dataUrl。默认截取前台可视区（captureVisibleTab，不显示调试提示）；full_page、selector/text 元素定位或 x/y/width/height 区域截图使用 Chrome DevTools Protocol。页面理解优先先用 browser_observe，需要视觉核对时再截图。',
+            description: '截取当前真实网页标签页并返回图片 dataUrl。所有模式都基于 captureVisibleTab，不使用 chrome.debugger，因此不会出现“已开始调试此浏览器”提示；full_page、selector/text 元素定位或 x/y/width/height 区域截图通过滚动分片拼接完成。页面理解优先先用 browser_observe，需要视觉核对时再截图。',
             input_schema: {
                 type: 'object',
                 properties: {
@@ -105,13 +105,12 @@ const EFFECTIVE_AGENT_TOOL_DEFS = [
                     scroll_into_view: { type: 'boolean', description: '元素测量前是否滚入视口，默认 true。' },
                     format: { type: 'string', enum: ['png', 'jpeg', 'webp'], description: '图片格式，默认 png。' },
                     quality: { type: 'number', description: 'JPEG/WebP 图片质量，范围 0-100。' },
-                    scale: { type: 'number', description: 'CDP 截图缩放比例，默认 1。' },
+                    scale: { type: 'number', description: '分片拼接后的输出缩放比例，默认 1。' },
                     max_area: { type: 'number', description: '最大截图面积（CSS 像素），默认 25000000。' },
-                    retries: { type: 'number', description: '可视区截图临时失败后的重试次数，默认 1。' },
+                    retries: { type: 'number', description: '可视区截图临时失败后的重试次数，默认 1；遇到 Chrome 截图频率限制会自动延迟重试。' },
                     timeout_ms: { type: 'number', description: '单阶段截图超时毫秒数。' },
                     max_data_url_chars: { type: 'number', description: '允许返回的 dataUrl 最大字符数，默认 8000000。' },
                     allow_large_data_url: { type: 'boolean', description: '是否允许返回超过大小上限的 dataUrl，默认 false。' },
-                    fallback_visible: { type: 'boolean', description: '精确截图失败时是否退回可视区截图，默认 false。' },
                     send_to_user: { type: 'boolean', description: '是否将截图发送给用户，默认 true。' },
                     save_to_server: { type: 'boolean', description: '是否请求服务端保存截图；send_to_user=true 时自动为 true。' },
                     screenshot_fx: { type: 'boolean', description: '是否显示截图取景和快门动效，默认 true。' },
@@ -324,9 +323,6 @@ class LocalAutomationBridgeSocket {
 
     async request(path, options = {}) {
         const headers = { ...(options.headers || {}) };
-        const appBrowserToken = getAppBrowserToken();
-        if (!appBrowserToken) throw new Error('当前扩展不在 AI-FREE 受信浏览器环境中');
-        headers[APP_BROWSER_TOKEN_HEADER] = appBrowserToken;
         headers[APP_BROWSER_PID_HEADER] = String(await getAgentBrowserProcessId());
         if (this.token) headers['X-Bridge-Token'] = this.token;
         if (options.body != null) headers['Content-Type'] = 'application/json';
@@ -365,7 +361,6 @@ class LocalAutomationBridgeSocket {
                 method: 'POST',
                 headers: {
                     'X-Bridge-Token': token,
-                    [APP_BROWSER_TOKEN_HEADER]: getAppBrowserToken(),
                     [APP_BROWSER_PID_HEADER]: String(agentBrowserProcessId || 0)
                 },
                 keepalive: true

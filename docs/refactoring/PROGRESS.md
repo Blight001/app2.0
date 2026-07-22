@@ -42,7 +42,7 @@
 - [x] 浏览器：tab manager、history/settings、Chromium runtime/process/profile 模块拆分与真实 Chromium 验收。
 - [x] 网络：Clash 配置/资产/Geo/进程/代理流量模块拆分及失败、退出、离线行为测试。
 - [x] 账号：认证、会员、许可证、存储迁移和设备身份模块拆分及行为测试。
-- [x] 扩展与更新：发现、运行副本、兼容、变更、会话、下载/公告模块拆分；打包混淆和路径验证通过。
+- [x] 扩展与更新：发现、原目录加载、兼容、变更、会话、下载/公告模块拆分；打包混淆和路径验证通过。
 
 ### 阶段 4：渲染层与自研扩展
 
@@ -82,7 +82,7 @@
 | 浏览器 | `BR-*`；创建/关闭/恢复、历史 CRUD、Profile、焦点和失败回滚 | handshake/runtime/UI/phase 3 | 真实 Chromium 仍会输出系统 OAuth/USB 诊断 | Profile/历史原路径不变；生成目录可直接丢弃重建 |
 | 网络 | `NET-*`；配置、Geo、TLS 延迟、进程退出和流量计数 | runtime、phase 3、packaged resources | 外部订阅与节点质量不由客户端保证 | Clash 配置格式不变；外部资源可恢复原包 |
 | 账号 | `ACC-*`；认证、VIP、许可证、迁移、损坏/缺失数据和回滚 | account/session Electron 验收 | 服务端不可用时按安全降级处理 | 原账号/会话/许可证路径与旧字段继续读取 |
-| 扩展/更新 | `EXT-*`、`UPD-*`、`PKG-*`；发现、运行副本、token、混淆、下载失败恢复和打包 | extension acceptance、win-unpacked、NSIS、packaged runtime | 发布前仍应按发行流程人工点验安装/升级 UI | 源扩展不写 token；运行副本和 `.generated` 可删除重建 |
+| 扩展/更新 | `EXT-*`、`UPD-*`、`PKG-*`；发现、原目录加载、端口连接、混淆、下载失败恢复和打包 | extension acceptance、win-unpacked、NSIS、packaged runtime | 发布前仍应按发行流程人工点验安装/升级 UI | 自动化插件直接加载源目录；`.generated` 可删除重建 |
 
 ## 兼容与回滚
 

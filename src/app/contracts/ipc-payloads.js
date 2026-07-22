@@ -85,7 +85,6 @@ function validateChatMessage(channel, message, index) {
   for (const key of ['tool_calls', 'tool_events', 'trace_events']) {
     if (message[key] === undefined) continue;
     if (!Array.isArray(message[key])) fail(channel, `${path}.${key}`, '必须是数组');
-    if (message[key].length > MAX_LIST_LENGTH) fail(channel, `${path}.${key}`, `数量不能超过 ${MAX_LIST_LENGTH}`);
   }
 }
 
@@ -97,9 +96,6 @@ function validateHistorySession(channel, session) {
   stringListField(channel, session, 'browserConnectionIds');
   if (session.messages !== undefined) {
     if (!Array.isArray(session.messages)) fail(channel, 'session.messages', '必须是数组');
-    if (session.messages.length > MAX_LIST_LENGTH) {
-      fail(channel, 'session.messages', `数量不能超过 ${MAX_LIST_LENGTH}`);
-    }
   }
 }
 
@@ -139,7 +135,6 @@ const IPC_PAYLOAD_SCHEMAS = Object.freeze({
     }
     if (input.messages !== undefined) {
       if (!Array.isArray(input.messages)) fail(channel, 'messages', '必须是数组');
-      if (input.messages.length > MAX_LIST_LENGTH) fail(channel, 'messages', `数量不能超过 ${MAX_LIST_LENGTH}`);
       input.messages.forEach((message, index) => validateChatMessage(channel, message, index));
     }
     return input;

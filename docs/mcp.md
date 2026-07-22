@@ -98,9 +98,9 @@ Cookie 属于登录会话数据，不属于 `software_window.settings` 的可编
 - 作用：截图并返回 base64 `dataUrl`；默认截取当前标签页可视区。
 - 精确截图：`full_page` 截整页；`selector`/`text` 截元素；`clip` 或 `x`、`y`、`width`、`height` 截区域。
 - 图片参数：`format`、`quality`、`scale`、`max_area`、`max_data_url_chars`、`allow_large_data_url`。
-- 稳定性参数：`retries`、`timeout_ms`、`fallback_visible`。
+- 稳定性参数：`retries`、`timeout_ms`。
 - 展示与交付：`screenshot_fx`、`send_to_user`、`save_to_server`。
-- 路由参数：`tab_id`。可视区截图会激活目标标签；整页、元素和区域截图使用 CDP，Chrome 可能短暂显示调试提示。
+- 路由参数：`tab_id`。所有截图模式均使用 `captureVisibleTab`；整页、元素和区域通过滚动分片拼接，不申请 `debugger` 权限，也不会显示浏览器调试提示。
 
 ### `browser_action`
 

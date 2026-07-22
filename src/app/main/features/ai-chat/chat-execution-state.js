@@ -3,9 +3,7 @@
 const { limitAiControlMessages } = require('../../lib/ai-control-message-window');
 
 function compactToolValue(value) {
-  let serialized = '';
-  try { serialized = JSON.stringify(value ?? null); } catch (_) { serialized = String(value ?? ''); }
-  return serialized.length > 12000 ? `${serialized.slice(0, 12000)}…` : value;
+  return value;
 }
 
 function isChatStopped(activeRun, error) {

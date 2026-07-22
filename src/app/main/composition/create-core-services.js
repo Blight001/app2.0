@@ -229,7 +229,6 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
     getActiveTabId: appRuntime.getActiveTabId,
     applyPluginSettings,
     sendToSide,
-    getBrowserAutomationAccessToken: () => browserAutomationBridge.getAppBrowserToken(),
     onPluginStateChanged: async (change) => {
       const tabManager = getTabManager();
       if (!tabManager || typeof tabManager.refreshBrowsersAfterExtensionChange !== 'function') {

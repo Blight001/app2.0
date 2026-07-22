@@ -87,7 +87,7 @@
 > 识别 img/video/audio 媒体元素及 `cursor:pointer` / 类名或 ID 以 btn/button/link 结尾的自定义控件，
 > 并支持 `frame`/`frame_path` 钻取单个 iframe；跨域 iframe 内部仍不可访问。
 > observe 现返回元素基本信息（tag/selector/attrs），AI 推荐用 selector/text 进行卡片步骤定位（不再依赖临时 id），便于自动化卡片的修改和创建。
-> 执行逻辑见 `background/10_browser_tools.js`、`background/11_browser_screenshot.js` + `content/observe.js`（+ `content/shadow-patch.js`）。
+> 截图只使用 `captureVisibleTab` 与 offscreen canvas 分片拼接，不使用 `chrome.debugger`，不会触发浏览器调试提示。执行逻辑见 `background/10_browser_tools.js`、`background/11_browser_screenshot.js` + `content/observe.js`（+ `content/shadow-patch.js`）。
 
 ## 项目结构
 
@@ -106,7 +106,7 @@ browser_automation/
 │   ├── 08_agent_settings.js    # 本机桥接设置（不含账号认证）
 │   ├── 09_agent_socket.js      # AI-FREE 本机连接 / 设备登记 / task 调度
 │   ├── 10_browser_tools.js     # browser_tab/observe/action/wait 工具封装
-│   └── 11_browser_screenshot.js # browser_screenshot 可视区/CDP 截图
+│   └── 11_browser_screenshot.js # browser_screenshot 可视区/分片拼接截图
 ├── content/
 │   ├── shadow-patch.js         # document_start / MAIN world：强制 shadow root 转 open（供 observe 扫描封闭 root）
 │   ├── fx.js                   # 页面操作动效（手型光标 / 点击涟漪 / 输入高亮）

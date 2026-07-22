@@ -2,7 +2,6 @@ const crypto = require('crypto');
 const { createExtensionFileUtils } = require('../features/extensions/extension-file-utils');
 const { createExtensionCompatService } = require('../features/extensions/extension-compat-service');
 const { createExtensionDiscoveryService } = require('../features/extensions/extension-discovery-service');
-const { createProtectedExtensionRuntime } = require('../features/extensions/protected-extension-runtime');
 const { createExtensionSessionController } = require('../features/extensions/extension-session-controller');
 const { createExtensionWatcher } = require('../features/extensions/extension-watcher');
 const { createExtensionMutationService } = require('../features/extensions/extension-mutation-service');
@@ -19,6 +18,7 @@ function createManagerCompatService(runtime) {
   const files = runtime.files;
   return createExtensionCompatService({
     compatCacheSchema: config.COMPAT_CACHE_SCHEMA,
+    browserAutomationDirName: config.BROWSER_AUTOMATION_DIR_NAME,
     compatShimFile: config.COMPAT_SHIM_FILE,
     compatShimMarker: config.COMPAT_SHIM_MARKER,
     copyDirectoryRecursive: files.copyDirectoryRecursive,
@@ -56,35 +56,13 @@ function createManagerDiscovery(runtime) {
   });
 }
 
-function createManagerProtectedRuntime(runtime) {
-  const { app, fs, getBrowserAutomationAccessToken, logger, path } = runtime.deps;
-  return createProtectedExtensionRuntime({
-    app,
-    browserAutomationDirName: config.BROWSER_AUTOMATION_DIR_NAME,
-    browserAutomationEnvFile: config.BROWSER_AUTOMATION_ENV_FILE,
-    copyDirectoryRecursive: runtime.files.copyDirectoryRecursive,
-    fs,
-    getBrowserAutomationAccessToken,
-    getPluginRuntimeSignature: runtime.discovery.getPluginRuntimeSignature,
-    hashId: runtime.hashId.bind(runtime),
-    isPathInside: runtime.files.isPathInside,
-    logger,
-    normalizeAbsolutePath: runtime.normalizeAbsolutePath.bind(runtime),
-    path,
-    protectedRuntimeDirName: config.PROTECTED_RUNTIME_DIR_NAME,
-    readJsonFile: runtime.readJsonFile.bind(runtime),
-  });
-}
-
 function createManagerSessions(runtime) {
   const { app, fs, getActiveTabId, getTabs, logger, path } = runtime.deps;
   return createExtensionSessionController({
     app, fs, getActiveTabId, getTabs, logger, path,
     getState: () => runtime.state,
-    isBuiltinBrowserAutomationPlugin: runtime.protectedRuntime.isBuiltinBrowserAutomationPlugin,
     normalizeAbsolutePath: runtime.normalizeAbsolutePath.bind(runtime),
     prepareCompatExtensionPath: runtime.compat.prepareCompatExtensionPath,
-    prepareProtectedBrowserAutomationPath: runtime.protectedRuntime.prepareProtectedBrowserAutomationPath,
   });
 }
 
@@ -125,13 +103,12 @@ class ExtensionManagerRuntime {
     this.deps = /** @type {Record<string, any>} */ ({
       logger: console, getTabs: () => new Map(), getActiveTabId: () => null,
       applyPluginSettings: null, sendToSide: null, onPluginStateChanged: null,
-      getBrowserAutomationAccessToken: null, ...deps,
+      ...deps,
     });
     this.state = { developerModeEnabled: true, plugins: [] };
     this.files = createManagerFileUtils(this);
     this.compat = createManagerCompatService(this);
     this.discovery = createManagerDiscovery(this);
-    this.protectedRuntime = createManagerProtectedRuntime(this);
     this.sessions = createManagerSessions(this);
     this.watcher = createManagerWatcher(this);
     this.mutations = createManagerMutations(this);

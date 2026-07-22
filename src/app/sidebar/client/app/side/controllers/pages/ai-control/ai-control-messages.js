@@ -246,7 +246,6 @@
     const visible = messages
       .map((message, index) => ({ message, index }))
       .filter(({ message }) => {
-        if (String(message.content || '').startsWith(AI_CONTEXT_SUMMARY_PREFIX)) return false;
         if (message.role === 'user') return true;
         if (message.role !== 'assistant') return false;
         return !!(String(message.content || '').trim()

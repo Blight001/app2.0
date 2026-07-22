@@ -1,7 +1,6 @@
 'use strict';
 
 const MAX_BODY_BYTES = 5 * 1024 * 1024;
-const APP_BROWSER_TOKEN_HEADER = 'x-ai-free-browser-token';
 const APP_BROWSER_PID_HEADER = 'x-ai-free-browser-pid';
 
 function jsonResponse(res, statusCode, payload) {
@@ -10,7 +9,7 @@ function jsonResponse(res, statusCode, payload) {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': body.length,
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Bridge-Token, X-AI-Free-Browser-Token, X-AI-Free-Browser-Pid',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Bridge-Token, X-AI-Free-Browser-Pid',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
     'Cache-Control': 'no-store',
   });
@@ -32,7 +31,6 @@ async function readJson(req) {
 
 module.exports = {
   APP_BROWSER_PID_HEADER,
-  APP_BROWSER_TOKEN_HEADER,
   MAX_BODY_BYTES,
   jsonResponse,
   readJson,

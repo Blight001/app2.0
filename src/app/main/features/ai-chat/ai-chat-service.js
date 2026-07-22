@@ -71,7 +71,7 @@ function createAiChatService(deps = {}) {
 
     async function insert(_event, input = {}) {
       const requestId = String(input.requestId || '').trim();
-      const content = String(input.content || '').trim().slice(0, 12000);
+      const content = String(input.content || '').trim();
       if (!requestId || !content) return { ok: false, message: '缺少要插入的对话内容' };
       return chatRuns.insert(_event, requestId, content);
     }

@@ -4,12 +4,7 @@
 
 const AGENT_KEEPALIVE_ALARM = 'agent-keepalive';
 const AGENT_VERSION = '1.0.0';
-const APP_BROWSER_TOKEN_HEADER = 'X-AI-Free-Browser-Token';
 const APP_BROWSER_PID_HEADER = 'X-AI-Free-Browser-Pid';
-
-function getAppBrowserToken() {
-    return String(globalThis.AI_FREE_BROWSER_ENVIRONMENT?.appBrowserToken || '').trim();
-}
 
 // Protocol event names (kept for server compatibility)
 const DEVICE_ENROLL = 'device:register';

@@ -9,7 +9,6 @@ const path = require('path');
 const test = require('node:test');
 const {
   APP_BROWSER_PID_HEADER,
-  APP_BROWSER_TOKEN_HEADER,
   createBrowserAutomationBridge,
 } = require('../../../src/app/main/services/browser-automation-bridge');
 
@@ -24,7 +23,7 @@ async function reservePort() {
   return port;
 }
 
-function postJson(port, token, pid, payload, route = '/v1/runtime-input') {
+function postJson(port, pid, payload, route = '/v1/runtime-input') {
   const body = Buffer.from(JSON.stringify(payload));
   return new Promise((resolve, reject) => {
     const request = http.request({
@@ -32,7 +31,6 @@ function postJson(port, token, pid, payload, route = '/v1/runtime-input') {
       headers: {
         'content-type': 'application/json',
         'content-length': body.length,
-        [APP_BROWSER_TOKEN_HEADER]: token,
         [APP_BROWSER_PID_HEADER]: String(pid),
       },
     }, (response) => {
@@ -48,13 +46,12 @@ function postJson(port, token, pid, payload, route = '/v1/runtime-input') {
   });
 }
 
-test('trusted runtime-input route dispatches only for a managed Chromium process', async () => {
+test('runtime-input route dispatches only for a managed Chromium process', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-runtime-input-'));
   const port = await reservePort();
   const calls = [];
   const bridge = createBrowserAutomationBridge({
     port,
-    appBrowserToken: 'trusted-app-browser-token',
     cardCacheDir: root,
     externalMcpDescriptorPath: path.join(root, 'mcp.json'),
     isAllowedBrowserProcess: (pid) => pid === 4321,
@@ -67,7 +64,7 @@ test('trusted runtime-input route dispatches only for a managed Chromium process
 
   try {
     await bridge.start();
-    const accepted = await postJson(port, 'trusted-app-browser-token', 4321, {
+    const accepted = await postJson(port, 4321, {
       input: {
         inputType: 'mouse', action: 'click', x: 40, y: 50,
         viewportWidth: 800, viewportHeight: 600,
@@ -84,7 +81,7 @@ test('trusted runtime-input route dispatches only for a managed Chromium process
       },
     }]);
 
-    const rejected = await postJson(port, 'trusted-app-browser-token', 9999, {
+    const rejected = await postJson(port, 9999, {
       input: {
         inputType: 'mouse', action: 'click', x: 40, y: 50,
         viewportWidth: 800, viewportHeight: 600,
@@ -98,13 +95,12 @@ test('trusted runtime-input route dispatches only for a managed Chromium process
   }
 });
 
-test('trusted runtime-file-selection route stays bound to the managed Chromium process', async () => {
+test('runtime-file-selection route stays bound to the managed Chromium process', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-runtime-selection-'));
   const port = await reservePort();
   const calls = [];
   const bridge = createBrowserAutomationBridge({
     port,
-    appBrowserToken: 'trusted-app-browser-token',
     cardCacheDir: root,
     externalMcpDescriptorPath: path.join(root, 'mcp.json'),
     isAllowedBrowserProcess: (pid) => pid === 4321,
@@ -121,16 +117,12 @@ test('trusted runtime-file-selection route stays bound to the managed Chromium p
       pageUrl: 'https://video.example.test/create',
       paths: ['C:\\media\\clip.mp4'], mode: 'open', ttlMs: 5000,
     };
-    const accepted = await postJson(
-      port, 'trusted-app-browser-token', 4321, payload, '/v1/runtime-file-selection',
-    );
+    const accepted = await postJson(port, 4321, payload, '/v1/runtime-file-selection');
     assert.equal(accepted.statusCode, 200);
     assert.equal(accepted.data.result.queued, true);
     assert.deepEqual(calls, [{ pid: 4321, selection: payload }]);
 
-    const rejected = await postJson(
-      port, 'trusted-app-browser-token', 9999, payload, '/v1/runtime-file-selection',
-    );
+    const rejected = await postJson(port, 9999, payload, '/v1/runtime-file-selection');
     assert.equal(rejected.statusCode, 403);
     assert.equal(calls.length, 1);
   } finally {

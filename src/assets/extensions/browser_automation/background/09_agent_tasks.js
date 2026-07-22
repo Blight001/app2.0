@@ -228,7 +228,6 @@ async function testAgentPopupConnection() {
         const start = Date.now();
         const response = await fetch(`${base}/health`, {
             headers: {
-                [APP_BROWSER_TOKEN_HEADER]: getAppBrowserToken(),
                 [APP_BROWSER_PID_HEADER]: String(await getAgentBrowserProcessId())
             },
             signal: AbortSignal.timeout(5000)

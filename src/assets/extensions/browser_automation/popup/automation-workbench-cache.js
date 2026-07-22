@@ -28,9 +28,6 @@ async function requestSoftwareCardCacheDirect(path, options = {}) {
     const settings = resolveSoftwareCacheSettings(stored);
     const baseUrl = String(settings.localBridgeUrl || 'http://127.0.0.1:18765').replace(/\/+$/, '');
     const headers = { ...(options.headers || {}) };
-    const appBrowserToken = String(globalThis.AI_FREE_BROWSER_ENVIRONMENT?.appBrowserToken || '').trim();
-    if (!appBrowserToken) throw new Error('此插件仅允许在 AI-FREE 软件内置浏览器中使用');
-    headers['X-AI-Free-Browser-Token'] = appBrowserToken;
     headers['X-AI-Free-Browser-Pid'] = String(await getSoftwareCardCacheBrowserProcessId());
     if (options.body != null) headers['Content-Type'] = 'application/json';
     const response = await fetch(`${baseUrl}${path}`, {

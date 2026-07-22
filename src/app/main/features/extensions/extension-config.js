@@ -4,9 +4,7 @@ const STORE_FIELD = 'extensionManager';
 const BUILTIN_TRANSLATE_ID = 'builtin-transform';
 const BUILTIN_REMOVE_WATERMARK_ID = 'builtin-remove-watermark';
 const COMPAT_CACHE_DIR_NAME = 'extension-runtime-compat';
-const PROTECTED_RUNTIME_DIR_NAME = 'protected-extension-runtime';
 const BROWSER_AUTOMATION_DIR_NAME = 'browser_automation';
-const BROWSER_AUTOMATION_ENV_FILE = 'background/00_environment.js';
 // Chromium reserves extension files/directories beginning with "_". Keep the
 // software-generated shim name ordinary so the original plugin remains untouched.
 const COMPAT_SHIM_FILE = 'electron-extension-compat.js';
@@ -44,7 +42,6 @@ function sanitizeManifestPermissionsForElectron(sourceManifest) {
 
 module.exports = {
   BROWSER_AUTOMATION_DIR_NAME,
-  BROWSER_AUTOMATION_ENV_FILE,
   BUILTIN_REMOVE_WATERMARK_ID,
   BUILTIN_TRANSLATE_ID,
   COMPAT_CACHE_DIR_NAME,
@@ -53,7 +50,6 @@ module.exports = {
   COMPAT_SHIM_MARKER,
   EXTENSION_REFRESH_DEBOUNCE_MS,
   EXTENSION_REFRESH_INTERVAL_MS,
-  PROTECTED_RUNTIME_DIR_NAME,
   STORE_FIELD,
   sanitizeManifestPermissionsForElectron,
 };

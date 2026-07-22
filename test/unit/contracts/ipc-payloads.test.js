@@ -25,16 +25,14 @@ test('AI 历史 ID schema 接受兼容对象并拒绝错误字段类型', () => 
   );
 });
 
-test('AI 历史保存兼容嵌套和旧版直接 session，并限制数组边界', () => {
+test('AI 历史保存兼容嵌套、旧版直接 session 和长消息列表', () => {
   const nested = { session: { id: 's1', messages: [{ role: 'user', content: 'hi' }] }, setCurrent: true };
   const direct = { id: 's2', messages: [] };
   assert.equal(validateIpcPayload('ai-control-history-save', nested), nested);
   assert.equal(validateIpcPayload('ai-control-history-save', direct), direct);
 
-  assert.throws(
-    () => validateIpcPayload('ai-control-history-save', { session: { messages: new Array(129).fill({}) } }),
-    (error) => error instanceof IpcPayloadError && error.details.path === 'session.messages',
-  );
+  const largeHistory = { session: { messages: new Array(129).fill({ role: 'user', content: 'x' }) } };
+  assert.equal(validateIpcPayload('ai-control-history-save', largeHistory), largeHistory);
 });
 
 test('可选 AI payload 保留既有省略参数行为，数组成员仍逐项校验', () => {

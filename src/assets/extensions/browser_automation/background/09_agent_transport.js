@@ -1,8 +1,5 @@
 async function sendTrustedSoftwareBridgeRequest(baseUrl, path, options, label) {
     const headers = { ...(options.headers || {}) };
-    const appBrowserToken = getAppBrowserToken();
-    if (!appBrowserToken) throw new Error('当前扩展不在 AI-FREE 受信浏览器环境中');
-    headers[APP_BROWSER_TOKEN_HEADER] = appBrowserToken;
     headers[APP_BROWSER_PID_HEADER] = String(await getAgentBrowserProcessId());
     if (options.body != null) headers['Content-Type'] = 'application/json';
     const signal = typeof AbortSignal !== 'undefined' && AbortSignal.timeout
@@ -81,11 +78,6 @@ async function agentDoConnect() {
     if (settings.offlineMode) {
         return;
     }
-    if (!getAppBrowserToken()) {
-        setAgentStatus('error', '仅允许在 AI-FREE 软件内置浏览器中连接 MCP');
-        return;
-    }
-
     let bridgeUrl = String(settings.localBridgeUrl || 'http://127.0.0.1:18765').trim();
     try {
         bridgeUrl = new URL(bridgeUrl).href.replace(/\/$/, '');

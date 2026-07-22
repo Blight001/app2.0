@@ -48,7 +48,7 @@
 | 编号 | 目标/入口 | 前置状态 | 正常与异常/边界 | 恢复/副作用 | 自动化测试 | 真实验收 |
 |---|---|---|---|---|---|---|
 | EXT-LOAD-01 | 内置/自定义扩展发现、启停、刷新 | extension paths 可读 | 发现/兼容副本/刷新；不存在项明确失败 | watcher/session 可释放 | extension feature tests | extension compat + refresh acceptance |
-| EXT-TOKEN-01 | 自动化 token 只入运行副本 | managed Chromium PID | 缺 token/伪 PID 403；合法注册返回 session token | 每次轮换新目录，源扩展不含 token | `test/integration/browser-automation-environment-lock.test.js` | handshake acceptance |
+| EXT-PORT-01 | 自动化插件通过本机端口直接连接 | 浏览器扩展可访问 loopback 端口 | 外部浏览器可注册；注册后返回连接 token 并隔离连接 | 插件直接加载原目录，不创建运行副本 | `test/integration/browser-automation-port-access.test.js` | handshake acceptance |
 | EXT-OBF-01 | 打包扩展混淆后可执行 | win-unpacked | executeScript host 保持自包含 | 源/运行资源完整 | `test/packaging/packaged-extension-obfuscation.test.js` | `check:packaged-runtime` |
 | UPD-01 | 版本判断、公告、下载/安装资源 | 公告可用 | SemVer 仅高版本提示；轮询不阻塞登录 | 并发轮询排队，失败可重试 | `test/unit/update-version-detection.test.js` | Windows 正式构建 |
 | PKG-01 | 开发/测试/Windows 共用源码构建 | Node/tsc/electron-builder | 按进程输出 CJS/ESM；无 renderer TS 时不误失败 | 生成目录可清除重建，不覆盖源码 | `test/packaging/assets/source-build.test.js` | `build:win` + packaged runtime |

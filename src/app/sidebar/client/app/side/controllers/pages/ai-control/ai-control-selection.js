@@ -181,8 +181,7 @@
     else store.sessions.unshift(next);
     store.sessions = store.sessions
       .filter((item) => Array.isArray(item.messages) && item.messages.length)
-      .sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0))
-      .slice(0, 80);
+      .sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0));
     store.currentId = next.id;
     writeLocalHistoryStore(store);
   }

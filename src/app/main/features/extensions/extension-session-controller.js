@@ -62,10 +62,7 @@ class ExtensionSessionController {
 
   resolveEnabledPluginPath(plugin) {
     if (plugin?.enabled !== true || plugin?.missing === true) return '';
-    const compatPath = this.deps.prepareCompatExtensionPath(plugin) || plugin.path;
-    const source = this.deps.isBuiltinBrowserAutomationPlugin(plugin)
-      ? this.deps.prepareProtectedBrowserAutomationPath({ ...plugin, path: compatPath })
-      : compatPath;
+    const source = this.deps.prepareCompatExtensionPath(plugin) || plugin.path;
     return this.deps.normalizeAbsolutePath(source);
   }
 

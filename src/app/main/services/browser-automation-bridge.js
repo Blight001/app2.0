@@ -5,7 +5,6 @@ const path = require('path');
 const { createBrowserAutomationExternalGateway } = require('./browser-automation-external-gateway');
 const {
   APP_BROWSER_PID_HEADER,
-  APP_BROWSER_TOKEN_HEADER,
   jsonResponse,
   readJson,
 } = require('./browser-automation-http');
@@ -64,14 +63,6 @@ function createCardCacheStore(options = {}) {
   return { dataDir, filePath, read, write };
 }
 
-function constantTimeTokenEquals(actual, expected) {
-  const actualBuffer = Buffer.from(String(actual || ''), 'utf8');
-  const expectedBuffer = Buffer.from(String(expected || ''), 'utf8');
-  return actualBuffer.length > 0
-    && actualBuffer.length === expectedBuffer.length
-    && crypto.timingSafeEqual(actualBuffer, expectedBuffer);
-}
-
 class BrowserAutomationBridgeRuntime {
   constructor(options = {}) {
     this.logger = options.logger || console;
@@ -81,7 +72,6 @@ class BrowserAutomationBridgeRuntime {
     this.pendingTasks = new Map();
     this.cardCacheStore = createCardCacheStore({ dataDir: options.cardCacheDir });
     this.connectionTtlMs = Math.max(1000, Number(options.connectionTtlMs) || CONNECTION_TTL_MS);
-    this.appBrowserToken = String(options.appBrowserToken || crypto.randomBytes(32).toString('hex'));
     this.isAllowedBrowserProcess = typeof options.isAllowedBrowserProcess === 'function'
       ? options.isAllowedBrowserProcess
       : null;
@@ -98,10 +88,6 @@ class BrowserAutomationBridgeRuntime {
       getAccess: options.getExternalMcpAccess,
       logger: this.logger,
     });
-  }
-
-  hasValidAppBrowserToken(req) {
-    return constantTimeTokenEquals(req.headers[APP_BROWSER_TOKEN_HEADER], this.appBrowserToken);
   }
 
   isManagedBrowserProcess(browserProcessId) {
@@ -168,7 +154,7 @@ class BrowserAutomationBridgeRuntime {
     const url = new URL(req.url, `http://${this.host}:${this.port}`);
     if (await this.externalMcpGateway.handle(req, res, url)) return;
     const origin = String(req.headers.origin || '').trim();
-    if (origin && !origin.startsWith('chrome-extension://')) {
+    if (origin && !/^(?:chrome|moz)-extension:\/\//i.test(origin)) {
       jsonResponse(res, 403, { ok: false, message: '仅允许浏览器扩展连接本机桥接' });
       return;
     }
@@ -176,19 +162,11 @@ class BrowserAutomationBridgeRuntime {
       jsonResponse(res, 204, {});
       return;
     }
-    if (!this.hasValidAppBrowserToken(req)) {
-      jsonResponse(res, 403, { ok: false, message: '当前插件不属于 AI-FREE 受信浏览器环境' });
-      return;
-    }
-    await this.handleManagedRequest(req, res, url);
+    await this.handleBrowserRequest(req, res, url);
   }
 
-  async handleManagedRequest(req, res, url) {
+  async handleBrowserRequest(req, res, url) {
     const browserProcessId = Number(req.headers[APP_BROWSER_PID_HEADER] || 0) || 0;
-    if (!this.isManagedBrowserProcess(browserProcessId)) {
-      jsonResponse(res, 403, { ok: false, message: '请求并非来自 AI-FREE 当前托管的内置浏览器' });
-      return;
-    }
     try {
       const handled = await this.handlePublicRoute(req, res, url, browserProcessId);
       if (handled) return;
@@ -232,6 +210,9 @@ class BrowserAutomationBridgeRuntime {
   }
 
   async sendRuntimeInput(req, res, browserProcessId) {
+    if (!this.isManagedBrowserProcess(browserProcessId)) {
+      return jsonResponse(res, 403, { ok: false, message: '当前浏览器不支持 AI-FREE 原生输入通道' });
+    }
     if (!this.dispatchRuntimeInput) return jsonResponse(res, 503, { ok: false, message: 'Chromium Runtime 输入通道不可用' });
     const response = await readJson(req).then((data) => this.dispatchRuntimeInput(browserProcessId, data?.input || data));
     jsonResponse(res, 200, { ok: true, result: response?.result || response || {} });
@@ -239,6 +220,9 @@ class BrowserAutomationBridgeRuntime {
   }
 
   async sendRuntimeFileSelection(req, res, browserProcessId) {
+    if (!this.isManagedBrowserProcess(browserProcessId)) {
+      return jsonResponse(res, 403, { ok: false, message: '当前浏览器不支持 AI-FREE 原生文件选择通道' });
+    }
     if (!this.dispatchRuntimeFileSelection) {
       return jsonResponse(res, 503, { ok: false, message: 'Chromium Runtime 文件选择通道不可用' });
     }
@@ -255,10 +239,7 @@ class BrowserAutomationBridgeRuntime {
       sessionId: String(data.sessionId || '').trim(),
       browserProcessId: Number(data.browserProcessId || 0) || 0,
     };
-    if (!this.isValidRegistrationProcess(identifiers.browserProcessId, requestBrowserProcessId)) {
-      this.rejectRegistration(res, identifiers.browserProcessId);
-      return;
-    }
+    identifiers.browserProcessId = identifiers.browserProcessId || requestBrowserProcessId;
     const existing = this.findRegisteredSession(identifiers);
     if (existing) {
       this.updateRegisteredSession(existing, data, identifiers.browserProcessId);
@@ -271,16 +252,6 @@ class BrowserAutomationBridgeRuntime {
     this.cleanup();
     this.logger.log?.(`[AutomationBridge] 浏览器插件已连接: ${connection.name} (${connection.id})`);
     this.sendRegistrationResponse(res, connection);
-  }
-
-  isValidRegistrationProcess(browserProcessId, requestBrowserProcessId) {
-    return browserProcessId === requestBrowserProcessId
-      && this.isManagedBrowserProcess(browserProcessId);
-  }
-
-  rejectRegistration(res, browserProcessId) {
-    this.logger.warn?.(`[AutomationBridge] 已拒绝非受管浏览器进程连接: PID ${browserProcessId || 'unknown'}`);
-    jsonResponse(res, 403, { ok: false, message: '仅允许 AI-FREE 当前托管的内置浏览器连接 MCP' });
   }
 
   findRegisteredSession({ instanceId, sessionId }) {
@@ -516,7 +487,6 @@ function createBrowserAutomationBridge(options = {}) {
     listExternalMcpTools: () => runtime.listExternalMcpTools(),
     selectCard: (...args) => runtime.selectCard(...args),
     setCardCacheState: (...args) => runtime.setCardCacheState(...args),
-    getAppBrowserToken: () => runtime.appBrowserToken,
     refreshExternalMcpAccess: () => runtime.refreshExternalMcpAccess(),
     start: () => runtime.start(),
     stop: () => runtime.stop(),
@@ -528,13 +498,11 @@ function createBrowserAutomationBridge(options = {}) {
 
 module.exports = {
   APP_BROWSER_PID_HEADER,
-  APP_BROWSER_TOKEN_HEADER,
   CARD_CACHE_FILE_NAME,
   CONNECTION_TTL_MS,
   DEFAULT_PORT,
   createBrowserAutomationBridge,
   createCardCacheStore,
-  constantTimeTokenEquals,
   normalizeCardCacheState,
   normalizeBrowserToolOutcome,
 };
