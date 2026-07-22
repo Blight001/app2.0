@@ -6,6 +6,7 @@ const { launchChromium } = require('./chromium-launcher');
 const { prepareSessionImport } = require('./session-import');
 const { assertActiveChromiumLaunch, normalizeBounds, RUNTIME_STATUS, RUNTIME_TYPES } = require('./runtime-types');
 const { cleanupFailedChromiumLaunch, stopChromiumProfile } = require('./chromium-runtime-process');
+const { bindChromiumProcessFailure } = require('./chromium-process-diagnostics');
 const { snapshotAppliedChromiumProfile } = require('./chromium-profile-snapshot');
 const { attachChildWindowWithRetry } = require('./chromium-window-attachment');
 const { groupCookiesByOrigin } = require('./chromium-cookie-groups');
@@ -140,6 +141,8 @@ class ChromiumRuntime extends BrowserRuntime {
       parentWindow,
       runtimeProfileId: context.runtimeProfileId,
       expectedExit: false,
+      launchFailure: null,
+      diagnostics: launched.diagnostics,
       monitor: null,
       parentFocusHandler: null,
       parentFocusRaiseTimers: new Set(),
@@ -201,10 +204,7 @@ class ChromiumRuntime extends BrowserRuntime {
     instance.commandClient.on('heartbeat', () => this.store.patchState(profileId, { lastHeartbeatAt: Date.now() }));
     // Keep the transport-only ASCII ID out of application-facing runtime events.
     instance.commandClient.on('event', (message) => this.emit('runtime-event', { ...message, profileId }));
-    instance.child.once('error', (error) => this.markCrashed(profileId, { code: 'CHROMIUM_PROCESS_ERROR', message: error.message }));
-    instance.child.once('exit', (code, signal) => {
-      if (!instance.expectedExit) this.markCrashed(profileId, { code: 'CHROMIUM_PROCESS_EXITED', message: `Chromium 已退出 (${code ?? signal})`, exitCode: code });
-    });
+    bindChromiumProcessFailure(instance, (error) => this.markCrashed(profileId, error));
   }
 
   bindParentWindowFocus(profileId, instance) {
@@ -265,6 +265,7 @@ class ChromiumRuntime extends BrowserRuntime {
     instance.commandClient.once('hello', (message) => { helloWindow = String(message.browserHwnd || ''); });
     const startedAt = Date.now();
     while (Date.now() - startedAt < timeoutMs) {
+      if (instance.launchFailure) throw instance.launchFailure;
       assertActiveChromiumLaunch(this.instances.get(String(profileId)) === instance, this.store.getState(profileId)?.status);
       if (helloWindow) return helloWindow;
       if (allowPrototype) {

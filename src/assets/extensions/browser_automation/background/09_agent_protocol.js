@@ -86,6 +86,39 @@ const EFFECTIVE_AGENT_TOOL_DEFS = [
                 }
             }
         },
+        {
+            name: 'browser_screenshot',
+            description: '截取当前真实网页标签页并返回图片 dataUrl。默认截取前台可视区（captureVisibleTab，不显示调试提示）；full_page、selector/text 元素定位或 x/y/width/height 区域截图使用 Chrome DevTools Protocol。页面理解优先先用 browser_observe，需要视觉核对时再截图。',
+            input_schema: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: '可选：截取指定 CSS selector 对应的元素。' },
+                    text: { type: 'string', description: '可选：未传 selector 时按可见文本定位截图元素。' },
+                    full_page: { type: 'boolean', description: '是否截取完整可滚动页面，默认 false。' },
+                    x: { type: 'number', description: '区域截图左上角 X 坐标，默认使用视口坐标。' },
+                    y: { type: 'number', description: '区域截图左上角 Y 坐标，默认使用视口坐标。' },
+                    width: { type: 'number', description: '区域截图宽度（CSS 像素）。' },
+                    height: { type: 'number', description: '区域截图高度（CSS 像素）。' },
+                    clip: { type: 'object', description: '区域对象写法：{x,y,width,height,coordinate_space?}。' },
+                    coordinate_space: { type: 'string', enum: ['viewport', 'page'], description: '区域坐标系，默认 viewport。' },
+                    margin: { type: 'number', description: '元素截图向四周扩展的 CSS 像素数。' },
+                    scroll_into_view: { type: 'boolean', description: '元素测量前是否滚入视口，默认 true。' },
+                    format: { type: 'string', enum: ['png', 'jpeg', 'webp'], description: '图片格式，默认 png。' },
+                    quality: { type: 'number', description: 'JPEG/WebP 图片质量，范围 0-100。' },
+                    scale: { type: 'number', description: 'CDP 截图缩放比例，默认 1。' },
+                    max_area: { type: 'number', description: '最大截图面积（CSS 像素），默认 25000000。' },
+                    retries: { type: 'number', description: '可视区截图临时失败后的重试次数，默认 1。' },
+                    timeout_ms: { type: 'number', description: '单阶段截图超时毫秒数。' },
+                    max_data_url_chars: { type: 'number', description: '允许返回的 dataUrl 最大字符数，默认 8000000。' },
+                    allow_large_data_url: { type: 'boolean', description: '是否允许返回超过大小上限的 dataUrl，默认 false。' },
+                    fallback_visible: { type: 'boolean', description: '精确截图失败时是否退回可视区截图，默认 false。' },
+                    send_to_user: { type: 'boolean', description: '是否将截图发送给用户，默认 true。' },
+                    save_to_server: { type: 'boolean', description: '是否请求服务端保存截图；send_to_user=true 时自动为 true。' },
+                    screenshot_fx: { type: 'boolean', description: '是否显示截图取景和快门动效，默认 true。' },
+                    tab_id: { type: 'number', description: '可选：指定真实网页标签页；省略时使用最近操作目标。' }
+                }
+            }
+        },
         // ── 页面交互 ───────────────────────────────────────────────────────
         {
             name: 'browser_action',

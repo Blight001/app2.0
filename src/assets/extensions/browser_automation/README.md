@@ -2,7 +2,7 @@
 
 一个基于 Chrome Manifest V3 的浏览器扩展，用于浏览器任务的自动化执行，并可自动接入本机 **AI-FREE** 的「AI 控制」。插件无需单独登录；多个浏览器插件连接会在软件中分开显示，可多选后由 AI 按浏览器 ID 或名称分开控制。
 
-支持自动化卡片定义、本地执行自动化流程、Cookie 抓取，以及把上述能力作为工具暴露给软件内选定的 AI 对话。
+支持自动化卡片定义、本地执行自动化流程、Cookie 抓取、页面截图，以及把上述能力作为工具暴露给软件内选定的 AI 对话。
 
 ## 主要功能
 
@@ -69,6 +69,7 @@
 | 自动化卡片 | `save_cookies`  | 抓取当前页面的 Cookie + localStorage + sessionStorage，可选上传到指定服务器 |
 | 导航与搜索 | `browser_tab`   | 标签页管理与导航：list / switch / replace / navigate / close / back / forward |
 | 页面观察   | `browser_observe`    | 感知当前视口的可交互元素、媒体、可见文本与 iframe 边界，返回带 tag/selector/name/placeholder/ariaLabel 等基本信息的 items 列表（含临时 id）；支持用 selector/text 定位构造卡片步骤或 ref 快速操作，便于卡片创建/修改与表单信息填入 |
+| 页面观察   | `browser_screenshot` | 截取当前标签页可视区、完整页面、指定元素或坐标区域，返回可供 AI 视觉分析和发送给用户的图片 dataUrl |
 | 页面交互   | `browser_action`     | 点击 / 双击 / 右键 / 滚动 / 输入文本 / 键盘按键的聚合工具。click/type 成功回执附 `cardStep`（与卡片规范同构的步骤对象），browser_tab navigate/replace、browser_wait 同理——AI 探索验证通过后直接把各步 cardStep 拼进 `manage_card write` 即可固化成卡片 |
 | 页面交互   | `browser_wait`       | 等待某个 CSS selector 出现，或固定等待一段时间 |
 
@@ -78,7 +79,7 @@
 
 工具 schema 在设备登记时上报给服务器，由服务器在 `mcp.list_tools` / `describe_tool` 中呈现，无需服务端硬编码。
 
-> `browser_tab`/`browser_observe`/`browser_action`/`browser_wait`
+> `browser_tab`/`browser_observe`/`browser_screenshot`/`browser_action`/`browser_wait`
 > 移植自 `device/extension` 的同名 MCP 工具：点击由内容脚本解析目标后，经软件主进程和 Chromium
 > Runtime Bridge 注入浏览器内核，不移动 Windows 全局鼠标；输入和按键目前仍是内容脚本合成事件。
 > `browser_observe` 已与桌面浏览器扩展的观察能力对齐——扫描主文档、
@@ -86,7 +87,7 @@
 > 识别 img/video/audio 媒体元素及 `cursor:pointer` / 类名或 ID 以 btn/button/link 结尾的自定义控件，
 > 并支持 `frame`/`frame_path` 钻取单个 iframe；跨域 iframe 内部仍不可访问。
 > observe 现返回元素基本信息（tag/selector/attrs），AI 推荐用 selector/text 进行卡片步骤定位（不再依赖临时 id），便于自动化卡片的修改和创建。
-> 执行逻辑见 `background/10_browser_tools.js` + `content/observe.js`（+ `content/shadow-patch.js`）。
+> 执行逻辑见 `background/10_browser_tools.js`、`background/11_browser_screenshot.js` + `content/observe.js`（+ `content/shadow-patch.js`）。
 
 ## 项目结构
 
@@ -104,7 +105,8 @@ browser_automation/
 │   ├── 07_events.js
 │   ├── 08_agent_settings.js    # 本机桥接设置（不含账号认证）
 │   ├── 09_agent_socket.js      # AI-FREE 本机连接 / 设备登记 / task 调度
-│   └── 10_browser_tools.js     # browser_tab/observe/action/wait 工具封装
+│   ├── 10_browser_tools.js     # browser_tab/observe/action/wait 工具封装
+│   └── 11_browser_screenshot.js # browser_screenshot 可视区/CDP 截图
 ├── content/
 │   ├── shadow-patch.js         # document_start / MAIN world：强制 shadow root 转 open（供 observe 扫描封闭 root）
 │   ├── fx.js                   # 页面操作动效（手型光标 / 点击涟漪 / 输入高亮）

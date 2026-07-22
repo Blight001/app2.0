@@ -449,6 +449,14 @@ async function runAgentCardManagement(tool, payload, taskId) {
 
 async function runAgentToolCommand(tool, args, taskId = null) {
     const payload = args && typeof args === 'object' ? args : {};
+    const browserHandlers = {
+        browser_tab: toolBrowserTab,
+        browser_observe: toolBrowserObserve,
+        browser_screenshot: toolBrowserScreenshot,
+        browser_action: toolBrowserAction,
+        browser_wait: toolBrowserWait
+    };
+    if (browserHandlers[tool]) return await browserHandlers[tool](payload);
     switch (tool) {
         case 'manage_card':
         case 'write_card':   // 旧名兼容（服务器可能仍缓存旧 toolDefs）
@@ -458,14 +466,6 @@ async function runAgentToolCommand(tool, args, taskId = null) {
         case 'save_cookies':
         case 'capture_cookies':
             return captureAgentCookies(payload);
-        case 'browser_tab':
-            return await toolBrowserTab(payload);
-        case 'browser_observe':
-            return await toolBrowserObserve(payload);
-        case 'browser_action':
-            return await toolBrowserAction(payload);
-        case 'browser_wait':
-            return await toolBrowserWait(payload);
         default:
             throw new Error(`未知工具: ${tool || '(空)'}`);
     }

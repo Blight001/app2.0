@@ -25,9 +25,15 @@ function summarizeAgentCardResult(result) {
 function summarizeAgentBrowserResult(tool, result) {
     if (tool === 'browser_tab') return summarizeAgentBrowserTab(result);
     if (tool === 'browser_observe') return summarizeAgentBrowserObserve(result);
+    if (tool === 'browser_screenshot') return summarizeAgentBrowserScreenshot(result);
     if (tool === 'browser_action') return summarizeAgentBrowserAction(result);
     if (tool === 'browser_wait') return summarizeAgentBrowserWait(result);
     return '';
+}
+
+function summarizeAgentBrowserScreenshot(result) {
+    return result.success === false
+        ? `截图失败: ${result.error || '未知原因'}` : `浏览器截图完成${result.url ? `: ${result.url}` : ''}`;
 }
 
 function summarizeAgentBrowserTab(result) {

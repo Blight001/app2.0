@@ -5,12 +5,14 @@ const { EventEmitter } = require('node:events');
 const test = require('node:test');
 
 const { ChromiumRuntime } = require('../../../src/app/main/browser-runtime/chromium-runtime');
+const { createChromiumLaunchDiagnostics } = require('../../../src/app/main/browser-runtime/chromium-process-diagnostics');
 const { RUNTIME_STATUS } = require('../../../src/app/main/browser-runtime/runtime-types');
 
 function createRuntime(status = RUNTIME_STATUS.WAITING_PIPE) {
   const state = { profileId: 'slow-profile', status };
   const store = {
     getState: () => state,
+    patchState: (_id, patch) => Object.assign(state, patch),
     transition: (_id, next) => { state.status = next; },
   };
   const runtime = new ChromiumRuntime({ store, logger: { warn() {} } });
@@ -50,5 +52,24 @@ test('仍有存活 Chromium 进程时拒绝覆盖同一 Profile 实例', () => {
   assert.throws(
     () => runtime.prepareProfileLaunch('slow-profile', { profileId: 'slow-profile' }, {}),
     (error) => error.code === 'CHROMIUM_PROFILE_ALREADY_RUNNING',
+  );
+});
+
+test('Chromium 握手前退出时保留真实退出码和内核诊断', async () => {
+  const { instance, runtime } = createRuntime();
+  const diagnostics = createChromiumLaunchDiagnostics();
+  diagnostics.record('stderr', 'missing dependency');
+  instance.diagnostics = diagnostics;
+  runtime.bindInstance('slow-profile', instance);
+
+  instance.child.exitCode = -1073741515;
+  instance.child.emit('exit', -1073741515, null);
+
+  await assert.rejects(
+    runtime.waitForBrowserWindow('slow-profile', instance),
+    (error) => error.code === 'CHROMIUM_PROCESS_EXITED'
+      && error.message.includes('0xC0000135')
+      && error.message.includes('VC++ 运行库')
+      && error.message.includes('missing dependency'),
   );
 });

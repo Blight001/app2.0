@@ -4,6 +4,7 @@ const { spawn } = require('child_process');
 const { ensureChromiumSandboxAccess } = require('./chromium-sandbox-access');
 const { enforceLocalModelDisabled } = require('./chromium-local-model-policy');
 const { buildChromiumProfileArgs } = require('./chromium-profile-args');
+const { createChromiumLaunchDiagnostics } = require('./chromium-process-diagnostics');
 const { callOptional, firstText } = require('../../shared/safe-values');
 
 const SESSION_FILE_PATTERN = /^(Session|Tabs)_(\d+)$/;
@@ -463,14 +464,22 @@ function chromiumSpawnEnvironment(options) {
 function attachChromiumLogging(child, executablePath, options) {
   const logger = options.logger;
   const profile = options.profile && typeof options.profile === 'object' ? options.profile : {};
+  const diagnostics = createChromiumLaunchDiagnostics();
   callOptional(logger, 'info', `[AI-FREE] 已启动外部浏览器内核: ${executablePath}`);
   callOptional(logger, 'info', `[ChromiumRuntime] PID=${child.pid} Profile=${profile.profileId || ''}`);
-  forwardChromiumOutput(child.stdout, (line) => callOptional(logger, 'log', `[Chromium:${child.pid}] ${line}`));
+  forwardChromiumOutput(child.stdout, (line) => {
+    diagnostics.record('stdout', line);
+    callOptional(logger, 'log', `[Chromium:${child.pid}] ${line}`);
+  });
   forwardChromiumOutput(
     child.stderr,
-    (line) => callOptional(logger, 'warn', `[Chromium:${child.pid}] ${line}`),
+    (line) => {
+      diagnostics.record('stderr', line);
+      callOptional(logger, 'warn', `[Chromium:${child.pid}] ${line}`);
+    },
     shouldIgnoreChromiumDiagnostic,
   );
+  return diagnostics;
 }
 
 function launchChromium(options = {}) {
@@ -492,8 +501,8 @@ function launchChromium(options = {}) {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: chromiumSpawnEnvironment(options),
   });
-  attachChromiumLogging(child, executablePath, options);
-  return { child, executablePath, args };
+  const diagnostics = attachChromiumLogging(child, executablePath, options);
+  return { child, executablePath, args, diagnostics };
 }
 
 // Windows 未安装特定 Winsock 服务提供程序时 Chromium 会反复输出该诊断，
