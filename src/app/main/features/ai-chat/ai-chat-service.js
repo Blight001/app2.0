@@ -62,8 +62,30 @@ function combineWindowTools(sources) {
   };
 }
 
+function activeSoftwareTools(deps, cache, target) {
+  if (!target) {
+    cache.activeSoftware = null;
+    return null;
+  }
+  const key = [
+    String(target.profileId || ''),
+    String(target.hwnd || ''),
+    Number(target.pid || 0),
+  ].join(':');
+  if (cache.activeSoftware?.key !== key) {
+    cache.activeSoftware = {
+      key,
+      tools: createAiSoftwareUiTools({
+        windowBridge: deps.browserRuntimeManager?.windowBridge,
+        target,
+      }),
+    };
+  }
+  return cache.activeSoftware.tools;
+}
+
 function createWindowToolProvider(deps, licenseCache, logger) {
-  const cache = { browser: null, files: null };
+  const cache = { browser: null, files: null, activeSoftware: null };
   return (selection = null) => {
     try {
       const profileId = deps.getActiveTabId?.();
@@ -71,10 +93,12 @@ function createWindowToolProvider(deps, licenseCache, logger) {
       const target = selection && typeof selection === 'object'
         ? selection.softwareTarget
         : activeTarget;
-      const software = createAiSoftwareUiTools({
-        windowBridge: deps.browserRuntimeManager?.windowBridge,
-        target,
-      });
+      const software = selection && typeof selection === 'object'
+        ? createAiSoftwareUiTools({
+          windowBridge: deps.browserRuntimeManager?.windowBridge,
+          target,
+        })
+        : activeSoftwareTools(deps, cache, target);
       const sources = [...createBaseWindowTools(deps, cache, licenseCache, logger), software]
         .filter((source) => source?.tools?.length);
       return combineWindowTools(sources);

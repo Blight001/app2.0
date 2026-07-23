@@ -6,6 +6,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const AUTOMATION_CURSOR_FILE_NAME = '[CC] Handwrite v1.ani';
+
 // 开发环境下 process.resourcesPath 指向 node_modules/electron/dist/resources，
 // 而不是本应用的 resources 目录；打包版则把 Chromium fork 直接放在
 // process.resourcesPath/chromium。
@@ -55,8 +57,27 @@ function resolveAiSandboxDir(app, options = {}) {
   return path.join(resolveInstallDirectory(app, options), 'AI-Workspace');
 }
 
+function resolveAutomationCursorPath(options = {}) {
+  const resourcesPath = String(options.resourcesPath || process.resourcesPath || '').trim();
+  const workingDirectory = path.resolve(options.workingDirectory || process.cwd());
+  const candidates = [...new Set([
+    resourcesPath && path.join(resourcesPath, 'cursors', AUTOMATION_CURSOR_FILE_NAME),
+    path.join(workingDirectory, 'resources', 'cursors', AUTOMATION_CURSOR_FILE_NAME),
+  ].filter(Boolean))];
+  const cursorPath = candidates.find((candidate) => fs.existsSync(candidate));
+  if (cursorPath) return cursorPath;
+  const error = /** @type {Error & {code?: string, candidates?: string[]}} */ (
+    new Error(`自动化鼠标资源缺失: ${AUTOMATION_CURSOR_FILE_NAME}`)
+  );
+  error.code = 'AUTOMATION_CURSOR_NOT_FOUND';
+  error.candidates = candidates;
+  throw error;
+}
+
 module.exports = {
+  AUTOMATION_CURSOR_FILE_NAME,
   resolveAiSandboxDir,
+  resolveAutomationCursorPath,
   resolveAutomationCardCacheDir,
   resolveChromiumResourcesPath,
   resolveInstallDirectory,

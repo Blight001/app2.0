@@ -57,6 +57,7 @@ function buildLifecycleDeps({
     browserAutomationBridge,
     aiServerDeviceService,
     getTabs: () => tabs,
+    getActiveTabId: appRuntime.getActiveTabId,
     // AI 默认窗口工具需要的标签页/窗口操作桥。tabManager 的函数在 bootstrap
     // 中解构赋值，用箭头包装保持晚绑定。
     browserWindowUi: {

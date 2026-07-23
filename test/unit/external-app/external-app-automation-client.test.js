@@ -6,6 +6,9 @@ const test = require('node:test');
 const {
   ExternalAppAutomationClient,
 } = require('../../../src/app/main/browser-runtime/external-app-automation-client');
+const {
+  ChromiumWindowBridge,
+} = require('../../../src/app/main/browser-runtime/chromium-window-bridge');
 
 class FakeWorker extends EventEmitter {
   constructor(_path, options) {
@@ -69,4 +72,24 @@ test('软件自动化 worker 错误会拒绝全部等待中的调用', async () 
     /worker failed/,
   );
   assert.equal(client.pending.size, 0);
+});
+
+test('软件自动化动作始终绑定统一的动画鼠标资源', async () => {
+  const calls = [];
+  const bridge = new ChromiumWindowBridge({
+    binding: {},
+    cursorPath: 'C:/AI-FREE/resources/cursors/[CC] Handwrite v1.ani',
+    automationClient: {
+      execute: async (method, options) => {
+        calls.push({ method, options });
+        return { success: true };
+      },
+    },
+  });
+  await bridge.performExternalWindowUiActionAsync({ action: 'click', x: 10, y: 20 });
+  assert.equal(calls[0].method, 'performExternalWindowUiAction');
+  assert.equal(
+    calls[0].options.cursorPath,
+    'C:/AI-FREE/resources/cursors/[CC] Handwrite v1.ani',
+  );
 });

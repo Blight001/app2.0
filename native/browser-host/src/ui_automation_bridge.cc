@@ -377,6 +377,10 @@ bool IsMouseAction(const std::wstring& action) {
       || action == L"double_click" || action == L"right_click";
 }
 
+bool IsKeyboardAction(const std::wstring& action) {
+  return action == L"type" || action == L"press_key";
+}
+
 bool ReadBoolean(napi_env env, napi_value object, const char* name) {
   napi_value value = GetNamed(env, object, name);
   bool result = false;
@@ -385,12 +389,15 @@ bool ReadBoolean(napi_env env, napi_value object, const char* name) {
 }
 
 bool EnsureActionSucceeded(
-    napi_env env, const UiAutomationActionResult& result) {
+    napi_env env, const UiAutomationActionResult& result,
+    const std::wstring& action) {
   if (SUCCEEDED(result.result)) return true;
   if (result.result == E_ACCESSDENIED) {
     napi_throw_error(
         env, nullptr,
-        "mouse click point is obscured or outside the bound software window");
+        IsKeyboardAction(action)
+          ? "bound software window does not own keyboard focus"
+          : "mouse click point is obscured or outside the bound software window");
   } else {
     ThrowHresult(env, "UI Automation action", result.result);
   }
@@ -484,6 +491,8 @@ napi_value PerformExternalWindowUiAction(napi_env env, napi_callback_info info) 
   const std::wstring ref = ReadWideString(env, GetNamed(env, options, "ref"), L"root");
   const std::wstring action = ReadWideString(env, GetNamed(env, options, "action"), L"");
   const std::wstring text = ReadWideString(env, GetNamed(env, options, "text"), L"");
+  const std::wstring cursor_path = ReadWideString(
+      env, GetNamed(env, options, "cursorPath"), L"");
   const int x = ReadInt32(env, options, "x", INT_MIN);
   const int y = ReadInt32(env, options, "y", INT_MIN);
   const int end_x = ReadInt32(env, options, "endX", INT_MIN);
@@ -493,37 +502,37 @@ napi_value PerformExternalWindowUiAction(napi_env env, napi_callback_info info) 
   const HWND automation_window = ResolveAutomationWindow(child, pid);
   if (IsMouseAction(action) && x != INT_MIN && y != INT_MIN) {
     const UiAutomationActionResult direct = PerformBoundMouseAction(
-        child, pid, action, { x, y });
-    return EnsureActionSucceeded(env, direct)
+        child, pid, action, { x, y }, cursor_path);
+    return EnsureActionSucceeded(env, direct, action)
       ? ActionResultValue(env, direct, action, ref, automation_window)
       : nullptr;
   }
   if (action == L"type" && direct_input) {
     const UiAutomationActionResult direct = PerformBoundTextInput(
         child, pid, text);
-    return EnsureActionSucceeded(env, direct)
+    return EnsureActionSucceeded(env, direct, action)
       ? ActionResultValue(env, direct, action, ref, automation_window)
       : nullptr;
   }
   if (action == L"press_key" && direct_input) {
     const UiAutomationActionResult direct = PerformBoundKeyInput(
         child, pid, text);
-    return EnsureActionSucceeded(env, direct)
+    return EnsureActionSucceeded(env, direct, action)
       ? ActionResultValue(env, direct, action, ref, automation_window)
       : nullptr;
   }
   if (action == L"scroll" && x != INT_MIN && y != INT_MIN && delta != 0) {
     const UiAutomationActionResult direct = PerformBoundScroll(
-        child, pid, { x, y }, delta);
-    return EnsureActionSucceeded(env, direct)
+        child, pid, { x, y }, delta, cursor_path);
+    return EnsureActionSucceeded(env, direct, action)
       ? ActionResultValue(env, direct, action, ref, automation_window)
       : nullptr;
   }
   if (action == L"drag" && x != INT_MIN && y != INT_MIN
       && end_x != INT_MIN && end_y != INT_MIN) {
     const UiAutomationActionResult direct = PerformBoundDrag(
-        child, pid, { x, y }, { end_x, end_y });
-    return EnsureActionSucceeded(env, direct)
+        child, pid, { x, y }, { end_x, end_y }, cursor_path);
+    return EnsureActionSucceeded(env, direct, action)
       ? ActionResultValue(env, direct, action, ref, automation_window)
       : nullptr;
   }
@@ -541,8 +550,8 @@ napi_value PerformExternalWindowUiAction(napi_env env, napi_callback_info info) 
       env, automation.Get(), root.Get(), ref.empty() ? L"root" : ref);
   if (!element) return nullptr;
   const UiAutomationActionResult result = PerformUiAutomationAction(
-      element.Get(), action, text, child, pid);
-  return EnsureActionSucceeded(env, result)
+      element.Get(), action, text, cursor_path, child, pid);
+  return EnsureActionSucceeded(env, result, action)
     ? ActionResultValue(env, result, action, ref, automation_window)
     : nullptr;
 }

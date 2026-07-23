@@ -197,6 +197,13 @@ function verifyPackagedRuntime(options = {}) {
   if (!logoHeader.equals(Buffer.from([0, 0, 1, 0]))) {
     throw new Error(`不是有效的 ICO 文件: ${logoPath}`);
   }
+  const cursorPath = path.join(resourcesDir, 'cursors', '[CC] Handwrite v1.ani');
+  assertFile(cursorPath, 128);
+  const cursorHeader = fs.readFileSync(cursorPath).subarray(0, 12);
+  if (cursorHeader.subarray(0, 4).toString('ascii') !== 'RIFF'
+      || cursorHeader.subarray(8, 12).toString('ascii') !== 'ACON') {
+    throw new Error(`不是有效的 ANI 动画鼠标文件: ${cursorPath}`);
+  }
 
   for (const relativePath of REQUIRED_CLASH_ASSETS) {
     const minimumSize = /^(?:geoip\.metadb|geosite\.dat)$/.test(relativePath)
@@ -211,7 +218,7 @@ function verifyPackagedRuntime(options = {}) {
     'Chromium',
   );
   verifyAsarIntegrity(projectDir, appOutDir);
-  console.log(`[packaged-runtime] 校验通过: Chromium ${chromiumCount} 个文件，ASAR/unpacked/Watchdog/Extensions/Native/Logo/Clash 资源完整`);
+  console.log(`[packaged-runtime] 校验通过: Chromium ${chromiumCount} 个文件，ASAR/unpacked/Watchdog/Extensions/Native/Logo/ANI Cursor/Clash 资源完整`);
   return { ok: true, chromiumCount, appOutDir };
 }
 

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { ExternalAppAutomationClient } = require('./external-app-automation-client');
+const { resolveAutomationCursorPath } = require('../config/paths');
 
 function resolveBindingCandidates(options = {}) {
   const appRoot = path.resolve(options.appRoot || path.join(__dirname, '../../../../'));
@@ -23,6 +24,7 @@ class ChromiumWindowBridge {
     this.logger = options.logger || console;
     this.binding = options.binding || null;
     this.bindingPath = String(options.bindingPath || '');
+    this.cursorPath = options.cursorPath || resolveAutomationCursorPath(options);
     this.automationClient = options.automationClient || null;
     this.candidates = resolveBindingCandidates(options);
   }
@@ -119,7 +121,10 @@ class ChromiumWindowBridge {
     return this.load().observeExternalWindowUi(options);
   }
   performExternalWindowUiAction(options) {
-    return this.load().performExternalWindowUiAction(options);
+    return this.load().performExternalWindowUiAction({
+      ...options,
+      cursorPath: this.cursorPath,
+    });
   }
   getAutomationClient() {
     this.load();
@@ -144,7 +149,7 @@ class ChromiumWindowBridge {
   }
   performExternalWindowUiActionAsync(options) {
     return this.runExternalAutomation(
-      'performExternalWindowUiAction', options,
+      'performExternalWindowUiAction', { ...options, cursorPath: this.cursorPath },
       () => this.performExternalWindowUiAction(options),
     );
   }

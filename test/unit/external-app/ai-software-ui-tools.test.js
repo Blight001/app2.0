@@ -50,13 +50,13 @@ test('软件 UI MCP 忽略调用方伪造窗口并限制观察结果规模', asy
   assert.equal(result.target.profile_id, 'software-1');
 });
 
-test('软件 UI MCP 使用 observe ref 操作且绑定 HWND/PID 不可替换', async () => {
+test('软件 UI MCP 对不支持 ValuePattern 的编辑器聚焦后使用绑定键盘输入', async () => {
   const calls = [];
   const tools = createAiSoftwareUiTools({
     windowBridge: {
       observeExternalWindowUi: () => ({
         success: true,
-        items: [{ ref: 'uia:1,2,3', actions: ['set_value'] }],
+        items: [{ ref: 'uia:1,2,3', actions: ['focus'] }],
       }),
       performExternalWindowUiAction: (options) => {
         calls.push(options);
@@ -77,13 +77,23 @@ test('软件 UI MCP 使用 observe ref 操作且绑定 HWND/PID 不可替换', a
     childHwnd: '999',
     refresh: false,
   });
-  assert.deepEqual(calls[0], {
-    childHwnd: '100',
-    childPid: 321,
-    action: 'type',
-    ref: 'uia:1,2,3',
-    text: 'hello',
-  });
+  assert.deepEqual(calls, [
+    {
+      childHwnd: '100',
+      childPid: 321,
+      action: 'focus',
+      ref: 'uia:1,2,3',
+      text: '',
+    },
+    {
+      childHwnd: '100',
+      childPid: 321,
+      action: 'type',
+      ref: 'uia:1,2,3',
+      text: 'hello',
+      directInput: true,
+    },
+  ]);
 });
 
 test('软件 UI MCP 提供自动和强制鼠标点击动作', async () => {
@@ -242,4 +252,48 @@ test('AI 对话按显式选择绑定软件窗口，并兼容当前活动栏目',
   activeTarget = null;
   assert.equal(provider().has('software_ui'), false);
   assert.equal(bound.has('software_ui'), true, '已开始的请求继续绑定原 HWND，不能随活动栏目漂移');
+});
+
+test('外部 MCP 的活动软件实例跨 observe/action 调用保留引用状态', async () => {
+  const actions = [];
+  const target = {
+    hwnd: '100',
+    pid: 321,
+    profileId: 'active-tab',
+    name: 'Notepad3',
+  };
+  const provider = createWindowToolProvider({
+    aiSandboxDir: 'C:/AI-Workspace',
+    getActiveTabId: () => target.profileId,
+    browserRuntimeManager: {
+      windowBridge: {
+        observeExternalWindowUi: () => ({
+          success: true,
+          items: [{ ref: 'uia:editor', actions: ['focus'] }],
+        }),
+        performExternalWindowUiAction: (options) => {
+          actions.push(options);
+          return { success: true };
+        },
+      },
+      externalApp: { getAutomationTarget: () => target },
+    },
+  }, null, { warn() {} });
+
+  const observed = await provider().execute('software_ui', {
+    action: 'observe',
+    mode: 'accessibility',
+  });
+  await provider().execute('software_ui', {
+    action: 'type',
+    ref: 'uia:editor',
+    observation_id: observed.observation_id,
+    text: '',
+    refresh: false,
+  });
+
+  assert.deepEqual(actions.map((item) => [item.action, item.directInput]), [
+    ['focus', undefined],
+    ['type', true],
+  ]);
 });

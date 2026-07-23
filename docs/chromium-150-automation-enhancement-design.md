@@ -4,7 +4,7 @@
 **基线日期**：2026-07-22  
 **目标版本**：Chromium `150.0.7871.114`  
 **基线提交**：`f405107495a07cb1bfcf687d4af8d91117098db6`  
-**状态**：`0014` 权限策略、`0015` 文件选择、`0020` 页面自动化原生通道、`0021` 可见原生指针、`0022` 下载链接观察、`0023` 原生键盘/滚轮、`0024` 原生 Observe 描边、`0025` 标签管理/站点数据清理、`0026` 卡片定位及等待语义、`0027` 精确截图与键盘修饰键已实现；`0016`–`0019` 待实施
+**状态**：`0014` 权限策略、`0015` 文件选择、`0020` 页面自动化原生通道、`0021` 可见原生指针、`0022` 下载链接观察、`0023` 原生键盘/滚轮、`0024` 原生 Observe 描边、`0025` 标签管理/站点数据清理、`0026` 卡片定位及等待语义、`0027` 精确截图与键盘修饰键、`0028` 统一 ANI 动画鼠标已实现；`0016`–`0019` 待实施
 
 ## 1. 目标与边界
 
@@ -578,6 +578,10 @@ DOWNLOAD_DIRECTORY_UNAVAILABLE
 0022-ai-free-observe-download-links.patch
 0023-ai-free-native-keyboard-wheel.patch
 0024-ai-free-native-observe-highlights.patch
+0025-ai-free-native-tab-and-site-data.patch
+0026-ai-free-native-card-targeting.patch
+0027-ai-free-native-screenshot-and-input-parity.patch
+0028-ai-free-animated-cursor-resource.patch
 ```
 
 不创建通用 `0020-automation-security-bypass.patch`。证书和 Mixed Content 的开发绕过由启动器显式添加 Chromium 现有参数，并由构建类型与嵌入模式双重门禁。
@@ -594,6 +598,13 @@ Windows 全局鼠标；移动期间按固定 16ms 节拍将缓入缓出轨迹逐
 RenderWidgetHost，点击使用独立的按下、抬起和双击间隔，并显示短暂轨迹与点击
 波纹。动画时长只按像素距离确定，不加入随机抖动或规避检测逻辑。标签页或窗口
 销毁时会取消未完成动作并释放覆盖层。
+
+`0028-ai-free-animated-cursor-resource.patch` 将覆盖层的箭头替换为统一的
+`[CC] Handwrite v1.ani`。Chromium 通过只读启动参数接收外置资源路径，使用
+Windows ANI 帧信息按原始 1/60 秒 jiffy 速率逐帧绘制，仍保留轨迹与点击波纹。
+软件窗口自动化由 Native Host 加载同一 ANI，并在点击、滚动和拖拽期间显示；
+资源在开发态位于 `resources/cursors`，打包态位于
+`process.resourcesPath/cursors`，不得放入 ASAR 或静默替换为普通静态箭头。
 
 `0022-ai-free-observe-download-links.patch` 让隔离世界观察结果为可见 HTTP/HTTPS
 链接增加 `downloadUrl`，并在结果顶层汇总 `downloadLinks` 与

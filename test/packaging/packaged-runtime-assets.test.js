@@ -47,6 +47,10 @@ test('native host and runtime logo are packaged only as external resources', () 
   assert.ok(extraResources.some((entry) => (
     entry.from === 'src/assets/logo.ico' && entry.to === 'resource/logo.ico'
   )));
+  assert.ok(extraResources.some((entry) => (
+    entry.from === 'resources/cursors/[CC] Handwrite v1.ani'
+      && entry.to === 'cursors/[CC] Handwrite v1.ani'
+  )));
 });
 
 test('native host has no external VC++ redistributable dependency', () => {

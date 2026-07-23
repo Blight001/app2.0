@@ -165,3 +165,21 @@ test('fork native screenshot and input parity supports precise capture and modif
   assert.match(patch, /scrollHeight/);
   assert.match(patch, /a\.clearFirst/);
 });
+
+test('fork visible pointer loads and advances the packaged ANI cursor frames', () => {
+  const patchDirectory = path.join(__dirname, '../../../native/chromium-fork/patches');
+  const series = fs.readFileSync(path.join(patchDirectory, 'series'), 'utf8');
+  const patch = fs.readFileSync(
+    path.join(patchDirectory, '0028-ai-free-animated-cursor-resource.patch'),
+    'utf8',
+  );
+  assert.match(
+    series,
+    /0027-ai-free-native-screenshot-and-input-parity\.patch\s+0028-ai-free-animated-cursor-resource\.patch/,
+  );
+  assert.match(patch, /GetSwitchValuePath/);
+  assert.match(patch, /LoadCursorFromFileW/);
+  assert.match(patch, /GetCursorFrameInfo/);
+  assert.match(patch, /CreateSkBitmapFromHICON/);
+  assert.match(patch, /cursor_timer_/);
+});

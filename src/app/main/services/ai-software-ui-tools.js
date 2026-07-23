@@ -262,7 +262,12 @@ class AiSoftwareUiTools {
     if (COORDINATE_ACTIONS.has(action)) {
       return this.addCoordinateInput(options, action, args);
     }
-    if ((action === 'type' && !ref) || action === 'press_key') {
+    if (action === 'type') {
+      if (!ref) this.requireCurrentObservation(args);
+      options.directInput = true;
+      return options;
+    }
+    if (action === 'press_key') {
       this.requireCurrentObservation(args);
       options.directInput = true;
       return options;
@@ -295,8 +300,20 @@ class AiSoftwareUiTools {
     return options;
   }
 
+  async focusDirectInputTarget(options) {
+    if (!options.directInput || !options.ref || options.ref === 'root') return;
+    const { directInput: _directInput, ...focusOptions } = options;
+    await callBridge(
+      this.windowBridge,
+      'performExternalWindowUiActionAsync',
+      'performExternalWindowUiAction',
+      { ...focusOptions, action: 'focus', text: '' },
+    );
+  }
+
   async perform(action, args) {
     const options = this.buildActionOptions(action, args);
+    await this.focusDirectInputTarget(options);
     const actionResult = await callBridge(
       this.windowBridge,
       'performExternalWindowUiActionAsync',

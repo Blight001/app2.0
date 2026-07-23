@@ -127,6 +127,10 @@
       {
         "from": "src/assets/logo.ico",
         "to": "resource/logo.ico"
+      },
+      {
+        "from": "resources/cursors/[CC] Handwrite v1.ani",
+        "to": "cursors/[CC] Handwrite v1.ani"
       }
     ],
     "win": {
