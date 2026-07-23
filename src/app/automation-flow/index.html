@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI-FREE 卡片流程</title>
+  <link rel="stylesheet" href="./flow-window.css">
+</head>
+<body>
+  <header class="flow-window-header">
+    <div>
+      <span>AI-FREE AUTOMATION</span>
+      <h1 id="flow-window-title">卡片流程与详细步骤</h1>
+    </div>
+    <div class="flow-window-actions">
+      <span id="flow-window-status" role="status" aria-live="polite"></span>
+      <button id="flow-window-save" class="automation-primary-button" type="button">保存并关闭</button>
+      <button id="flow-window-close" class="automation-secondary-button" type="button">关闭</button>
+    </div>
+  </header>
+
+  <main class="flow-window-workspace">
+    <section class="flow-window-canvas-panel" aria-label="流程画布">
+      <div class="flow-node-palette" aria-label="拖拽步骤到画布添加节点">
+        <strong>添加节点</strong>
+        <button draggable="true" data-step-type="navigate" type="button">访问网页</button>
+        <button draggable="true" data-step-type="click" type="button">点击元素</button>
+        <button draggable="true" data-step-type="type" type="button">输入内容</button>
+        <button draggable="true" data-step-type="wait" type="button">等待条件</button>
+        <button draggable="true" data-step-type="condition" type="button">判断分支</button>
+        <button draggable="true" data-step-type="get_credits" type="button">获取积分</button>
+        <button draggable="true" data-step-type="save_cookies" type="button">保存会话</button>
+        <button draggable="true" data-step-type="clear_current_page_cache" type="button">清理缓存</button>
+        <button draggable="true" data-step-type="screenshot" type="button">截图</button>
+      </div>
+      <div class="automation-canvas-toolbar" aria-label="流程画布工具">
+        <button id="automation-auto-layout" class="automation-canvas-tool" type="button">自动排版</button>
+        <span class="automation-canvas-tool-separator" aria-hidden="true"></span>
+        <button id="automation-zoom-out" class="automation-canvas-tool" type="button" aria-label="缩小画布">−</button>
+        <button id="automation-zoom-reset" class="automation-canvas-tool automation-zoom-value" type="button">100%</button>
+        <button id="automation-zoom-in" class="automation-canvas-tool" type="button" aria-label="放大画布">＋</button>
+        <span class="automation-canvas-help">滚轮缩放 · 拖动空白平移 · 拖动节点移动 · 端口拖线</span>
+      </div>
+      <div id="automation-flow-canvas" class="automation-flow-canvas" tabindex="0" aria-label="自动化流程画布">
+        <div id="automation-flow-viewport" class="automation-flow-viewport">
+          <svg id="automation-flow-edges" class="automation-flow-edges" aria-hidden="true"></svg>
+          <div id="automation-flow-nodes" class="automation-flow-nodes"></div>
+        </div>
+        <div id="automation-canvas-empty" class="automation-canvas-empty">把上方步骤拖到画布即可添加节点</div>
+      </div>
+    </section>
+
+    <aside class="flow-window-details" aria-labelledby="flow-window-details-title">
+      <header>
+        <h2 id="flow-window-details-title">详细步骤设置</h2>
+        <span id="automation-step-count">0 个步骤</span>
+      </header>
+      <div id="automation-flow-list" class="automation-flow-list"></div>
+    </aside>
+  </main>
+
+  <textarea id="automation-card-json" hidden></textarea>
+  <script src="../sidebar/client/app/side/controllers/pages/automation/automation-flow-canvas.js"></script>
+  <script src="../sidebar/client/app/side/controllers/pages/automation/automation-step-fields.js"></script>
+  <script src="../sidebar/client/app/side/controllers/pages/automation/automation-card-editor.js"></script>
+  <script src="./flow-window.js"></script>
+</body>
+</html>

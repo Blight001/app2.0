@@ -43,7 +43,8 @@ function createTestServer() {
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
     response.setHeader('Cache-Control', 'no-store');
     if (url.pathname === '/input-result' || url.pathname === '/file-click' ||
-        url.pathname === '/file-result' || url.pathname === '/native-event') {
+        url.pathname === '/file-result' || url.pathname === '/native-event' ||
+        url.pathname === '/native-click' || url.pathname === '/native-frame-click') {
       response.end('ok');
       return;
     }
@@ -72,9 +73,26 @@ function createTestServer() {
         </script>`);
       return;
     }
+    if (url.pathname === '/native-frame') {
+      response.end(`<!doctype html><meta charset="utf-8">
+        <button id="native-frame-target"
+          style="position:fixed;left:40px;top:30px;width:24px;height:24px;padding:0">x</button>
+        <script>
+          document.querySelector('#native-frame-target').addEventListener('click', (event) =>
+            fetch('/native-frame-click?trusted=' + event.isTrusted +
+              '&x=' + event.clientX + '&y=' + event.clientY).catch(() => {}));
+        </script>`);
+      return;
+    }
     if (url.pathname === '/native-input') {
       response.end(`<!doctype html><meta charset="utf-8"><title>NATIVE_INPUT_READY</title>
         <input id="native-input" style="position:fixed;left:20px;top:20px;width:300px;height:50px">
+        <button id="native-click-target" style="position:fixed;left:520px;top:260px;width:180px;height:60px">
+          click target
+        </button>
+        <iframe src="/native-frame"
+          style="position:fixed;left:360px;top:380px;width:300px;height:150px;border:8px solid black;
+            transform:scale(.8);transform-origin:top left"></iframe>
         <div style="height:2400px"></div>
         <script>
           const input = document.querySelector('#native-input');
@@ -83,6 +101,9 @@ function createTestServer() {
           input.addEventListener('keydown', (event) => fetch('/native-event?kind=key&trusted=' +
             event.isTrusted + '&key=' + encodeURIComponent(event.key) +
             '&ctrl=' + event.ctrlKey + '&shift=' + event.shiftKey).catch(() => {}));
+          document.querySelector('#native-click-target').addEventListener('click', (event) =>
+            fetch('/native-click?trusted=' + event.isTrusted +
+              '&x=' + event.clientX + '&y=' + event.clientY).catch(() => {}));
           addEventListener('wheel', (event) => fetch('/native-event?kind=wheel&trusted=' +
             event.isTrusted).catch(() => {}), { once: true });
           setTimeout(() => {
@@ -304,6 +325,31 @@ app.whenReady().then(async () => {
   assert(observed.result.highlightedCount > 0);
   assert(observed.result.highlightedCount <= 20);
   assert.equal(observed.result.highlightDurationMs, 30000);
+  const clicked = await manager.dispatchAutomationByProcessId(b.state.pid, 'perform-action', {
+    action: 'click', selector: '#native-click-target',
+  });
+  assert.equal(clicked.result.inputMode, 'chromium-visible-pointer');
+  const clickRequest = await waitForRequest((item) => item.path === '/native-click');
+  const clickQuery = new URLSearchParams(clickRequest.query);
+  assert.equal(clickQuery.get('trusted'), 'true');
+  assert(Math.abs(Number(clickQuery.get('x')) - 610) <= 2);
+  assert(Math.abs(Number(clickQuery.get('y')) - 290) <= 2);
+  const frameClicked = await manager.dispatchAutomationByProcessId(b.state.pid, 'perform-action', {
+    action: 'click', selector: '#native-frame-target',
+  });
+  assert.equal(frameClicked.result.inputMode, 'chromium-visible-pointer');
+  const frameClickRequest = await waitForRequest(
+    (item) => item.path === '/native-frame-click', 2000,
+  );
+  const frameClickQuery = new URLSearchParams(frameClickRequest.query);
+  assert.equal(frameClickQuery.get('trusted'), 'true');
+  assert(Math.abs(Number(frameClickQuery.get('x')) - 52) <= 2);
+  assert(Math.abs(Number(frameClickQuery.get('y')) - 42) <= 2);
+  const missingClick = await manager.dispatchAutomationByProcessId(b.state.pid, 'perform-action', {
+    action: 'click', selector: '#missing-click-target',
+  });
+  assert.equal(missingClick.result.success, false);
+  assert.equal(missingClick.result.errorCode, 'ELEMENT_NOT_FOUND');
   const typed = await manager.dispatchAutomationByProcessId(b.state.pid, 'perform-action', {
     action: 'type', selector: '#native-input', text: 'Native42',
   });
@@ -426,7 +472,7 @@ app.whenReady().then(async () => {
 
   console.log('[phase3-acceptance] navigate/reload command responses passed');
   console.log('[phase3-acceptance] trusted local file selection reached the real HTML file input');
-  console.log('[phase3-acceptance] native keyboard and wheel events reached the page as trusted input');
+  console.log('[phase3-acceptance] native pointer, keyboard and wheel events reached the page as trusted input');
   console.log('[phase3-acceptance] native observe highlights were attached outside the page DOM');
   console.log('[phase3-acceptance] visible + HttpOnly cookies reached real Chromium requests');
   console.log('[phase3-acceptance] LocalStorage/SessionStorage verification and two-Profile isolation passed');

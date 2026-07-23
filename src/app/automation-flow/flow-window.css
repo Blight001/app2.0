@@ -1,0 +1,182 @@
+@import url("../sidebar/client/app/side/styles/modules/automation.css");
+@import url("../sidebar/client/app/side/styles/modules/automation-canvas.css");
+
+:root {
+  color-scheme: dark;
+  --brand: #4d9cff;
+  --brand-border: rgba(77, 156, 255, .42);
+  font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: #0b111a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  color: #e7edf7;
+  background:
+    radial-gradient(circle at 15% 0, rgba(54, 105, 172, .16), transparent 36%),
+    #0b111a;
+}
+
+.flow-window-header {
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(83, 105, 138, .38);
+  background: rgba(15, 22, 32, .94);
+}
+
+.flow-window-header span {
+  color: #6faeff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .12em;
+}
+
+.flow-window-header h1 {
+  margin: 3px 0 0;
+  font-size: 17px;
+}
+
+.flow-window-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#flow-window-status {
+  max-width: 300px;
+  overflow: hidden;
+  color: #85c2ff;
+  font-size: 11px;
+  letter-spacing: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#flow-window-status.is-error {
+  color: #ff929e;
+}
+
+.flow-window-workspace {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
+  gap: 12px;
+  padding: 12px;
+}
+
+.flow-window-canvas-panel,
+.flow-window-details {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgba(80, 104, 140, .42);
+  border-radius: 12px;
+  background: rgba(16, 23, 34, .88);
+}
+
+.flow-window-canvas-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.flow-node-palette {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 9px;
+  border-bottom: 1px solid rgba(80, 104, 140, .32);
+}
+
+.flow-node-palette strong {
+  flex: 0 0 auto;
+  margin-right: 3px;
+  color: #8fa4c0;
+  font-size: 10px;
+}
+
+.flow-node-palette button {
+  flex: 0 0 auto;
+  min-height: 27px;
+  padding: 0 9px;
+  border: 1px solid rgba(91, 119, 159, .5);
+  border-radius: 7px;
+  color: #bcd0e8;
+  background: rgba(35, 47, 64, .86);
+  font: inherit;
+  font-size: 10px;
+  cursor: grab;
+}
+
+.flow-node-palette button:active {
+  cursor: grabbing;
+}
+
+.flow-window-canvas-panel .automation-canvas-toolbar {
+  border: 0;
+  border-bottom: 1px solid rgba(80, 104, 140, .42);
+  border-radius: 0;
+}
+
+.flow-window-canvas-panel .automation-flow-canvas {
+  height: auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.flow-window-details {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.flow-window-details > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 1px solid rgba(80, 104, 140, .34);
+}
+
+.flow-window-details h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.flow-window-details header span {
+  color: #8291a6;
+  font-size: 10px;
+}
+
+.flow-window-details .automation-flow-list {
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+}
+
+@media (max-width: 900px) {
+  .flow-window-workspace {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+
+  .automation-canvas-help {
+    display: none;
+  }
+}

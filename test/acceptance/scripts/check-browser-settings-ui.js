@@ -82,7 +82,6 @@ ipcMain.handle('set-ai-control-settings', (_event, payload = {}) => ({
   settings: { mcpCallLimit: Number(payload.mcpCallLimit) },
 }));
 for (const [channel, response] of /** @type {Array<[string, any]>} */ ([
-  ['get-extension-manager-state', { ok: true, extensions: [] }],
   ['get-clash-mini-status', { running: false }],
   ['get-user-credentials', { ok: true, credentials: {} }],
   ['get-all-accounts', []],
@@ -103,7 +102,12 @@ for (const [channel, response] of /** @type {Array<[string, any]>} */ ([
       autoDeleteAt: 2_000_000_000_000,
       isOpen: false,
       isActive: false,
-    }],
+    }, ...Array.from({ length: 8 }, (_, index) => ({
+      id: `fixture-browser-${index + 1}`,
+      name: `测试浏览器 ${index + 1}`,
+      isOpen: false,
+      isActive: false,
+    }))],
   }],
   ['account-get-session', { authenticated: false }],
   ['get-proxy-traffic-quota', { ok: false }],
@@ -197,6 +201,12 @@ app.whenReady().then(async () => {
       browserHistoryMaxHeight: parseFloat(
         getComputedStyle(document.getElementById('browser-history-list')).maxHeight,
       ),
+      browserHistoryRows: document.querySelectorAll('.browser-history-item').length,
+      browserHistoryScrolls: document.getElementById('browser-history-list').scrollHeight
+        > document.getElementById('browser-history-list').clientHeight,
+      extensionUiRemoved: !document.querySelector('.plugin-switch-group')
+        && !document.getElementById('import-extension-plugin')
+        && !document.getElementById('extension-plugin-list'),
       browserConfigLabel: document.querySelector('[data-tab="ai-free-settings-panel"] span:last-child')?.textContent.trim() || '',
       mcpDefault,
       mcpSaved,
@@ -217,7 +227,10 @@ app.whenReady().then(async () => {
     !result.active
     || !result.controlInactive
     || !result.browserHistoryVisible
-    || result.browserHistoryMaxHeight <= 238
+    || result.browserHistoryMaxHeight !== 433
+    || result.browserHistoryRows !== 9
+    || result.browserHistoryScrolls !== true
+    || result.extensionUiRemoved !== true
     || result.browserConfigLabel !== '浏览器配置'
     || result.mcpDefault !== '100'
     || result.mcpSaved !== '125'
@@ -239,69 +252,146 @@ app.whenReady().then(async () => {
   ) {
     throw new Error(`AI-FREE 参数面板校验失败: ${JSON.stringify(result)}`);
   }
-  const automationResult = await win.webContents.executeJavaScript(`(async () => {
+  const automationSetup = await win.webContents.executeJavaScript(`(async () => {
     document.querySelector('[data-tab="automation-panel"]').click();
     await new Promise((resolve) => setTimeout(resolve, 100));
     const initialCards = document.querySelectorAll('.automation-card-item').length;
-    const initialSteps = document.querySelectorAll('.automation-step').length;
+    const cardListMaxHeight = parseFloat(
+      getComputedStyle(document.getElementById('automation-card-list')).maxHeight,
+    );
+    const headingRemoved = !document.querySelector('.automation-heading')
+      && !document.querySelector('.automation-kicker');
+    const pointsInputRemoved = !document.getElementById('automation-card-points');
+    const dialogsInitiallyClosed = Array.from(document.querySelectorAll('.automation-dialog'))
+      .every((dialog) => dialog.hidden);
+    const fieldsHiddenFromMain = document.getElementById('automation-card-name').offsetParent === null
+      && !document.getElementById('automation-flow-canvas')
+      && document.getElementById('automation-card-json').offsetParent === null;
+    const flowPopupRemoved = !document.getElementById('automation-flow-dialog');
     document.getElementById('automation-new-card').click();
+    const editDialogOpened = document.getElementById('automation-edit-dialog').hidden === false;
     const name = document.getElementById('automation-card-name');
     const website = document.getElementById('automation-card-website');
     name.value = '软件端编辑流程';
     name.dispatchEvent(new Event('input', { bubbles: true }));
     website.value = 'https://example.com/workflow';
     website.dispatchEvent(new Event('input', { bubbles: true }));
-    document.getElementById('automation-new-step-type').value = 'navigate';
-    document.getElementById('automation-add-step').click();
-    document.getElementById('automation-new-step-type').value = 'click';
-    document.getElementById('automation-add-step').click();
-    const createdSteps = document.querySelectorAll('.automation-step').length;
-    const canvasNodes = document.querySelectorAll('.automation-canvas-node').length;
-    const canvasEdges = document.querySelectorAll('.automation-flow-edge').length;
-    const canvasPorts = document.querySelectorAll('.automation-canvas-port.is-output').length;
-    document.getElementById('automation-zoom-in').click();
-    const zoomValue = document.getElementById('automation-zoom-reset').textContent;
-    document.getElementById('automation-auto-layout').click();
-    const layout = JSON.parse(document.getElementById('automation-card-json').value).flow.nodes;
-    document.querySelector('.automation-canvas-node')?.click();
-    const canvasSelectionOpened = document.querySelector('.automation-step-body')?.hidden === false;
-    document.querySelector('.automation-step-summary')?.click();
-    const routeSelect = Array.from(document.querySelectorAll('.automation-step-body select'))
-      .find((select) => select.parentElement?.textContent.startsWith('下一步'));
-    const routeLinked = Boolean(routeSelect?.value);
-    document.getElementById('automation-card-form').requestSubmit();
-    await new Promise((resolve) => setTimeout(resolve, 160));
-    document.getElementById('automation-run-card').click();
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    document.getElementById('automation-edit-json').click();
+    const jsonDialogOpened = document.getElementById('automation-json-dialog').hidden === false
+      && document.getElementById('automation-edit-dialog').hidden === true;
+    const jsonFooterActions = Array.from(
+      document.querySelectorAll('#automation-json-dialog .automation-dialog-footer button'),
+    ).map((button) => button.textContent.trim());
+    document.querySelector('#automation-json-dialog [data-automation-dialog-close]').click();
+    document.getElementById('automation-edit-flow').click();
     return {
       panelActive: document.getElementById('automation-panel').classList.contains('active'),
       initialCards,
-      initialSteps,
-      createdSteps,
-      canvasNodes,
-      canvasEdges,
-      canvasPorts,
-      zoomValue,
-      layoutIsLayered: layout[1]?.x > layout[0]?.x,
-      canvasSelectionOpened,
-      routeLinked,
+      cardListMaxHeight,
+      headingRemoved,
+      pointsInputRemoved,
+      dialogsInitiallyClosed,
+      fieldsHiddenFromMain,
+      flowPopupRemoved,
+      editDialogOpened,
+      jsonDialogOpened,
+      jsonFooterActions,
+    };
+  })()`);
+  let flowWindow = null;
+  for (let attempt = 0; attempt < 30 && !flowWindow; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    flowWindow = BrowserWindow.getAllWindows().find((item) => (
+      item !== win && item.webContents.getURL().includes('/automation-flow/index.html')
+    )) || null;
+  }
+  if (!flowWindow) throw new Error('独立卡片流程窗口未创建');
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  const flowResult = await flowWindow.webContents.executeJavaScript(`(async () => {
+    const canvas = document.getElementById('automation-flow-canvas');
+    document.querySelector('[data-step-type="navigate"]').click();
+    const transfer = new DataTransfer();
+    const dragged = document.querySelector('[data-step-type="click"]');
+    dragged.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: transfer }));
+    const bounds = canvas.getBoundingClientRect();
+    canvas.dispatchEvent(new DragEvent('drop', {
+      bubbles: true,
+      cancelable: true,
+      dataTransfer: transfer,
+      clientX: bounds.left + 360,
+      clientY: bounds.top + 220,
+    }));
+    canvas.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      clientX: bounds.left + 280,
+      clientY: bounds.top + 180,
+      deltaY: -100,
+    }));
+    document.getElementById('automation-auto-layout').click();
+    document.querySelector('.automation-canvas-node')?.click();
+    const canvasRect = document.querySelector('.flow-window-canvas-panel').getBoundingClientRect();
+    const detailsRect = document.querySelector('.flow-window-details').getBoundingClientRect();
+    const routeSelect = Array.from(document.querySelectorAll('.automation-step-body select'))
+      .find((select) => select.parentElement?.textContent.startsWith('下一步'));
+    const card = JSON.parse(document.getElementById('automation-card-json').value);
+    return {
+      windowTitle: document.getElementById('flow-window-title').textContent,
+      paletteCount: document.querySelectorAll('[data-step-type][draggable="true"]').length,
+      createdSteps: document.querySelectorAll('.automation-step').length,
+      canvasNodes: document.querySelectorAll('.automation-canvas-node').length,
+      canvasEdges: document.querySelectorAll('.automation-flow-edge').length,
+      canvasPorts: document.querySelectorAll('.automation-canvas-port.is-output').length,
+      zoomValue: document.getElementById('automation-zoom-reset').textContent,
+      detailsAlwaysVisible: !document.querySelector('.automation-step-details')
+        && detailsRect.width > 0,
+      sideBySide: detailsRect.left >= canvasRect.right,
+      canvasSelectionOpened: document.querySelector('.automation-step-body')?.hidden === false,
+      routeLinked: Boolean(routeSelect?.value),
+      layoutIsLayered: card.flow.nodes[1]?.x > card.flow.nodes[0]?.x,
+      draggedNodePositioned: card.flow.nodes.some((node) => node.x >= 0 && node.y >= 0),
+      saveAction: document.getElementById('flow-window-save').textContent,
+    };
+  })()`);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  flowWindow.close();
+  const automationResult = await win.webContents.executeJavaScript(`(async () => {
+    document.getElementById('automation-card-form').requestSubmit();
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    document.getElementById('automation-run-card').click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return {
       cardsAfterSave: document.querySelectorAll('.automation-card-item').length,
       savedName: document.getElementById('automation-card-name').value,
       status: document.getElementById('automation-status').textContent,
     };
   })()`);
   if (
-    automationResult.panelActive !== true
-    || automationResult.initialCards !== 1
-    || automationResult.initialSteps !== 1
-    || automationResult.createdSteps !== 2
-    || automationResult.canvasNodes !== 2
-    || automationResult.canvasEdges !== 1
-    || automationResult.canvasPorts !== 2
-    || automationResult.zoomValue !== '110%'
-    || automationResult.layoutIsLayered !== true
-    || automationResult.canvasSelectionOpened !== true
-    || automationResult.routeLinked !== true
+    automationSetup.panelActive !== true
+    || automationSetup.initialCards !== 1
+    || automationSetup.cardListMaxHeight !== 601
+    || automationSetup.headingRemoved !== true
+    || automationSetup.pointsInputRemoved !== true
+    || automationSetup.dialogsInitiallyClosed !== true
+    || automationSetup.fieldsHiddenFromMain !== true
+    || automationSetup.flowPopupRemoved !== true
+    || automationSetup.editDialogOpened !== true
+    || automationSetup.jsonDialogOpened !== true
+    || automationSetup.jsonFooterActions.join('|') !== '复制 JSON|应用 JSON|完成'
+    || !flowResult.windowTitle.includes('软件端编辑流程')
+    || flowResult.paletteCount !== 9
+    || flowResult.createdSteps !== 2
+    || flowResult.canvasNodes !== 2
+    || flowResult.canvasEdges !== 1
+    || flowResult.canvasPorts !== 2
+    || flowResult.zoomValue !== '110%'
+    || flowResult.detailsAlwaysVisible !== true
+    || flowResult.sideBySide !== true
+    || flowResult.layoutIsLayered !== true
+    || flowResult.canvasSelectionOpened !== true
+    || flowResult.routeLinked !== true
+    || flowResult.draggedNodePositioned !== true
+    || flowResult.saveAction !== '保存并关闭'
     || automationResult.cardsAfterSave !== 2
     || automationResult.savedName !== '软件端编辑流程'
     || !automationResult.status.includes('流程运行完成')
@@ -309,6 +399,8 @@ app.whenReady().then(async () => {
     || automationCards[1]?.cardData?.steps?.length !== 2
   ) {
     throw new Error(`软件自动化卡片 UI 校验失败: ${JSON.stringify({
+      automationSetup,
+      flowResult,
       ...automationResult,
       automationRunRequests,
       automationCards,

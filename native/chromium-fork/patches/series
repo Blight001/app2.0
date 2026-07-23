@@ -24,3 +24,6 @@
 0026-ai-free-native-card-targeting.patch
 0027-ai-free-native-screenshot-and-input-parity.patch
 0028-ai-free-animated-cursor-resource.patch
+0029-ai-free-click-target-and-failure.patch
+0030-ai-free-frame-element-coordinates.patch
+0031-ai-free-persistent-pointer-merge.patch

@@ -157,13 +157,6 @@ contextBridge.exposeInMainWorld('aiFree', Object.freeze({
     onTutorialUrlUpdated: subscribeChannel('tutorial-url-updated'),
     onWoolPlatformsUpdated: subscribeChannel('wool-platforms-updated'),
   }),
-  extensions: Object.freeze({
-    getState: invokeChannel('get-extension-manager-state'),
-    importPlugin: invokeChannel('import-extension-plugin'),
-    removePlugin: invokeChannel('remove-extension-plugin'),
-    setEnabled: invokeChannel('set-extension-enabled'),
-    onStateChanged: subscribeChannel('extension-manager-state'),
-  }),
   software: Object.freeze({
     list: invokeChannel('list-available-software'),
     open: invokeChannel('open-external-software'),

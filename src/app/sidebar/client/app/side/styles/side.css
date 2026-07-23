@@ -1,7 +1,6 @@
 @import url("./modules/layout.css");
 @import url("./modules/buttons.css");
 @import url("./modules/license.css");
-@import url("./modules/switches.css");
 @import url("./modules/account-auth.css");
 @import url("./modules/ai-control.css");
 @import url("./modules/vpn.css");
@@ -10,6 +9,7 @@
 @import url("./modules/software-settings.css");
 @import url("./modules/automation.css");
 @import url("./modules/automation-canvas.css");
+@import url("./modules/automation-dialogs.css");
 @import url("./modules/automation-adaptive.css");
 @import url("./modules/theme-dark.css");
 @import url("./modules/theme-gold.css");

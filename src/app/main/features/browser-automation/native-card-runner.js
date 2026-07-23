@@ -78,7 +78,15 @@ function nextIndex(flow, step, index, branch) {
 
 async function perform(runtime, profileId, action, input = {}) {
   const response = await runtime.dispatchAutomation(profileId, 'perform-action', { action, ...input });
-  return resultBody(response);
+  const result = resultBody(response);
+  if (result.success === false) {
+    const error = /** @type {Error & {code?: string}} */ (
+      new Error(String(result.error || `页面动作执行失败: ${action}`))
+    );
+    error.code = String(result.errorCode || 'PAGE_ACTION_FAILED');
+    throw error;
+  }
+  return result;
 }
 
 async function evaluateCondition(runtime, profileId, step, context) {

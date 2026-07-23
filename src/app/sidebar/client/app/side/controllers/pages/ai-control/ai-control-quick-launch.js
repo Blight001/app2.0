@@ -4,7 +4,7 @@
     return (Array.isArray(history) ? history : [])
       .filter((item) => String(item?.id || '').trim())
       .sort((left, right) => Number(right.lastOpenedAt || 0) - Number(left.lastOpenedAt || 0))
-      .slice(0, 5);
+      .slice(0, 3);
   }
 
   function quickLaunchMeta(item) {

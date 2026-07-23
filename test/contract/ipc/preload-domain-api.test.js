@@ -107,21 +107,19 @@ test('license methods expose named operations without caller-provided channels',
   assert.equal('on' in exposed.aiFree.license, false);
 });
 
-test('browser, network, content, extension and update operations bind fixed channels', async () => {
+test('browser, network, content and update operations bind fixed channels', async () => {
   const { calls, exposed } = loadPreloadApi();
   await exposed.aiFree.browser.getSettings({ historyId: 'history-1' });
   await exposed.aiFree.network.switchClashProxy({ name: 'node-a' });
   await exposed.aiFree.content.refreshTutorialUrl();
-  await exposed.aiFree.extensions.setEnabled({ id: 'extension-a', enabled: true });
   await exposed.aiFree.updates.start({ version: '2.7.0' });
   assert.deepEqual(calls, [
     ['invoke', 'get-ai-free-browser-settings', { historyId: 'history-1' }],
     ['invoke', 'switch-clash-mini-proxy', { name: 'node-a' }],
     ['invoke', 'refresh-tutorial-url', undefined],
-    ['invoke', 'set-extension-enabled', { id: 'extension-a', enabled: true }],
     ['invoke', 'start-app-update', { version: '2.7.0' }],
   ]);
-  for (const domain of ['browser', 'network', 'content', 'extensions', 'updates', 'ui']) {
+  for (const domain of ['browser', 'network', 'content', 'updates', 'ui']) {
     assert.equal(Object.isFrozen(exposed.aiFree[domain]), true);
     assert.equal('invoke' in exposed.aiFree[domain], false);
     assert.equal('send' in exposed.aiFree[domain], false);

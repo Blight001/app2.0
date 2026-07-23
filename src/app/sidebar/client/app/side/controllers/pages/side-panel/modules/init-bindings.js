@@ -11,7 +11,6 @@ function initSidePanelBindings() {
   initSidebarUiListeners();
   initSidebarAnimationListener();
   initSidebarInputRouting();
-  initPluginSwitches();
   bindClashMiniControls();
   bindLicenseValidationControls();
   bindServerAccountCookieListener();

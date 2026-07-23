@@ -1,0 +1,23 @@
+diff --git a/chrome/browser/ui/views/frame/ai_free_page_automation.cc b/chrome/browser/ui/views/frame/ai_free_page_automation.cc
+index 6dbc87ee..1c5a7de6 100644
+--- a/chrome/browser/ui/views/frame/ai_free_page_automation.cc
++++ b/chrome/browser/ui/views/frame/ai_free_page_automation.cc
+@@ -99,7 +99,7 @@ std::string ActionScript(const base::DictValue& command) {
+     const nth=Math.max(0,Math.floor(Number(a.nth)||0));
+     const find=()=>{for(const root of roots()){if(a.selector){try{const matches=root.querySelectorAll(a.selector);if(matches[nth])return matches[nth];}catch(_){}}const needle=String(a.targetText||(action==='type'?'':a.text)||'').trim();if(needle){const matches=[...root.querySelectorAll('button,a,input,textarea,select,[role="button"],[contenteditable="true"]')].filter(e=>String(e.innerText||e.value||e.getAttribute('aria-label')||'').trim().includes(needle));if(matches[nth])return matches[nth];}}return action==='press_key'?document.activeElement:null;};
+     if(action==='wait'){const found=!!find();return found!==!!a.hidden?{success:true,action,found}:{success:false,action,error:'等待条件尚未满足',errorCode:'WAIT_PENDING'};}
+-    if(['click','double_click','right_click'].includes(action)&&Number.isFinite(Number(a.x))&&Number.isFinite(Number(a.y)))return {success:true,action,nativeInput:{x:Number(a.x),y:Number(a.y),viewportWidth:innerWidth,viewportHeight:innerHeight}};
++    if(['click','double_click','right_click'].includes(action)&&typeof a.x==='number'&&typeof a.y==='number'&&Number.isFinite(a.x)&&Number.isFinite(a.y)){if(a.x<0||a.y<0||a.x>=innerWidth||a.y>=innerHeight)return {success:false,action,error:'点击坐标超出当前页面视口',errorCode:'COORDINATE_OUT_OF_VIEWPORT'};return {success:true,action,nativeInput:{x:a.x,y:a.y,viewportWidth:innerWidth,viewportHeight:innerHeight}};}
+     const el=find();if(!el)return {success:false,action,error:'未找到目标元素',errorCode:'ELEMENT_NOT_FOUND'};el.scrollIntoView({block:'center',inline:'center'});el.focus();
+     if(action==='type'){if(a.clearFirst!==false&&typeof el.select==='function')el.select();return {success:true,action,selector:a.selector||'',nativeKeyboard:true};}
+     if(action==='press_key')return {success:true,action,key:String(a.key||a.text||'Enter'),nativeKeyboard:true};
+@@ -127,6 +127,9 @@ void DispatchResolvedMouse(content::WebContents* contents,
+     return std::move(callback).Run(false);
+   }
+   const gfx::Rect bounds = contents->GetContainerBounds();
++  if (bounds.IsEmpty()) {
++    return std::move(callback).Run(false);
++  }
+   const float px = static_cast<float>(*x * bounds.width() / *width);
+   const float py = static_cast<float>(*y * bounds.height() / *height);
+   const bool right = action == "right_click";

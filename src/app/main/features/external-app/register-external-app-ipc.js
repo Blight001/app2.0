@@ -8,7 +8,7 @@ function registerExternalAppIPC(ctx) {
   const ipc = ctx.ipc.scope('features/external-app');
   ipc.handle('list-available-software', async () => {
     try {
-      return { ok: true, data: ctx.ui.listAvailableSoftware?.() || [] };
+      return { ok: true, data: await ctx.ui.listAvailableSoftware?.() || [] };
     } catch (error) {
       return { ok: false, error: errorMessage(error), data: [] };
     }

@@ -80,16 +80,10 @@ function createManagerMutations(runtime) {
   const { logger, onPluginStateChanged } = runtime.deps;
   return createExtensionMutationService({
     logger, onPluginStateChanged,
-    buildPluginRecord: runtime.discovery.buildPluginRecord,
-    emitStateChanged: runtime.emitStateChanged.bind(runtime),
     getPluginById: runtime.sessions.getPluginById,
     getPublicState: runtime.sessions.getPublicState,
-    getState: () => runtime.state,
-    hashId: runtime.hashId.bind(runtime),
     loadPluginIntoAllCurrentSessions: runtime.sessions.loadPluginIntoAllCurrentSessions,
-    normalizeAbsolutePath: runtime.normalizeAbsolutePath.bind(runtime),
     persistState: runtime.persistState.bind(runtime),
-    readManifest: runtime.discovery.readManifest,
     syncLegacyTranslateSetting: runtime.syncLegacyTranslateSetting.bind(runtime),
     toPublicPlugin: runtime.sessions.toPublicPlugin,
     unloadPluginFromAllSessions: runtime.sessions.unloadPluginFromAllSessions,
@@ -100,7 +94,7 @@ class ExtensionManagerRuntime {
   constructor(deps = {}) {
     this.deps = /** @type {Record<string, any>} */ ({
       logger: console, getTabs: () => new Map(), getActiveTabId: () => null,
-      applyPluginSettings: null, sendToSide: null, onPluginStateChanged: null,
+      applyPluginSettings: null, onPluginStateChanged: null,
       ...deps,
     });
     this.state = { developerModeEnabled: true, plugins: [] };
@@ -176,14 +170,6 @@ class ExtensionManagerRuntime {
     } catch (error) {
       this.deps.logger.warn?.('[Extensions] 同步翻译插件开关失败:', error?.message || error);
     }
-  }
-
-  emitStateChanged() {
-    try {
-      if (typeof this.deps.sendToSide === 'function') {
-        this.deps.sendToSide('extension-manager-state', this.sessions.getPublicState());
-      }
-    } catch (_) {}
   }
 
   getPluginMaps(plugins = []) {
@@ -269,7 +255,6 @@ class ExtensionManagerRuntime {
     this.state = { developerModeEnabled: true, plugins: nextPlugins };
     if (analysis.stateChanged || analysis.reloadPairs.length || options.persist === true) this.persistState();
     this.syncLegacyTranslateSetting();
-    if (options.emit !== false && (analysis.stateChanged || options.emit === true)) this.emitStateChanged();
   }
 
   async synchronizePluginSessions(analysis) {
@@ -303,10 +288,9 @@ class ExtensionManagerRuntime {
     return result;
   }
 
-  async initialize(options = {}) {
-    await this.refreshBundledExtensions({ persist: true, load: false, emit: false });
+  async initialize() {
+    await this.refreshBundledExtensions({ persist: true, load: false });
     this.watcher.startRealtimePluginLoading();
-    if (options.emit === true) this.emitStateChanged();
     return this.sessions.getPublicState();
   }
 }
@@ -321,9 +305,7 @@ function createExtensionManager(deps = {}) {
     getEnabledExtensionPaths: runtime.sessions.getEnabledExtensionPaths,
     loadEnabledIntoSession: runtime.sessions.loadEnabledIntoSession,
     ensureEnabledPluginsLoadedInCurrentSessions: runtime.sessions.ensureEnabledPluginsLoadedInCurrentSessions,
-    importPlugin: runtime.mutations.importPlugin,
     setPluginEnabled: runtime.mutations.setPluginEnabled,
-    removePlugin: runtime.mutations.removePlugin,
     isPluginEnabled: runtime.mutations.isPluginEnabled,
   };
 }

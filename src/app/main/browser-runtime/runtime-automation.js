@@ -25,6 +25,15 @@ function boundedInteger(value, fallback, min, max) {
   return Math.max(min, Math.min(max, Math.round(number)));
 }
 
+function optionalBoundedInteger(value, min, max) {
+  if (value === undefined || value === null) return undefined;
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    throw automationError('AUTOMATION_PAYLOAD_INVALID', '坐标参数必须是有限数字');
+  }
+  return Math.max(min, Math.min(max, Math.round(number)));
+}
+
 function optionalText(value, maxLength = 8192) {
   if (value === undefined || value === null) return '';
   const result = String(value);
@@ -83,6 +92,11 @@ function normalizeActionPayload(source) {
   if (!ACTIONS.has(action)) {
     throw automationError('AUTOMATION_ACTION_INVALID', `不支持的原生页面动作: ${action || '<empty>'}`);
   }
+  const x = optionalBoundedInteger(source.x, -1_000_000, 1_000_000);
+  const y = optionalBoundedInteger(source.y, -1_000_000, 1_000_000);
+  if ((x === undefined) !== (y === undefined)) {
+    throw automationError('AUTOMATION_PAYLOAD_INVALID', '坐标点击必须同时提供 x 和 y');
+  }
   return {
     action,
     selector: optionalText(source.selector, 4096),
@@ -91,8 +105,7 @@ function normalizeActionPayload(source) {
     ref: optionalText(source.ref, 128),
     targetText: optionalText(source.target_text ?? source.targetText, 2048),
     nth: boundedInteger(source.nth, 0, 0, 1000),
-    x: boundedInteger(source.x, 0, -1_000_000, 1_000_000),
-    y: boundedInteger(source.y, 0, -1_000_000, 1_000_000),
+    ...(x === undefined ? {} : { x, y }),
     direction: optionalText(source.direction || 'down', 16),
     amount: boundedInteger(source.amount ?? source.delta_y, 600, -100000, 100000),
     timeoutMs: boundedInteger(source.timeout_ms ?? source.timeout, 10000, 100, 120000),

@@ -23,6 +23,7 @@ struct VisibleWindow {
   DWORD pid;
   std::wstring title;
   std::wstring process_name;
+  std::wstring executable_path;
 };
 struct ListWindowContext {
   DWORD current_pid;
@@ -109,8 +110,9 @@ BOOL CALLBACK ListWindowCallback(HWND hwnd, LPARAM value) {
   if (!IsDesktopAppWindow(hwnd, *context, &pid)) return TRUE;
   const std::wstring title = WindowText(hwnd);
   if (title.empty()) return TRUE;
-  const std::wstring process_name = BaseName(ProcessExecutablePath(pid));
-  context->windows.push_back({ hwnd, pid, title, process_name });
+  const std::wstring executable_path = ProcessExecutablePath(pid);
+  const std::wstring process_name = BaseName(executable_path);
+  context->windows.push_back({ hwnd, pid, title, process_name, executable_path });
   return context->windows.size() < 256;
 }
 
@@ -285,6 +287,7 @@ napi_value ListVisibleTopLevelWindows(napi_env env, napi_callback_info info) {
     SetNamed(env, entry, "pid", pid);
     SetNamed(env, entry, "title", WideStringValue(env, window.title));
     SetNamed(env, entry, "processName", WideStringValue(env, window.process_name));
+    SetNamed(env, entry, "executablePath", WideStringValue(env, window.executable_path));
     napi_set_element(env, result, index, entry);
   }
   return result;

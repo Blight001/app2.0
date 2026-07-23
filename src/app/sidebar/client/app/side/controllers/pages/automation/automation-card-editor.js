@@ -223,9 +223,8 @@
     editor.onChange(editor.card);
   }
 
-  function renderEditor(editor) {
+  function renderStepList(editor) {
     const { list, count } = editor.nodes;
-    ensureFlow(editor.card);
     list.replaceChildren();
     count.textContent = `${editor.card.steps.length} 个步骤`;
     if (!editor.card.steps.length) {
@@ -236,6 +235,11 @@
     } else {
       list.append(...editor.card.steps.map((step, index) => buildStepCard(editor, step, index)));
     }
+  }
+
+  function renderEditor(editor) {
+    ensureFlow(editor.card);
+    if (editor.nodes.list && editor.nodes.count) renderStepList(editor);
     syncEditorJson(editor);
   }
 
@@ -249,7 +253,7 @@
     editor.onChange = onChange;
   }
 
-  function addEditorStep(editor, type) {
+  function addEditorStep(editor, type, position) {
     const stepType = STEP_TYPES.includes(type) ? type : 'click';
     const step = {
       id: createStepId(editor.card.steps.length + 1),
@@ -263,6 +267,11 @@
       setRouteTarget(editor.card, previous, previousRoute, step.id);
     }
     ensureFlow(editor.card);
+    const flowNode = editor.card.flow.nodes.find((node) => node.id === step.id);
+    if (flowNode && position) {
+      flowNode.x = Math.max(0, Math.round(Number(position.x) || 0));
+      flowNode.y = Math.max(0, Math.round(Number(position.y) || 0));
+    }
     editor.openStep = editor.card.steps.length - 1;
     editor.selectedStepId = step.id;
     renderEditor(editor);
@@ -322,8 +331,8 @@
       getCard() {
         return cloneJson(this.card);
       },
-      addStep(type) {
-        addEditorStep(this, type);
+      addStep(type, position) {
+        addEditorStep(this, type, position);
       },
       moveStep(index, offset) {
         moveEditorStep(this, index, offset);

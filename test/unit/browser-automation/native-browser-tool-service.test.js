@@ -79,3 +79,29 @@ test('native observe refs and submit actions remain usable without the extension
   assert.equal(actions[1].selector, '#email');
   assert.deepEqual(actions[2], { action: 'press_key', key: 'Enter' });
 });
+
+test('native mouse actions resolve observed refs to the exact element center', async () => {
+  const { service, calls } = createService({
+    dispatchAutomation: async (...args) => {
+      calls.push(['automation', ...args]);
+      if (args[1] === 'observe-page') {
+        return {
+          result: {
+            success: true,
+            items: [
+              { id: 'e1', selector: 'div', x: 356, y: 568, width: 102, height: 30 },
+              { id: 'e2', selector: 'span', x: 367, y: 569, width: 80, height: 29 },
+            ],
+          },
+        };
+      }
+      return { result: { success: true } };
+    },
+  });
+  await service.dispatch('native:ready', 'browser_observe', { keyword: '密码登录' });
+  await service.dispatch('native:ready', 'browser_action', { action: 'click', ref: 'e1' });
+  const action = calls.filter((entry) => entry[0] === 'automation')[1][3];
+  assert.equal(action.selector, 'div');
+  assert.equal(action.x, 407);
+  assert.equal(action.y, 583);
+});

@@ -9,7 +9,6 @@ const { registerLicenseIPC } = require('./register/license');
 const { registerMiscIPC } = require('./register/misc');
 const { registerSettingsIPC } = require('./register/settings');
 const { registerUiIPC } = require('./register/ui');
-const { registerExtensionsIPC } = require('./register/extensions');
 const { registerExternalAppIPC } = require('../features/external-app/register-external-app-ipc');
 
 // 上一轮 registerIPC 创建的注册器。重登录/重引导会整体重跑 registerIPC，
@@ -28,7 +27,6 @@ function registerIPC(ctx) {
 
   registerLicenseIPC(ctx);
   registerUiIPC(ctx);
-  registerExtensionsIPC(ctx);
   registerExternalAppIPC(ctx);
   registerMiscIPC(ctx);
   registerSettingsIPC(ctx);

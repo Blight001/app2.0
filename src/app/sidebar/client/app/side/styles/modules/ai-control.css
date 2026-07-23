@@ -674,47 +674,47 @@ html.theme-light .ai-custom-api-body input { color: #203448; background: #f7f9fc
   flex-direction: column;
   text-align: center;
   color: #94a6c2;
-  padding: 18px 0 12px;
+  padding: 12px 0 8px;
   box-sizing: border-box;
 }
 .ai-chat-welcome-icon {
   display: block;
-  width: 42px;
-  height: 42px;
-  margin-bottom: 12px;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 8px;
   border-radius: var(--r-md);
   object-fit: contain;
 }
 .ai-chat-welcome strong { color: #e9f1ff; font-size: 15px; }
 .ai-chat-welcome p { margin: 6px 0 0; font-size: 12px; }
 .ai-chat-recent {
-  width: min(100%, 460px);
-  margin-top: 28px;
+  width: min(100%, 420px);
+  margin-top: 20px;
   text-align: left;
 }
 .ai-chat-recent-heading {
   display: block;
-  margin: 0 2px 8px;
+  margin: 0 2px 6px;
   color: #aebed5;
   font-size: 12px;
   font-weight: 700;
 }
 .ai-chat-recent-list {
   display: grid;
-  gap: 7px;
+  gap: 5px;
 }
 .ai-chat-recent-item {
   display: flex;
   width: 100%;
   min-width: 0;
-  padding: 9px 11px;
+  padding: 7px 9px;
   border: 1px solid rgba(129, 158, 199, .18);
   border-radius: var(--r-md);
   color: #dce7f7;
   background: rgba(21, 33, 52, .48);
   cursor: pointer;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   text-align: left;
   transition: border-color .14s ease, background .14s ease;
 }
@@ -733,29 +733,29 @@ html.theme-light .ai-custom-api-body input { color: #203448; background: #f7f9fc
 .ai-chat-recent-title { font-size: 12px; font-weight: 650; }
 .ai-chat-recent-meta { color: #8295b1; font-size: 11px; }
 .ai-chat-quick-launch {
-  width: min(100%, 460px);
-  margin-top: 18px;
+  width: min(100%, 420px);
+  margin-top: 14px;
   text-align: left;
 }
 .ai-chat-quick-launch-item {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-columns: 24px minmax(0, 1fr);
   align-items: center;
   flex-direction: initial;
 }
 .ai-chat-quick-launch-item:disabled { cursor: wait; opacity: .68; }
 .ai-chat-quick-launch-icon {
   display: grid;
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   place-items: center;
-  border-radius: 8px;
+  border-radius: 7px;
   color: #8dc1ff;
   background: rgba(62, 130, 221, .16);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
 }
-.ai-chat-quick-launch-content { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.ai-chat-quick-launch-content { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 
 .ai-chat-message {
   display: flex;

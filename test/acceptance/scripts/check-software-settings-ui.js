@@ -4,18 +4,25 @@ const path = require('node:path');
 const { app, BrowserWindow, ipcMain } = require('electron');
 
 let openedSoftwareId = '';
+let catalogLoads = 0;
+const iconDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
-ipcMain.handle('list-available-software', () => ({
-  ok: true,
-  data: [{
+ipcMain.handle('list-available-software', () => {
+  catalogLoads += 1;
+  return { ok: true, data: [{
     id: 'window-test',
     name: '现有窗口',
-    description: '已打开窗口 · Test.exe',
-    iconText: '现',
-    experimental: true,
+    description: 'Test.exe',
+    iconDataUrl,
     running: true,
-  }],
-}));
+  }, {
+    id: 'window-long-name',
+    name: 'v-start.bat - AI-FREE-app - Visual Studio Code',
+    description: 'Code.exe',
+    iconDataUrl,
+    running: true,
+  }] };
+});
 ipcMain.handle('open-external-software', (_event, payload) => {
   openedSoftwareId = String(payload?.softwareId || '');
   return { ok: true, data: { tabId: 'software-notepad-test' } };
@@ -23,7 +30,7 @@ ipcMain.handle('open-external-software', (_event, payload) => {
 
 app.whenReady().then(async () => {
   const window = new BrowserWindow({
-    width: 520,
+    width: 428,
     height: 760,
     show: false,
     webPreferences: {
@@ -36,28 +43,41 @@ app.whenReady().then(async () => {
     document.querySelector('[data-tab="software-settings-panel"]').click();
     await new Promise((resolve) => setTimeout(resolve, 80));
     const card = document.querySelector('[data-software-id="window-test"]');
+    const longCard = document.querySelector('[data-software-id="window-long-name"]');
+    const longName = longCard?.querySelector('.software-card-name');
     const initialAction = card?.querySelector('.software-card-action')?.textContent || '';
     card?.click();
     await new Promise((resolve) => setTimeout(resolve, 30));
     return {
       active: document.getElementById('software-settings-panel').classList.contains('active'),
-      heading: document.querySelector('#software-settings-panel h2')?.textContent || '',
-      cardName: card?.querySelector('.software-card-heading')?.textContent || '',
-      action: card?.querySelector('.software-card-action')?.textContent || '',
-      runningBadge: card?.querySelector('.software-card-badge')?.textContent || '',
+      pickerTitle: document.getElementById('software-picker-title')?.textContent || '',
+      refreshVisible: document.getElementById('refresh-software-catalog')?.offsetParent !== null,
+      cardName: card?.querySelector('.software-card-name')?.textContent || '',
+      iconIsImage: card?.querySelector('.software-card-icon img')?.src.startsWith('data:image/png') === true,
+      openedLabelAbsent: !card?.textContent.includes('已打开'),
+      longNameTitle: longName?.title || '',
+      longCardContained: longCard
+        ? longCard.scrollWidth <= longCard.clientWidth
+        : false,
       initialAction,
     };
   })()`);
+  window.webContents.send('update-tabs', [{ id: 'browser-after-software-close' }]);
+  await new Promise((resolve) => setTimeout(resolve, 80));
   if (
     result.active !== true
-    || result.heading !== '可嵌入的桌面窗口'
-    || result.cardName !== '现有窗口已打开'
-    || result.action !== '已打开'
-    || result.runningBadge !== '已打开'
+    || result.pickerTitle !== '选择嵌入的软件'
+    || result.refreshVisible !== true
+    || result.cardName !== '现有窗口'
+    || result.iconIsImage !== true
+    || result.openedLabelAbsent !== true
+    || result.longNameTitle !== 'v-start.bat - AI-FREE-app - Visual Studio Code'
+    || result.longCardContained !== true
     || result.initialAction !== '嵌入'
     || openedSoftwareId !== 'window-test'
+    || catalogLoads < 2
   ) {
-    throw new Error(`软件配置栏目校验失败: ${JSON.stringify({ ...result, openedSoftwareId })}`);
+    throw new Error(`软件配置栏目校验失败: ${JSON.stringify({ ...result, openedSoftwareId, catalogLoads })}`);
   }
   console.log('[software-settings-ui] PASS');
   window.destroy();

@@ -106,3 +106,25 @@ test('native runner emits live progress and carries text, nth and hidden targeti
     'step_start', 'step_complete', 'step_start', 'step_complete', 'completed',
   ]);
 });
+
+test('native runner reports a failed page action instead of completing the card', async () => {
+  const runtime = {
+    dispatchAutomation: async () => ({
+      result: {
+        success: false,
+        errorCode: 'ELEMENT_NOT_FOUND',
+        error: '未找到目标元素',
+      },
+    }),
+    navigate: async () => ({}),
+    saveSession: async () => ({}),
+    sendCommand: async () => ({ result: {} }),
+  };
+  const result = await runNativeCard(runtime, 'profile-a', card([
+    { id: 'missing', name: '点击缺失元素', type: 'click', selector: '#missing' },
+  ]));
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'ELEMENT_NOT_FOUND');
+  assert.equal(result.stepId, 'missing');
+  assert.match(result.error, /未找到目标元素/);
+});

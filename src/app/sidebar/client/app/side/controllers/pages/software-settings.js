@@ -3,14 +3,26 @@
 function createSoftwareHeading(software) {
   const heading = document.createElement('span');
   heading.className = 'software-card-heading';
-  heading.textContent = software.name;
-  if (software.running || software.experimental) {
-    const badge = document.createElement('span');
-    badge.className = 'software-card-badge';
-    badge.textContent = software.running ? '已打开' : '实验性';
-    heading.appendChild(badge);
-  }
+  const name = document.createElement('span');
+  name.className = 'software-card-name';
+  name.textContent = software.name;
+  name.title = software.name;
+  heading.appendChild(name);
   return heading;
+}
+
+function createSoftwareIcon(software) {
+  const icon = document.createElement('span');
+  icon.className = 'software-card-icon';
+  if (!software.iconDataUrl) {
+    icon.classList.add('is-placeholder');
+    return icon;
+  }
+  const image = document.createElement('img');
+  image.src = software.iconDataUrl;
+  image.alt = '';
+  icon.appendChild(image);
+  return icon;
 }
 
 function createSoftwareCard(software, openSoftware) {
@@ -18,9 +30,7 @@ function createSoftwareCard(software, openSoftware) {
   button.className = 'software-card';
   button.type = 'button';
   button.dataset.softwareId = software.id;
-  const icon = document.createElement('span');
-  icon.className = 'software-card-icon';
-  icon.textContent = software.iconText || software.name.slice(0, 1);
+  const icon = createSoftwareIcon(software);
   const content = document.createElement('span');
   content.className = 'software-card-content';
   const description = document.createElement('span');
@@ -58,7 +68,6 @@ function initializeSoftwareSettings() {
     try {
       const result = await window.aiFree?.software.open({ softwareId: software.id });
       if (!result?.ok) throw new Error(result?.error || '软件启动失败');
-      if (action) action.textContent = '已打开';
     } catch (error) {
       if (action) action.textContent = '重试';
       button.disabled = false;
@@ -86,6 +95,11 @@ function initializeSoftwareSettings() {
   }
 
   refresh?.addEventListener('click', () => void loadCatalog());
+  window.aiFree?.browser.onTabsUpdated?.(() => {
+    if (loaded && document.getElementById('software-settings-panel')?.classList.contains('active')) {
+      void loadCatalog();
+    }
+  });
   tab?.addEventListener('click', () => {
     if (!loaded) void loadCatalog();
   });

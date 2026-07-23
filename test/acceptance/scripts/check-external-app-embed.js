@@ -8,6 +8,7 @@ const { spawn } = require('node:child_process');
 const { app, BrowserWindow } = require('electron');
 const { createBrowserRuntimeManager } = require('../../../src/app/main/browser-runtime');
 const { ChromiumWindowBridge } = require('../../../src/app/main/browser-runtime/chromium-window-bridge');
+const { createSoftwareCatalog } = require('../../../src/app/main/features/external-app/software-catalog');
 const { createAiSoftwareUiTools } = require('../../../src/app/main/services/ai-software-ui-tools');
 
 const testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-external-app-'));
@@ -134,9 +135,24 @@ app.whenReady().then(async () => {
     assert.ok(desktopHwnd, '应检测到刚打开的记事本窗口');
     const originalPlacement = manager.windowBridge.getWindowPlacementSnapshot(desktopHwnd);
     assert.ok(originalPlacement, '应记录记事本停靠前的窗口状态');
-    const discovered = manager.windowBridge.listVisibleTopLevelWindows()
-      .find((entry) => entry.hwnd === desktopHwnd && entry.pid === launchedPid);
+    const discovered = await waitForValue(() => (
+      manager.windowBridge.listVisibleTopLevelWindows()
+        .find((entry) => entry.hwnd === desktopHwnd && entry.pid === launchedPid)
+    ));
     assert.ok(discovered, '记事本应出现在桌面可见窗口列表');
+    assert.equal(
+      path.normalize(discovered.executablePath).toLowerCase(),
+      path.normalize(executablePath).toLowerCase(),
+    );
+    const catalog = createSoftwareCatalog({
+      listVisibleWindows: () => [discovered],
+      resolveIconDataUrl: async (filePath) => {
+        const icon = await app.getFileIcon(filePath, { size: 'normal' });
+        return icon.isEmpty() ? '' : icon.toDataURL();
+      },
+    });
+    const [software] = await catalog.listAvailable();
+    assert.match(software.iconDataUrl, /^data:image\/png;base64,/);
     const state = await manager.launchProfile({
       profileId: 'external-app-acceptance',
       runtimeType: 'external-app',

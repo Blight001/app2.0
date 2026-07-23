@@ -138,7 +138,7 @@ async function refreshBootstrapRuntimeUrls(deps, state) {
 async function initializeBootstrapExtensions(deps) {
   try {
     if (typeof deps.extensionManager?.initialize === 'function') {
-      await deps.extensionManager.initialize({ emit: true });
+      await deps.extensionManager.initialize();
     } else {
       deps.applyPluginSettings({ translateExtEnabled: false });
     }

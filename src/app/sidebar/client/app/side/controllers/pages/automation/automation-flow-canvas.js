@@ -313,11 +313,24 @@
     applyTransform(state);
   }
 
+  function zoomAtPointer(state, event) {
+    event.preventDefault();
+    const bounds = state.nodes.canvas.getBoundingClientRect();
+    const point = canvasPoint(state, event);
+    const direction = event.deltaY < 0 ? .1 : -.1;
+    const nextZoom = Math.min(1.6, Math.max(.5, Math.round((state.zoom + direction) * 10) / 10));
+    state.panX = event.clientX - bounds.left - (point.x * nextZoom);
+    state.panY = event.clientY - bounds.top - (point.y * nextZoom);
+    state.zoom = nextZoom;
+    applyTransform(state);
+  }
+
   function bindCanvasEvents(state) {
     state.nodes.canvas.addEventListener('pointerdown', (event) => beginPan(state, event));
     state.nodes.canvas.addEventListener('pointermove', (event) => handlePointerMove(state, event));
     state.nodes.canvas.addEventListener('pointerup', (event) => finishPointer(state, event));
     state.nodes.canvas.addEventListener('pointercancel', (event) => finishPointer(state, event));
+    state.nodes.canvas.addEventListener('wheel', (event) => zoomAtPointer(state, event), { passive: false });
     state.nodes.zoomOut.addEventListener('click', () => setZoom(state, state.zoom - .1));
     state.nodes.zoomIn.addEventListener('click', () => setZoom(state, state.zoom + .1));
     state.nodes.zoomReset.addEventListener('click', () => {
@@ -365,6 +378,9 @@
       resetViewport() {
         Object.assign(state, { zoom: 1, panX: 0, panY: 0 });
         applyTransform(state);
+      },
+      toCanvasPoint(event) {
+        return canvasPoint(state, event);
       },
     });
   }

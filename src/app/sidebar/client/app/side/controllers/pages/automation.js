@@ -7,7 +7,9 @@
     loaded: false,
     loading: false,
     dirty: false,
+    dialogs: null,
     editor: null,
+    flowWindow: null,
     nodes: {},
   };
 
@@ -85,9 +87,6 @@
     card.name = automationState.nodes.name.value.trim();
     card.website = automationState.nodes.website.value.trim();
     card.description = automationState.nodes.description.value.trim();
-    const points = Number(automationState.nodes.points.value);
-    if (Number.isFinite(points) && points >= 0) card.points = points;
-    else delete card.points;
     const retries = Number(automationState.nodes.retries.value);
     if (Number.isFinite(retries) && retries >= 0) card.retry_count = retries;
     else delete card.retry_count;
@@ -99,13 +98,14 @@
   }
 
   function showAutomationCard(cardData, options = {}) {
+    automationState.dialogs?.closeAll();
+    automationState.flowWindow?.close();
     const card = window.AutomationCardEditor.normalizeCardData(cardData);
     automationState.currentId = String(options.id || '');
     automationState.dirty = options.dirty === true;
     automationState.nodes.name.value = card.name;
     automationState.nodes.website.value = card.website;
     automationState.nodes.description.value = card.description;
-    automationState.nodes.points.value = card.points ?? '';
     automationState.nodes.retries.value = card.retry_count ?? '';
     automationState.nodes.popups.value = Array.isArray(card.popups)
       ? card.popups.join('\n')
@@ -120,6 +120,8 @@
   }
 
   function showAutomationEmpty() {
+    automationState.dialogs?.closeAll();
+    automationState.flowWindow?.close();
     automationState.currentId = '';
     automationState.nodes.form.hidden = true;
     automationState.nodes.empty.hidden = false;
@@ -182,14 +184,22 @@
     }
   }
 
+  function validateAutomationCardSettings(cardData) {
+    const nodes = automationState.nodes;
+    const invalidField = cardData.name
+      ? [nodes.website, nodes.retries].find((field) => !field.checkValidity())
+      : nodes.name;
+    if (!invalidField) return true;
+    const message = cardData.name ? invalidField.validationMessage : '请填写卡片名称。';
+    setAutomationStatus(message, 'error');
+    automationState.dialogs.open(nodes.editDialog, { focusTarget: invalidField });
+    return false;
+  }
+
   async function saveAutomationCard(options = {}) {
     const button = automationState.nodes.save;
     const cardData = readAutomationFormCard();
-    if (!cardData.name) {
-      setAutomationStatus('请填写卡片名称。', 'error');
-      automationState.nodes.name.focus();
-      return null;
-    }
+    if (!validateAutomationCardSettings(cardData)) return null;
     setAutomationBusy(button, true, '保存中…');
     try {
       const result = await window.aiFree?.automation.saveCard({
@@ -334,9 +344,6 @@
     card.name = nodes.name.value;
     card.website = nodes.website.value;
     card.description = nodes.description.value;
-    const points = Number(nodes.points.value);
-    if (nodes.points.value && Number.isFinite(points)) card.points = points;
-    else delete card.points;
     const retries = Number(nodes.retries.value);
     if (nodes.retries.value && Number.isFinite(retries)) card.retry_count = retries;
     else delete card.retry_count;
@@ -345,9 +352,19 @@
     else delete card.popups;
   }
 
+  async function copyAutomationJson() {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('系统剪贴板不可用');
+      await navigator.clipboard.writeText(automationState.nodes.json.value);
+      setAutomationStatus('完整卡片 JSON 已复制。', 'success');
+    } catch (error) {
+      setAutomationStatus(`复制失败：${error?.message || error}`, 'error');
+    }
+  }
+
   function bindAutomationForm() {
     const nodes = automationState.nodes;
-    for (const input of [nodes.name, nodes.website, nodes.description, nodes.points, nodes.retries, nodes.popups]) {
+    for (const input of [nodes.name, nodes.website, nodes.description, nodes.retries, nodes.popups]) {
       input.addEventListener('input', () => {
         syncAutomationSettingsToEditor(nodes);
         automationState.editor.syncJson();
@@ -358,11 +375,8 @@
       event.preventDefault();
       void saveAutomationCard();
     });
-    nodes.addStep.addEventListener('click', () => {
-      automationState.editor.addStep(nodes.stepType.value);
-      markAutomationDirty();
-    });
     nodes.applyJson.addEventListener('click', applyAutomationJson);
+    nodes.copyJson.addEventListener('click', () => void copyAutomationJson());
     nodes.run.addEventListener('click', () => void runAutomationCard());
     nodes.stop.addEventListener('click', () => void stopAutomationCard());
     nodes.delete.addEventListener('click', () => void deleteAutomationCard());
@@ -372,7 +386,8 @@
     const nodes = automationState.nodes;
     nodes.newCard.addEventListener('click', () => {
       showAutomationCard({ name: '新自动化卡片', website: '', description: '', steps: [] }, { dirty: true });
-      automationState.nodes.name.select();
+      automationState.dialogs.open(nodes.editDialog, { focusTarget: nodes.name });
+      nodes.name.select();
     });
     nodes.refresh.addEventListener('click', () => void loadAutomationCards());
     nodes.importButton.addEventListener('click', () => nodes.importFile.click());
@@ -399,27 +414,24 @@
   function collectAutomationNodes() {
     const ids = {
       addStep: 'automation-add-step', applyJson: 'automation-apply-json',
+      copyJson: 'automation-copy-json',
       count: 'automation-card-count', delete: 'automation-delete-card',
       description: 'automation-card-description', empty: 'automation-editor-empty',
+      editButton: 'automation-edit-card', editDialog: 'automation-edit-dialog',
+      flowButton: 'automation-edit-flow',
       form: 'automation-card-form', importButton: 'automation-import-card',
       exportButton: 'automation-export-card',
       importFile: 'automation-import-file', json: 'automation-card-json',
       list: 'automation-card-list', mode: 'automation-editor-mode',
       name: 'automation-card-name', newCard: 'automation-new-card',
-      points: 'automation-card-points', popups: 'automation-card-popups',
+      jsonButton: 'automation-edit-json', jsonDialog: 'automation-json-dialog',
+      popups: 'automation-card-popups',
       retries: 'automation-card-retries', runInputs: 'automation-run-inputs',
       startStep: 'automation-run-start-step', loopCount: 'automation-run-loop-count',
       refresh: 'automation-refresh', run: 'automation-run-card',
       stop: 'automation-stop-card',
       save: 'automation-save-card', status: 'automation-status',
-      stepCount: 'automation-step-count', stepType: 'automation-new-step-type',
       title: 'automation-editor-title', website: 'automation-card-website',
-      flowList: 'automation-flow-list',
-      flowCanvas: 'automation-flow-canvas', flowViewport: 'automation-flow-viewport',
-      flowEdges: 'automation-flow-edges', flowNodes: 'automation-flow-nodes',
-      canvasEmpty: 'automation-canvas-empty', autoLayout: 'automation-auto-layout',
-      zoomOut: 'automation-zoom-out', zoomReset: 'automation-zoom-reset',
-      zoomIn: 'automation-zoom-in',
     };
     return Object.fromEntries(Object.entries(ids).map(([key, id]) => [key, automationElement(id)]));
   }
@@ -428,20 +440,21 @@
     automationState.nodes = collectAutomationNodes();
     if (!automationState.nodes.form || !window.AutomationCardEditor) return;
     automationState.editor = window.AutomationCardEditor.createEditor({
-      list: automationState.nodes.flowList,
-      count: automationState.nodes.stepCount,
       json: automationState.nodes.json,
-      canvas: automationState.nodes.flowCanvas,
-      viewport: automationState.nodes.flowViewport,
-      edges: automationState.nodes.flowEdges,
-      canvasNodes: automationState.nodes.flowNodes,
-      canvasEmpty: automationState.nodes.canvasEmpty,
-      autoLayout: automationState.nodes.autoLayout,
-      zoomOut: automationState.nodes.zoomOut,
-      zoomReset: automationState.nodes.zoomReset,
-      zoomIn: automationState.nodes.zoomIn,
+    });
+    automationState.dialogs = window.AutomationDialogs.create();
+    automationState.flowWindow = window.AutomationFlowWindow.create({
+      getCard: readAutomationFormCard,
+      onChange(card) {
+        automationState.editor.setCard(card, markAutomationDirty);
+        markAutomationDirty();
+      },
+      onSave: () => saveAutomationCard(),
+      onError: (message) => setAutomationStatus(message, 'error'),
     });
     bindAutomationForm();
+    automationState.dialogs.bind(automationState.nodes);
+    automationState.nodes.flowButton.addEventListener('click', automationState.flowWindow.open);
     bindAutomationToolbar();
     window.aiFree?.automation.onProgress?.((event) => {
       if (!event || event.cardId !== automationState.currentId) return;

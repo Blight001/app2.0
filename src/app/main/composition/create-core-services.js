@@ -61,6 +61,10 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
   });
   const softwareCatalog = createSoftwareCatalog({
     listVisibleWindows: () => browserRuntimeManager.windowBridge.listVisibleTopLevelWindows(),
+    resolveIconDataUrl: async (executablePath) => {
+      const icon = await app.getFileIcon(executablePath, { size: 'normal' });
+      return icon?.isEmpty?.() === false ? icon.toDataURL() : '';
+    },
   });
   try {
     if (process.platform === 'win32' && browserRuntimeManager.isChromiumAvailable()) {

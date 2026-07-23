@@ -207,7 +207,7 @@
     const currentId = String(state.currentSession?.id || '');
     const sessions = (Array.isArray(state.sessionList) ? state.sessionList : [])
       .filter((session) => String(session?.id || '') !== currentId)
-      .slice(0, 5);
+      .slice(0, 3);
     if (!sessions.length) {
       if (typeof renderQuickLaunch === 'function') renderQuickLaunch();
       return;

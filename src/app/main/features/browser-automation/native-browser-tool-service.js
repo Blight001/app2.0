@@ -4,6 +4,7 @@ const { manageNativeCard } = require('./native-card-manager');
 const { NATIVE_BROWSER_TOOL_DEFS } = require('./native-tool-definitions');
 
 const READY_STATES = new Set(['ready', 'hidden']);
+const MOUSE_ACTIONS = new Set(['click', 'double_click', 'right_click']);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function text(value) {
@@ -12,6 +13,35 @@ function text(value) {
 
 function resultBody(response) {
   return response?.result && typeof response.result === 'object' ? response.result : (response || {});
+}
+
+function observedTargetMap(items) {
+  const targets = new Map();
+  for (const item of Array.isArray(items) ? items : []) {
+    const id = text(item?.id);
+    const selector = text(item?.selector);
+    if (!id || !selector) continue;
+    const x = Number(item?.x);
+    const y = Number(item?.y);
+    const width = Number(item?.width);
+    const height = Number(item?.height);
+    targets.set(id, {
+      selector,
+      ...(Number.isFinite(x) && Number.isFinite(y) && width > 0 && height > 0
+        ? { x: x + width / 2, y: y + height / 2 }
+        : {}),
+    });
+  }
+  return targets;
+}
+
+function resolveActionTarget(service, connectionId, args) {
+  const target = service.observeTargets.get(connectionId)?.get(text(args.ref));
+  const resolved = { ...args, selector: text(args.selector) || text(target?.selector) };
+  if (!target || !MOUSE_ACTIONS.has(text(args.action))) return resolved;
+  if (args.x !== undefined || args.y !== undefined) return resolved;
+  if (!Number.isFinite(target.x) || !Number.isFinite(target.y)) return resolved;
+  return { ...resolved, x: target.x, y: target.y };
 }
 
 function tabNameMap(getTabs) {
@@ -132,19 +162,14 @@ async function dispatchBrowserTool(service, connectionId, profileId, tool, args)
   if (tool === 'browser_tab') return executeTab(service.runtime, profileId, args);
   if (tool === 'browser_observe') {
     const observed = resultBody(await service.runtime.dispatchAutomation(profileId, 'observe-page', args));
-    service.observeSelectors.set(connectionId, new Map((observed.items || [])
-      .map((item) => [text(item?.id), text(item?.selector)])
-      .filter(([id, selector]) => id && selector)));
+    service.observeTargets.set(connectionId, observedTargetMap(observed.items));
     return observed;
   }
   if (tool === 'browser_screenshot') {
     return resultBody(await service.runtime.dispatchAutomation(profileId, 'capture-screenshot', args));
   }
   if (tool === 'browser_action') {
-    const selector = text(args.selector)
-      || service.observeSelectors.get(connectionId)?.get(text(args.ref))
-      || '';
-    return executeAction(service.runtime, profileId, { ...args, selector });
+    return executeAction(service.runtime, profileId, resolveActionTarget(service, connectionId, args));
   }
   if (tool === 'browser_wait') return executeWait(service.runtime, profileId, args);
   if (tool === 'browser_download') {
@@ -161,7 +186,7 @@ class NativeBrowserToolService {
     this.downloadService = options.downloadService;
     this.runtime = createRuntimeAdapter(this.manager, this.downloadService);
     this.cardRuns = new Map();
-    this.observeSelectors = new Map();
+    this.observeTargets = new Map();
   }
 
   listConnections() {

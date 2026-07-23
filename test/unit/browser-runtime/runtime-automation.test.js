@@ -25,6 +25,15 @@ test('normalizes bounded native observe and action payloads', () => {
   assert.equal(normalizeRuntimeAutomation('perform-action', {
     action: 'type', selector: '#email', text: 'a@example.com', timeout: 1,
   }).timeoutMs, 100);
+  const selectorClick = normalizeRuntimeAutomation('perform-action', {
+    action: 'click', selector: '#submit',
+  });
+  assert.equal(Object.hasOwn(selectorClick, 'x'), false);
+  assert.equal(Object.hasOwn(selectorClick, 'y'), false);
+  assert.deepEqual(
+    normalizeRuntimeAutomation('perform-action', { action: 'click', x: 25, y: 40 }),
+    { ...selectorClick, selector: '', x: 25, y: 40 },
+  );
   assert.deepEqual(normalizeRuntimeAutomation('capture-screenshot', {
     format: 'webp', quality: 101, text: '订单', clip: { x: 2, y: 3, width: 40, height: 50 },
   }), {
@@ -76,12 +85,25 @@ test('fork click patch uses an event-transparent visible Chromium pointer', () =
   const patch = fs.readFileSync(
     path.join(patchDirectory, '0021-ai-free-visible-pointer.patch'), 'utf8',
   );
+  const targetingPatch = fs.readFileSync(
+    path.join(patchDirectory, '0029-ai-free-click-target-and-failure.patch'), 'utf8',
+  );
+  const frameCoordinatePatch = fs.readFileSync(
+    path.join(patchDirectory, '0030-ai-free-frame-element-coordinates.patch'), 'utf8',
+  );
 
   assert.match(series, /0020-ai-free-page-automation\.patch\s+0021-ai-free-visible-pointer\.patch/);
   assert.match(patch, /SetCanProcessEventsWithinSubtree\(false\)/);
   assert.match(patch, /kViewIgnoredByLayoutKey/);
   assert.match(patch, /ForwardMouseEvent/);
   assert.match(patch, /inputMode", "chromium-visible-pointer/);
+  assert.match(series, /0028-ai-free-animated-cursor-resource\.patch\s+0029-ai-free-click-target-and-failure\.patch/);
+  assert.match(targetingPatch, /bounds\.IsEmpty\(\)/);
+  assert.match(targetingPatch, /COORDINATE_OUT_OF_VIEWPORT/);
+  assert.match(series, /0029-ai-free-click-target-and-failure\.patch\s+0030-ai-free-frame-element-coordinates\.patch/);
+  assert.match(frameCoordinatePatch, /rectInTop/);
+  assert.match(frameCoordinatePatch, /frame\.clientLeft/);
+  assert.match(frameCoordinatePatch, /frame\.offsetWidth/);
   assert.doesNotMatch(patch, /document\.body\.append|createElement\(['"](?:div|img)/);
 });
 
@@ -182,4 +204,24 @@ test('fork visible pointer loads and advances the packaged ANI cursor frames', (
   assert.match(patch, /GetCursorFrameInfo/);
   assert.match(patch, /CreateSkBitmapFromHICON/);
   assert.match(patch, /cursor_timer_/);
+});
+
+test('fork keeps one independent pointer per tab and merges it with the user cursor safely', () => {
+  const patchDirectory = path.join(__dirname, '../../../native/chromium-fork/patches');
+  const series = fs.readFileSync(path.join(patchDirectory, 'series'), 'utf8');
+  const patch = fs.readFileSync(
+    path.join(patchDirectory, '0031-ai-free-persistent-pointer-merge.patch'),
+    'utf8',
+  );
+  assert.match(
+    series,
+    /0030-ai-free-frame-element-coordinates\.patch\s+0031-ai-free-persistent-pointer-merge\.patch/,
+  );
+  assert.match(patch, /kPointerMergeRadius = 32\.0f/);
+  assert.match(patch, /GetActiveWebContents/);
+  assert.match(patch, /GetCursorScreenPoint/);
+  assert.match(patch, /following_user_/);
+  assert.match(patch, /\+  base::RepeatingTimer idle_timer_/);
+  assert.match(patch, /-  base::OneShotTimer hide_timer_/);
+  assert.match(patch, /SetPointerVisible\(false\)/);
 });

@@ -3,10 +3,6 @@
     grid-template-columns: 1fr;
   }
 
-  .automation-card-list {
-    max-height: 150px;
-  }
-
   .automation-editor-heading,
   .automation-flow-heading {
     align-items: flex-start;
@@ -28,7 +24,6 @@ html.theme-light .automation-panel {
   color: #273b53;
 }
 
-html.theme-light .automation-heading h2,
 html.theme-light .automation-editor-heading h3,
 html.theme-light .automation-flow-heading h4 {
   color: #21364f;
