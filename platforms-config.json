@@ -7,9 +7,7 @@
     ],
     "timeoutSec": 8
   },
-  "packagedExtensions": [
-    "browser_automation"
-  ],
+  "packagedExtensions": [],
   "platforms": {
     "default": {
       "name": "ai-free",

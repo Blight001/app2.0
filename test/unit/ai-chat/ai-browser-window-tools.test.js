@@ -139,7 +139,7 @@ test('create validates access and URL, persists before opening, and rolls back f
   await assert.rejects(limited.execute('software_window', { action: 'create' }), /普通用户最多/);
 });
 
-test('open waits for the matching MCP connection and reports timeout as partial failure', async () => {
+test('open waits for the matching native Runtime and reports timeout as partial failure', async () => {
   const { createAiBrowserWindowTools } = installDependencies();
   const base = {
     ui: { getTabs: () => new Map([['tab-1', { id: 'tab-1', browserHistoryId: 'history-1' }]]) },
@@ -160,7 +160,7 @@ test('open waits for the matching MCP connection and reports timeout as partial 
   const timedOut = await unavailable.execute('software_window', { action: 'open', name: 'Primary' });
   assert.equal(timedOut.success, false);
   assert.equal(timedOut.mcp_connected, false);
-  assert.match(timedOut.error, /窗口.*已打开.*插件未在等待时间内连接/);
+  assert.match(timedOut.error, /窗口.*已打开.*原生自动化 Runtime 未在等待时间内就绪/);
 });
 
 test('edit updates name and per-browser settings while close preserves records', async () => {

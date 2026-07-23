@@ -27,7 +27,7 @@
 本轮包含：
 
 - `src/app` 下 Electron 主进程、preload、应用外壳、侧边栏和共享代码。
-- 自研 `browser_automation` 扩展。
+- 浏览器自动化域（原计划中的自研扩展已于 2026-07-23 迁入软件主进程并删除）。
 - 对应的测试、开发脚本、构建脚本和架构文档。
 
 本轮不直接重写：
@@ -241,13 +241,13 @@ test/
 
 完成一个域后必须执行该域全矩阵、相邻域联动、全量自动化和真实 Electron 冒烟测试，不能仅凭代码审查进入下一域。
 
-### 阶段 4：渲染层与自研扩展
+### 阶段 4：渲染层与浏览器自动化
 
 - 将 `ai-control.js` 拆为 store、API client、history、composer、message renderer、tool display、browser/card selector 和 bootstrap。
 - 将标签栏、账号、VPN、浏览器设置改为显式模块依赖，消除业务性 `window.*`。
 - 事件绑定统一管理，重复初始化和窗口销毁必须安全。
 - CSS 按 tokens、layout 和业务组件拆分，测试验证行为与可访问状态，不匹配样式源码。
-- 整理 `browser_automation` 的状态、缓存、消息和页面操作模块，保持 Manifest 和桥接协议兼容。
+- 将自动化状态、卡片缓存、画布和页面操作收敛到软件端，通过 Chromium Runtime Bridge 执行；不再维护 Manifest 扩展协议。
 
 ### 阶段 5：清理和正式切换
 

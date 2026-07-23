@@ -10,12 +10,12 @@ function createConnectionResolver(connections) {
     if (byId) return byId;
     const lower = wanted.toLowerCase();
     const byName = connections.filter((item) => String(item.name || '').trim().toLowerCase() === lower
-      || String(item.pluginName || '').trim().toLowerCase() === lower);
+    );
     if (byName.length > 1) return { ambiguous: true, ref: wanted };
     return byName[0] || null;
   };
   const describeConnections = () => connections
-    .map((item) => `“${String(item.name || 'AI自动化浏览器')}”（change_browser: ${item.id}）`)
+    .map((item) => `“${String(item.name || 'AI-FREE 浏览器')}”（change_browser: ${item.id}）`)
     .join('、');
   return { findConnectionByRef, describeConnections };
 }
@@ -61,7 +61,7 @@ function appendDownloadWorkflow(workflow, available) {
 function createSoftwareUiWorkflow(available, softwareTarget) {
   const name = String(softwareTarget?.name || '当前软件').replace(/[\r\n\t]+/g, ' ').slice(0, 80);
   return available.has('software_ui')
-    ? `software_ui 已绑定“${name}”：先 observe；click 走鼠标，invoke 才走 UIA；界面变化后重取 ref。`
+    ? `software_ui 已绑定“${name}”：先 observe；UIA 不足会返回截图；坐标必须带当次 observation_id；动作后使用新状态。`
     : '';
 }
 

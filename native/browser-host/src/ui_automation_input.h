@@ -20,3 +20,15 @@ UiAutomationActionResult PerformUiAutomationAction(
 UiAutomationActionResult PerformBoundMouseAction(
     HWND bound_window, DWORD expected_pid,
     const std::wstring& action, POINT point);
+
+UiAutomationActionResult PerformBoundTextInput(
+    HWND bound_window, DWORD expected_pid, const std::wstring& text);
+
+UiAutomationActionResult PerformBoundKeyInput(
+    HWND bound_window, DWORD expected_pid, const std::wstring& key);
+
+UiAutomationActionResult PerformBoundScroll(
+    HWND bound_window, DWORD expected_pid, POINT point, int delta);
+
+UiAutomationActionResult PerformBoundDrag(
+    HWND bound_window, DWORD expected_pid, POINT start, POINT end);

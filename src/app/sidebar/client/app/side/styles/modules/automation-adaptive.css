@@ -1,0 +1,78 @@
+@media (max-width: 519px) {
+  .automation-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .automation-card-list {
+    max-height: 150px;
+  }
+
+  .automation-editor-heading,
+  .automation-flow-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .automation-card-settings,
+  .automation-step-body {
+    grid-template-columns: 1fr;
+  }
+
+  .automation-wide-field,
+  .automation-step-controls {
+    grid-column: 1;
+  }
+}
+
+html.theme-light .automation-panel {
+  color: #273b53;
+}
+
+html.theme-light .automation-heading h2,
+html.theme-light .automation-editor-heading h3,
+html.theme-light .automation-flow-heading h4 {
+  color: #21364f;
+}
+
+html.theme-light .automation-card-list,
+html.theme-light .automation-editor {
+  border-color: rgba(82, 116, 158, .24);
+  background: rgba(255, 255, 255, .72);
+  box-shadow: 0 9px 24px rgba(40, 75, 115, .08);
+}
+
+html.theme-light .automation-card-item,
+html.theme-light .automation-step {
+  border-color: rgba(82, 116, 158, .22);
+  color: #263b53;
+  background: rgba(244, 248, 253, .92);
+}
+
+html.theme-light .automation-card-item:hover,
+html.theme-light .automation-card-item.is-active {
+  border-color: #4d9cff;
+  background: #edf5ff;
+}
+
+html.theme-light .automation-card-settings input,
+html.theme-light .automation-card-settings textarea,
+html.theme-light .automation-step-field input,
+html.theme-light .automation-step-field select,
+html.theme-light .automation-step-field textarea,
+html.theme-light .automation-flow-actions select,
+html.theme-light .automation-json-editor textarea {
+  border-color: rgba(78, 114, 158, .28);
+  color: #263b53;
+  background: #fff;
+}
+
+html.theme-light .automation-step-summary {
+  color: #263b53;
+}
+
+html.theme-light .automation-secondary-button,
+html.theme-light .automation-icon-button {
+  border-color: rgba(78, 114, 158, .28);
+  color: #405a76;
+  background: #f5f8fc;
+}

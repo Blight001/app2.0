@@ -21,6 +21,7 @@ function createAiSupportService(deps = {}) {
     bridge: deps.browserAutomationBridge,
     now: deps.now,
     logger: deps.logger,
+    onProgress: deps.onAutomationProgress,
   });
 
   function getBrowserConnections() {
@@ -68,11 +69,16 @@ function createAiSupportService(deps = {}) {
 
   return {
     broadcastBrowserSelection,
+    deleteAutomationCard: cardService.deleteAutomationCard,
+    getAutomationCard: cardService.getAutomationCard,
     getAutomationCards: cardService.getAutomationCards,
     getBrowserConnections,
     getModels: modelService.getModels,
     redeemGiftCode,
+    runAutomationCard: cardService.runAutomationCard,
+    saveAutomationCard: cardService.saveAutomationCard,
     selectAutomationCard: cardService.selectAutomationCard,
+    stopAutomationCard: cardService.stopAutomationCard,
   };
 }
 

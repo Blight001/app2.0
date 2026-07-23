@@ -24,46 +24,86 @@ test('card listing maps durable cache records and selection details', async () =
   assert.throws(() => createAutomationCardService({ bridge: {} }).selectAutomationCard({}), /卡片库不可用/);
 });
 
-test('legacy migration imports supported connection cards and keeps newer cache entries', async () => {
-  let saved = null;
-  const warnings = [];
-  const bridge = {
-    getCardCacheState: () => ({ exists: true, state: {
-      items: [{ id: 'same', cardName: 'Newer', cardData: { name: 'Newer', steps: [] }, savedAt: '2026-01-02T00:00:00.000Z' }],
-      selectedId: '',
-    } }),
-    setCardCacheState: (state) => { saved = state; return state; },
-    listConnections: () => [{ id: 'supported' }, { id: 'unsupported' }, { id: 'broken' }],
-    getConnection: (id) => ({ tools: id === 'unsupported' ? [] : [{ name: 'manage_card' }] }),
-    dispatch: async (id, tool, input) => {
-      assert.equal(tool, 'manage_card');
-      if (id === 'broken') throw new Error('connection lost');
-      if (input.action === 'list') return { items: [
-        { id: 'same', savedAt: '2026-01-01T00:00:00.000Z' }, { id: 'fresh' }, { id: '' },
-      ] };
-      if (input.id === 'same') return { cardData: { name: 'Older', steps: [{}] } };
-      return { cardData: { name: 'Fresh', steps: [{}] }, cardName: '', savedAt: '' };
-    },
-  };
-  let now = 20000;
-  const service = createAutomationCardService({ bridge, now: () => now, logger: { warn: (...args) => warnings.push(args) } });
-  const result = await service.getAutomationCards();
-  assert.deepEqual(result.cards.map((card) => card.id), ['same']);
-  assert.equal(saved, null);
-  // Empty durable cache triggers legacy migration.
-  bridge.getCardCacheState = () => saved
-    ? { exists: true, state: saved }
-    : { exists: false, state: { items: [], selectedId: '' } };
-  now = 40000;
-  const migrated = await service.getAutomationCards();
-  assert.deepEqual(migrated.cards.map((card) => card.id), ['same', 'fresh']);
-  assert.equal(saved.selectedId, 'same');
-  assert.equal(warnings.length, 1);
-  // A second immediate request observes the persisted cache and does not re-import.
-  assert.equal((await service.getAutomationCards()).cards.length, 2);
-});
-
-test('missing bridge and empty legacy results return an empty stable response', async () => {
+test('missing bridge returns an empty stable response', async () => {
   const service = createAutomationCardService({ bridge: null, now: () => 20000 });
   assert.deepEqual(await service.getAutomationCards(), { ok: true, selectedId: '', cards: [] });
+});
+
+test('software card editor reads, saves and deletes the durable shared card record', () => {
+  let state = {
+    items: [{
+      id: 'card-1',
+      cardName: 'Before',
+      cardData: { name: 'Before', website: 'https://example.com', steps: [] },
+      savedAt: '2026-01-01T00:00:00.000Z',
+    }],
+    selectedId: 'card-1',
+  };
+  const bridge = {
+    getCardCacheState: () => ({ exists: true, state }),
+    setCardCacheState: (next) => { state = next; return next; },
+  };
+  const service = createAutomationCardService({ bridge, now: () => Date.parse('2026-07-23T10:00:00.000Z') });
+  const read = service.getAutomationCard({ id: 'card-1' });
+  assert.equal(read.data.cardData.name, 'Before');
+
+  const saved = service.saveAutomationCard({
+    id: 'card-1',
+    cardData: {
+      name: 'After',
+      website: 'https://example.com',
+      steps: [{ id: 'open', type: 'navigate', url: 'https://example.com' }],
+    },
+  });
+  assert.equal(saved.data.name, 'After');
+  assert.equal(saved.data.stepCount, 1);
+  assert.equal(saved.data.savedAt, '2026-07-23T10:00:00.000Z');
+  assert.equal(state.items[0].cardData.name, 'After');
+  assert.throws(() => service.saveAutomationCard({
+    cardData: { name: 'Unsafe', steps: [{ type: 'external_script', script: 'alert(1)' }] },
+  }), /不受支持|不允许/);
+
+  assert.deepEqual(service.deleteAutomationCard({ id: 'card-1' }), {
+    ok: true,
+    data: { deletedId: 'card-1', selectedId: '' },
+  });
+  assert.deepEqual(state, { items: [], selectedId: '' });
+  assert.throws(() => service.getAutomationCard({ id: 'card-1' }), /不存在或已被删除/);
+});
+
+test('software card run and stop target capable native browsers', async () => {
+  const dispatched = [];
+  const bridge = {
+    getCardCacheState: () => ({ exists: true, state: {
+      items: [{ id: 'card-1', cardName: 'Run me', cardData: { name: 'Run me', steps: [{}] } }],
+      selectedId: 'card-1',
+    } }),
+    setCardCacheState: (state) => state,
+    listConnections: () => [{ id: 'unsupported', online: true }, { id: 'browser-1', online: true }],
+    getConnection: (id) => ({ tools: id === 'browser-1' ? [{ name: 'manage_card' }] : [] }),
+    dispatch: async (...args) => {
+      dispatched.push(args);
+      if (args[2]?.action === 'stop') return { success: true, stopped: true };
+      return { success: true, summary: 'done' };
+    },
+  };
+  const service = createAutomationCardService({ bridge });
+  assert.deepEqual(await service.runAutomationCard({
+    id: 'card-1', inputs: { email: 'fixture@example.com' }, startStep: 2, loopCount: 3,
+  }), {
+    ok: true,
+    data: { connectionId: 'browser-1', result: { success: true, summary: 'done' } },
+  });
+  assert.deepEqual(dispatched[0].slice(0, 3), [
+    'browser-1',
+    'manage_card',
+    {
+      action: 'run', id: 'card-1', inputs: { email: 'fixture@example.com' },
+      start_step: 2, loop_count: 3,
+    },
+  ]);
+  assert.deepEqual(await service.stopAutomationCard(), { ok: true, data: { stopped: 1 } });
+  assert.deepEqual(dispatched.at(-1).slice(0, 3), [
+    'browser-1', 'manage_card', { action: 'stop' },
+  ]);
 });

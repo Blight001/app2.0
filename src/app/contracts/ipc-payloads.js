@@ -69,6 +69,17 @@ function numberLikeField(channel, object, key) {
   }
 }
 
+function jsonSizeField(channel, object, key) {
+  const value = object[key];
+  if (value === undefined) return;
+  if (!isPlainObject(value)) fail(channel, key, '必须是对象');
+  let size = MAX_TEXT_LENGTH + 1;
+  try {
+    size = JSON.stringify(value).length;
+  } catch (_) {}
+  if (size > MAX_TEXT_LENGTH) fail(channel, key, `序列化长度不能超过 ${MAX_TEXT_LENGTH}`);
+}
+
 function validateChatMessage(channel, message, index) {
   const path = `messages[${index}]`;
   if (!isPlainObject(message)) fail(channel, path, '必须是对象');
@@ -216,6 +227,31 @@ const IPC_PAYLOAD_SCHEMAS = Object.freeze({
   'ai.settings': (channel, payload) => {
     const input = objectPayload(channel, payload, { optional: true });
     numberLikeField(channel, input, 'mcpCallLimit');
+    return input;
+  },
+  'automation.card-id': (channel, payload) => {
+    const input = objectPayload(channel, payload, { optional: true });
+    stringField(channel, input, 'id', { maxLength: MAX_ID_LENGTH });
+    return input;
+  },
+  'automation.card-run': (channel, payload) => {
+    const input = IPC_PAYLOAD_SCHEMAS['automation.card-id'](channel, payload);
+    stringField(channel, input, 'connectionId', { maxLength: MAX_ID_LENGTH });
+    jsonSizeField(channel, input, 'inputs');
+    numberLikeField(channel, input, 'startStep');
+    numberLikeField(channel, input, 'loopCount');
+    return input;
+  },
+  'automation.card-save': (channel, payload) => {
+    const input = objectPayload(channel, payload);
+    stringField(channel, input, 'id', { maxLength: MAX_ID_LENGTH });
+    jsonSizeField(channel, input, 'cardData');
+    const steps = input.cardData?.steps;
+    if (steps !== undefined && !Array.isArray(steps)) fail(channel, 'cardData.steps', '必须是数组');
+    if (Array.isArray(steps) && steps.length > 500) fail(channel, 'cardData.steps', '数量不能超过 500');
+    if (Array.isArray(steps) && steps.some((step) => !isPlainObject(step))) {
+      fail(channel, 'cardData.steps[]', '必须是对象');
+    }
     return input;
   },
   'license.record-delete': (channel, payload) => {

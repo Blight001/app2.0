@@ -53,7 +53,7 @@ async function stopRuntimeProcesses(deps, isUpdateExit) {
     browserRuntimeManager, stopClashMiniProcess, sendToSide,
   } = deps;
   await attemptAsync(logger, '断开 AI 服务器设备连接失败', () => aiServerDeviceService?.stop?.());
-  await attemptAsync(logger, '关闭浏览器插件桥接失败', () => browserAutomationBridge?.stop?.());
+  await attemptAsync(logger, '关闭原生浏览器自动化桥接失败', () => browserAutomationBridge?.stop?.());
   await attemptAsync(logger, 'Chromium Profile 关闭失败', async () => {
     if (typeof browserRuntimeManager?.stopAll === 'function') {
       logger.log?.('[退出] 正在优雅关闭 Chromium Profile...');

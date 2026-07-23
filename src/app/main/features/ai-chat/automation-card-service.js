@@ -1,86 +1,141 @@
 'use strict';
 
+const crypto = require('crypto');
 const { callOptional, firstText } = require('../../../shared/safe-values');
+const { normalizeCardData: normalizeNativeCardData } = require('../browser-automation/native-card-data');
 
-async function importConnectionCards(context, connection, imported) {
-  const { bridge, timestamp, logger } = context;
-  const fullConnection = callOptional(bridge, 'getConnection', connection.id);
-  const supportsCards = fullConnection && Array.isArray(fullConnection.tools)
-    && fullConnection.tools.some((tool) => firstText(tool && tool.name) === 'manage_card');
-  if (!supportsCards) return;
-  try {
-    const listed = await bridge.dispatch(connection.id, 'manage_card', { action: 'list' }, { timeoutMs: 10000 });
-    const summaries = listed && Array.isArray(listed.items) ? listed.items : [];
-    for (const summary of summaries) {
-      const id = firstText(summary && summary.id).trim();
-      if (!id) continue;
-      const detail = await bridge.dispatch(connection.id, 'manage_card', { action: 'get', id }, { timeoutMs: 10000 });
-      if (!detail || !detail.cardData || typeof detail.cardData !== 'object') continue;
-      imported.push({
-        id,
-        cardData: detail.cardData,
-        cardName: firstText(detail.cardName, detail.cardData.name, id),
-        savedAt: firstText(detail.savedAt, summary && summary.savedAt, new Date(timestamp).toISOString()),
-      });
-    }
-  } catch (error) {
-    callOptional(logger, 'warn', '[AutomationBridge] 从旧浏览器迁移卡片失败', {
-      connectionId: connection.id,
-      error: firstText(error && error.message, error),
-    });
-  }
-}
-
-function mergeImportedCards(current, imported) {
-  const currentItems = Array.isArray(current.items) ? current.items : [];
-  const byId = new Map(currentItems.map((item) => [firstText(item && item.id), item]));
-  for (const item of imported) {
-    const previous = byId.get(item.id);
-    if (!previous || Date.parse(item.savedAt || '') >= Date.parse(previous.savedAt || '')) byId.set(item.id, item);
-  }
-  const items = Array.from(byId.values()).filter((item) => item && item.id);
-  const selectedId = firstText(
-    current.selectedId,
-    imported[0] && imported[0].id,
-    items[0] && items[0].id,
-  );
-  return { items, selectedId };
-}
-
-async function importLegacyCards(context) {
-  const { bridge, now, state } = context;
-  if (!bridge || typeof bridge.dispatch !== 'function' || typeof bridge.setCardCacheState !== 'function') return null;
-  const timestamp = now();
-  if (timestamp - state.lastAttemptAt < 15000) return null;
-  state.lastAttemptAt = timestamp;
-  const imported = [];
-  for (const connection of callOptional(bridge, 'listConnections') || []) {
-    await importConnectionCards({ ...context, timestamp }, connection, imported);
-  }
-  if (!imported.length) return null;
+function readCardState(bridge) {
   const cached = callOptional(bridge, 'getCardCacheState');
-  const current = cached && cached.state ? cached.state : { items: [], selectedId: '' };
-  return bridge.setCardCacheState(mergeImportedCards(current, imported));
+  const state = cached && cached.state;
+  return state && Array.isArray(state.items) ? state : { items: [], selectedId: '' };
 }
 
-async function getAutomationCards(context) {
-  const { bridge } = context;
-  let cached = callOptional(bridge, 'getCardCacheState') || { exists: false, state: { items: [], selectedId: '' } };
-  if (!cached.state || !Array.isArray(cached.state.items) || cached.state.items.length === 0) {
-    const migrated = await importLegacyCards(context);
-    if (migrated) cached = { exists: true, state: migrated };
+function cardSummary(item) {
+  return {
+    id: firstText(item && item.id),
+    name: firstText(
+      item && item.cardName,
+      item && item.cardData && item.cardData.name,
+      item && item.id,
+      '未命名卡片',
+    ),
+    stepCount: item && item.cardData && Array.isArray(item.cardData.steps)
+      ? item.cardData.steps.length
+      : 0,
+    savedAt: firstText(item && item.savedAt),
+  };
+}
+
+function requireCardStore(bridge) {
+  if (!bridge || typeof bridge.getCardCacheState !== 'function'
+    || typeof bridge.setCardCacheState !== 'function') {
+    throw new Error('软件卡片库不可用');
   }
+}
+
+function findCard(bridge, input = {}) {
+  requireCardStore(bridge);
+  const state = readCardState(bridge);
+  const id = firstText(input.id, state.selectedId).trim();
+  const item = state.items.find((entry) => firstText(entry && entry.id).trim() === id);
+  if (!item) throw new Error(id ? `自动化卡片不存在或已被删除: ${id}` : '当前没有自动化卡片');
+  return { item, state };
+}
+
+function normalizeCardData(input = {}) {
+  return normalizeNativeCardData(input.cardData);
+}
+
+async function getAutomationCards({ bridge }) {
+  const cached = callOptional(bridge, 'getCardCacheState') || { state: { items: [], selectedId: '' } };
   const items = cached.state && Array.isArray(cached.state.items) ? cached.state.items : [];
   return {
     ok: true,
     selectedId: firstText(cached.state && cached.state.selectedId),
-    cards: items.map((item) => ({
-      id: firstText(item && item.id),
-      name: firstText(item && item.cardName, item && item.cardData && item.cardData.name, item && item.id, '未命名卡片'),
-      stepCount: item && item.cardData && Array.isArray(item.cardData.steps) ? item.cardData.steps.length : 0,
-      savedAt: firstText(item && item.savedAt),
-    })).filter((item) => item.id),
+    cards: items.map(cardSummary).filter((item) => item.id),
   };
+}
+
+function getAutomationCard(bridge, input = {}) {
+  const { item } = findCard(bridge, input);
+  return {
+    ok: true,
+    data: {
+      ...cardSummary(item),
+      cardData: item.cardData && typeof item.cardData === 'object' ? item.cardData : {},
+    },
+  };
+}
+
+function saveAutomationCard(bridge, input = {}, options = {}) {
+  requireCardStore(bridge);
+  const state = readCardState(bridge);
+  const cardData = normalizeCardData(input);
+  const requestedId = firstText(input.id).trim();
+  const existingIndex = state.items.findIndex((item) => firstText(item && item.id) === requestedId);
+  const id = requestedId || options.createId();
+  const savedAt = options.nowIso();
+  const previous = existingIndex >= 0 ? state.items[existingIndex] : {};
+  const item = { ...previous, id, cardName: cardData.name, cardData, savedAt };
+  const items = [...state.items];
+  if (existingIndex >= 0) items[existingIndex] = item;
+  else items.push(item);
+  const savedState = bridge.setCardCacheState({ items, selectedId: id });
+  return { ok: true, data: { ...cardSummary(item), cardData, selectedId: savedState.selectedId } };
+}
+
+function deleteAutomationCard(bridge, input = {}) {
+  const { item, state } = findCard(bridge, input);
+  const deletedId = firstText(item.id);
+  const items = state.items.filter((entry) => firstText(entry && entry.id) !== deletedId);
+  const previousSelectedId = firstText(state.selectedId);
+  const selectionSurvives = items.some((entry) => firstText(entry && entry.id) === previousSelectedId);
+  const selectedId = selectionSurvives ? previousSelectedId : firstText(items[0] && items[0].id);
+  const savedState = bridge.setCardCacheState({ items, selectedId });
+  return { ok: true, data: { deletedId, selectedId: firstText(savedState.selectedId) } };
+}
+
+function supportsCardRuns(bridge, connection) {
+  const full = callOptional(bridge, 'getConnection', connection && connection.id);
+  return full && Array.isArray(full.tools)
+    && full.tools.some((tool) => firstText(tool && tool.name) === 'manage_card');
+}
+
+async function runAutomationCard(bridge, input = {}, onProgress) {
+  const { item } = findCard(bridge, input);
+  if (typeof bridge.dispatch !== 'function') throw new Error('浏览器自动化执行通道不可用');
+  const connections = callOptional(bridge, 'listConnections') || [];
+  const requestedId = firstText(input.connectionId).trim();
+  const connection = requestedId
+    ? connections.find((entry) => firstText(entry && entry.id) === requestedId)
+    : connections.find((entry) => entry && entry.online !== false && supportsCardRuns(bridge, entry));
+  if (!connection || !supportsCardRuns(bridge, connection)) {
+    throw new Error('没有已连接且支持自动化卡片的浏览器');
+  }
+  const args = { action: 'run', id: firstText(item.id) };
+  if (input.inputs && typeof input.inputs === 'object') args.inputs = input.inputs;
+  if (Number(input.startStep) > 0) args.start_step = Math.floor(Number(input.startStep));
+  if (Number(input.loopCount) > 1) args.loop_count = Math.min(100, Math.floor(Number(input.loopCount)));
+  if (typeof onProgress === 'function') {
+    args.onProgress = (event) => onProgress({
+      ...event,
+      cardId: firstText(item.id),
+      connectionId: connection.id,
+    });
+  }
+  const result = await bridge.dispatch(connection.id, 'manage_card', args, { timeoutMs: 30 * 60 * 1000 });
+  return { ok: true, data: { connectionId: connection.id, result } };
+}
+
+async function stopAutomationCard(bridge) {
+  if (typeof bridge?.dispatch !== 'function') throw new Error('浏览器自动化执行通道不可用');
+  let stopped = 0;
+  for (const connection of callOptional(bridge, 'listConnections') || []) {
+    if (!supportsCardRuns(bridge, connection)) continue;
+    const result = await bridge.dispatch(connection.id, 'manage_card', { action: 'stop' });
+    if (result?.stopped) stopped += 1;
+  }
+  return { ok: true, data: { stopped } };
 }
 
 function selectAutomationCard(bridge, input = {}) {
@@ -97,11 +152,22 @@ function selectAutomationCard(bridge, input = {}) {
   };
 }
 
-function createAutomationCardService({ bridge, now = Date.now, logger = console }) {
-  const context = { bridge, now, logger, state: { lastAttemptAt: 0 } };
+function createAutomationCardService({
+  bridge, now = Date.now, logger: _logger = console, onProgress,
+}) {
+  const context = { bridge };
+  const options = {
+    createId: () => crypto.randomUUID(),
+    nowIso: () => new Date(now()).toISOString(),
+  };
   return {
+    deleteAutomationCard: (input) => deleteAutomationCard(bridge, input),
+    getAutomationCard: (input) => getAutomationCard(bridge, input),
     getAutomationCards: () => getAutomationCards(context),
+    runAutomationCard: (input) => runAutomationCard(bridge, input, onProgress),
+    saveAutomationCard: (input) => saveAutomationCard(bridge, input, options),
     selectAutomationCard: (input) => selectAutomationCard(bridge, input),
+    stopAutomationCard: () => stopAutomationCard(bridge),
   };
 }
 

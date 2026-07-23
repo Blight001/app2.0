@@ -1,6 +1,6 @@
 // 软件端 AI 默认自带的"外层"浏览器窗口控制工具。
 //
-// 与浏览器插件（扩展）上报的页面内工具不同，这组工具不依赖任何插件连接，
+// 与原生 Runtime 提供的页面内工具不同，这组工具不依赖页面自动化连接，
 // 始终注入 AI 控制对话，直接操作软件自身的独立浏览器窗口：
 // 通过 software_window 的 action 子选项列出、打开、新建、编辑和关闭窗口。
 // 底层复用 ipc/register/settings 的浏览器历史（browserHistory）读写逻辑，
@@ -179,7 +179,7 @@ class AiBrowserWindowTools {
         ...result,
         success: false,
         mcp_connected: false,
-        error: `窗口“${result.name}”已打开，但 AI 自动化浏览器插件未在等待时间内连接，暂时无法控制该窗口`,
+        error: `窗口“${result.name}”已打开，但原生自动化 Runtime 未在等待时间内就绪，暂时无法控制该窗口`,
       };
     }
     return {

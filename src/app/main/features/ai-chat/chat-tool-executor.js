@@ -1,6 +1,7 @@
 'use strict';
 
 const { withBrowserRouteParam } = require('./chat-tool-context');
+const IMAGE_TOOL_NAMES = new Set(['browser_screenshot', 'software_ui']);
 
 function parseToolArguments(call) {
   const raw = String(call?.function?.arguments || '{}');
@@ -151,14 +152,19 @@ function syncWindowToolControl(context, toolName, args, toolResult) {
 function serializeToolResult(result, toolName) {
   let serializedResult = result ?? null;
   let imageMessage = null;
-  if (toolName === 'browser_screenshot' && result?.success === true
+  if (IMAGE_TOOL_NAMES.has(toolName) && result?.success === true
       && /^data:image\/[a-z0-9.+-]+;base64,/i.test(String(result.dataUrl || ''))) {
     const { dataUrl, ...metadata } = result;
     serializedResult = { ...metadata, image_attached: true };
     imageMessage = {
       role: 'user',
       content: [
-        { type: 'text', text: '以下图片是 browser_screenshot 刚刚截取的页面，请直接分析图片内容。' },
+        {
+          type: 'text',
+          text: toolName === 'software_ui'
+            ? '以下图片是绑定软件窗口的最新状态；坐标只对对应 observation_id 有效。'
+            : '以下图片是 browser_screenshot 刚刚截取的页面，请直接分析图片内容。',
+        },
         { type: 'image_url', image_url: { url: dataUrl } },
       ],
       ai_free_transient_image: true,
@@ -175,7 +181,7 @@ function serializeToolResult(result, toolName) {
 }
 
 function compactToolActivityResult(context, result, toolName) {
-  if (toolName === 'browser_screenshot' && result?.dataUrl) {
+  if (IMAGE_TOOL_NAMES.has(toolName) && result?.dataUrl) {
     const { dataUrl: _dataUrl, ...metadata } = result;
     return context.compactToolValue({ ...metadata, image_attached: true });
   }

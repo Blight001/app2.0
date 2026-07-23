@@ -81,7 +81,8 @@ function createTestServer() {
           input.addEventListener('input', (event) => fetch('/native-event?kind=input&trusted=' +
             event.isTrusted + '&value=' + encodeURIComponent(input.value)).catch(() => {}));
           input.addEventListener('keydown', (event) => fetch('/native-event?kind=key&trusted=' +
-            event.isTrusted + '&key=' + encodeURIComponent(event.key)).catch(() => {}));
+            event.isTrusted + '&key=' + encodeURIComponent(event.key) +
+            '&ctrl=' + event.ctrlKey + '&shift=' + event.shiftKey).catch(() => {}));
           addEventListener('wheel', (event) => fetch('/native-event?kind=wheel&trusted=' +
             event.isTrusted).catch(() => {}), { once: true });
           setTimeout(() => {
@@ -320,6 +321,24 @@ app.whenReady().then(async () => {
     && new URLSearchParams(item.query).get('kind') === 'key');
   assert.equal(new URLSearchParams(keyRequest.query).get('trusted'), 'true');
   assert.equal(new URLSearchParams(keyRequest.query).get('key'), 'Enter');
+  const modified = await manager.dispatchAutomationByProcessId(b.state.pid, 'perform-action', {
+    action: 'press_key', selector: '#native-input', key: 'a', ctrl: true,
+  });
+  assert.equal(modified.result.inputMode, 'chromium-native-keyboard');
+  const modifiedRequest = await waitForRequest((item) => item.path === '/native-event'
+    && new URLSearchParams(item.query).get('kind') === 'key'
+    && new URLSearchParams(item.query).get('key').toLowerCase() === 'a');
+  assert.equal(new URLSearchParams(modifiedRequest.query).get('ctrl'), 'true');
+  const elementScreenshot = await manager.dispatchAutomationByProcessId(
+    b.state.pid, 'capture-screenshot', { selector: '#native-input', margin: 4 },
+  );
+  assert.match(elementScreenshot.result.dataUrl, /^data:image\/png;base64,/);
+  assert(elementScreenshot.result.width >= 300);
+  const fullScreenshot = await manager.dispatchAutomationByProcessId(
+    b.state.pid, 'capture-screenshot', { full_page: true, format: 'jpeg', quality: 70 },
+  );
+  assert.match(fullScreenshot.result.dataUrl, /^data:image\/jpeg;base64,/);
+  assert(fullScreenshot.result.height > elementScreenshot.result.height);
   const scrolled = await manager.dispatchAutomationByProcessId(b.state.pid, 'perform-action', {
     action: 'scroll', direction: 'down', amount: 300,
   });

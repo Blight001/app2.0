@@ -87,6 +87,7 @@ function runManualMsvcBuild() {
     'src/process_monitor.cc',
     'src/ui_automation_bridge.cc',
     'src/ui_automation_input.cc',
+    'src/window_capture.cc',
     'src/win_delay_load_hook.cc',
   ].map((item) => path.join(nativeRoot, item));
 
@@ -115,6 +116,7 @@ function runManualMsvcBuild() {
     '/link', `/OUT:${outputFile}`, '/DELAYLOAD:node.exe', sdk.nodeLib,
     'delayimp.lib', 'user32.lib', 'gdi32.lib', 'dwmapi.lib',
     'ole32.lib', 'oleaut32.lib', 'uiautomationcore.lib',
+    'd3d11.lib', 'dxgi.lib', 'windowsapp.lib',
   ];
   const testResult = spawnSync('cl.exe', [
     '/nologo', '/O2', '/EHsc', '/std:c++17', '/MT', '/utf-8',

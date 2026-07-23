@@ -90,6 +90,26 @@ test('browser download saves session JSON and rejects directories outside the wo
   }
 });
 
+test('card screenshots are validated and saved atomically inside the workspace', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-screenshot-'));
+  const service = createBrowserDownloadService({ sandboxDir: root });
+  const png = Buffer.from([
+    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0,
+  ]);
+  try {
+    const saved = await service.saveScreenshot(
+      `data:image/png;base64,${png.toString('base64')}`,
+      { directory: 'automation_screenshots', filename: 'card.png' },
+    );
+    assert.deepEqual(fs.readFileSync(saved.absolute_path), png);
+    assert.equal(saved.relative_path, path.join('automation_screenshots', 'card.png'));
+    assert.equal(fs.readdirSync(path.dirname(saved.absolute_path)).some((name) => name.endsWith('.part')), false);
+    await assert.rejects(service.saveScreenshot('data:text/plain;base64,SGVsbG8=', {}), /PNG/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('cookie matching honors domain, path, secure and expiration', () => {
   const value = cookieHeader([
     { name: 'ok', value: '1', domain: '.example.test', path: '/files', secure: true },

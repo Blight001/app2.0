@@ -63,10 +63,10 @@ test('内置模型要求登录和服务可用，自定义模型同时要求 VIP 
   assert.match(resolveChatAccess(vip, { modelId: '__custom_openai_api__' }).error.message, /尚未配置完整/);
 });
 
-test('浏览器连接离线立即失败，正常连接保留插件元数据', () => {
+test('浏览器连接关闭立即失败，正常连接保留原生 Runtime 元数据', () => {
   const options = { disableTools: false, connectionIds: ['one'] };
   const missing = resolveConnections({ browserAutomationBridge: { listConnections: () => [] } }, options);
-  assert.match(missing.error.message, /离线/);
+  assert.match(missing.error.message, /已关闭/);
   const connection = { id: 'one', name: 'Browser' };
   const found = resolveConnections({
     browserAutomationBridge: { listConnections: () => [connection], getConnection: () => connection },

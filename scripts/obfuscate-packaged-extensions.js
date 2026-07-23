@@ -61,9 +61,19 @@ function resolveExtensionsRoot(appOutDir) {
   return candidates.find((candidate) => fs.existsSync(candidate)) || null;
 }
 
+function hasConfiguredExtensions() {
+  const configPath = path.join(__dirname, '..', 'platforms-config.json');
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  return Array.isArray(config.packagedExtensions) && config.packagedExtensions.length > 0;
+}
+
 exports.default = async function obfuscatePackagedExtensions(context) {
   const extensionsRoot = resolveExtensionsRoot(context.appOutDir);
   if (!extensionsRoot) {
+    if (!hasConfiguredExtensions()) {
+      console.log('[extensions-protection] 无需混淆插件，已跳过');
+      return;
+    }
     throw new Error(`未找到打包后的 extensions 目录: ${context.appOutDir}`);
   }
 

@@ -96,8 +96,8 @@ function assertDirectoryMirror(sourceDir, targetDir, label) {
 function configuredPackagedExtensions(projectDir) {
   const configPath = path.join(projectDir, 'platforms-config.json');
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  if (!Array.isArray(config.packagedExtensions) || !config.packagedExtensions.length) {
-    throw new Error('platforms-config.json 未配置 packagedExtensions');
+  if (!Array.isArray(config.packagedExtensions)) {
+    throw new Error('platforms-config.json 的 packagedExtensions 必须是数组');
   }
   return config.packagedExtensions;
 }
@@ -125,6 +125,14 @@ function verifyAsarIntegrity(projectDir, appOutDir) {
   const archiveEntries = new Set(
     asar.listPackage(archivePath, { isPack: false }).map((entry) => entry.replace(/^[/\\]+/, '').replace(/\\/g, '/')),
   );
+  if ([...archiveEntries].some((entry) => entry.includes('assets/extensions/browser_automation'))) {
+    throw new Error('已删除的 browser_automation 不应出现在 app.asar');
+  }
+  if (fs.existsSync(path.join(
+    resourcesDir, 'app.asar.unpacked', 'src', 'assets', 'extensions', 'browser_automation',
+  ))) {
+    throw new Error('已删除的 browser_automation 不应出现在 app.asar.unpacked');
+  }
   for (const duplicate of [
     'native/browser-host/build/Release/browser_host.node',
     'src/assets/logo.ico',

@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { ExternalAppAutomationClient } = require('./external-app-automation-client');
 
 function resolveBindingCandidates(options = {}) {
   const appRoot = path.resolve(options.appRoot || path.join(__dirname, '../../../../'));
@@ -21,6 +22,8 @@ class ChromiumWindowBridge {
   constructor(options = {}) {
     this.logger = options.logger || console;
     this.binding = options.binding || null;
+    this.bindingPath = String(options.bindingPath || '');
+    this.automationClient = options.automationClient || null;
     this.candidates = resolveBindingCandidates(options);
   }
 
@@ -40,6 +43,7 @@ class ChromiumWindowBridge {
     }
     try {
       this.binding = require(bindingPath);
+      this.bindingPath = bindingPath;
     } catch (cause) {
       const error = /** @type {Error & {code?: string, bindingPath?: string, cause?: any}} */ (new Error(
         `Win32 Browser Host 加载失败: ${bindingPath}; `
@@ -116,6 +120,44 @@ class ChromiumWindowBridge {
   }
   performExternalWindowUiAction(options) {
     return this.load().performExternalWindowUiAction(options);
+  }
+  getAutomationClient() {
+    this.load();
+    if (!this.automationClient && this.bindingPath) {
+      this.automationClient = new ExternalAppAutomationClient({
+        bindingPath: this.bindingPath,
+      });
+    }
+    return this.automationClient;
+  }
+  runExternalAutomation(method, options, fallback) {
+    const client = this.getAutomationClient();
+    return client
+      ? client.execute(method, options)
+      : Promise.resolve(fallback());
+  }
+  observeExternalWindowUiAsync(options) {
+    return this.runExternalAutomation(
+      'observeExternalWindowUi', options,
+      () => this.observeExternalWindowUi(options),
+    );
+  }
+  performExternalWindowUiActionAsync(options) {
+    return this.runExternalAutomation(
+      'performExternalWindowUiAction', options,
+      () => this.performExternalWindowUiAction(options),
+    );
+  }
+  captureExternalWindow(options) {
+    return this.runExternalAutomation(
+      'captureExternalWindow', options,
+      () => this.load().captureExternalWindow(options),
+    );
+  }
+  disposeExternalAutomation() {
+    const client = this.automationClient;
+    this.automationClient = null;
+    return client?.dispose?.() || Promise.resolve();
   }
 }
 

@@ -177,6 +177,27 @@ async function writeJsonAtomic(targetPath, value, overwrite) {
   }
 }
 
+async function writeBufferAtomic(targetPath, buffer, overwrite) {
+  const tempPath = path.join(path.dirname(targetPath), `.${path.basename(targetPath)}.${process.pid}.${crypto.randomBytes(5).toString('hex')}.part`);
+  try {
+    await fs.promises.writeFile(tempPath, buffer, { mode: 0o600, flag: 'wx' });
+    await commitTempFile(tempPath, targetPath, overwrite);
+  } finally {
+    await fs.promises.rm(tempPath, { force: true }).catch(() => {});
+  }
+}
+
+function decodePngDataUrl(value) {
+  const match = String(value || '').match(/^data:image\/png;base64,([a-z0-9+/=\r\n]+)$/i);
+  if (!match || match[1].length > 28 * 1024 * 1024) throw new Error('截图 PNG 数据无效或过大');
+  const buffer = Buffer.from(match[1], 'base64');
+  if (buffer.length < 8 || buffer.length > 20 * 1024 * 1024
+    || !buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    throw new Error('截图不是有效的 PNG 文件');
+  }
+  return buffer;
+}
+
 function sessionFileName(session, requested) {
   if (requested) return sanitizeFileName(requested.endsWith('.json') ? requested : `${requested}.json`);
   let host = 'browser-session';
@@ -223,6 +244,22 @@ function createBrowserDownloadService(options = {}) {
     return { success: true, action: 'save_session', file_name: path.basename(targetPath), relative_path: path.relative(sandboxDir, targetPath), absolute_path: targetPath, cookie_count: Array.isArray(input.session.cookies) ? input.session.cookies.length : 0 };
   }
 
+  async function saveScreenshot(dataUrl, input = {}) {
+    const directory = resolveTargetDirectory(sandboxDir, input.directory || 'automation_screenshots');
+    const fileName = sanitizeFileName(input.filename, `automation-${Date.now()}.png`);
+    const normalizedName = fileName.toLowerCase().endsWith('.png') ? fileName : `${fileName}.png`;
+    const targetPath = availableTarget(directory.target, normalizedName, input.overwrite === true);
+    const buffer = decodePngDataUrl(dataUrl);
+    await writeBufferAtomic(targetPath, buffer, input.overwrite === true);
+    return {
+      success: true,
+      file_name: path.basename(targetPath),
+      relative_path: path.relative(sandboxDir, targetPath),
+      absolute_path: targetPath,
+      size: buffer.length,
+    };
+  }
+
   return {
     execute: async (input = {}) => {
       const action = String(input.action || 'download').trim().toLowerCase();
@@ -231,6 +268,7 @@ function createBrowserDownloadService(options = {}) {
       if (action === 'save_session') return saveSession(input);
       throw new Error(`未知下载操作: ${action}`);
     },
+    saveScreenshot,
   };
 }
 
@@ -239,5 +277,6 @@ module.exports = {
   MAX_ALLOWED_BYTES,
   cookieHeader,
   createBrowserDownloadService,
+  decodePngDataUrl,
   sanitizeFileName,
 };

@@ -230,7 +230,7 @@
       ? el('ai-chat-browser')?.selectedOptions?.[0]?.textContent || '当前软件'
       : '';
     const browserText = softwareTarget
-      ? `AI 将通过 UI Automation 控制“${softwareTarget}”。`
+      ? `AI 将通过软件视觉与 UI Automation 控制“${softwareTarget}”。`
       : (browserCount
       ? `已连接 ${browserCount} 个浏览器${card ? `，当前卡片为“${card.name}”` : ''}，AI 将在所选浏览器中执行操作${browserCount > 1 ? '，可按浏览器名称分开控制' : ''}。`
       : (card

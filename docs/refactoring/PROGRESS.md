@@ -1,6 +1,6 @@
 # 整改进度跟踪
 
-对应方案：[ai-maintainability-refactor-plan.md](ai-maintainability-refactor-plan.md)。最后核验：2026-07-19。
+对应方案：[ai-maintainability-refactor-plan.md](ai-maintainability-refactor-plan.md)。最后核验：2026-07-23。
 
 状态：`[x]` 已完成并有可执行证据；`[~]` 已实施但尚未达到方案最终阈值；`[ ]` 未完成。
 
@@ -8,7 +8,7 @@
 
 阶段 0–5 与最终验收门槛均已完成。全项目守卫基线已收紧为：ESLint error 0、超过 500 行文件 0、超过 80 行函数 0、复杂度超过 15 的函数 0、TypeScript/checkJs error 0；后续任一回归都会直接阻塞门禁。
 
-最终代码通过 334 项 Node 行为/契约/集成/打包测试、75%/65%/70% 覆盖率门禁、真实 Electron 验收、真实 Chromium phase 3、Windows x64 `win-unpacked`/NSIS 构建和 packaged runtime 校验。preload 只暴露冻结的 `window.aiFree` 领域 API，任意通道 façade 已删除。
+最终代码通过 458 项 Node 行为/契约/集成/打包测试、75%/65%/70% 覆盖率门禁、真实 Electron 验收、真实 Chromium phase 3、Windows x64 `win-unpacked`/NSIS 构建和 packaged runtime 校验。preload 只暴露冻结的 `window.aiFree` 领域 API，任意通道 façade 已删除。
 
 ## 阶段状态与证据
 
@@ -49,7 +49,9 @@
 - [x] `ai-control.js` 拆分为 bootstrap/state/history/composer/renderer/tool/card/browser 等模块。
 - [x] 标签栏、账号认证、VPN、浏览器设置和消息弹窗拆分；修复 shell 脚本加载顺序导致主题/账号绑定失效的真实缺陷。
 - [x] 侧边栏 CSS 已按 layout、buttons、account-auth、ai-control、vpn、browser-settings、themes 等模块拆分。
-- [x] `browser_automation` background/content/popup 拆分，Manifest、卡片协议和桥接兼容验收通过。
+- [x] 自动化卡片列表、编辑器、导入导出、可视流程画布、断点/循环运行和停止能力迁入软件侧边栏。
+- [x] 原 `browser_automation` 扩展的 7 个 MCP 工具迁入主进程，并直连受认证 Chromium Runtime Bridge；扩展资源、注册/轮询协议和手动 Cookie UI 已删除。
+- [x] `external_script` 与 JS 条件执行路径已删除；自动保存会话与安全下载继续保留。
 
 ### 阶段 5：清理与正式切换
 
@@ -65,13 +67,13 @@
 
 | 命令 | 结果 |
 |---|---|
-| `npm run verify` | 通过（格式、零告警 lint、typecheck、architecture、334 项行为/契约/打包测试、覆盖率、源码构建） |
+| `npm run verify` | 通过（格式、零告警 lint、typecheck、architecture、458 项行为/契约/打包测试、覆盖率、源码构建） |
 | `npm run test:acceptance` | 通过（扩展兼容/刷新、握手、runtime、observe、settings UI、session storage） |
-| `npm run test:coverage` | 通过；lines 75.69%、branches 67.77%、functions 71.46% |
-| `npm run build:win` | 通过，生成 `appbuild/AI-FREE Setup 2.6.9.exe` 与 `appbuild/win-unpacked/AI-FREE.exe` |
-| `npm run check:packaged-runtime` | 通过（ASAR/unpacked/native/logo/扩展完整性） |
-| `npm run accept:chromium-phase3` | 通过（导航、Cookie、storage、Profile 隔离、拒绝非法/超限输入、锁释放、恢复） |
-| `npm run check:browser-settings-ui` | 通过 33 项 UI；首次侧栏就绪 318.8ms、工作集 429.4MB、窗口销毁 4.8ms |
+| `npm run test:coverage` | 通过；lines 76.35%、branches 68.44%、functions 72.70% |
+| `npm run build:win` | 通过，生成 `appbuild/AI-FREE Setup 2.6.16.exe` 与 `appbuild/win-unpacked/AI-FREE.exe` |
+| `npm run check:packaged-runtime` | 通过（484 个 Chromium 文件及 ASAR/unpacked/native/logo/Clash 完整性；旧自动化扩展不存在） |
+| `npm run accept:chromium-phase3` | 通过（导航、原生输入/组合键、元素/整页截图、Cookie、storage、Profile 隔离、非法/超限拒绝、锁释放、恢复） |
+| `npm run check:browser-settings-ui` | 通过 33 项 UI；首次侧栏就绪 355.8ms、工作集 462.9MB、窗口销毁 8.2ms |
 | `npm run guardrails` | 通过；eslint/max-lines/max-lines-per-function/complexity/tsc 全部为 0 |
 
 ## 各域交付记录
@@ -82,12 +84,12 @@
 | 浏览器 | `BR-*`；创建/关闭/恢复、历史 CRUD、Profile、焦点和失败回滚 | handshake/runtime/UI/phase 3 | 真实 Chromium 仍会输出系统 OAuth/USB 诊断 | Profile/历史原路径不变；生成目录可直接丢弃重建 |
 | 网络 | `NET-*`；配置、Geo、TLS 延迟、进程退出和流量计数 | runtime、phase 3、packaged resources | 外部订阅与节点质量不由客户端保证 | Clash 配置格式不变；外部资源可恢复原包 |
 | 账号 | `ACC-*`；认证、VIP、许可证、迁移、损坏/缺失数据和回滚 | account/session Electron 验收 | 服务端不可用时按安全降级处理 | 原账号/会话/许可证路径与旧字段继续读取 |
-| 扩展/更新 | `EXT-*`、`UPD-*`、`PKG-*`；发现、原目录加载、端口连接、混淆、下载失败恢复和打包 | extension acceptance、win-unpacked、NSIS、packaged runtime | 发布前仍应按发行流程人工点验安装/升级 UI | 自动化插件直接加载源目录；`.generated` 可删除重建 |
+| 扩展/更新 | `EXT-*`、`UPD-*`、`PKG-*`；第三方扩展发现/加载、下载失败恢复和空扩展集合打包 | extension acceptance、win-unpacked、NSIS、packaged runtime | 发布前仍应按发行流程人工点验安装/升级 UI | 自动化不再依赖扩展；`.generated` 可删除重建 |
 
 ## 兼容与回滚
 
 - 本轮没有改变账号、聊天历史、Profile、代理、许可证和扩展配置的原路径/格式；新增迁移保持旧格式读取。
 - 正式构建使用 `.generated/app`，源码树不被覆盖；构建回滚只需停止使用生成目录，源数据无需迁移回退。
-- Chromium 与 Clash 仍作为外部 resources 串行同步，扩展保持 ASAR unpack；不要恢复为并行复制或打入 ASAR。
+- Chromium 与 Clash 仍作为外部 resources 串行同步；未来配置的第三方扩展仍保持 ASAR unpack，自动化功能不得恢复为浏览器扩展。
 
 2026-07-19 的最终 Chromium 验收曾捕获一次第二 Profile 的 HWND 瞬时附着竞争；实现现已增加有界重试和父子窗口关系确认，两条回归测试与连续 phase 3 复验均通过。

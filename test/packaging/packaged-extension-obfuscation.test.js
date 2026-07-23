@@ -10,6 +10,8 @@ const JavaScriptObfuscator = require('javascript-obfuscator');
 const {
   buildObfuscationOptions,
 } = require('../../scripts/obfuscate-packaged-extensions');
+const obfuscatePackagedExtensions =
+  require('../../scripts/obfuscate-packaged-extensions').default;
 
 test('executeScript host files keep serialized page functions self-contained', async () => {
   const source = `
@@ -47,17 +49,16 @@ test('executeScript host files keep serialized page functions self-contained', a
   assert.equal(await vm.runInContext('invokePage()', workerContext), 'observed-page-content');
 });
 
-test('browser automation hosts use the executeScript-safe production settings', () => {
+test('removed browser automation extension is not available to the packaging pipeline', async () => {
   const root = path.join(__dirname, '..', '..');
-  const browserTools = fs.readFileSync(
-    path.join(root, 'src/assets/extensions/browser_automation/background/10_browser_tools.js'),
-    'utf8',
-  );
-  const contentObserve = fs.readFileSync(
-    path.join(root, 'src/assets/extensions/browser_automation/content/observe.js'),
-    'utf8',
-  );
-
-  assert.equal(buildObfuscationOptions(browserTools).stringArray, false);
-  assert.equal(buildObfuscationOptions(contentObserve).stringArray, true);
+  assert.equal(fs.existsSync(path.join(
+    root, 'src/assets/extensions/browser_automation',
+  )), false);
+  const platformConfig = JSON.parse(fs.readFileSync(
+    path.join(root, 'platforms-config.json'), 'utf8',
+  ));
+  assert.equal(platformConfig.packagedExtensions.includes('browser_automation'), false);
+  await assert.doesNotReject(obfuscatePackagedExtensions({
+    appOutDir: path.join(root, 'test', '.missing-packaged-extensions'),
+  }));
 });

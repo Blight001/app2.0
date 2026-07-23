@@ -21,31 +21,18 @@ test('统一源码构建生成可加载主进程模块和可追踪 manifest', ()
   assert.equal(manifest.mainFormat, 'commonjs');
   assert.equal(manifest.rendererFormat, 'esmodule');
   assert.match(manifest.sourceHash, /^[a-f0-9]{64}$/);
-  const automationStamp = manifest.extensionServiceWorkers.find(
-    (entry) => entry.extension === 'browser_automation',
-  );
-  assert.match(automationStamp.hash, /^[a-f0-9]{64}$/);
-  const generatedWorker = fs.readFileSync(
-    path.join(
-      buildRoot,
-      'src/assets/extensions/browser_automation',
-      automationStamp.generatedServiceWorker,
-    ),
-    'utf8',
-  );
-  assert.match(generatedWorker, new RegExp(`build-source-extension-hash:${automationStamp.hash}`));
-  assert.match(
-    generatedWorker,
-    new RegExp(`background/11_browser_screenshot\\.js\\?v=${automationStamp.hash}`),
-  );
-  const generatedManifest = JSON.parse(fs.readFileSync(
-    path.join(buildRoot, 'src/assets/extensions/browser_automation/manifest.json'),
-    'utf8',
-  ));
   assert.equal(
-    generatedManifest.background.service_worker,
-    automationStamp.generatedServiceWorker,
+    manifest.extensionServiceWorkers.some((entry) => entry.extension === 'browser_automation'),
+    false,
   );
+  assert.equal(fs.existsSync(
+    path.join(buildRoot, 'src/assets/extensions/browser_automation'),
+  ), false);
+  const nativeServicePath = path.join(
+    buildRoot, 'src/app/main/features/browser-automation/native-browser-tool-service.js',
+  );
+  delete require.cache[require.resolve(nativeServicePath)];
+  assert.equal(typeof require(nativeServicePath).createNativeBrowserToolService, 'function');
   const registryPath = path.join(buildRoot, 'src/app/main/features/ai-chat/chat-run-registry.js');
   delete require.cache[require.resolve(registryPath)];
   assert.equal(typeof require(registryPath).createChatRunRegistry, 'function');

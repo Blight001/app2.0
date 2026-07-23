@@ -1,0 +1,374 @@
+diff --git a/chrome/browser/ui/BUILD.gn b/chrome/browser/ui/BUILD.gn
+index 4b380b3f82be69d79cd116ee876585eed62ff231..5a39c356a920b93f5e6d8c93c465264bb07d68fb 100644
+--- a/chrome/browser/ui/BUILD.gn
++++ b/chrome/browser/ui/BUILD.gn
+@@ -270,6 +270,7 @@ static_library("ui") {
+     "//chrome/browser/optimization_guide:impl",
+     "//chrome/browser/page_content_annotations",
+     "//chrome/browser/page_content_annotations:fetcher",
++    "//chrome/browser/page_content_annotations:screenshot_service",
+     "//chrome/browser/page_image_service",
+     "//chrome/browser/page_info",
+     "//chrome/browser/page_load_metrics",
+diff --git a/chrome/browser/ui/views/frame/ai_free_page_automation.cc b/chrome/browser/ui/views/frame/ai_free_page_automation.cc
+index 76bf9e526c6ea3d81ce0e9030311234265dd883b..e029007c77f56cf8b0283cf87fa3a9e44ce84a00 100644
+--- a/chrome/browser/ui/views/frame/ai_free_page_automation.cc
++++ b/chrome/browser/ui/views/frame/ai_free_page_automation.cc
+@@ -16,12 +16,14 @@
+ #include "base/strings/utf_string_conversions.h"
+ #include "base/task/sequenced_task_runner.h"
+ #include "base/time/time.h"
++#include "chrome/browser/page_content_annotations/page_content_screenshot_service_factory.h"
+ #include "chrome/browser/profiles/profile.h"
+ #include "chrome/browser/ui/browser.h"
+ #include "chrome/browser/ui/views/frame/ai_free_automation_pointer.h"
+ #include "chrome/browser/ui/views/frame/ai_free_observe_highlight.h"
+ #include "chrome/common/chrome_isolated_world_ids.h"
+ #include "components/input/native_web_keyboard_event.h"
++#include "components/page_content_annotations/content/page_content_screenshot_service.h"
+ #include "components/viz/common/frame_sinks/copy_output_result.h"
+ #include "content/browser/renderer_host/render_widget_host_impl.h"
+ #include "content/public/browser/render_frame_host.h"
+@@ -36,7 +38,10 @@
+ #include "third_party/blink/public/common/input/web_mouse_wheel_event.h"
+ #include "ui/events/event_utils.h"
+ #include "ui/events/keycodes/dom/keycode_converter.h"
++#include "ui/events/keycodes/keyboard_code_conversion.h"
++#include "ui/gfx/codec/jpeg_codec.h"
+ #include "ui/gfx/codec/png_codec.h"
++#include "ui/gfx/codec/webp_codec.h"
+ #include "ui/gfx/geometry/point_f.h"
+ #include "ui/gfx/geometry/rect.h"
+ #include "ui/gfx/range/range.h"
+@@ -45,6 +50,7 @@
+ namespace {
+ 
+ constexpr size_t kMaximumScreenshotBytes = 5 * 512 * 1024;
++constexpr int64_t kMaximumScreenshotArea = 25000000;
+ 
+ void Fail(AiFreeAutomationFailure failure,
+           std::string code,
+@@ -93,8 +99,9 @@ std::string ActionScript(const base::DictValue& command) {
+     const nth=Math.max(0,Math.floor(Number(a.nth)||0));
+     const find=()=>{for(const root of roots()){if(a.selector){try{const matches=root.querySelectorAll(a.selector);if(matches[nth])return matches[nth];}catch(_){}}const needle=String(a.targetText||(action==='type'?'':a.text)||'').trim();if(needle){const matches=[...root.querySelectorAll('button,a,input,textarea,select,[role="button"],[contenteditable="true"]')].filter(e=>String(e.innerText||e.value||e.getAttribute('aria-label')||'').trim().includes(needle));if(matches[nth])return matches[nth];}}return action==='press_key'?document.activeElement:null;};
+     if(action==='wait'){const found=!!find();return found!==!!a.hidden?{success:true,action,found}:{success:false,action,error:'等待条件尚未满足',errorCode:'WAIT_PENDING'};}
++    if(['click','double_click','right_click'].includes(action)&&Number.isFinite(Number(a.x))&&Number.isFinite(Number(a.y)))return {success:true,action,nativeInput:{x:Number(a.x),y:Number(a.y),viewportWidth:innerWidth,viewportHeight:innerHeight}};
+     const el=find();if(!el)return {success:false,action,error:'未找到目标元素',errorCode:'ELEMENT_NOT_FOUND'};el.scrollIntoView({block:'center',inline:'center'});el.focus();
+-    if(action==='type'){if(typeof el.select==='function')el.select();return {success:true,action,selector:a.selector||'',nativeKeyboard:true};}
++    if(action==='type'){if(a.clearFirst!==false&&typeof el.select==='function')el.select();return {success:true,action,selector:a.selector||'',nativeKeyboard:true};}
+     if(action==='press_key')return {success:true,action,key:String(a.key||a.text||'Enter'),nativeKeyboard:true};
+     const r=el.getBoundingClientRect();if(r.width<1||r.height<1)return {success:false,action,error:'目标元素不可见',errorCode:'ELEMENT_NOT_VISIBLE'};return {success:true,action,nativeInput:{x:r.left+r.width/2,y:r.top+r.height/2,viewportWidth:innerWidth,viewportHeight:innerHeight},selector:a.selector||''};
+   } catch(e) { return {success:false,error:String(e&&e.message||e),errorCode:'ACTION_FAILED'}; } })())JS"});
+@@ -129,9 +136,9 @@ void DispatchResolvedMouse(content::WebContents* contents,
+ }
+ 
+ input::NativeWebKeyboardEvent KeyboardEvent(blink::WebInputEvent::Type type,
+-                                             int windows_key_code) {
+-  input::NativeWebKeyboardEvent event(type, blink::WebInputEvent::kNoModifiers,
+-                                      ui::EventTimeForNow());
++                                             int windows_key_code,
++                                             int modifiers) {
++  input::NativeWebKeyboardEvent event(type, modifiers, ui::EventTimeForNow());
+   event.windows_key_code = windows_key_code;
+   return event;
+ }
+@@ -149,12 +156,21 @@ int KeyCode(std::string_view key) {
+   if (key == "ArrowUp") return 0x26;
+   if (key == "ArrowRight") return 0x27;
+   if (key == "ArrowDown") return 0x28;
++  if (key.size() == 1 && key[0] >= 'a' && key[0] <= 'z') {
++    return static_cast<int>(key[0] - 'a' + 'A');
++  }
++  if (key.size() == 1 &&
++      ((key[0] >= 'A' && key[0] <= 'Z') ||
++       (key[0] >= '0' && key[0] <= '9'))) {
++    return static_cast<int>(key[0]);
++  }
+   return 0x0D;
+ }
+ 
+ bool DispatchKeyboard(content::WebContents* contents,
+                       std::string_view action,
+-                      std::string_view value) {
++                      std::string_view value,
++                      int modifiers) {
+   content::RenderWidgetHost* widget =
+       contents->GetPrimaryMainFrame()->GetRenderWidgetHost();
+   if (!widget) return false;
+@@ -165,11 +181,12 @@ bool DispatchKeyboard(content::WebContents* contents,
+   }
+   const int key_code = KeyCode(value);
+   input::NativeWebKeyboardEvent key_down =
+-      KeyboardEvent(blink::WebInputEvent::Type::kRawKeyDown, key_code);
++      KeyboardEvent(blink::WebInputEvent::Type::kRawKeyDown, key_code,
++                    modifiers);
+   key_down.dom_key =
+       static_cast<int>(ui::KeycodeConverter::KeyStringToDomKey(value));
+-  key_down.dom_code =
+-      static_cast<int>(ui::KeycodeConverter::CodeStringToDomCode(value));
++  key_down.dom_code = static_cast<int>(ui::UsLayoutKeyboardCodeToDomCode(
++      static_cast<ui::KeyboardCode>(key_code)));
+   input::NativeWebKeyboardEvent key_up = key_down;
+   key_up.SetType(blink::WebInputEvent::Type::kKeyUp);
+   widget->ForwardKeyboardEvent(key_down);
+@@ -182,9 +199,14 @@ bool DispatchScroll(content::WebContents* contents,
+   content::RenderWidgetHost* widget =
+       contents->GetPrimaryMainFrame()->GetRenderWidgetHost();
+   if (!widget || !widget->GetView()) return false;
+-  const double amount = command.FindDouble("amount").value_or(600.0);
+-  const bool up = command.FindString("direction") &&
+-                  *command.FindString("direction") == "up";
++  const std::string direction =
++      command.FindString("direction") ? *command.FindString("direction")
++                                      : "down";
++  double amount = command.FindDouble("amount").value_or(600.0);
++  if (direction == "top" || direction == "bottom") {
++    amount = 1000000.0;
++  }
++  const bool up = direction == "up" || direction == "top";
+   blink::WebMouseWheelEvent event(blink::WebInputEvent::Type::kMouseWheel,
+                                   blink::WebInputEvent::kNoModifiers,
+                                   ui::EventTimeForNow());
+@@ -243,6 +265,7 @@ void OnMouseDispatched(AiFreeAutomationSuccess success,
+ void OnActionResult(content::GlobalRenderFrameHostId frame_id,
+                     std::string action,
+                     std::string keyboard_value,
++                    int keyboard_modifiers,
+                     AiFreeAutomationSuccess success,
+                     AiFreeAutomationFailure failure,
+                     base::Value value) {
+@@ -267,7 +290,8 @@ void OnActionResult(content::GlobalRenderFrameHostId frame_id,
+   base::DictValue response = result->Clone();
+   if (native_keyboard) {
+     response.Remove("nativeKeyboard");
+-    if (!DispatchKeyboard(contents, action, keyboard_value)) {
++    if (!DispatchKeyboard(contents, action, keyboard_value,
++                          keyboard_modifiers)) {
+       return Fail(std::move(failure), "INPUT_TARGET_UNAVAILABLE",
+                   "Chromium 原生键盘输入目标不可用");
+     }
+@@ -396,7 +420,24 @@ void OnStorage(Profile* profile,
+                                         std::move(failure), storage->Clone()));
+ }
+ 
+-void OnScreenshot(AiFreeAutomationSuccess success,
++std::optional<std::vector<uint8_t>> EncodeScreenshot(
++    const SkBitmap& bitmap,
++    std::string_view format,
++    int quality) {
++  if (format == "jpeg") return gfx::JPEGCodec::Encode(bitmap, quality);
++  if (format == "webp") return gfx::WebpCodec::Encode(bitmap, quality);
++  return gfx::PNGCodec::EncodeBGRASkBitmap(bitmap, false);
++}
++
++std::string ScreenshotMimeType(std::string_view format) {
++  if (format == "jpeg") return "image/jpeg";
++  if (format == "webp") return "image/webp";
++  return "image/png";
++}
++
++void OnScreenshot(std::string format,
++                  int quality,
++                  AiFreeAutomationSuccess success,
+                   AiFreeAutomationFailure failure,
+                   const content::CopyFromSurfaceResult& copy_result) {
+   if (!copy_result.has_value() || copy_result->bitmap.drawsNothing()) {
+@@ -404,29 +445,149 @@ void OnScreenshot(AiFreeAutomationSuccess success,
+                 "Chromium 页面 Surface 截图失败");
+   }
+   std::optional<std::vector<uint8_t>> png =
+-      gfx::PNGCodec::EncodeBGRASkBitmap(copy_result->bitmap, false);
++      EncodeScreenshot(copy_result->bitmap, format, quality);
+   if (!png || png->empty() || png->size() > kMaximumScreenshotBytes) {
+     return Fail(std::move(failure), "SCREENSHOT_TOO_LARGE",
+                 "原生截图为空或超过 Runtime Bridge 大小限制");
+   }
+   base::DictValue result;
+   result.Set("success", true);
+-  result.Set("dataUrl", base::StrCat({"data:image/png;base64,",
++  result.Set("dataUrl", base::StrCat({"data:", ScreenshotMimeType(format),
++                                      ";base64,",
+                                       base::Base64Encode(*png)}));
+   result.Set("width", copy_result->bitmap.width());
+   result.Set("height", copy_result->bitmap.height());
+   std::move(success).Run(std::move(result));
+ }
+ 
+-void CaptureScreenshot(content::WebContents* web_contents,
++void OnPreciseScreenshot(
++    std::string format,
++    int quality,
++    AiFreeAutomationSuccess success,
++    AiFreeAutomationFailure failure,
++    base::expected<const SkBitmap*, std::string> screenshot) {
++  if (!screenshot.has_value() || !screenshot.value() ||
++      screenshot.value()->drawsNothing()) {
++    return Fail(std::move(failure), "SCREENSHOT_CAPTURE_FAILED",
++                screenshot.has_value() ? "Chromium 精确截图为空"
++                                       : screenshot.error());
++  }
++  std::optional<std::vector<uint8_t>> png =
++      EncodeScreenshot(*screenshot.value(), format, quality);
++  if (!png || png->empty() || png->size() > kMaximumScreenshotBytes) {
++    return Fail(std::move(failure), "SCREENSHOT_TOO_LARGE",
++                "精确截图为空或超过 Runtime Bridge 大小限制");
++  }
++  base::DictValue result;
++  result.Set("success", true);
++  result.Set("dataUrl", base::StrCat({"data:", ScreenshotMimeType(format),
++                                      ";base64,",
++                                      base::Base64Encode(*png)}));
++  result.Set("width", screenshot.value()->width());
++  result.Set("height", screenshot.value()->height());
++  std::move(success).Run(std::move(result));
++}
++
++std::string ScreenshotClipScript(const base::DictValue& command) {
++  return base::StrCat(
++      {"(()=>{ const a=", CommandJson(command),
++       R"JS(; try {
++    if(a.fullPage===true){const d=document.documentElement,b=document.body;return {success:true,fullPage:true,width:Math.max(d.scrollWidth,d.clientWidth,b?.scrollWidth||0,b?.clientWidth||0),height:Math.max(d.scrollHeight,d.clientHeight,b?.scrollHeight||0,b?.clientHeight||0)};}
++    const selector=String(a.selector||'').trim(), wanted=String(a.text||'').trim();
++    if(!selector&&!wanted)return {success:false,error:'元素截图缺少 selector 或 text',errorCode:'SCREENSHOT_SELECTOR_REQUIRED'};
++    let target=null;
++    const roots=[document];
++    for(let i=0;i<roots.length&&!target;i++){const root=roots[i];for(const el of root.querySelectorAll('*')){if(el.shadowRoot)roots.push(el.shadowRoot);}if(selector){try{target=root.querySelector(selector);}catch(_){return {success:false,error:'CSS selector 无效',errorCode:'SELECTOR_INVALID'};}}else{target=[...root.querySelectorAll('body *')].find(el=>String(el.innerText||el.textContent||'').trim().includes(wanted))||null;}}
++    if(!target)return {success:false,error:'未找到截图元素',errorCode:'ELEMENT_NOT_FOUND'};
++    const r=target.getBoundingClientRect();
++    if(r.width<1||r.height<1)return {success:false,error:'截图元素不可见',errorCode:'ELEMENT_NOT_VISIBLE'};
++    const margin=Math.max(0,Math.min(1000,Number(a.margin)||0));
++    return {success:true,x:Math.max(0,Math.floor(r.left+scrollX-margin)),y:Math.max(0,Math.floor(r.top+scrollY-margin)),width:Math.ceil(r.width+margin*2),height:Math.ceil(r.height+margin*2)};
++  } catch(e) { return {success:false,error:String(e&&e.message||e),errorCode:'SCREENSHOT_MEASURE_FAILED'}; } })())JS"});
++}
++
++void OnScreenshotClip(Profile* profile,
++                      content::GlobalRenderFrameHostId frame_id,
++                      std::string format,
++                      int quality,
++                      AiFreeAutomationSuccess success,
++                      AiFreeAutomationFailure failure,
++                      base::Value value) {
++  const base::DictValue* result = value.GetIfDict();
++  if (!result || !result->FindBool("success").value_or(false)) {
++    const std::string* code = result ? result->FindString("errorCode") : nullptr;
++    const std::string* message = result ? result->FindString("error") : nullptr;
++    return Fail(std::move(failure),
++                code ? *code : "SCREENSHOT_MEASURE_FAILED",
++                message ? *message : "无法计算截图区域");
++  }
++  content::RenderFrameHost* frame = content::RenderFrameHost::FromID(frame_id);
++  content::WebContents* contents =
++      frame ? content::WebContents::FromRenderFrameHost(frame) : nullptr;
++  if (!contents) {
++    return Fail(std::move(failure), "SCREENSHOT_TARGET_UNAVAILABLE",
++                "截图页面已经关闭");
++  }
++  gfx::Rect clip;
++  if (result->FindBool("fullPage").value_or(false)) {
++    const int page_width = result->FindInt("width").value_or(0);
++    const int page_height = result->FindInt("height").value_or(0);
++    if (page_width <= 0 || page_height <= 0 ||
++        static_cast<int64_t>(page_width) * page_height >
++            kMaximumScreenshotArea) {
++      return Fail(std::move(failure), "SCREENSHOT_AREA_INVALID",
++                  "整页截图区域为空或超过 2500 万像素");
++    }
++  } else {
++    clip = gfx::Rect(result->FindInt("x").value_or(0),
++                     result->FindInt("y").value_or(0),
++                     result->FindInt("width").value_or(0),
++                     result->FindInt("height").value_or(0));
++    if (clip.IsEmpty() ||
++        static_cast<int64_t>(clip.width()) * clip.height() >
++            kMaximumScreenshotArea) {
++      return Fail(std::move(failure), "SCREENSHOT_AREA_INVALID",
++                  "元素截图区域为空或超过 2500 万像素");
++    }
++  }
++  auto* service =
++      page_content_annotations::PageContentScreenshotServiceFactory::
++          GetForProfile(profile);
++  if (!service) {
++    return Fail(std::move(failure), "SCREENSHOT_SERVICE_UNAVAILABLE",
++                "Chromium 精确截图服务不可用");
++  }
++  page_content_annotations::PageContentScreenshotService::RequestParams params{
++      .clip_rect = clip,
++      .scale_factor = 1.0,
++      .max_per_capture_bytes = 0,
++  };
++  service->RequestScreenshot(
++      contents, std::move(params),
++      base::BindOnce(&OnPreciseScreenshot, std::move(format), quality,
++                     std::move(success), std::move(failure)));
++}
++
++void CaptureScreenshot(Profile* profile,
++                       content::WebContents* web_contents,
+                        const base::DictValue& command,
+                        AiFreeAutomationSuccess success,
+                        AiFreeAutomationFailure failure) {
++  const std::string format =
++      command.FindString("format") ? *command.FindString("format") : "png";
++  const int quality =
++      std::clamp(command.FindInt("quality").value_or(80), 0, 100);
+   if (command.FindBool("fullPage").value_or(false) ||
+       (command.FindString("selector") &&
+-       !command.FindString("selector")->empty())) {
+-    return Fail(std::move(failure), "SCREENSHOT_MODE_UNSUPPORTED",
+-                "原生通道当前只支持视口或视口坐标区域截图");
++       !command.FindString("selector")->empty()) ||
++      (command.FindString("text") && !command.FindString("text")->empty())) {
++    const content::GlobalRenderFrameHostId frame_id =
++        web_contents->GetPrimaryMainFrame()->GetGlobalId();
++    ExecuteIsolated(
++        web_contents, ScreenshotClipScript(command),
++        base::BindOnce(&OnScreenshotClip, profile, frame_id, format, quality,
++                       std::move(success), std::move(failure)));
++    return;
+   }
+   content::RenderWidgetHostView* view = web_contents->GetRenderWidgetHostView();
+   if (!view || !view->IsSurfaceAvailableForCopy()) {
+@@ -443,7 +604,8 @@ void CaptureScreenshot(content::WebContents* web_contents,
+   }
+   view->CopyFromSurface(
+       clip, gfx::Size(), base::Seconds(5),
+-      base::BindOnce(&OnScreenshot, std::move(success), std::move(failure)));
++      base::BindOnce(&OnScreenshot, format, quality, std::move(success),
++                     std::move(failure)));
+ }
+ 
+ }  // namespace
+@@ -506,9 +668,22 @@ bool HandleAiFreePageAutomationCommand(Browser* browser,
+         command.FindString(action == "type" ? "text" : "key");
+     const std::string keyboard_value =
+         keyboard_input ? *keyboard_input : (action == "type" ? "" : "Enter");
++    int keyboard_modifiers = blink::WebInputEvent::kNoModifiers;
++    if (command.FindBool("ctrl").value_or(false)) {
++      keyboard_modifiers |= blink::WebInputEvent::kControlKey;
++    }
++    if (command.FindBool("shift").value_or(false)) {
++      keyboard_modifiers |= blink::WebInputEvent::kShiftKey;
++    }
++    if (command.FindBool("alt").value_or(false)) {
++      keyboard_modifiers |= blink::WebInputEvent::kAltKey;
++    }
++    if (command.FindBool("meta").value_or(false)) {
++      keyboard_modifiers |= blink::WebInputEvent::kMetaKey;
++    }
+     ExecuteIsolated(web_contents, ActionScript(command),
+                     base::BindOnce(&OnActionResult, frame_id, action,
+-                                   keyboard_value,
++                                   keyboard_value, keyboard_modifiers,
+                                    std::move(success), std::move(failure)));
+     return true;
+   }
+@@ -520,7 +695,7 @@ bool HandleAiFreePageAutomationCommand(Browser* browser,
+     return true;
+   }
+   if (*type == "capture-screenshot") {
+-    CaptureScreenshot(web_contents, command, std::move(success),
++    CaptureScreenshot(browser->profile(), web_contents, command, std::move(success),
+                       std::move(failure));
+     return true;
+   }

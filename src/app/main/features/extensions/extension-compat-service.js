@@ -147,9 +147,6 @@ function createCompatCopy(deps, plugin, sourcePath, paths) {
 function prepareCompatExtensionPath(deps, plugin) {
   const sourcePath = deps.normalizeAbsolutePath(plugin?.path);
   if (!sourcePath) return '';
-  const isBrowserAutomation = plugin?.builtin === true
-    && deps.path.basename(sourcePath).toLowerCase() === deps.browserAutomationDirName;
-  if (isBrowserAutomation) return sourcePath;
   const scan = deps.scanExtensionCompatNeeds(sourcePath);
   if (!scan.needsCompatShim) return sourcePath;
   const paths = buildCompatPaths(deps, plugin, sourcePath, scan);

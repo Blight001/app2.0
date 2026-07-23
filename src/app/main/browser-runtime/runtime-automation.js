@@ -34,12 +34,18 @@ function optionalText(value, maxLength = 8192) {
   return result;
 }
 
+function listText(value, maxLength = 512) {
+  const source = Array.isArray(value) ? value : [value];
+  return optionalText(source.filter((item) => item !== undefined && item !== null).join(','), maxLength);
+}
+
 function normalizeObservePayload(source) {
   return {
     limit: boundedInteger(source.limit ?? source.max_items, 200, 1, 1000),
-    keyword: optionalText(source.keyword, 512),
-    tag: optionalText(source.tag, 64).toLowerCase(),
-    filter: optionalText(source.filter, 64).toLowerCase(),
+    keyword: optionalText(source.keyword ?? source.query ?? source.text_filter, 512),
+    selector: optionalText(source.selector, 4096),
+    tag: listText(source.tag ?? source.tags, 256).toLowerCase(),
+    filter: listText(source.filter, 256).toLowerCase(),
     includeText: source.include_text !== false,
     includeMedia: source.include_media !== false,
     showHighlights: source.mark !== false
@@ -54,16 +60,20 @@ function normalizeObservePayload(source) {
 
 function normalizeScreenshotPayload(source) {
   const format = optionalText(source.format || 'png', 16).toLowerCase();
-  if (format !== 'png') {
-    throw automationError('SCREENSHOT_FORMAT_INVALID', '原生截图当前只支持 PNG');
+  if (!['png', 'jpeg', 'webp'].includes(format)) {
+    throw automationError('SCREENSHOT_FORMAT_INVALID', `原生截图不支持格式: ${format}`);
   }
+  const clip = asObject(source.clip);
   return {
     format,
-    x: boundedInteger(source.x, 0, 0, 1_000_000),
-    y: boundedInteger(source.y, 0, 0, 1_000_000),
-    width: boundedInteger(source.width, 0, 0, 1_000_000),
-    height: boundedInteger(source.height, 0, 0, 1_000_000),
+    quality: boundedInteger(source.quality, 80, 0, 100),
+    x: boundedInteger(clip.x ?? source.x, 0, 0, 1_000_000),
+    y: boundedInteger(clip.y ?? source.y, 0, 0, 1_000_000),
+    width: boundedInteger(clip.width ?? source.width, 0, 0, 1_000_000),
+    height: boundedInteger(clip.height ?? source.height, 0, 0, 1_000_000),
     selector: optionalText(source.selector, 4096),
+    text: optionalText(source.text, 2048),
+    margin: boundedInteger(source.margin ?? source.padding, 0, 0, 1000),
     fullPage: source.full_page === true || source.fullPage === true,
   };
 }
@@ -79,9 +89,20 @@ function normalizeActionPayload(source) {
     text: optionalText(source.text ?? source.value, 1024 * 1024),
     key: optionalText(source.key, 64),
     ref: optionalText(source.ref, 128),
+    targetText: optionalText(source.target_text ?? source.targetText, 2048),
+    nth: boundedInteger(source.nth, 0, 0, 1000),
+    x: boundedInteger(source.x, 0, -1_000_000, 1_000_000),
+    y: boundedInteger(source.y, 0, -1_000_000, 1_000_000),
     direction: optionalText(source.direction || 'down', 16),
     amount: boundedInteger(source.amount ?? source.delta_y, 600, -100000, 100000),
     timeoutMs: boundedInteger(source.timeout_ms ?? source.timeout, 10000, 100, 120000),
+    clearFirst: source.clear_first !== false,
+    hidden: source.hidden === true,
+    submit: source.submit === true,
+    ctrl: source.ctrl === true,
+    shift: source.shift === true,
+    alt: source.alt === true,
+    meta: source.meta === true,
   };
 }
 

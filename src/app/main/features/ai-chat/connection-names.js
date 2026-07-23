@@ -81,7 +81,6 @@ function applyBrowserName(connection, browser) {
   if (!browser || !browser.browserName) return connection;
   return {
     ...connection,
-    pluginName: connection.name,
     profileId: browser.profileId,
     browserName: browser.browserName,
     name: browser.browserName,

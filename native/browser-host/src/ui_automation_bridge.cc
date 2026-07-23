@@ -106,6 +106,9 @@ bool IsOwnedBy(HWND window, HWND expected_owner) {
 bool PointBelongsToBoundWindow(POINT point, HWND child, DWORD expected_pid) {
   const HWND hit = WindowFromPoint(point);
   if (!WindowBelongsToProcess(hit, expected_pid)) return false;
+  for (HWND current = hit; current; current = GetParent(current)) {
+    if (current == child) return true;
+  }
   const HWND root = GetAncestor(hit, GA_ROOT);
   return root == child || IsOwnedBy(root, child);
 }
@@ -130,9 +133,19 @@ HWND ResolveAutomationWindow(HWND child, DWORD expected_pid) {
   if (popup != child
       && IsWindowVisible(popup)
       && WindowBelongsToProcess(popup, expected_pid)
-      && IsOwnedBy(popup, child)) return popup;
+      && IsOwnedBy(popup, child)) {
+    SetWindowPos(
+        popup, HWND_TOP, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    return popup;
+  }
   PopupSearch search = { child, expected_pid, nullptr };
   EnumWindows(FindOwnedPopup, reinterpret_cast<LPARAM>(&search));
+  if (search.found) {
+    SetWindowPos(
+        search.found, HWND_TOP, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+  }
   return search.found ? search.found : child;
 }
 
@@ -364,6 +377,13 @@ bool IsMouseAction(const std::wstring& action) {
       || action == L"double_click" || action == L"right_click";
 }
 
+bool ReadBoolean(napi_env env, napi_value object, const char* name) {
+  napi_value value = GetNamed(env, object, name);
+  bool result = false;
+  if (value) napi_get_value_bool(env, value, &result);
+  return result;
+}
+
 bool EnsureActionSucceeded(
     napi_env env, const UiAutomationActionResult& result) {
   if (SUCCEEDED(result.result)) return true;
@@ -466,10 +486,43 @@ napi_value PerformExternalWindowUiAction(napi_env env, napi_callback_info info) 
   const std::wstring text = ReadWideString(env, GetNamed(env, options, "text"), L"");
   const int x = ReadInt32(env, options, "x", INT_MIN);
   const int y = ReadInt32(env, options, "y", INT_MIN);
+  const int end_x = ReadInt32(env, options, "endX", INT_MIN);
+  const int end_y = ReadInt32(env, options, "endY", INT_MIN);
+  const int delta = std::clamp(ReadInt32(env, options, "delta", 0), -1200, 1200);
+  const bool direct_input = ReadBoolean(env, options, "directInput");
   const HWND automation_window = ResolveAutomationWindow(child, pid);
   if (IsMouseAction(action) && x != INT_MIN && y != INT_MIN) {
     const UiAutomationActionResult direct = PerformBoundMouseAction(
         child, pid, action, { x, y });
+    return EnsureActionSucceeded(env, direct)
+      ? ActionResultValue(env, direct, action, ref, automation_window)
+      : nullptr;
+  }
+  if (action == L"type" && direct_input) {
+    const UiAutomationActionResult direct = PerformBoundTextInput(
+        child, pid, text);
+    return EnsureActionSucceeded(env, direct)
+      ? ActionResultValue(env, direct, action, ref, automation_window)
+      : nullptr;
+  }
+  if (action == L"press_key" && direct_input) {
+    const UiAutomationActionResult direct = PerformBoundKeyInput(
+        child, pid, text);
+    return EnsureActionSucceeded(env, direct)
+      ? ActionResultValue(env, direct, action, ref, automation_window)
+      : nullptr;
+  }
+  if (action == L"scroll" && x != INT_MIN && y != INT_MIN && delta != 0) {
+    const UiAutomationActionResult direct = PerformBoundScroll(
+        child, pid, { x, y }, delta);
+    return EnsureActionSucceeded(env, direct)
+      ? ActionResultValue(env, direct, action, ref, automation_window)
+      : nullptr;
+  }
+  if (action == L"drag" && x != INT_MIN && y != INT_MIN
+      && end_x != INT_MIN && end_y != INT_MIN) {
+    const UiAutomationActionResult direct = PerformBoundDrag(
+        child, pid, { x, y }, { end_x, end_y });
     return EnsureActionSucceeded(env, direct)
       ? ActionResultValue(env, direct, action, ref, automation_window)
       : nullptr;

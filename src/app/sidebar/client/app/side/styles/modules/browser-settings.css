@@ -1,7 +1,7 @@
 .tab-nav {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0;
   margin: 6px max(12px, calc((100% - var(--content-max)) / 2)) 12px;
   padding: 0;

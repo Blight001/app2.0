@@ -106,7 +106,7 @@
     option.value = `${SOFTWARE_TARGET_PREFIX}${profileId}`;
     option.dataset.targetType = 'software';
     option.textContent = `${String(target.name || '外部软件')} · 软件 UI`;
-    option.title = `UI Automation · PID ${Number(target.pid || 0)}`;
+    option.title = `软件视觉控制 · PID ${Number(target.pid || 0)}`;
     return option;
   }
 

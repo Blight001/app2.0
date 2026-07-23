@@ -45,32 +45,6 @@ const splitSourceFiles = {
   'src/app/sidebar/client/app/side/controllers/shared/message-modal.js': [
     'message-modal.js', 'message-modal-server.js', 'message-modal-dialogs.js',
   ],
-  'src/assets/extensions/browser_automation/background/02_sidebar_page.js': [
-    '02_sidebar_page.js', '02_sidebar_actions.js', '02_sidebar_wait.js',
-  ],
-  'src/assets/extensions/browser_automation/background/09_agent_socket.js': [
-    '09_agent_socket.js', '09_agent_protocol.js', '09_agent_connection.js', '09_agent_transport.js',
-    '09_agent_tasks.js', '09_agent_runtime.js',
-  ],
-  'src/assets/extensions/browser_automation/background/06_automation_run.js': [
-    '06_automation_run.js', '06_run_context.js', '06_run_step_handlers.js',
-    '06_run_action_handlers.js', '06_run_loop.js', '06_run_capture.js',
-    '06_run_lifecycle.js',
-  ],
-  'src/assets/extensions/browser_automation/popup/automation-workbench.js': [
-    'automation-workbench.js', 'automation-workbench-progress.js',
-    'automation-workbench-flow-layout.js', 'automation-workbench-flow-canvas.js',
-    'automation-workbench-flow-events.js', 'automation-workbench-selector.js',
-    'automation-workbench-step-editor.js', 'automation-workbench-storage.js',
-    'automation-workbench-cache.js',
-  ],
-  'src/assets/extensions/browser_automation/popup/bindings.js': [
-    'bindings.js', 'bindings-card-data.js', 'bindings-cache.js',
-    'bindings-editor.js', 'bindings-flow.js',
-  ],
-  'src/assets/extensions/browser_automation/popup/automation-flow.js': [
-    'automation-card-import-parser.js', 'automation-flow.js',
-  ],
 };
 
 function readProjectSource(relativePath) {

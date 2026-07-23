@@ -4,6 +4,7 @@
 #include "external_window_dock.h"
 #include "focus_manager.h"
 #include "ui_automation_bridge.h"
+#include "window_capture.h"
 
 napi_value SetPerMonitorDpiAwareness(napi_env env, napi_callback_info info);
 napi_value IsWindowAlive(napi_env env, napi_callback_info info);
@@ -37,6 +38,7 @@ NAPI_MODULE_INIT() {
     {"getWindowPlacementSnapshot", nullptr, GetWindowPlacementSnapshot, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"observeExternalWindowUi", nullptr, ObserveExternalWindowUi, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"performExternalWindowUiAction", nullptr, PerformExternalWindowUiAction, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"captureExternalWindow", nullptr, CaptureExternalWindow, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"setPerMonitorDpiAwareness", nullptr, SetPerMonitorDpiAwareness, nullptr, nullptr, nullptr, napi_default, nullptr},
   };
   napi_define_properties(env, exports, sizeof(properties) / sizeof(properties[0]), properties);

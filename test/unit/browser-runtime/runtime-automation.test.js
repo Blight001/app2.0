@@ -14,7 +14,7 @@ test('normalizes bounded native observe and action payloads', () => {
   assert.deepEqual(normalizeRuntimeAutomation('observe-page', {
     max_items: 5000, keyword: '登录', include_media: false,
   }), {
-    limit: 1000, keyword: '登录', tag: '', filter: '', includeText: true, includeMedia: false,
+    limit: 1000, keyword: '登录', selector: '', tag: '', filter: '', includeText: true, includeMedia: false,
     showHighlights: true, highlightDurationMs: 5000,
   });
   const hiddenMarks = normalizeRuntimeAutomation('observe-page', {
@@ -25,6 +25,15 @@ test('normalizes bounded native observe and action payloads', () => {
   assert.equal(normalizeRuntimeAutomation('perform-action', {
     action: 'type', selector: '#email', text: 'a@example.com', timeout: 1,
   }).timeoutMs, 100);
+  assert.deepEqual(normalizeRuntimeAutomation('capture-screenshot', {
+    format: 'webp', quality: 101, text: '订单', clip: { x: 2, y: 3, width: 40, height: 50 },
+  }), {
+    format: 'webp', quality: 100, x: 2, y: 3, width: 40, height: 50,
+    selector: '', text: '订单', margin: 0, fullPage: false,
+  });
+  assert.equal(normalizeRuntimeAutomation('observe-page', {
+    query: '提交', tags: ['button', 'a'], filter: ['interactive', 'text'],
+  }).tag, 'button,a');
 });
 
 test('rejects unknown native commands and actions', () => {
@@ -49,15 +58,16 @@ test('routes native automation only to a live managed Chromium process', async (
   );
 });
 
-test('fork automation commands are allowlisted and the extension no longer injects on every page', () => {
-  for (const command of ['observe-page', 'capture-screenshot', 'perform-action', 'get-session-data']) {
+test('fork automation commands are allowlisted without a browser automation extension', () => {
+  for (const command of [
+    'observe-page', 'capture-screenshot', 'perform-action', 'get-session-data',
+    'manage-tabs', 'clear-site-data',
+  ]) {
     assert.equal(ALLOWED_COMMANDS.has(command), true);
   }
-  const manifestPath = path.join(
-    __dirname, '../../../src/assets/extensions/browser_automation/manifest.json',
-  );
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  assert.equal(Object.hasOwn(manifest, 'content_scripts'), false);
+  assert.equal(fs.existsSync(path.join(
+    __dirname, '../../../src/assets/extensions/browser_automation',
+  )), false);
 });
 
 test('fork click patch uses an event-transparent visible Chromium pointer', () => {
@@ -112,4 +122,46 @@ test('fork observe highlights stay in the native event-transparent UI layer', ()
   assert.match(patch, /chromium-native-overlay/);
   assert.match(patch, /OnVisibilityChanged/);
   assert.doesNotMatch(patch, /^\+.*(?:document\.body\.append|createElement)/m);
+});
+
+test('fork native card support manages tabs and limits site clearing to the current origin', () => {
+  const patchDirectory = path.join(__dirname, '../../../native/chromium-fork/patches');
+  const series = fs.readFileSync(path.join(patchDirectory, 'series'), 'utf8');
+  const patch = fs.readFileSync(
+    path.join(patchDirectory, '0025-ai-free-native-tab-and-site-data.patch'), 'utf8',
+  );
+  assert.match(series, /0024-ai-free-native-observe-highlights\.patch\s+0025-ai-free-native-tab-and-site-data\.patch/);
+  assert.match(patch, /ClearDataForOrigin/);
+  assert.match(patch, /ManageTabs/);
+  assert.doesNotMatch(patch, /ClearBrowsingData/);
+});
+
+test('fork native card targeting supports selector filters, text, nth and hidden waits', () => {
+  const patchDirectory = path.join(__dirname, '../../../native/chromium-fork/patches');
+  const series = fs.readFileSync(path.join(patchDirectory, 'series'), 'utf8');
+  const patch = fs.readFileSync(
+    path.join(patchDirectory, '0026-ai-free-native-card-targeting.patch'), 'utf8',
+  );
+  assert.match(series, /0025-ai-free-native-tab-and-site-data\.patch\s+0026-ai-free-native-card-targeting\.patch/);
+  assert.match(patch, /selectorFilter/);
+  assert.match(patch, /targetText/);
+  assert.match(patch, /const nth=/);
+  assert.match(patch, /a\.hidden/);
+});
+
+test('fork native screenshot and input parity supports precise capture and modifiers', () => {
+  const patchDirectory = path.join(__dirname, '../../../native/chromium-fork/patches');
+  const series = fs.readFileSync(path.join(patchDirectory, 'series'), 'utf8');
+  const patch = fs.readFileSync(
+    path.join(patchDirectory, '0027-ai-free-native-screenshot-and-input-parity.patch'), 'utf8',
+  );
+  assert.match(series, /0026-ai-free-native-card-targeting\.patch\s+0027-ai-free-native-screenshot-and-input-parity\.patch/);
+  assert.match(patch, /PageContentScreenshotService/);
+  assert.match(patch, /JPEGCodec/);
+  assert.match(patch, /WebpCodec/);
+  assert.match(patch, /kMaximumScreenshotArea/);
+  assert.match(patch, /kControlKey/);
+  assert.match(patch, /UsLayoutKeyboardCodeToDomCode/);
+  assert.match(patch, /scrollHeight/);
+  assert.match(patch, /a\.clearFirst/);
 });

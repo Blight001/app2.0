@@ -1,0 +1,140 @@
+diff --git a/chrome/browser/ui/views/frame/ai_free_runtime_bridge_win.cc b/chrome/browser/ui/views/frame/ai_free_runtime_bridge_win.cc
+index 3ff7024..eb1da65 100644
+--- a/chrome/browser/ui/views/frame/ai_free_runtime_bridge_win.cc
++++ b/chrome/browser/ui/views/frame/ai_free_runtime_bridge_win.cc
+@@ -36,6 +36,8 @@
+ #include "chrome/browser/lifetime/application_lifetime_desktop.h"
+ #include "chrome/browser/profiles/profile.h"
+ #include "chrome/browser/ui/browser.h"
++#include "chrome/browser/ui/navigator/browser_navigator.h"
++#include "chrome/browser/ui/navigator/browser_navigator_params.h"
+ #include "chrome/browser/ui/browser_window.h"
+ #include "chrome/browser/ui/tabs/tab_strip_model.h"
+ #include "chrome/common/chrome_isolated_world_ids.h"
+@@ -58,6 +60,7 @@
+ #include "third_party/blink/public/common/input/web_input_event.h"
+ #include "third_party/blink/public/common/input/web_mouse_event.h"
+ #include "ui/base/page_transition_types.h"
++#include "ui/base/window_open_disposition.h"
+ #include "ui/events/event_utils.h"
+ #include "ui/gfx/geometry/rect.h"
+ #include "url/gurl.h"
+@@ -758,6 +761,75 @@ void HandleSetStorage(scoped_refptr<BridgeConnection> connection,
+   observer->Start();
+ }
+ 
++base::DictValue BuildTabResult(Browser* browser,
++                               const std::string& action) {
++  TabStripModel* model = browser->tab_strip_model();
++  base::ListValue tabs;
++  for (int index = 0; index < model->count(); ++index) {
++    content::WebContents* contents = model->GetWebContentsAt(index);
++    base::DictValue tab;
++    tab.Set("tabId", index);
++    tab.Set("active", index == model->active_index());
++    tab.Set("title", base::UTF16ToUTF8(contents->GetTitle()));
++    tab.Set("url", contents->GetLastCommittedURL().spec());
++    tabs.Append(std::move(tab));
++  }
++  base::DictValue result;
++  result.Set("success", true);
++  result.Set("action", action);
++  result.Set("activeTabId", model->active_index());
++  result.Set("tabs", std::move(tabs));
++  return result;
++}
++
++void HandleManageTabs(scoped_refptr<BridgeConnection> connection,
++                      Browser* browser,
++                      const base::DictValue& command,
++                      const std::string& request_id) {
++  TabStripModel* model = browser->tab_strip_model();
++  const std::string* action_value = command.FindString("action");
++  const std::string action = action_value ? *action_value : "list";
++  int tab_id = command.FindInt("tabId").value_or(model->active_index());
++  if (action == "list") {
++    return connection->SendSuccessAsync(
++        request_id, "manage-tabs", BuildTabResult(browser, action));
++  }
++  if (action == "navigate") {
++    const std::string* url_value = command.FindString("url");
++    const GURL url(url_value ? *url_value : std::string());
++    if (!IsAllowedWebUrl(url)) {
++      return connection->SendErrorAsync(request_id, "manage-tabs",
++                                        "URL_INVALID", "标签页 URL 无效");
++    }
++    NavigateParams params(browser, url, ui::PAGE_TRANSITION_LINK);
++    params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
++    Navigate(&params);
++  } else {
++    if (tab_id < 0 || tab_id >= model->count()) {
++      return connection->SendErrorAsync(request_id, "manage-tabs",
++                                        "TAB_NOT_FOUND", "标签页不存在");
++    }
++    content::WebContents* contents = model->GetWebContentsAt(tab_id);
++    if (action == "switch") {
++      model->ActivateTabAt(tab_id);
++    } else if (action == "close") {
++      model->CloseWebContentsAt(
++          tab_id, TabCloseTypes::CLOSE_CREATE_HISTORICAL_TAB);
++    } else if (action == "back" && contents->GetController().CanGoBack()) {
++      contents->GetController().GoBack();
++    } else if (action == "forward" &&
++               contents->GetController().CanGoForward()) {
++      contents->GetController().GoForward();
++    } else {
++      return connection->SendErrorAsync(request_id, "manage-tabs",
++                                        "TAB_ACTION_INVALID",
++                                        "标签页操作不可用");
++    }
++  }
++  connection->SendSuccessAsync(
++      request_id, "manage-tabs", BuildTabResult(browser, action));
++}
++
+ void HandleCommandOnUi(scoped_refptr<BridgeConnection> connection,
+                        base::DictValue command) {
+   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+@@ -805,6 +877,9 @@ void HandleCommandOnUi(scoped_refptr<BridgeConnection> connection,
+     web_contents->GetController().Reload(content::ReloadType::NORMAL, true);
+     return;
+   }
++  if (command_name == "manage-tabs") {
++    return HandleManageTabs(connection, browser, command, request);
++  }
+   if (command_name == "dispatch-input") {
+     return HandleDispatchInput(connection, web_contents, command, request);
+   }
+@@ -814,6 +887,32 @@ void HandleCommandOnUi(scoped_refptr<BridgeConnection> connection,
+   if (command_name == "set-storage") {
+     return HandleSetStorage(connection, browser, command, request);
+   }
++  if (command_name == "clear-site-data") {
++    const GURL page_url = web_contents->GetLastCommittedURL();
++    if (!IsAllowedWebUrl(page_url)) {
++      return connection->SendErrorAsync(request, command_name,
++                                        "URL_INVALID", "当前页面 URL 无效");
++    }
++    const uint32_t remove_mask =
++        content::StoragePartition::REMOVE_DATA_MASK_COOKIES |
++        content::StoragePartition::REMOVE_DATA_MASK_LOCAL_STORAGE |
++        content::StoragePartition::REMOVE_DATA_MASK_INDEXEDDB |
++        content::StoragePartition::REMOVE_DATA_MASK_CACHE_STORAGE;
++    browser->profile()->GetDefaultStoragePartition()->ClearDataForOrigin(
++        remove_mask, page_url,
++        base::BindOnce(
++            [](scoped_refptr<BridgeConnection> connection,
++               std::string request_id, std::string page_origin) {
++              base::DictValue result;
++              result.Set("success", true);
++              result.Set("origin", page_origin);
++              connection->SendSuccessAsync(request_id, "clear-site-data",
++                                           std::move(result));
++            },
++            connection, request,
++            page_url.DeprecatedGetOriginAsURL().spec()));
++    return;
++  }
+   if (command_name == "clear-session") {
+     VLOG(1) << "AI-FREE Runtime Bridge clearing profile session";
+     const uint32_t remove_mask =

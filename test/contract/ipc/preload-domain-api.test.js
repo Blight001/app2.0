@@ -141,6 +141,31 @@ test('software domain exposes only catalog listing and allowlisted opening', asy
   assert.equal('invoke' in exposed.aiFree.software, false);
 });
 
+test('automation domain exposes fixed card CRUD and run channels', async () => {
+  const { calls, exposed, ipcRenderer } = loadPreloadApi();
+  await exposed.aiFree.automation.getCard({ id: 'card-1' });
+  await exposed.aiFree.automation.selectCard({ id: 'card-1' });
+  await exposed.aiFree.automation.saveCard({ id: 'card-1', cardData: { name: 'Card', steps: [] } });
+  await exposed.aiFree.automation.runCard({ id: 'card-1' });
+  await exposed.aiFree.automation.stopCard();
+  await exposed.aiFree.automation.deleteCard({ id: 'card-1' });
+  const progress = [];
+  const unsubscribe = exposed.aiFree.automation.onProgress((payload) => progress.push(payload));
+  ipcRenderer.emit('automation-card-progress', {}, { phase: 'step_start' });
+  unsubscribe();
+  assert.deepEqual(calls, [
+    ['invoke', 'automation-card-get', { id: 'card-1' }],
+    ['invoke', 'ai-control-select-automation-card', { id: 'card-1' }],
+    ['invoke', 'automation-card-save', { id: 'card-1', cardData: { name: 'Card', steps: [] } }],
+    ['invoke', 'automation-card-run', { id: 'card-1' }],
+    ['invoke', 'automation-card-stop', undefined],
+    ['invoke', 'automation-card-delete', { id: 'card-1' }],
+  ]);
+  assert.deepEqual(progress, [{ phase: 'step_start' }]);
+  assert.equal(Object.isFrozen(exposed.aiFree.automation), true);
+  assert.equal('invoke' in exposed.aiFree.automation, false);
+});
+
 test('all sidebar scripts use named aiFree capabilities only', () => {
   const root = path.join(projectRoot, 'src/app/sidebar');
   const pending = [root];

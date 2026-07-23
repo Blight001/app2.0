@@ -33,6 +33,19 @@ function registerAiSupportIpc({ ipc, service }) {
     }
   });
 
+  async function callCardService(method, input) {
+    try {
+      return await service[method](input || {});
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  }
+  ipc.handle('automation-card-get', (_event, input) => callCardService('getAutomationCard', input));
+  ipc.handle('automation-card-save', (_event, input) => callCardService('saveAutomationCard', input));
+  ipc.handle('automation-card-delete', (_event, input) => callCardService('deleteAutomationCard', input));
+  ipc.handle('automation-card-run', (_event, input) => callCardService('runAutomationCard', input));
+  ipc.handle('automation-card-stop', () => callCardService('stopAutomationCard'));
+
   ipc.on('ai-control-browser-selection-changed', (_event, input = {}) => {
     service.broadcastBrowserSelection(input);
   });

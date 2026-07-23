@@ -22,6 +22,7 @@ test('侧边栏页面在真实 Electron 中加载并应用主题', { timeout: 60
   assert.equal(result.loaded, true, `页面加载失败: ${result.error || ''}`);
   assert.ok(['dark', 'light', 'gold'].includes(result.theme), `主题未应用: ${result.theme}`);
   assert.equal(result.hasControlShell, true, '缺少 .control-shell 容器');
-  assert.equal(result.tabButtons, 3, 'AI 控制/浏览器配置/软件配置三个 tab 按钮应存在');
+  assert.equal(result.tabButtons, 4, 'AI 控制/自动化/浏览器配置/软件配置四个 tab 按钮应存在');
+  assert.equal(result.automationPanelWorks, true, '自动化栏目应能切换并显示卡片列表与流程编辑器');
   assert.deepEqual(result.consoleErrors, [], `页面控制台报错: ${JSON.stringify(result.consoleErrors)}`);
 });

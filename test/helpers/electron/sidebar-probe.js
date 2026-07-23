@@ -32,6 +32,12 @@ app.whenReady().then(async () => {
       theme: document.documentElement.dataset.theme || '',
       hasControlShell: !!document.querySelector('.control-shell'),
       tabButtons: document.querySelectorAll('.tab-button').length,
+      automationPanelWorks: (() => {
+        document.querySelector('[data-tab="automation-panel"]')?.click();
+        return document.getElementById('automation-panel')?.classList.contains('active') === true
+          && !!document.getElementById('automation-flow-list')
+          && !!document.getElementById('automation-card-list');
+      })(),
       themeAfterToggle: (() => {
         // 真实触发主题应用逻辑（等价 app-theme-changed 广播路径）
         const root = document.documentElement;

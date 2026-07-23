@@ -18,7 +18,6 @@ function createManagerCompatService(runtime) {
   const files = runtime.files;
   return createExtensionCompatService({
     compatCacheSchema: config.COMPAT_CACHE_SCHEMA,
-    browserAutomationDirName: config.BROWSER_AUTOMATION_DIR_NAME,
     compatShimFile: config.COMPAT_SHIM_FILE,
     compatShimMarker: config.COMPAT_SHIM_MARKER,
     copyDirectoryRecursive: files.copyDirectoryRecursive,
@@ -41,7 +40,6 @@ function createManagerDiscovery(runtime) {
   const { app, fs, getTranslateExtDir, logger, path } = runtime.deps;
   return createExtensionDiscoveryService({
     app,
-    browserAutomationDirName: config.BROWSER_AUTOMATION_DIR_NAME,
     builtinRemoveWatermarkId: config.BUILTIN_REMOVE_WATERMARK_ID,
     builtinTranslateId: config.BUILTIN_TRANSLATE_ID,
     fs,

@@ -50,7 +50,7 @@
 
 - 内置扩展装载：`services/extension-manager.js`（1900 行）——发现、兼容副本、注入、刷新；状态 `get-extension-manager-state` / `extension-manager-state` 事件。
 - 自定义：`import-extension-plugin` / `remove-extension-plugin` / `set-extension-enabled`。
-- browser_automation 自研扩展：直接加载打包资源，经 loopback AutomationBridge(18765) 与主进程通信；注册后由桥接签发连接级 Token。
+- 浏览器自动化：软件主进程持有卡片与 7 个 MCP 工具，经 Profile 绑定的 Chromium Named Pipe Runtime Bridge 直接操作页面；loopback 端口仅保留受认证的外部 MCP 网关与软件卡片缓存接口，不接受扩展注册。
 
 ## 8. 更新与退出
 

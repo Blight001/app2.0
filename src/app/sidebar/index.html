@@ -29,6 +29,10 @@
         <span class="tab-button-icon" aria-hidden="true">✦</span>
         <span>AI 控制</span>
       </button>
+      <button class="tab-button" type="button" data-tab="automation-panel" aria-controls="automation-panel">
+        <span class="tab-button-icon" aria-hidden="true">◇</span>
+        <span>自动化</span>
+      </button>
       <button class="tab-button" type="button" data-tab="ai-free-settings-panel" aria-controls="ai-free-settings-panel">
         <span class="tab-button-icon" aria-hidden="true">⚙</span>
         <span>浏览器配置</span>
@@ -191,6 +195,125 @@
           </header>
           <div id="software-catalog-list" class="software-catalog-list" aria-live="polite">
             <div class="software-catalog-message">正在检测本机软件…</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="automation-panel" class="automation-panel panel" aria-label="自动化卡片">
+        <div class="automation-shell">
+          <header class="automation-heading">
+            <div>
+              <span class="automation-kicker">AUTOMATION WORKSPACE</span>
+              <h2>自动化卡片</h2>
+              <p>卡片保存在软件中，由内置 AI-FREE Chromium 原生执行。</p>
+            </div>
+            <button id="automation-refresh" class="automation-icon-button" type="button" aria-label="刷新卡片" title="刷新卡片">↻</button>
+          </header>
+
+          <div class="automation-toolbar">
+            <button id="automation-new-card" class="automation-primary-button" type="button">新建卡片</button>
+            <button id="automation-import-card" class="automation-secondary-button" type="button">导入 JSON</button>
+            <button id="automation-export-card" class="automation-secondary-button" type="button">导出当前卡片</button>
+            <input id="automation-import-file" type="file" accept=".json,application/json" multiple hidden>
+            <span id="automation-card-count" class="automation-count">0 张卡片</span>
+          </div>
+
+          <div class="automation-workspace">
+            <aside id="automation-card-list" class="automation-card-list" aria-label="全部自动化卡片" aria-live="polite">
+              <div class="automation-empty-list">正在读取卡片…</div>
+            </aside>
+
+            <main class="automation-editor">
+              <div id="automation-editor-empty" class="automation-editor-empty">
+                <span class="automation-empty-icon" aria-hidden="true">◇</span>
+                <strong>选择一张自动化卡片</strong>
+                <p>可查看完整流程、调整步骤并保存到软件卡片库。</p>
+              </div>
+
+              <form id="automation-card-form" class="automation-card-form" hidden>
+                <header class="automation-editor-heading">
+                  <div>
+                    <span id="automation-editor-mode" class="automation-editor-mode">编辑卡片</span>
+                    <h3 id="automation-editor-title">未命名卡片</h3>
+                  </div>
+                  <div class="automation-editor-actions">
+                    <button id="automation-run-card" class="automation-run-button" type="button">运行</button>
+                    <button id="automation-stop-card" class="automation-danger-button" type="button" hidden>停止</button>
+                    <button id="automation-save-card" class="automation-primary-button" type="submit">保存</button>
+                    <button id="automation-delete-card" class="automation-danger-button" type="button">删除</button>
+                  </div>
+                </header>
+
+                <section class="automation-card-settings" aria-label="卡片信息">
+                  <label>卡片名称<input id="automation-card-name" type="text" maxlength="160" required></label>
+                  <label>目标网址<input id="automation-card-website" type="url" maxlength="2048" placeholder="https://example.com"></label>
+                  <label>积分预期<input id="automation-card-points" type="number" min="0" step="1"></label>
+                  <label>失败重试次数<input id="automation-card-retries" type="number" min="0" max="10" step="1"></label>
+                  <label class="automation-wide-field">卡片说明<textarea id="automation-card-description" rows="2" maxlength="4000"></textarea></label>
+                  <label class="automation-wide-field">弹窗处理规则（每行一条）<textarea id="automation-card-popups" rows="3" maxlength="12000" placeholder="关闭活动弹窗&#10;点击“稍后再说”"></textarea></label>
+                </section>
+
+                <details class="automation-run-options">
+                  <summary>运行参数与断点续跑</summary>
+                  <div class="automation-run-options-grid">
+                    <label>从第几步开始<input id="automation-run-start-step" type="number" min="1" step="1" value="1"></label>
+                    <label>循环次数<input id="automation-run-loop-count" type="number" min="1" max="100" step="1" value="1"></label>
+                    <label class="automation-wide-field">变量覆盖 JSON<textarea id="automation-run-inputs" rows="3" spellcheck="false" placeholder='{"email":"user@example.com","password":"..."}'></textarea></label>
+                  </div>
+                </details>
+
+                <section class="automation-flow-section" aria-labelledby="automation-flow-title">
+                  <header class="automation-flow-heading">
+                    <div>
+                      <h4 id="automation-flow-title">卡片流程</h4>
+                      <span id="automation-step-count">0 个步骤</span>
+                    </div>
+                    <div class="automation-flow-actions">
+                      <select id="automation-new-step-type" aria-label="新步骤类型">
+                        <option value="navigate">访问网页</option>
+                        <option value="click">点击元素</option>
+                        <option value="type">输入内容</option>
+                        <option value="wait">等待条件</option>
+                        <option value="condition">判断分支</option>
+                        <option value="get_credits">获取积分</option>
+                        <option value="save_cookies">自动保存会话</option>
+                        <option value="clear_current_page_cache">清理缓存</option>
+                        <option value="screenshot">截图</option>
+                      </select>
+                      <button id="automation-add-step" class="automation-secondary-button" type="button">添加步骤</button>
+                    </div>
+                  </header>
+                  <div class="automation-canvas-toolbar" aria-label="流程画布工具">
+                    <button id="automation-auto-layout" class="automation-canvas-tool" type="button">自动排版</button>
+                    <span class="automation-canvas-tool-separator" aria-hidden="true"></span>
+                    <button id="automation-zoom-out" class="automation-canvas-tool" type="button" aria-label="缩小画布">−</button>
+                    <button id="automation-zoom-reset" class="automation-canvas-tool automation-zoom-value" type="button">100%</button>
+                    <button id="automation-zoom-in" class="automation-canvas-tool" type="button" aria-label="放大画布">＋</button>
+                    <span class="automation-canvas-help">拖动画布平移 · 从端口拖出连线 · 双击连线删除</span>
+                  </div>
+                  <div id="automation-flow-canvas" class="automation-flow-canvas" tabindex="0" aria-label="自动化流程画布">
+                    <div id="automation-flow-viewport" class="automation-flow-viewport">
+                      <svg id="automation-flow-edges" class="automation-flow-edges" aria-hidden="true"></svg>
+                      <div id="automation-flow-nodes" class="automation-flow-nodes"></div>
+                    </div>
+                    <div id="automation-canvas-empty" class="automation-canvas-empty">添加步骤后即可在画布中编辑流程</div>
+                  </div>
+                  <details class="automation-step-details" open>
+                    <summary>详细步骤设置</summary>
+                    <div id="automation-flow-list" class="automation-flow-list"></div>
+                  </details>
+                </section>
+
+                <details class="automation-json-editor">
+                  <summary>高级：完整卡片 JSON</summary>
+                  <p>用于编辑流程图坐标、弹窗规则及其他高级字段。应用后仍需点击保存。</p>
+                  <textarea id="automation-card-json" rows="14" spellcheck="false"></textarea>
+                  <button id="automation-apply-json" class="automation-secondary-button" type="button">应用 JSON</button>
+                </details>
+
+                <div id="automation-status" class="automation-status" role="status" aria-live="polite"></div>
+              </form>
+            </main>
           </div>
         </div>
       </section>
@@ -575,6 +698,11 @@
 
   <script src="./client/app/side/controllers/pages/side-panel/tabs.js"></script>
   <script src="./client/app/side/controllers/pages/software-settings.js"></script>
+  <script src="./client/app/side/controllers/pages/automation/automation-flow-canvas.js"></script>
+  <script src="./client/app/side/controllers/pages/automation/automation-step-fields.js"></script>
+  <script src="./client/app/side/controllers/pages/automation/automation-card-transfer.js"></script>
+  <script src="./client/app/side/controllers/pages/automation/automation-card-editor.js"></script>
+  <script src="./client/app/side/controllers/pages/automation.js"></script>
   <script src="../shared/quota-display.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-selection.js"></script>

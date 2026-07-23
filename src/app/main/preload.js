@@ -65,6 +65,16 @@ contextBridge.exposeInMainWorld('aiFree', Object.freeze({
     onServerDeviceStatus: subscribeChannel('ai-server-device-status'),
     onChatEvent: subscribeChannel('ai-control-chat-event'),
   }),
+  automation: Object.freeze({
+    deleteCard: invokeChannel('automation-card-delete'),
+    getCard: invokeChannel('automation-card-get'),
+    listCards: invokeChannel('ai-control-get-automation-cards'),
+    runCard: invokeChannel('automation-card-run'),
+    saveCard: invokeChannel('automation-card-save'),
+    selectCard: invokeChannel('ai-control-select-automation-card'),
+    stopCard: invokeChannel('automation-card-stop'),
+    onProgress: subscribeChannel('automation-card-progress'),
+  }),
   account: Object.freeze({
     authenticate: invokeChannel('account-authenticate'),
     getSession: invokeChannel('account-get-session'),

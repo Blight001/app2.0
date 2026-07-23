@@ -4,7 +4,7 @@
 **基线日期**：2026-07-22  
 **目标版本**：Chromium `150.0.7871.114`  
 **基线提交**：`f405107495a07cb1bfcf687d4af8d91117098db6`  
-**状态**：`0014` 权限策略、`0015` 文件选择、`0020` 页面自动化原生通道、`0021` 可见原生指针、`0022` 下载链接观察、`0023` 原生键盘/滚轮与 `0024` 原生 Observe 描边已实现；`0016`–`0019` 待实施
+**状态**：`0014` 权限策略、`0015` 文件选择、`0020` 页面自动化原生通道、`0021` 可见原生指针、`0022` 下载链接观察、`0023` 原生键盘/滚轮、`0024` 原生 Observe 描边、`0025` 标签管理/站点数据清理、`0026` 卡片定位及等待语义、`0027` 精确截图与键盘修饰键已实现；`0016`–`0019` 待实施
 
 ## 1. 目标与边界
 
@@ -12,7 +12,7 @@
 
 核心原则如下：
 
-1. 自研扩展不得主动拦截权限、文件选择、下载、`alert`、`confirm`、`prompt` 或其他浏览器对话框。
+1. 浏览器自动化不依赖扩展注入；权限、文件选择、下载和网页交互统一通过原生 Runtime。
 2. 自定义自动化行为必须由 Chromium Browser 进程和 Runtime Bridge 实现。
 3. 所有 AI-FREE 自动化覆盖都以 `--hs-embed-mode` 为硬门槛；普通启动模式保持 Chromium 默认行为。
 4. 权限自动批准必须同时启用权限开关并命中非空 origin 白名单。未命中时回落 Chromium 默认权限流程，不自动拒绝。
@@ -42,7 +42,7 @@ flowchart LR
     C --> E["一次性文件选择请求"]
     C --> F["下载目录覆盖"]
     B --> G["Chromium 默认网页与安全约束"]
-    H["browser_automation 扩展"] -->|"仅触发网页交互，不拦截浏览器 UI"| G
+    H["软件自动化卡片与 MCP"] -->|"受认证命令"| B
 ```
 
 ## 3. 生效门槛
@@ -302,8 +302,8 @@ chrome/browser/ui/views/frame/ai_free_runtime_bridge_win.cc
 src/app/main/browser-runtime/chromium-command-client.js
 src/app/main/browser-runtime/runtime-file-selection.js
 src/app/main/services/browser-automation-bridge.js
-src/assets/extensions/browser_automation/background/09_agent_{protocol,transport}.js
-src/assets/extensions/browser_automation/background/10_browser_tools.js
+src/app/main/features/browser-automation/native-browser-tool-service.js
+src/app/main/features/browser-automation/native-card-runner.js
 对应 unit/integration tests
 ```
 

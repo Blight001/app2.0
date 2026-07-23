@@ -7,6 +7,17 @@ const performanceProbeStartedAt = process.hrtime.bigint();
 let accountCenterOpenRequests = 0;
 let accountLoginOpenRequests = 0;
 let browserHistoryOpenRequests = 0;
+let automationRunRequests = 0;
+let automationCards = [{
+  id: 'fixture-card',
+  cardName: '示例流程',
+  cardData: {
+    name: '示例流程',
+    website: 'https://example.com',
+    steps: [{ id: 'open', name: '打开网页', type: 'navigate', url: 'https://example.com' }],
+  },
+  savedAt: '2026-07-23T00:00:00.000Z',
+}];
 ipcMain.on('toggle-account-center-popup', () => { accountCenterOpenRequests += 1; });
 ipcMain.on('open-account-center-popup', () => { accountLoginOpenRequests += 1; });
 ipcMain.handle('open-browser-history', (_event, payload = {}) => {
@@ -25,6 +36,47 @@ ipcMain.handle('get-ai-control-settings', () => ({
   settings: { mcpCallLimit: 100 },
   limits: { mcpCallLimit: { min: 1, max: 1000 } },
 }));
+ipcMain.handle('ai-control-get-automation-cards', () => ({
+  ok: true,
+  selectedId: automationCards[0]?.id || '',
+  cards: automationCards.map((item) => ({
+    id: item.id,
+    name: item.cardName,
+    stepCount: item.cardData.steps.length,
+    savedAt: item.savedAt,
+  })),
+}));
+ipcMain.handle('automation-card-get', (_event, payload = {}) => {
+  const item = automationCards.find((card) => card.id === payload.id);
+  return item
+    ? { ok: true, data: { id: item.id, name: item.cardName, cardData: item.cardData, savedAt: item.savedAt } }
+    : { ok: false, error: '卡片不存在' };
+});
+ipcMain.handle('ai-control-select-automation-card', (_event, payload = {}) => ({
+  ok: automationCards.some((card) => card.id === payload.id),
+  selectedId: payload.id,
+}));
+ipcMain.handle('automation-card-save', (_event, payload = {}) => {
+  const id = payload.id || `fixture-card-${automationCards.length + 1}`;
+  const item = {
+    id,
+    cardName: payload.cardData.name,
+    cardData: payload.cardData,
+    savedAt: '2026-07-23T01:00:00.000Z',
+  };
+  const index = automationCards.findIndex((card) => card.id === id);
+  if (index >= 0) automationCards[index] = item;
+  else automationCards.push(item);
+  return { ok: true, data: { id, name: item.cardName, cardData: item.cardData, selectedId: id } };
+});
+ipcMain.handle('automation-card-delete', (_event, payload = {}) => {
+  automationCards = automationCards.filter((card) => card.id !== payload.id);
+  return { ok: true, data: { deletedId: payload.id, selectedId: automationCards[0]?.id || '' } };
+});
+ipcMain.handle('automation-card-run', () => {
+  automationRunRequests += 1;
+  return { ok: true, data: { connectionId: 'browser-1', result: { summary: '流程运行完成' } } };
+});
 ipcMain.handle('set-ai-control-settings', (_event, payload = {}) => ({
   ok: true,
   settings: { mcpCallLimit: Number(payload.mcpCallLimit) },
@@ -72,7 +124,6 @@ for (const [channel, response] of /** @type {Array<[string, any]>} */ ([
     models: [{ id: 'fixture-model', name: 'Fixture Model' }],
     quota: null,
   }],
-  ['ai-control-get-automation-cards', { ok: true, cards: [] }],
   ['refresh-wool-platforms', { ok: true, woolPlatforms: [] }],
   ['get-ai-server-device-status', {
     ok: true,
@@ -187,6 +238,81 @@ app.whenReady().then(async () => {
     || required.some((label) => !result.labels.includes(label))
   ) {
     throw new Error(`AI-FREE 参数面板校验失败: ${JSON.stringify(result)}`);
+  }
+  const automationResult = await win.webContents.executeJavaScript(`(async () => {
+    document.querySelector('[data-tab="automation-panel"]').click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const initialCards = document.querySelectorAll('.automation-card-item').length;
+    const initialSteps = document.querySelectorAll('.automation-step').length;
+    document.getElementById('automation-new-card').click();
+    const name = document.getElementById('automation-card-name');
+    const website = document.getElementById('automation-card-website');
+    name.value = '软件端编辑流程';
+    name.dispatchEvent(new Event('input', { bubbles: true }));
+    website.value = 'https://example.com/workflow';
+    website.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('automation-new-step-type').value = 'navigate';
+    document.getElementById('automation-add-step').click();
+    document.getElementById('automation-new-step-type').value = 'click';
+    document.getElementById('automation-add-step').click();
+    const createdSteps = document.querySelectorAll('.automation-step').length;
+    const canvasNodes = document.querySelectorAll('.automation-canvas-node').length;
+    const canvasEdges = document.querySelectorAll('.automation-flow-edge').length;
+    const canvasPorts = document.querySelectorAll('.automation-canvas-port.is-output').length;
+    document.getElementById('automation-zoom-in').click();
+    const zoomValue = document.getElementById('automation-zoom-reset').textContent;
+    document.getElementById('automation-auto-layout').click();
+    const layout = JSON.parse(document.getElementById('automation-card-json').value).flow.nodes;
+    document.querySelector('.automation-canvas-node')?.click();
+    const canvasSelectionOpened = document.querySelector('.automation-step-body')?.hidden === false;
+    document.querySelector('.automation-step-summary')?.click();
+    const routeSelect = Array.from(document.querySelectorAll('.automation-step-body select'))
+      .find((select) => select.parentElement?.textContent.startsWith('下一步'));
+    const routeLinked = Boolean(routeSelect?.value);
+    document.getElementById('automation-card-form').requestSubmit();
+    await new Promise((resolve) => setTimeout(resolve, 160));
+    document.getElementById('automation-run-card').click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return {
+      panelActive: document.getElementById('automation-panel').classList.contains('active'),
+      initialCards,
+      initialSteps,
+      createdSteps,
+      canvasNodes,
+      canvasEdges,
+      canvasPorts,
+      zoomValue,
+      layoutIsLayered: layout[1]?.x > layout[0]?.x,
+      canvasSelectionOpened,
+      routeLinked,
+      cardsAfterSave: document.querySelectorAll('.automation-card-item').length,
+      savedName: document.getElementById('automation-card-name').value,
+      status: document.getElementById('automation-status').textContent,
+    };
+  })()`);
+  if (
+    automationResult.panelActive !== true
+    || automationResult.initialCards !== 1
+    || automationResult.initialSteps !== 1
+    || automationResult.createdSteps !== 2
+    || automationResult.canvasNodes !== 2
+    || automationResult.canvasEdges !== 1
+    || automationResult.canvasPorts !== 2
+    || automationResult.zoomValue !== '110%'
+    || automationResult.layoutIsLayered !== true
+    || automationResult.canvasSelectionOpened !== true
+    || automationResult.routeLinked !== true
+    || automationResult.cardsAfterSave !== 2
+    || automationResult.savedName !== '软件端编辑流程'
+    || !automationResult.status.includes('流程运行完成')
+    || automationRunRequests !== 1
+    || automationCards[1]?.cardData?.steps?.length !== 2
+  ) {
+    throw new Error(`软件自动化卡片 UI 校验失败: ${JSON.stringify({
+      ...automationResult,
+      automationRunRequests,
+      automationCards,
+    })}`);
   }
   const browserHistoryInteractionResult = await win.webContents.executeJavaScript(`(async () => {
     const getMain = () => document.querySelector('[data-history-id="shared-browser"] .browser-history-main');

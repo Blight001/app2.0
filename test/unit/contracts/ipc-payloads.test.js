@@ -141,6 +141,33 @@ test('AI 服务器设备登录 schema 限制连接字段形状', () => {
   );
 });
 
+test('自动化卡片 schema 接受完整流程并拒绝越界或非对象步骤', () => {
+  const input = {
+    id: 'card-1',
+    cardData: {
+      name: 'Fixture',
+      website: 'https://example.com',
+      steps: [{ id: 'open', type: 'navigate', url: 'https://example.com' }],
+      flow: { start: 'open', nodes: [{ id: 'open' }], edges: [] },
+    },
+  };
+  assert.equal(validateIpcPayload('automation-card-save', input), input);
+  assert.throws(
+    () => validateIpcPayload('automation-card-save', { cardData: { steps: ['bad'] } }),
+    (error) => error instanceof IpcPayloadError && error.details.path === 'cardData.steps[]',
+  );
+  assert.throws(
+    () => validateIpcPayload('automation-card-save', {
+      cardData: { steps: new Array(501).fill({ type: 'wait' }) },
+    }),
+    (error) => error instanceof IpcPayloadError && error.details.path === 'cardData.steps',
+  );
+  assert.throws(
+    () => validateIpcPayload('automation-card-run', { inputs: ['secret'] }),
+    (error) => error instanceof IpcPayloadError && error.details.path === 'inputs',
+  );
+});
+
 test('账号认证、礼品码和许可证记录 schema 限制边界字段类型', () => {
   assert.deepEqual(
     validateIpcPayload('account-authenticate', { mode: 'login', username: 'alice', password: 'secret' }),

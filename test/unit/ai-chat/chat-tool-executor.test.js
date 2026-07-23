@@ -263,3 +263,38 @@ test('截图结果转为模型可读取的临时 image_url 消息且不把 dataU
   assert.equal(toolEvents[0].result.image_attached, true);
   assert.equal(Object.prototype.hasOwnProperty.call(toolEvents[0].result, 'dataUrl'), false);
 });
+
+test('software_ui 视觉观察复用截图多模态管线并保留 observation_id', async () => {
+  const modelMessages = [];
+  await executeToolCalls({
+    compactToolValue: (value) => value,
+    connections: [],
+    describeConnections: () => '',
+    emit() {},
+    findConnectionByRef: () => null,
+    isStopped: () => false,
+    modelMessages,
+    round: 0,
+    toolCalls: [{
+      id: 'software-shot',
+      function: { name: 'software_ui', arguments: '{"action":"observe"}' },
+    }],
+    toolEvents: [],
+    traceEvents: [],
+    waitForAbort: (promise) => promise,
+    windowTools: {
+      has: (name) => name === 'software_ui',
+      execute: async () => ({
+        success: true,
+        observation_id: 'obs:1',
+        dataUrl: 'data:image/png;base64,SOFTWARE',
+      }),
+    },
+  });
+  const toolResult = JSON.parse(modelMessages[0].content);
+  assert.equal(toolResult.observation_id, 'obs:1');
+  assert.equal(toolResult.image_attached, true);
+  assert.doesNotMatch(modelMessages[0].content, /SOFTWARE/);
+  assert.match(modelMessages[1].content[0].text, /observation_id/);
+  assert.equal(modelMessages[1].content[1].image_url.url, 'data:image/png;base64,SOFTWARE');
+});

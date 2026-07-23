@@ -3,6 +3,8 @@
 #include <ole2.h>
 #include <wrl/client.h>
 
+#include <vector>
+
 using Microsoft::WRL::ComPtr;
 
 namespace {
@@ -45,6 +47,9 @@ bool ResolveClickPoint(IUIAutomationElement* element, POINT* point) {
 }
 
 bool IsBoundWindowOrOwnedPopup(HWND window, HWND bound_window) {
+  for (HWND current = window; current; current = GetParent(current)) {
+    if (current == bound_window) return true;
+  }
   HWND current = GetAncestor(window, GA_ROOT);
   for (int depth = 0; current && depth < 16; ++depth) {
     if (current == bound_window) return true;
@@ -59,6 +64,50 @@ bool PointBelongsToTarget(POINT point, HWND bound_window, DWORD expected_pid) {
   DWORD actual_pid = 0;
   GetWindowThreadProcessId(hit, &actual_pid);
   return actual_pid == expected_pid && IsBoundWindowOrOwnedPopup(hit, bound_window);
+}
+
+bool TargetOwnsKeyboardFocus(HWND bound_window, DWORD expected_pid) {
+  DWORD target_thread = GetWindowThreadProcessId(bound_window, nullptr);
+  GUITHREADINFO info = { sizeof(info) };
+  if (!target_thread || !GetGUIThreadInfo(target_thread, &info)) return false;
+  HWND focused = info.hwndFocus ? info.hwndFocus : info.hwndActive;
+  if (!focused) return false;
+  DWORD actual_pid = 0;
+  GetWindowThreadProcessId(focused, &actual_pid);
+  return actual_pid == expected_pid
+      && IsBoundWindowOrOwnedPopup(focused, bound_window);
+}
+
+HRESULT SendInputs(const std::vector<INPUT>& inputs) {
+  if (inputs.empty()) return S_OK;
+  const UINT sent = SendInput(
+      static_cast<UINT>(inputs.size()),
+      const_cast<INPUT*>(inputs.data()), sizeof(INPUT));
+  return sent == inputs.size()
+    ? S_OK
+    : HRESULT_FROM_WIN32(GetLastError());
+}
+
+WORD VirtualKeyForName(const std::wstring& key) {
+  if (key == L"Enter") return VK_RETURN;
+  if (key == L"Tab") return VK_TAB;
+  if (key == L"Escape" || key == L"Esc") return VK_ESCAPE;
+  if (key == L"Backspace") return VK_BACK;
+  if (key == L"Delete") return VK_DELETE;
+  if (key == L"ArrowLeft") return VK_LEFT;
+  if (key == L"ArrowRight") return VK_RIGHT;
+  if (key == L"ArrowUp") return VK_UP;
+  if (key == L"ArrowDown") return VK_DOWN;
+  if (key == L"Home") return VK_HOME;
+  if (key == L"End") return VK_END;
+  if (key == L"PageUp") return VK_PRIOR;
+  if (key == L"PageDown") return VK_NEXT;
+  if (key == L"Space") return VK_SPACE;
+  if (key.size() == 1) {
+    const SHORT mapped = VkKeyScanW(key[0]);
+    return mapped == -1 ? 0 : LOBYTE(mapped);
+  }
+  return 0;
 }
 
 HRESULT SendMouseAtPoint(
@@ -85,6 +134,50 @@ HRESULT SendMouseAtPoint(
     }
     if (clicks > 1 && index == 0) Sleep(40);
   }
+  if (restore_cursor) SetCursorPos(original.x, original.y);
+  return result;
+}
+
+HRESULT SendScrollAtPoint(
+    HWND bound_window, DWORD expected_pid, POINT point, int delta) {
+  if (!PointBelongsToTarget(point, bound_window, expected_pid)) return E_ACCESSDENIED;
+  POINT original = {};
+  const bool restore_cursor = GetCursorPos(&original) != FALSE;
+  if (!SetCursorPos(point.x, point.y)) return HRESULT_FROM_WIN32(GetLastError());
+  INPUT input = {};
+  input.type = INPUT_MOUSE;
+  input.mi.dwFlags = MOUSEEVENTF_WHEEL;
+  input.mi.mouseData = static_cast<DWORD>(delta);
+  const HRESULT result = SendInput(1, &input, sizeof(INPUT)) == 1
+    ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+  if (restore_cursor) SetCursorPos(original.x, original.y);
+  return result;
+}
+
+HRESULT SendDragBetweenPoints(
+    HWND bound_window, DWORD expected_pid, POINT start, POINT end) {
+  if (!PointBelongsToTarget(start, bound_window, expected_pid)
+      || !PointBelongsToTarget(end, bound_window, expected_pid)) return E_ACCESSDENIED;
+  POINT original = {};
+  const bool restore_cursor = GetCursorPos(&original) != FALSE;
+  if (!SetCursorPos(start.x, start.y)) return HRESULT_FROM_WIN32(GetLastError());
+  INPUT down = {};
+  down.type = INPUT_MOUSE;
+  down.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+  if (SendInput(1, &down, sizeof(INPUT)) != 1) {
+    return HRESULT_FROM_WIN32(GetLastError());
+  }
+  for (int step = 1; step <= 8; ++step) {
+    SetCursorPos(
+        start.x + (end.x - start.x) * step / 8,
+        start.y + (end.y - start.y) * step / 8);
+    Sleep(8);
+  }
+  INPUT up = {};
+  up.type = INPUT_MOUSE;
+  up.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+  const HRESULT result = SendInput(1, &up, sizeof(INPUT)) == 1
+    ? S_OK : HRESULT_FROM_WIN32(GetLastError());
   if (restore_cursor) SetCursorPos(original.x, original.y);
   return result;
 }
@@ -146,6 +239,61 @@ UiAutomationActionResult PerformBoundMouseAction(
     const std::wstring& action, POINT point) {
   UiAutomationActionResult output = { E_INVALIDARG, L"mouse", point, false };
   output.result = SendMouseAtPoint(bound_window, expected_pid, action, point);
+  output.has_point = SUCCEEDED(output.result);
+  return output;
+}
+
+UiAutomationActionResult PerformBoundTextInput(
+    HWND bound_window, DWORD expected_pid, const std::wstring& text) {
+  UiAutomationActionResult output = { E_ACCESSDENIED, L"keyboard", {}, false };
+  if (!TargetOwnsKeyboardFocus(bound_window, expected_pid)) return output;
+  std::vector<INPUT> inputs;
+  inputs.reserve(text.size() * 2);
+  for (const wchar_t character : text) {
+    INPUT down = {};
+    down.type = INPUT_KEYBOARD;
+    down.ki.wScan = character;
+    down.ki.dwFlags = KEYEVENTF_UNICODE;
+    INPUT up = down;
+    up.ki.dwFlags |= KEYEVENTF_KEYUP;
+    inputs.push_back(down);
+    inputs.push_back(up);
+  }
+  output.result = SendInputs(inputs);
+  return output;
+}
+
+UiAutomationActionResult PerformBoundKeyInput(
+    HWND bound_window, DWORD expected_pid, const std::wstring& key) {
+  UiAutomationActionResult output = { E_INVALIDARG, L"keyboard", {}, false };
+  if (!TargetOwnsKeyboardFocus(bound_window, expected_pid)) {
+    output.result = E_ACCESSDENIED;
+    return output;
+  }
+  const WORD virtual_key = VirtualKeyForName(key);
+  if (!virtual_key) return output;
+  std::vector<INPUT> inputs(2);
+  inputs[0].type = INPUT_KEYBOARD;
+  inputs[0].ki.wVk = virtual_key;
+  inputs[1] = inputs[0];
+  inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
+  output.result = SendInputs(inputs);
+  return output;
+}
+
+UiAutomationActionResult PerformBoundScroll(
+    HWND bound_window, DWORD expected_pid, POINT point, int delta) {
+  UiAutomationActionResult output = { E_INVALIDARG, L"mouse", point, false };
+  output.result = SendScrollAtPoint(bound_window, expected_pid, point, delta);
+  output.has_point = SUCCEEDED(output.result);
+  return output;
+}
+
+UiAutomationActionResult PerformBoundDrag(
+    HWND bound_window, DWORD expected_pid, POINT start, POINT end) {
+  UiAutomationActionResult output = { E_INVALIDARG, L"mouse", end, false };
+  output.result = SendDragBetweenPoints(
+      bound_window, expected_pid, start, end);
   output.has_point = SUCCEEDED(output.result);
   return output;
 }

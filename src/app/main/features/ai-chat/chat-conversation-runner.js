@@ -172,7 +172,7 @@ function isImageInputUnsupported(result) {
 }
 
 function replaceUnsupportedImageToolResult(message, failure) {
-  if (message?.role !== 'tool' || message?.name !== 'browser_screenshot') return message;
+  if (message?.role !== 'tool') return message;
   try {
     const content = JSON.parse(String(message.content || ''));
     if (content?.image_attached !== true) return message;
@@ -254,7 +254,7 @@ function validateToolRound(state, toolCalls) {
     (call) => !state.windowTools?.has(String(call?.function?.name || '').trim()),
   );
   if (needsPlugin && (!state.connections.length || !state.bridge?.dispatch)) {
-    return toolFailureResult(state, '模型请求了浏览器插件工具，但当前没有选择可用的浏览器插件');
+    return toolFailureResult(state, '模型请求了浏览器自动化工具，但当前没有选择可用的 AI-FREE 浏览器');
   }
   if (toolCalls.length >= MAX_AI_CONTROL_TOOL_CALLS_PER_ROUND) {
     return toolFailureResult(state, `模型单轮请求了 ${toolCalls.length} 个浏览器工具，超过可安全处理的数量`);

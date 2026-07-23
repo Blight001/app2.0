@@ -117,6 +117,7 @@ function createAndRegisterAiServices(deps, ipc) {
     getTabs: deps.getTabs,
     getMainWindow: deps.getMainWindow,
     logger: deps.logger,
+    onAutomationProgress: (payload) => deps.sendToSide?.('automation-card-progress', payload),
   });
   registerAiSupportIpc({ ipc, service: aiSupport });
   const aiChatService = registerAiChatIpc({

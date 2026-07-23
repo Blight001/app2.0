@@ -29,6 +29,7 @@ function resolveChromiumResourcesPath(app, options = {}) {
 // 卡片库属于软件级数据，放在 userData/extensions 下，不随任一 Chromium Profile
 // 或注入用的扩展副本一起删除。
 function resolveAutomationCardCacheDir(app) {
+  // 保留旧 userData 子目录以无损读取已保存卡片；该名称不再对应扩展资源。
   return path.join(app.getPath('userData'), 'extensions', 'browser_automation');
 }
 

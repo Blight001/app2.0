@@ -6,6 +6,8 @@ const { ProfileRuntimeStore } = require('./profile-runtime-store');
 const { cleanupLocalModels } = require('./chromium-local-model-policy');
 const { RUNTIME_TYPES } = require('./runtime-types');
 const { selectRuntimeFilesByProcessId } = require('./runtime-file-selection');
+const { selectRuntimeFiles } = require('./runtime-file-selection');
+const { dispatchRuntimeAutomation } = require('./runtime-automation');
 
 class BrowserRuntimeManager {
   constructor(options = {}) {
@@ -61,6 +63,17 @@ class BrowserRuntimeManager {
   async dispatchAutomationByProcessId(processId, command, input) {
     return this.chromium.dispatchAutomationByProcessId(processId, command, input);
   }
+  async dispatchAutomation(profileId, command, input) {
+    return dispatchRuntimeAutomation(this.chromium, profileId, command, input);
+  }
+  async sendChromiumCommand(profileId, command, input, options) {
+    return this.chromium.enqueueProfileOperation(profileId, () => (
+      this.chromium.getReadyInstance(profileId).commandClient.send(command, input, options)
+    ));
+  }
+  async selectFiles(profileId, selection) {
+    return selectRuntimeFiles(this.chromium, profileId, selection, { sandboxDir: this.sandboxDir });
+  }
   async selectFilesByProcessId(processId, selection) {
     return selectRuntimeFilesByProcessId(this.chromium, processId, selection, { sandboxDir: this.sandboxDir });
   }
@@ -74,6 +87,7 @@ class BrowserRuntimeManager {
       this.chromium.stopAll(options),
       this.externalApp.stopAll(options),
     ]);
+    await this.windowBridge.disposeExternalAutomation?.();
     return [...chromium, ...externalApps];
   }
   getState(profileId) {
