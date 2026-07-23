@@ -4,6 +4,17 @@ const { createAiModelService } = require('./ai-model-service');
 const { createAutomationCardService } = require('./automation-card-service');
 const { enrichBrowserConnectionNames } = require('./connection-names');
 
+function normalizeControlSelection(input = {}) {
+  const profileId = String(input?.profileId || '').trim();
+  const profileIds = [...new Set((Array.isArray(input?.profileIds) ? input.profileIds : [profileId])
+    .map((value) => String(value || '').trim()).filter(Boolean))];
+  return {
+    profileId: profileIds[0] || '',
+    profileIds,
+    softwareProfileId: String(input?.softwareProfileId || '').trim(),
+  };
+}
+
 function createAiSupportService(deps = {}) {
   const modelService = createAiModelService(deps);
   const cardService = createAutomationCardService({
@@ -16,7 +27,21 @@ function createAiSupportService(deps = {}) {
     const connections = deps.browserAutomationBridge?.listConnections?.() || [];
     const tabs = deps.getTabs?.() || [];
     const runtimeStates = deps.browserRuntimeManager?.listStates?.() || [];
-    return { ok: true, connections: enrichBrowserConnectionNames(connections, tabs, runtimeStates) };
+    const activeProfileId = String(deps.getActiveTabId?.() || '');
+    const softwareTargets = (
+      deps.browserRuntimeManager?.externalApp?.listAutomationTargets?.() || []
+    ).map((target) => ({
+      profileId: String(target.profileId || ''),
+      name: String(target.name || '外部软件'),
+      pid: Number(target.pid || 0),
+      isActive: String(target.profileId || '') === activeProfileId,
+      toolCount: 1,
+    }));
+    return {
+      ok: true,
+      connections: enrichBrowserConnectionNames(connections, tabs, runtimeStates),
+      softwareTargets,
+    };
   }
 
   async function redeemGiftCode(input = {}) {
@@ -34,15 +59,10 @@ function createAiSupportService(deps = {}) {
   }
 
   function broadcastBrowserSelection(input = {}) {
-    const profileId = String(input?.profileId || '').trim();
-    const profileIds = [...new Set((Array.isArray(input?.profileIds) ? input.profileIds : [profileId])
-      .map((value) => String(value || '').trim()).filter(Boolean))];
+    const selection = normalizeControlSelection(input);
     const mainWindow = deps.getMainWindow?.();
     if (!mainWindow || mainWindow.isDestroyed?.() || mainWindow.webContents?.isDestroyed?.()) return false;
-    mainWindow.webContents.send('ai-control-browser-selection-changed', {
-      profileId: profileIds[0] || '',
-      profileIds,
-    });
+    mainWindow.webContents.send('ai-control-browser-selection-changed', selection);
     return true;
   }
 

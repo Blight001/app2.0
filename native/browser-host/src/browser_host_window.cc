@@ -118,10 +118,9 @@ napi_value SetHostBounds(napi_env env, napi_callback_info info) {
   // user only sees Electron's black background. Raise the host whenever its
   // bounds are synchronized.
   const bool visible = IsWindowVisible(hwnd) != FALSE;
-  bool ok = SetWindowPos(hwnd, visible ? HWND_TOP : nullptr,
+  return BoolValue(env, SetWindowPos(hwnd, visible ? HWND_TOP : nullptr,
       bounds.x, bounds.y, bounds.width, bounds.height,
-      SWP_NOACTIVATE | (visible ? SWP_SHOWWINDOW : SWP_NOZORDER)) != FALSE;
-  return BoolValue(env, ok);
+      SWP_NOACTIVATE | (visible ? SWP_SHOWWINDOW : SWP_NOZORDER)) != FALSE);
 }
 
 napi_value RaiseHostWindow(napi_env env, napi_callback_info info) {
@@ -158,4 +157,10 @@ napi_value ShowHostWindow(napi_env env, napi_callback_info info) {
   }
   return BoolValue(env, ok);
 }
-napi_value HideHostWindow(napi_env env, napi_callback_info info) { return SetHostVisibility(env, info, SW_HIDE); }
+napi_value HideHostWindow(napi_env env, napi_callback_info info) {
+  napi_value options = SingleObjectArg(env, info);
+  HWND hwnd = ReadHwnd(env, GetNamed(env, options, "hostHwnd"));
+  if (!IsWindow(hwnd)) return BoolValue(env, false);
+  ShowWindow(hwnd, SW_HIDE);
+  return BoolValue(env, true);
+}

@@ -77,12 +77,16 @@ function normalizeChatOptions(input) {
   const rawIds = Array.isArray(input.browserConnectionIds)
     ? input.browserConnectionIds
     : (input.browserConnectionId ? [input.browserConnectionId] : []);
+  const softwareProfileId = String(input.softwareProfileId || '').trim();
   return {
     automationCardId: String(input.automationCardId || '').trim(),
-    connectionIds: [...new Set(rawIds.map((value) => String(value || '').trim()).filter(Boolean))].slice(0, 1),
+    connectionIds: softwareProfileId
+      ? []
+      : [...new Set(rawIds.map((value) => String(value || '').trim()).filter(Boolean))].slice(0, 1),
     disableTools: input.disableTools === true,
     initialMessages: Array.isArray(input.messages) ? input.messages : [],
     requestId: String(input.requestId || '').trim(),
+    softwareProfileId,
     useStream: input.stream === true,
   };
 }
@@ -120,6 +124,16 @@ function resolveAutomationCard(deps, options) {
   }
 }
 
+function resolveSoftwareTarget(deps, options) {
+  if (options.disableTools || !options.softwareProfileId) return { softwareTarget: null };
+  const target = deps.browserRuntimeManager?.externalApp?.getAutomationTarget?.(
+    options.softwareProfileId,
+  );
+  return target
+    ? { softwareTarget: target }
+    : { error: { ok: false, message: '所选软件窗口已经关闭，请重新选择控制目标' } };
+}
+
 function createChatEmitter(event, options) {
   return (payload) => {
     if (!options.useStream || !options.requestId || !event.sender || event.sender.isDestroyed()) return;
@@ -136,7 +150,12 @@ function prepareChatRequest(deps, event, input, chatRuns, getWindowTools) {
   if (resolvedConnections.error) return { ...resolvedConnections, ...started };
   const resolvedCard = resolveAutomationCard(deps, options);
   if (resolvedCard.error) return { ...resolvedCard, ...started };
-  const windowTools = options.disableTools ? null : getWindowTools();
+  const resolvedSoftware = resolveSoftwareTarget(deps, options);
+  if (resolvedSoftware.error) return { ...resolvedSoftware, ...started };
+  const windowTools = options.disableTools ? null : getWindowTools({
+    ...options,
+    softwareTarget: resolvedSoftware.softwareTarget,
+  });
   const toolContext = buildChatToolContext({
     connections: resolvedConnections.connections,
     controlledConnectionId: resolvedConnections.controlledConnectionId,
@@ -144,6 +163,7 @@ function prepareChatRequest(deps, event, input, chatRuns, getWindowTools) {
     selectedAutomationCard: resolvedCard.selectedAutomationCard,
     automationCardId: options.automationCardId,
     initialMessages: options.initialMessages,
+    softwareTarget: resolvedSoftware.softwareTarget,
   });
   return {
     ...access,
@@ -153,6 +173,7 @@ function prepareChatRequest(deps, event, input, chatRuns, getWindowTools) {
     connections: resolvedConnections.connections,
     controlledConnectionId: resolvedConnections.controlledConnectionId || '',
     emit: createChatEmitter(event, options),
+    softwareTarget: resolvedSoftware.softwareTarget,
     toolContext,
     windowTools,
   };
@@ -168,5 +189,6 @@ module.exports = {
   resolveChatAccess,
   resolveConnections,
   resolveCustomAccess,
+  resolveSoftwareTarget,
   validateQuota,
 };

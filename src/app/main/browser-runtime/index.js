@@ -1,6 +1,7 @@
 const path = require('path');
 const { ChromiumRuntime } = require('./chromium-runtime');
 const { ChromiumWindowBridge } = require('./chromium-window-bridge');
+const { ExternalAppRuntime } = require('./external-app-runtime');
 const { ProfileRuntimeStore } = require('./profile-runtime-store');
 const { cleanupLocalModels } = require('./chromium-local-model-policy');
 const { RUNTIME_TYPES } = require('./runtime-types');
@@ -28,14 +29,23 @@ class BrowserRuntimeManager {
       getParentWindow: options.getParentWindow,
       resourcesPath: options.resourcesPath,
     });
+    this.externalApp = options.externalAppRuntime || new ExternalAppRuntime({
+      logger: this.logger,
+      windowBridge: this.windowBridge,
+      getParentWindow: options.getParentWindow,
+    });
   }
 
   resolveType(profile = {}) {
     // 网页窗口统一使用项目内置的 AI-FREE Chromium Fork。Electron 只承载
     // 应用外壳与侧栏，不能再被选作网页浏览运行时。
-    return RUNTIME_TYPES.CHROMIUM;
+    return profile.runtimeType === RUNTIME_TYPES.EXTERNAL_APP
+      ? RUNTIME_TYPES.EXTERNAL_APP
+      : RUNTIME_TYPES.CHROMIUM;
   }
-  runtimeFor(_type) { return this.chromium; }
+  runtimeFor(type) {
+    return type === RUNTIME_TYPES.EXTERNAL_APP ? this.externalApp : this.chromium;
+  }
   async launchProfile(profile, bounds) { return this.runtimeFor(this.resolveType(profile)).launchProfile(profile, bounds); }
   async show(profileId, type) { return this.runtimeFor(type).show(profileId); }
   async hide(profileId, type) { return this.runtimeFor(type).hide(profileId); }
@@ -59,8 +69,16 @@ class BrowserRuntimeManager {
   async restart(profileId, options) { return this.chromium.restart(profileId, options); }
   async clearData(profileId) { return this.chromium.clearData(profileId); }
   async stop(profileId, type, options) { return this.runtimeFor(type).stop(profileId, options); }
-  async stopAll(options) { return this.chromium.stopAll(options); }
-  getState(profileId) { return this.store.getState(profileId); }
+  async stopAll(options) {
+    const [chromium, externalApps] = await Promise.all([
+      this.chromium.stopAll(options),
+      this.externalApp.stopAll(options),
+    ]);
+    return [...chromium, ...externalApps];
+  }
+  getState(profileId) {
+    return this.externalApp.getState(profileId) || this.store.getState(profileId);
+  }
   listStates() { return this.store.listStates(); }
   getCachedBrowserProfile(profileId, cacheKey) {
     return this.store.readBrowserProfileCache?.(profileId, cacheKey) || null;

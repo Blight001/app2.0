@@ -62,6 +62,7 @@ function startMainApp() {
   let refreshActiveTabToUrl;
   let refreshActiveTab;
   let refreshTab;
+  let addExternalApp;
   let appShell = null;
 
   const late = {
@@ -79,6 +80,7 @@ function startMainApp() {
     getRefreshActiveTabToUrl: () => refreshActiveTabToUrl,
     getRefreshActiveTab: () => refreshActiveTab,
     getRefreshTab: () => refreshTab,
+    getAddExternalApp: () => addExternalApp,
   };
 
   // 每个会话(session) -> 扩展ID 映射，用于后续打开 popup/options
@@ -114,6 +116,7 @@ function startMainApp() {
   // ---- 标签管理 ----
   tabManager = createTabManager({
     browserRuntimeManager: services.browserRuntimeManager,
+    softwareCatalog: services.softwareCatalog,
     fs,
     logger: console,
     extensionManager: services.extensionManager,
@@ -154,6 +157,7 @@ function startMainApp() {
     refreshActiveTabToUrl,
     refreshActiveTab,
     refreshTab,
+    addExternalApp,
   } = tabManager);
 
   appShellDeps.applyClashMiniBrowserProxy = applyClashMiniBrowserProxy;

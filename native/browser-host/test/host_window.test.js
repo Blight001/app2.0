@@ -14,6 +14,9 @@ test('native host exports the documented API', { skip: !fs.existsSync(bindingPat
     'releaseChildWindowFocus',
     'isWindowAlive', 'getWindowProcessId', 'findMainWindowByProcessId',
     'setChildWindowTitle', 'isChildWindowAttached',
+    'dockExternalWindow', 'hideDockedExternalWindow', 'restoreExternalWindow',
+    'isExternalWindowDocked', 'getWindowPlacementSnapshot',
+    'observeExternalWindowUi', 'performExternalWindowUiAction',
   ]) {
     assert.equal(typeof binding[name], 'function', `${name} must be exported`);
   }

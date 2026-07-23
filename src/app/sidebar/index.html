@@ -33,6 +33,10 @@
         <span class="tab-button-icon" aria-hidden="true">⚙</span>
         <span>浏览器配置</span>
       </button>
+      <button class="tab-button" type="button" data-tab="software-settings-panel" aria-controls="software-settings-panel">
+        <span class="tab-button-icon" aria-hidden="true">▦</span>
+        <span>软件配置</span>
+      </button>
     </nav>
 
     <div class="main-wrapper">
@@ -174,6 +178,21 @@
             </div>
           </section>
         </form>
+      </section>
+
+      <section id="software-settings-panel" class="software-settings-panel panel" aria-label="软件配置">
+        <div class="software-settings-shell">
+          <header class="software-settings-heading">
+            <div>
+                <h2>可嵌入的桌面窗口</h2>
+                <p>这里只显示当前桌面上已打开的窗口。关闭栏目时会同时关闭对应软件窗口。</p>
+            </div>
+            <button id="refresh-software-catalog" class="software-catalog-refresh" type="button" title="重新检测软件" aria-label="重新检测软件">↻</button>
+          </header>
+          <div id="software-catalog-list" class="software-catalog-list" aria-live="polite">
+            <div class="software-catalog-message">正在检测本机软件…</div>
+          </div>
+        </div>
       </section>
 
       <section id="account-center-dialog" class="account-center-dialog" role="dialog" aria-modal="true" aria-label="账号信息" aria-hidden="true" hidden>
@@ -433,14 +452,14 @@
           <div class="ai-chat-browser-gear-field">
             <div class="ai-select ai-select-sm ai-select-dropup ai-browser-gear-select" data-ai-select="browser">
               <select id="ai-chat-browser" class="ai-select-native" tabindex="-1" aria-hidden="true">
-                <option value="">正在查找可用浏览器...</option>
+                <option value="">正在查找控制目标...</option>
               </select>
-              <button type="button" class="ai-select-trigger ai-browser-gear-trigger" id="ai-chat-browser-trigger" aria-haspopup="listbox" aria-expanded="false" aria-label="选择自动化卡片和目标浏览器" title="选择自动化卡片和目标浏览器">
+              <button type="button" class="ai-select-trigger ai-browser-gear-trigger" id="ai-chat-browser-trigger" aria-haspopup="listbox" aria-expanded="false" aria-label="选择自动化卡片和控制目标" title="选择自动化卡片和控制目标">
                 <svg class="ai-browser-gear-icon" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M12 8.4a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2Z"></path>
                   <path d="M19.2 13.4a7.7 7.7 0 0 0 0-2.8l2-1.5-2-3.4-2.4 1a8 8 0 0 0-2.4-1.4L14 2.8h-4l-.4 2.5a8 8 0 0 0-2.4 1.4l-2.4-1-2 3.4 2 1.5a7.7 7.7 0 0 0 0 2.8l-2 1.5 2 3.4 2.4-1a8 8 0 0 0 2.4 1.4l.4 2.5h4l.4-2.5a8 8 0 0 0 2.4-1.4l2.4 1 2-3.4-2-1.5Z"></path>
                 </svg>
-                <span class="ai-select-value ai-browser-gear-value">正在查找可用浏览器...</span>
+                <span class="ai-select-value ai-browser-gear-value">正在查找控制目标...</span>
               </button>
               <ul class="ai-select-menu" role="listbox" hidden></ul>
             </div>
@@ -555,6 +574,7 @@
   <script src="./client/scripts/control-panel.js"></script>
 
   <script src="./client/app/side/controllers/pages/side-panel/tabs.js"></script>
+  <script src="./client/app/side/controllers/pages/software-settings.js"></script>
   <script src="../shared/quota-display.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-selection.js"></script>

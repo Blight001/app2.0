@@ -71,6 +71,17 @@ test('账号 scope 隔离由注入边界执行，不会跨账号返回会话', (
   assert.equal(repository.listSessions({ username: 'bob' }).sessions.length, 0);
 });
 
+test('历史会话保存软件控制目标并与浏览器目标保持互斥', () => {
+  const data = fixture();
+  const created = data.repository.createSession({}, {
+    browserConnectionIds: ['browser-1'],
+    softwareProfileId: 'software-1',
+  });
+  assert.deepEqual(created.session.browserConnectionIds, []);
+  assert.equal(created.session.browserConnectionId, '');
+  assert.equal(created.session.softwareProfileId, 'software-1');
+});
+
 test('历史仓库保留超过 80 个非空会话', () => {
   const data = fixture();
   for (let index = 0; index < 85; index += 1) {

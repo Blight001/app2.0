@@ -23,7 +23,7 @@ const { normalizeAiFreeBrowserSettings } = require('../utils/ai-free-browser-set
 const { FREE_BROWSER_WINDOW_LIMIT, resolveVipAccess } = require('../utils/vip-access');
 const {
   BROWSER_SETTINGS_PATCH_SCHEMA,
-  SOFTWARE_WINDOW_INPUT_SCHEMA,
+  SOFTWARE_WINDOW_MODEL_SCHEMA,
 } = require('./ai-browser-window-tool-schema');
 
 const SOFTWARE_WINDOW_TOOL_NAME = 'software_window';
@@ -95,7 +95,7 @@ function createToolDefinitions() {
       name: SOFTWARE_WINDOW_TOOL_NAME,
       destructive: true,
       description: `【软件窗口】统一管理独立浏览器窗口。通过 action=list/open/create/edit/close 选择操作；edit 可同时重命名并增量修改单个浏览器的环境配置。新建名称默认「${DEFAULT_BROWSER_WINDOW_NAME}」。`,
-      input_schema: SOFTWARE_WINDOW_INPUT_SCHEMA,
+      input_schema: SOFTWARE_WINDOW_MODEL_SCHEMA,
     },
   ];
 }

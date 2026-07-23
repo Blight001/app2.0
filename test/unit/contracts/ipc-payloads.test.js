@@ -37,6 +37,21 @@ test('AI 历史保存兼容嵌套、旧版直接 session 和长消息列表', ()
 
 test('可选 AI payload 保留既有省略参数行为，数组成员仍逐项校验', () => {
   assert.deepEqual(validateIpcPayload('ai-control-history-create', undefined), {});
+  const softwareSelection = {
+    profileIds: [],
+    softwareProfileId: 'software-notepad',
+  };
+  assert.equal(
+    validateIpcPayload('ai-control-browser-selection-changed', softwareSelection),
+    softwareSelection,
+  );
+  assert.throws(
+    () => validateIpcPayload(
+      'ai-control-browser-selection-changed',
+      { softwareProfileId: { id: 'software-notepad' } },
+    ),
+    (error) => error instanceof IpcPayloadError && error.details.path === 'softwareProfileId',
+  );
   assert.throws(
     () => validateIpcPayload('ai-control-browser-selection-changed', { profileIds: ['ok', 2] }),
     (error) => error instanceof IpcPayloadError && error.details.path === 'profileIds[]',

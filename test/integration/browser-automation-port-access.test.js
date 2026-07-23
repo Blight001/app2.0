@@ -77,6 +77,34 @@ test('automation bridge accepts browser extensions through the loopback port', a
     { method: 'POST', headers: { ...headers, 'X-Bridge-Token': 'wrong-token' } },
   );
   assert.equal(wrongConnection.status, 401);
+
+  const zeroPidRegistration = await fetch(`${url}/v1/register`, {
+    method: 'POST',
+    headers: {
+      ...headers,
+      [APP_BROWSER_PID_HEADER]: '0',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      instanceId: 'browser-pid-race',
+      sessionId: 'pid-race',
+      browserProcessId: 0,
+      protocolVersion: 1,
+    }),
+  });
+  const zeroPidConnection = await zeroPidRegistration.json();
+  const reboundPoll = await fetch(
+    `${url}/v1/poll?connection_id=${encodeURIComponent(zeroPidConnection.connectionId)}`,
+    {
+      method: 'POST',
+      headers: { ...headers, 'X-Bridge-Token': zeroPidConnection.token },
+    },
+  );
+  assert.equal(reboundPoll.status, 200);
+  assert.equal(
+    bridge.getConnection(zeroPidConnection.connectionId).browserProcessId,
+    98765,
+  );
 });
 
 test('automation extension manager returns the bundled source directory directly', async (t) => {

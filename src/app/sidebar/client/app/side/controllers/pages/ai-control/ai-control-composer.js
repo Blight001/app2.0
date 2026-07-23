@@ -176,6 +176,7 @@
     const id = String(connectionId || '').trim();
     if (!id || !state.availableBrowserIds.includes(id)) return;
     state.currentBrowserIds = [id];
+    state.currentSoftwareProfileId = '';
     setSelectBrowserIds(el('ai-chat-browser'), [id]);
     syncSelectUi(el('ai-chat-browser'));
     notifyBrowserSelection();
@@ -199,6 +200,7 @@
       quota: run.useCustomApi ? null : state.quota,
       browserConnectionId: state.currentBrowserIds[0] || '',
       browserConnectionIds: [...state.currentBrowserIds],
+      softwareProfileId: state.currentSoftwareProfileId,
       automationCardId: state.currentCardId,
       stream: true,
       requestId: run.requestId,
@@ -237,6 +239,7 @@
     state.currentSession.modelId = run.select.value;
     state.currentSession.browserConnectionId = state.currentBrowserIds[0] || '';
     state.currentSession.browserConnectionIds = [...state.currentBrowserIds];
+    state.currentSession.softwareProfileId = state.currentSoftwareProfileId;
     state.currentSession.automationCardId = state.currentCardId;
     if (!state.currentSession.title || state.currentSession.title === '新对话') {
       state.currentSession.title = provisionalTitle(run.content);

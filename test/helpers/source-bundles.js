@@ -49,7 +49,7 @@ const splitSourceFiles = {
     '02_sidebar_page.js', '02_sidebar_actions.js', '02_sidebar_wait.js',
   ],
   'src/assets/extensions/browser_automation/background/09_agent_socket.js': [
-    '09_agent_socket.js', '09_agent_protocol.js', '09_agent_transport.js',
+    '09_agent_socket.js', '09_agent_protocol.js', '09_agent_connection.js', '09_agent_transport.js',
     '09_agent_tasks.js', '09_agent_runtime.js',
   ],
   'src/assets/extensions/browser_automation/background/06_automation_run.js': [

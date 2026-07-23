@@ -129,6 +129,18 @@ test('browser, network, content, extension and update operations bind fixed chan
   }
 });
 
+test('software domain exposes only catalog listing and allowlisted opening', async () => {
+  const { calls, exposed } = loadPreloadApi();
+  await exposed.aiFree.software.list();
+  await exposed.aiFree.software.open({ softwareId: 'notepad' });
+  assert.deepEqual(calls, [
+    ['invoke', 'list-available-software', undefined],
+    ['invoke', 'open-external-software', { softwareId: 'notepad' }],
+  ]);
+  assert.equal(Object.isFrozen(exposed.aiFree.software), true);
+  assert.equal('invoke' in exposed.aiFree.software, false);
+});
+
 test('all sidebar scripts use named aiFree capabilities only', () => {
   const root = path.join(projectRoot, 'src/app/sidebar');
   const pending = [root];

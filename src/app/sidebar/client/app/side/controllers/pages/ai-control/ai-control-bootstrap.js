@@ -50,11 +50,14 @@
   function bindBrowserSelection() {
     el('ai-chat-browser')?.addEventListener('change', (event) => {
       state.currentBrowserIds = getSelectBrowserIds(event.target).slice(0, 1);
+      state.currentSoftwareProfileId = getSelectSoftwareProfileId(event.target);
       state.browserSelectionTouched = true;
-      state.browserSelectionExplicitlyDisabled = !state.currentBrowserIds.length;
+      state.browserSelectionExplicitlyDisabled = !state.currentBrowserIds.length
+        && !state.currentSoftwareProfileId;
       if (state.currentSession) {
         state.currentSession.browserConnectionId = state.currentBrowserIds[0] || '';
         state.currentSession.browserConnectionIds = [...state.currentBrowserIds];
+        state.currentSession.softwareProfileId = state.currentSoftwareProfileId;
         if (currentMessages().length) void persistCurrentSession();
       }
       if (!currentMessages().length) renderWelcome();

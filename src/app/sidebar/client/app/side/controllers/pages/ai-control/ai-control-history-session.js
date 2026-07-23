@@ -1,30 +1,48 @@
-  function applySession(session) {
-    state.currentSession = session || null;
-    state.messages = Array.isArray(session?.messages) ? [...session.messages] : [];
+  function restoreSessionControlTarget(session) {
     const restoredIds = sessionBrowserIds(session);
-    if (restoredIds.length) {
+    const restoredSoftwareId = String(session?.softwareProfileId || '').trim();
+    if (restoredSoftwareId) {
+      state.currentSoftwareProfileId = restoredSoftwareId;
+      state.currentBrowserIds = [];
+      state.browserSelectionTouched = true;
+    } else if (restoredIds.length) {
       state.currentBrowserIds = restoredIds;
+      state.currentSoftwareProfileId = '';
       // 会话里带了明确的浏览器选择，视为用户已手动选择，不再默认全选。
       state.browserSelectionTouched = true;
     }
+  }
+
+  function applyAvailableControlTargets(browserSelect) {
+    const available = new Set(Array.from(browserSelect.options)
+      .map((opt) => opt.value)
+      .filter(Boolean));
+    // 连接列表尚未加载时不过滤，等 loadBrowserConnections 恢复会话勾选。
+    if (available.size) {
+      state.currentBrowserIds = state.currentBrowserIds.filter((id) => available.has(id));
+      const softwareValue = `${SOFTWARE_TARGET_PREFIX}${state.currentSoftwareProfileId}`;
+      if (!available.has(softwareValue)) state.currentSoftwareProfileId = '';
+    }
+    setSelectControlTarget(
+      browserSelect, state.currentBrowserIds, state.currentSoftwareProfileId,
+    );
+    if (state.currentBrowserIds.length || state.currentSoftwareProfileId) {
+      state.browserSelectionExplicitlyDisabled = false;
+    }
+    syncSelectUi(browserSelect);
+  }
+
+  function applySession(session) {
+    state.currentSession = session || null;
+    state.messages = Array.isArray(session?.messages) ? [...session.messages] : [];
+    restoreSessionControlTarget(session);
     const sessionCardId = String(session?.automationCardId || '').trim();
     if (sessionCardId) {
       state.currentCardId = sessionCardId;
       void selectAutomationCard(sessionCardId, { persist: false, silent: true });
     }
     const browserSelect = el('ai-chat-browser');
-    if (browserSelect) {
-      const available = new Set(Array.from(browserSelect.options)
-        .map((opt) => opt.value)
-        .filter(Boolean));
-      // 连接列表尚未加载时不过滤，等 loadBrowserConnections 恢复会话勾选。
-      if (available.size) {
-        state.currentBrowserIds = state.currentBrowserIds.filter((id) => available.has(id));
-      }
-      setSelectBrowserIds(browserSelect, state.currentBrowserIds);
-      if (state.currentBrowserIds.length) state.browserSelectionExplicitlyDisabled = false;
-      syncSelectUi(browserSelect);
-    }
+    if (browserSelect) applyAvailableControlTargets(browserSelect);
     notifyBrowserSelection();
     const modelSelect = el('ai-chat-model');
     if (modelSelect && session?.modelId) {
@@ -244,6 +262,7 @@
       modelId: String(el('ai-chat-model')?.value || ''),
       browserConnectionId: state.currentBrowserIds[0] || '',
       browserConnectionIds: [...state.currentBrowserIds],
+      softwareProfileId: state.currentSoftwareProfileId,
       automationCardId: state.currentCardId,
       messages: [],
       createdAt: Date.now(),
@@ -268,6 +287,7 @@
       modelId: String(el('ai-chat-model')?.value || ''),
       browserConnectionId: state.currentBrowserIds[0] || '',
       browserConnectionIds: [...state.currentBrowserIds],
+      softwareProfileId: state.currentSoftwareProfileId,
       automationCardId: state.currentCardId,
       messages: state.messages,
       createdAt: Date.now(),

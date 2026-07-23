@@ -88,7 +88,10 @@ if (window.aiFree) {
     const ids = Array.isArray(payload?.profileIds)
       ? payload.profileIds
       : (payload?.profileId ? [payload.profileId] : []);
-    aiConnectedBrowserProfileIds = new Set(ids.map((id) => String(id || '')).filter(Boolean));
+    const softwareProfileId = String(payload?.softwareProfileId || '').trim();
+    aiConnectedBrowserProfileIds = new Set(
+      [...ids, softwareProfileId].map((id) => String(id || '')).filter(Boolean),
+    );
     syncAiConnectedBrowserHighlight();
   });
 }

@@ -18,3 +18,10 @@ napi_value GetWindowProcessId(napi_env env, napi_callback_info info) {
   napi_create_uint32(env, pid, &result);
   return result;
 }
+
+napi_value RequestWindowClose(napi_env env, napi_callback_info info) {
+  napi_value options = SingleObjectArg(env, info);
+  HWND hwnd = ReadHwnd(env, GetNamed(env, options, "hwnd"));
+  if (!IsWindow(hwnd)) return BoolValue(env, true);
+  return BoolValue(env, PostMessageW(hwnd, WM_CLOSE, 0, 0) != FALSE);
+}

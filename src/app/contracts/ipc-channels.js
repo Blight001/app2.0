@@ -48,6 +48,8 @@ const INVOKE_CHANNELS = [
   { channel: 'get-app-session-id', kind: 'invoke', domain: 'ui', registrar: 'src/app/main/ipc/register/misc.js' },
   { channel: 'get-app-theme', kind: 'invoke', domain: 'ui', registrar: 'src/app/main/ipc/register/ui.js' },
   { channel: 'get-app-version', kind: 'invoke', domain: 'ui', registrar: 'src/app/main/ipc/register/misc.js' },
+  { channel: 'list-available-software', kind: 'invoke', domain: 'software', registrar: 'src/app/main/features/external-app/register-external-app-ipc.js' },
+  { channel: 'open-external-software', kind: 'invoke', domain: 'software', registrar: 'src/app/main/features/external-app/register-external-app-ipc.js', requestSchema: 'software.open' },
   { channel: 'get-browser-history', kind: 'invoke', domain: 'browser', registrar: 'src/app/main/features/browser/register-browser-history-ipc.js' },
   { channel: 'get-browser-runtime-state', kind: 'invoke', domain: 'browser', registrar: 'src/app/main/ipc/register/ui.js' },
   { channel: 'get-clash-config', kind: 'invoke', domain: 'network', registrar: 'src/app/main/ipc/register/clash.js' },

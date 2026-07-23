@@ -24,6 +24,7 @@ importScripts(
     'background/11_browser_screenshot.js',
     'background/09_agent_socket.js',
     'background/09_agent_protocol.js',
+    'background/09_agent_connection.js',
     'background/09_agent_transport.js',
     'background/09_agent_tasks.js',
     'background/09_agent_runtime.js'

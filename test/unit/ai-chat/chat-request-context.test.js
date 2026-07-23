@@ -9,6 +9,7 @@ const {
   normalizeChatOptions,
   resolveChatAccess,
   resolveConnections,
+  resolveSoftwareTarget,
   validateQuota,
 } = require('../../../src/app/main/features/ai-chat/chat-request-context');
 
@@ -19,6 +20,38 @@ test('额度边界和旧多选输入被归一化为单一控制浏览器', () =>
   assert.deepEqual(
     normalizeChatOptions({ browserConnectionIds: [' a ', 'a', '', 'b'], stream: true, requestId: ' r ' }).connectionIds,
     ['a'],
+  );
+  const software = normalizeChatOptions({
+    browserConnectionIds: ['browser'],
+    softwareProfileId: ' software-1 ',
+  });
+  assert.deepEqual(software.connectionIds, []);
+  assert.equal(software.softwareProfileId, 'software-1');
+});
+
+test('所选软件窗口按请求绑定，窗口关闭后立即返回可诊断错误', () => {
+  const target = { profileId: 'software-1', hwnd: '100', pid: 321 };
+  const deps = {
+    browserRuntimeManager: {
+      externalApp: {
+        getAutomationTarget: (profileId) => (profileId === 'software-1' ? target : null),
+      },
+    },
+  };
+  assert.equal(
+    resolveSoftwareTarget(deps, { disableTools: false, softwareProfileId: 'software-1' })
+      .softwareTarget,
+    target,
+  );
+  assert.match(
+    resolveSoftwareTarget(deps, { disableTools: false, softwareProfileId: 'closed' })
+      .error.message,
+    /已经关闭/,
+  );
+  assert.equal(
+    resolveSoftwareTarget(deps, { disableTools: true, softwareProfileId: 'software-1' })
+      .softwareTarget,
+    null,
   );
 });
 

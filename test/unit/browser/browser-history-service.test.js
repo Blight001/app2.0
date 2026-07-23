@@ -95,6 +95,28 @@ test('open tabs create and update durable history records', () => {
   assert.equal(updates, 1);
 });
 
+test('软件窗口不会写入浏览器记录且会清理旧的误记录', () => {
+  store.browserHistory = [{
+    id: 'old-software-record',
+    name: '记事本',
+    profileId: 'software-window-123',
+    runtimeType: 'chromium',
+    settings: {},
+  }];
+  const softwareTab = {
+    id: 'software-window-456',
+    runtimeType: 'external-app',
+    fixedTitle: '记事本',
+  };
+  const records = historyService.syncOpenTabsToBrowserHistory({
+    getTabs: () => new Map([[softwareTab.id, softwareTab]]),
+  });
+
+  assert.deepEqual(records, []);
+  assert.deepEqual(store.browserHistory, []);
+  assert.equal(softwareTab.browserHistoryId, undefined);
+});
+
 test('serialization adds account and live tab state then sorts recent records', () => {
   const history = [
     { id: 'old', accountId: 'account-1', url: 'https://old.test', settings: { proxy: { mode: 'magic' } }, lastOpenedAt: 1 },

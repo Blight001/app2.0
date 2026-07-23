@@ -21,7 +21,12 @@ function buildPromptPreview(deps, input, getWindowTools) {
   const toolContext = buildChatToolContext({
     connections: resolvedConnections.connections,
     controlledConnectionId: resolvedConnections.controlledConnectionId,
-    windowTools: getWindowTools(),
+    windowTools: getWindowTools({
+      ...options,
+      softwareTarget: options.softwareProfileId
+        ? deps.browserRuntimeManager?.externalApp?.getAutomationTarget?.(options.softwareProfileId)
+        : null,
+    }),
     selectedAutomationCard: resolvedCard.selectedAutomationCard,
     automationCardId: options.automationCardId,
     initialMessages: options.initialMessages,

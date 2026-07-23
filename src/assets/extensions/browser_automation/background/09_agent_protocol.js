@@ -265,16 +265,14 @@ async function getAgentBrowserProcessId() {
 }
 
 // ── 设备登记 ────────────────────────────────────────────────────────────────────
-async function emitAgentEnrollOn(socket) {
+async function createAgentEnrollment() {
     const settings = await getAgentSettings();
-    if (settings.offlineMode) {
-        return;
-    }
+    if (settings.offlineMode) return null;
     const id = settings.deviceId || await getAgentMachineId();
     const browserProcessId = await getAgentBrowserProcessId();
     agentCurrentId = id;
     const toolDefs = effectiveAgentToolDefs();
-    socket.emit(DEVICE_ENROLL, {
+    return {
         id,
         browserProcessId,
         // AI 会在软件控制页按连接选择，因此插件登记时不绑定固定模型。
@@ -290,153 +288,6 @@ async function emitAgentEnrollOn(socket) {
         lifecycle: 'registered',
         isWindowsDesktop: false,
         isBrowserExtension: true
-    });
-}
-
-async function agentEnroll() {
-    const settings = await getAgentSettings();
-    if (settings.offlineMode || !agentSocket) {
-        return;
-    }
-    await emitAgentEnrollOn(agentSocket);
-}
-
-// ── 连接 ────────────────────────────────────────────────────────────────────
-class LocalAutomationBridgeSocket {
-    constructor(baseUrl) {
-        this.baseUrl = trimUrl(baseUrl);
-        this.connected = false;
-        this.active = false;
-        this.connectionId = '';
-        this.token = '';
-        this.sessionId = crypto.randomUUID();
-        this.listeners = new Map();
-        this.pollTimer = null;
-        this.io = { reconnection() {} };
-    }
-
-    on(event, handler) {
-        if (!this.listeners.has(event)) this.listeners.set(event, []);
-        this.listeners.get(event).push(handler);
-    }
-
-    fire(event, payload) {
-        for (const handler of this.listeners.get(event) || []) {
-            try { handler(payload); } catch (_error) {}
-        }
-    }
-
-    removeAllListeners() {
-        this.listeners.clear();
-    }
-
-    async request(path, options = {}) {
-        const headers = { ...(options.headers || {}) };
-        headers[APP_BROWSER_PID_HEADER] = String(await getAgentBrowserProcessId());
-        if (this.token) headers['X-Bridge-Token'] = this.token;
-        if (options.body != null) headers['Content-Type'] = 'application/json';
-        const suffix = this.connectionId ? `${path.includes('?') ? '&' : '?'}connection_id=${encodeURIComponent(this.connectionId)}` : '';
-        const response = await fetch(`${this.baseUrl}${path}${suffix}`, {
-            ...options,
-            headers,
-            signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || data.ok === false) throw new Error(data.message || `本机桥接 HTTP ${response.status}`);
-        return data;
-    }
-
-    async connect() {
-        if (this.connected || this.active) return;
-        this.active = true;
-        this.connected = true;
-        this.active = false;
-        this.fire('connect');
-    }
-
-    disconnect() {
-        const wasConnected = this.connected;
-        const connectionId = this.connectionId;
-        const token = this.token;
-        this.connected = false;
-        this.active = false;
-        if (this.pollTimer) clearTimeout(this.pollTimer);
-        this.pollTimer = null;
-        this.connectionId = '';
-        this.token = '';
-        if (connectionId && token) {
-            const url = `${this.baseUrl}/v1/disconnect?connection_id=${encodeURIComponent(connectionId)}`;
-            void fetch(url, {
-                method: 'POST',
-                headers: {
-                    'X-Bridge-Token': token,
-                    [APP_BROWSER_PID_HEADER]: String(agentBrowserProcessId || 0)
-                },
-                keepalive: true
-            }).catch(() => {});
-        }
-        if (wasConnected) this.fire('disconnect', 'client disconnect');
-    }
-
-    emit(event, payload) {
-        if (event === DEVICE_ENROLL) {
-            void this.register(payload);
-        } else if (event === 'task:result') {
-            void this.sendOutcome({ ...payload, success: payload?.success !== false });
-        } else if (event === 'task:error') {
-            void this.sendOutcome({ ...payload, success: false });
-        } else if (event === 'task:progress') {
-            void this.postProgress(payload);
-        }
-    }
-
-    async register(payload) {
-        try {
-            const response = await this.request('/v1/register', {
-                method: 'POST',
-                body: JSON.stringify({
-                    ...payload,
-                    instanceId: payload.id,
-                    sessionId: this.sessionId
-                })
-            });
-            this.connectionId = String(response.connectionId || '');
-            this.token = String(response.token || '');
-            this.fire(DEVICE_ENROLLED, { id: this.connectionId, aiConfigId: null });
-            this.schedulePoll(0);
-        } catch (error) {
-            this.connected = false;
-            this.fire('connect_error', error);
-        }
-    }
-
-    schedulePoll(delay = 650) {
-        if (!this.connected) return;
-        if (this.pollTimer) clearTimeout(this.pollTimer);
-        this.pollTimer = setTimeout(() => { void this.poll(); }, delay);
-    }
-
-    async poll() {
-        if (!this.connected || !this.connectionId) return;
-        try {
-            const response = await this.request('/v1/tasks');
-            for (const task of response.tasks || []) this.fire('task:dispatch', task);
-            this.schedulePoll(650);
-        } catch (error) {
-            this.connected = false;
-            this.fire('disconnect', error?.message || '本机桥接已断开');
-            this.fire('connect_error', error);
-        }
-    }
-
-    async sendOutcome(payload) {
-        if (!this.connectionId) return;
-        await this.request('/v1/task-result', { method: 'POST', body: JSON.stringify(payload) }).catch(() => {});
-    }
-
-    async postProgress(payload) {
-        if (!this.connectionId) return;
-        await this.request('/v1/task-progress', { method: 'POST', body: JSON.stringify(payload) }).catch(() => {});
     }
 }
 

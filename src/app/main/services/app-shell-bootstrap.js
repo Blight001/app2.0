@@ -64,6 +64,10 @@ function createBootstrapUiDeps(deps) {
     applyClashMiniBrowserProxy: typeof deps.applyClashMiniBrowserProxy === 'function' ? deps.applyClashMiniBrowserProxy : null,
     applyNetworkMagicToTab: typeof deps.applyNetworkMagicToTab === 'function' ? deps.applyNetworkMagicToTab : null,
     browserRuntimeManager: deps.browserRuntimeManager || null,
+    listAvailableSoftware: typeof deps.listAvailableSoftware === 'function'
+      ? deps.listAvailableSoftware
+      : () => [],
+    openExternalApp: deps.resolveAddExternalApp(),
   };
 }
 

@@ -4,6 +4,7 @@ const { createBrowserTutorialController } = require('../features/browser/browser
 const { createBrowserNetworkController } = require('../features/browser/browser-network-controller');
 const { createBrowserTabLauncher } = require('../features/browser/browser-tab-launcher');
 const { createBrowserRuntimeSettingsController } = require('../features/browser/browser-runtime-settings-controller');
+const { createExternalAppTabLauncher } = require('../features/external-app/external-app-tab-launcher');
 
 const MAX_PROFILE_REFRESH_ATTEMPTS = 3;
 const PROFILE_REFRESH_RETRY_DELAY_MS = 4000;
@@ -25,6 +26,7 @@ class TabManagerRuntime {
     this.initializeTutorialController();
     this.initializeNetworkController();
     this.initializeTabLauncher();
+    this.initializeExternalAppLauncher();
     this.initializeSettingsController();
     this.registerRuntimeEvents();
   }
@@ -61,7 +63,8 @@ class TabManagerRuntime {
     try {
       const activeTabId = this.resolveActiveTabId();
       if (activeTabId) {
-        this.deps.browserRuntimeManager?.releaseFocus?.(activeTabId, 'chromium');
+        const activeTab = this.resolveTabs().get(activeTabId);
+        this.deps.browserRuntimeManager?.releaseFocus?.(activeTabId, activeTab?.runtimeType);
       }
       focusMainWindowShell(mainWindow);
       webContents.focus();
@@ -145,6 +148,21 @@ class TabManagerRuntime {
     this.addTab = controller.addTab;
   }
 
+  initializeExternalAppLauncher() {
+    const controller = createExternalAppTabLauncher({
+      browserRuntimeManager: this.deps.browserRuntimeManager,
+      softwareCatalog: this.deps.softwareCatalog,
+      resolveActiveTabId: () => this.resolveActiveTabId(),
+      resolveIsSidebarVisible: () => this.resolveIsSidebarVisible(),
+      resolveMainWindow: () => this.resolveMainWindow(),
+      resolveSideView: () => this.resolveSideView(),
+      resolveTabs: () => this.resolveTabs(),
+      switchTab: (...args) => this.switchTab(...args),
+      updateTabs: this.deps.updateTabs,
+    });
+    this.addExternalApp = controller.addExternalApp;
+  }
+
   initializeSettingsController() {
     const controller = createBrowserRuntimeSettingsController({
       browserRuntimeManager: this.deps.browserRuntimeManager,
@@ -163,10 +181,16 @@ class TabManagerRuntime {
 
   registerRuntimeEvents() {
     const chromium = this.deps.browserRuntimeManager?.chromium;
-    if (!chromium?.on) return;
-    chromium.on('state-changed', (state) => this.handleRuntimeStateChanged(state));
-    chromium.on('crashed', (state) => this.handleRuntimeCrash(state));
-    chromium.on('runtime-event', (event) => this.handleRuntimeEvent(event));
+    if (chromium?.on) {
+      chromium.on('state-changed', (state) => this.handleRuntimeStateChanged(state));
+      chromium.on('crashed', (state) => this.handleRuntimeCrash(state));
+      chromium.on('runtime-event', (event) => this.handleRuntimeEvent(event));
+    }
+    const externalApp = this.deps.browserRuntimeManager?.externalApp;
+    if (externalApp?.on) {
+      externalApp.on('state-changed', (state) => this.handleRuntimeStateChanged(state));
+      externalApp.on('crashed', (state) => this.handleRuntimeCrash(state));
+    }
   }
 
   handleRuntimeStateChanged(runtimeState) {
@@ -308,13 +332,14 @@ class TabManagerRuntime {
     if (!mainWindow || !tabs.has(tabId)) return;
     const activeTabId = this.resolveActiveTabId();
     if (activeTabId && tabs.has(activeTabId)) {
-      void this.deps.browserRuntimeManager?.hide(tabs.get(activeTabId).id, 'chromium');
+      const previous = tabs.get(activeTabId);
+      void this.deps.browserRuntimeManager?.hide(previous.id, previous.runtimeType);
     }
     this.deps.setActiveTabId?.(tabId);
     const activeTab = tabs.get(tabId);
-    void this.deps.browserRuntimeManager?.show(activeTab.id, 'chromium').then(() => (
+    void this.deps.browserRuntimeManager?.show(activeTab.id, activeTab.runtimeType).then(() => (
       options.focusBrowser === true
-        ? this.deps.browserRuntimeManager.focus(activeTab.id, 'chromium')
+        ? this.deps.browserRuntimeManager.focus(activeTab.id, activeTab.runtimeType)
         : false
     )).catch((error) => {
       this.logger.warn?.('[ChromiumRuntime] 显示环境失败:', error?.message || error);
@@ -342,7 +367,7 @@ class TabManagerRuntime {
 
   async stopClosingTab(tab) {
     try {
-      await this.deps.browserRuntimeManager?.stop(tab.id, 'chromium', { timeoutMs: 4000 });
+      await this.deps.browserRuntimeManager?.stop(tab.id, tab.runtimeType, { timeoutMs: 4000 });
     } catch (error) {
       this.logger.warn?.('[ChromiumRuntime] 关闭失败:', error?.message || error);
     }
@@ -389,6 +414,7 @@ class TabManagerRuntime {
   async refreshActiveTabToUrl(url) {
     const activeTab = this.resolveTabs().get(this.resolveActiveTabId());
     if (!activeTab) return this.notifyMissingActiveTab();
+    if (activeTab.runtimeType !== 'chromium') return this.notifyUnsupportedRefresh();
     try {
       await this.deps.browserRuntimeManager.navigate(activeTab.id, 'chromium', url);
       this.deps.sendToSide('active-tab-refreshed', { ok: true, url, runtimeType: 'chromium' });
@@ -400,6 +426,7 @@ class TabManagerRuntime {
   async refreshActiveTab() {
     const activeTab = this.resolveTabs().get(this.resolveActiveTabId());
     if (!activeTab) return this.notifyMissingActiveTab();
+    if (activeTab.runtimeType !== 'chromium') return this.notifyUnsupportedRefresh();
     try {
       await this.deps.browserRuntimeManager.reload(activeTab.id, 'chromium');
       this.deps.sendToSide('active-tab-refreshed', { ok: true, runtimeType: 'chromium' });
@@ -413,6 +440,15 @@ class TabManagerRuntime {
     this.deps.sendToSide('active-tab-refreshed', { ok: false, reason: 'no_active_tab' });
   }
 
+  notifyUnsupportedRefresh() {
+    this.deps.sendToSide('active-tab-refreshed', {
+      ok: false,
+      reason: 'unsupported_runtime',
+      runtimeType: 'external-app',
+    });
+    return false;
+  }
+
   notifyRefreshError(error) {
     this.logger.log?.('刷新错误', error);
     this.deps.sendToSide('active-tab-refreshed', { ok: false, reason: error.message });
@@ -422,6 +458,9 @@ class TabManagerRuntime {
     try {
       const tabs = this.resolveTabs();
       if (!tabs.has(tabId)) return { ok: false, message: '标签页不存在' };
+      if (tabs.get(tabId).runtimeType !== 'chromium') {
+        return { ok: false, message: '嵌入软件不支持网页刷新' };
+      }
       await this.deps.browserRuntimeManager.reload(tabs.get(tabId).id, 'chromium');
       if (tabId === this.resolveActiveTabId()) {
         try { this.deps.sendToSide('active-tab-refreshed', { ok: true, runtimeType: 'chromium' }); } catch (_) {}
@@ -469,6 +508,7 @@ class TabManagerRuntime {
       refreshActiveTabToUrl: (...args) => this.refreshActiveTabToUrl(...args),
       refreshActiveTab: () => this.refreshActiveTab(),
       refreshTab: (...args) => this.refreshTab(...args),
+      addExternalApp: (...args) => this.addExternalApp(...args),
       toggleSidebar: () => this.toggleSidebar(),
     };
   }

@@ -27,6 +27,8 @@
     "check:browser-settings-ui": "node scripts/run-electron.js scripts/check-browser-settings-ui.js",
     "check:chromium-handshake": "node scripts/check-chromium-handshake.js",
     "check:chromium-embedded-policy": "node scripts/check-chromium-embedded-policy.js",
+    "check:external-app-embed": "node scripts/run-electron.js scripts/check-external-app-embed.js",
+    "check:software-settings-ui": "node scripts/run-electron.js scripts/check-software-settings-ui.js",
     "check:packaged-runtime": "node scripts/verify-packaged-runtime.js appbuild/win-unpacked",
     "build:native-host": "node scripts/build-native-host.js",
     "build": "npm run prepare:source && npm run build:native-host && electron-builder",

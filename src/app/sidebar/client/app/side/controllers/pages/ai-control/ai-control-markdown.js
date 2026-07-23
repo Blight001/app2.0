@@ -176,6 +176,7 @@
     browser_action: '操作页面',
     browser_wait: '等待页面',
     software_window: '管理浏览器窗口',
+    software_ui: '控制软件界面',
     get_status: '查看卡片状态',
     run_card: '运行自动化卡片',
     write_card: '保存自动化卡片',

@@ -226,11 +226,16 @@
     welcome.className = 'ai-chat-welcome';
     const card = selectedAutomationCard();
     const browserCount = state.currentBrowserIds.length;
-    const browserText = browserCount
+    const softwareTarget = state.currentSoftwareProfileId
+      ? el('ai-chat-browser')?.selectedOptions?.[0]?.textContent || '当前软件'
+      : '';
+    const browserText = softwareTarget
+      ? `AI 将通过 UI Automation 控制“${softwareTarget}”。`
+      : (browserCount
       ? `已连接 ${browserCount} 个浏览器${card ? `，当前卡片为“${card.name}”` : ''}，AI 将在所选浏览器中执行操作${browserCount > 1 ? '，可按浏览器名称分开控制' : ''}。`
       : (card
         ? `当前卡片为“${card.name}”，但未连接浏览器，将进行普通对话。`
-        : '当前未连接浏览器，将进行普通对话。');
+        : '当前没有控制目标，将进行普通对话。'));
     const logoUrl = window.aiFreeLogoAssets?.url || '../../assets/logo.ico';
     welcome.innerHTML = `<img class="ai-chat-welcome-icon" data-app-logo src="${logoUrl}" alt="" aria-hidden="true"><strong>有什么可以帮你？</strong><p>${browserText}</p>`;
     container.appendChild(welcome);

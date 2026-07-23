@@ -4,6 +4,7 @@
 
 const AGENT_KEEPALIVE_ALARM = 'agent-keepalive';
 const AGENT_VERSION = '1.0.0';
+const AGENT_BRIDGE_PROTOCOL_VERSION = 1;
 const APP_BROWSER_PID_HEADER = 'X-AI-Free-Browser-Pid';
 
 // Protocol event names (kept for server compatibility)
@@ -17,6 +18,7 @@ let agentCurrentId = null;
 let agentMachineId = null;
 let agentBrowserProcessId = 0;
 let agentConnectPromise = null;
+let agentReconnectTimer = null;
 let agentLastErrorReason = ''; // 最近一次 error 状态的原因，便于 UI 显示详细提示
 const agentTaskOutcomes = new Map();
 const MAX_AGENT_TASK_OUTCOMES = 100;

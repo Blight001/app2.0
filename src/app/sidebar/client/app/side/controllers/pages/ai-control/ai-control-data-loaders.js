@@ -100,59 +100,113 @@
     return option;
   }
 
-  function resolveBrowserSelection(connections, previousIds) {
-    const allIds = normalizeBrowserIds(connections.map((item) => String(item.id || '')));
+  function createSoftwareTargetOption(target) {
+    const option = document.createElement('option');
+    const profileId = String(target.profileId || '');
+    option.value = `${SOFTWARE_TARGET_PREFIX}${profileId}`;
+    option.dataset.targetType = 'software';
+    option.textContent = `${String(target.name || '外部软件')} · 软件 UI`;
+    option.title = `UI Automation · PID ${Number(target.pid || 0)}`;
+    return option;
+  }
+
+  function selectBrowserTarget(allIds, previousIds, softwareProfileId) {
+    if (softwareProfileId) return '';
     const availableIds = new Set(allIds);
     const survivingId = previousIds.find((id) => availableIds.has(id)) || '';
     const previousAvailableIds = new Set(state.availableBrowserIds);
     const newIds = state.browserConnectionsInitialized
       ? allIds.filter((id) => !previousAvailableIds.has(id))
       : [];
-    const initialId = state.browserSelectionTouched && survivingId ? survivingId : (allIds[0] || '');
-    if (state.browserSelectionExplicitlyDisabled) return { allIds, selectedIds: [] };
-    const selectedId = state.browserConnectionsInitialized
-      ? (newIds.at(-1) || survivingId || allIds[0] || '')
-      : initialId;
+    if (state.browserConnectionsInitialized) {
+      return newIds.at(-1) || survivingId || allIds[0] || '';
+    }
+    if (state.browserSelectionTouched && survivingId) return survivingId;
+    return allIds[0] || '';
+  }
+
+  function selectSoftwareTarget(softwareTargets, allSoftwareIds, previousSoftwareId) {
+    if (allSoftwareIds.includes(previousSoftwareId)) return previousSoftwareId;
+    if (!state.browserSelectionTouched) {
+      const active = softwareTargets.find((item) => item?.isActive === true);
+      if (active) return String(active.profileId || '');
+    }
+    return '';
+  }
+
+  function resolveControlSelection(connections, softwareTargets, previousIds, previousSoftwareId) {
+    const allIds = normalizeBrowserIds(connections.map((item) => String(item.id || '')));
+    const allSoftwareIds = normalizeBrowserIds(
+      softwareTargets.map((item) => String(item.profileId || '')),
+    );
+    if (state.browserSelectionExplicitlyDisabled) {
+      return { allIds, allSoftwareIds, selectedIds: [], softwareProfileId: '' };
+    }
+    const preferredSoftwareId = selectSoftwareTarget(
+      softwareTargets, allSoftwareIds, previousSoftwareId,
+    );
+    const selectedId = selectBrowserTarget(allIds, previousIds, preferredSoftwareId);
     const selectedIds = selectedId ? [selectedId] : [];
-    return { allIds, selectedIds };
+    const softwareProfileId = preferredSoftwareId
+      || (selectedIds.length ? '' : allSoftwareIds[0] || '');
+    return {
+      allIds,
+      allSoftwareIds,
+      selectedIds: softwareProfileId ? [] : selectedIds,
+      softwareProfileId,
+    };
   }
 
   function syncBrowserSessionSelection() {
     if (!state.currentSession || currentMessages().length) return;
     state.currentSession.browserConnectionId = state.currentBrowserIds[0] || '';
     state.currentSession.browserConnectionIds = [...state.currentBrowserIds];
+    state.currentSession.softwareProfileId = state.currentSoftwareProfileId;
   }
 
-  function applyBrowserConnections(select, connections, previousIds) {
-    state.browserConnectionsSnapshot = browserConnectionsSnapshot(connections);
+  function applyBrowserConnections(
+    select, connections, softwareTargets, previousIds, previousSoftwareId,
+  ) {
+    state.browserConnectionsSnapshot = browserConnectionsSnapshot(connections, softwareTargets);
     state.browserConnectionsError = '';
     state.browserConnectionProfileById = Object.fromEntries(connections.map((connection) => [
       String(connection?.id || ''),
       String(connection?.profileId || ''),
     ]));
-    select.innerHTML = '<option value="">不连接浏览器</option>';
+    select.innerHTML = '<option value="">不使用控制目标</option>';
     connections.forEach((connection) => select.appendChild(createBrowserConnectionOption(connection)));
-    const { allIds, selectedIds } = resolveBrowserSelection(connections, previousIds);
-    const selectionChanged = selectedIds.join(',') !== state.currentBrowserIds.join(',');
+    softwareTargets.forEach((target) => select.appendChild(createSoftwareTargetOption(target)));
+    const selection = resolveControlSelection(
+      connections, softwareTargets, previousIds, previousSoftwareId,
+    );
+    const selectionChanged = selection.selectedIds.join(',') !== state.currentBrowserIds.join(',')
+      || selection.softwareProfileId !== state.currentSoftwareProfileId;
+    const { allIds, allSoftwareIds, selectedIds, softwareProfileId } = selection;
     state.availableBrowserIds = allIds;
+    state.availableSoftwareProfileIds = allSoftwareIds;
     state.browserConnectionsInitialized = true;
-    setSelectBrowserIds(select, selectedIds);
+    setSelectControlTarget(select, selectedIds, softwareProfileId);
     state.currentBrowserIds = selectedIds;
-    if (selectedIds.length) state.browserSelectionExplicitlyDisabled = false;
+    state.currentSoftwareProfileId = softwareProfileId;
+    if (selectedIds.length || softwareProfileId) state.browserSelectionExplicitlyDisabled = false;
     syncBrowserSessionSelection();
-    select.title = connections.length
-      ? `已连接 ${connections.length} 个浏览器插件，AI 同时只控制当前选中的一个`
-      : '未发现浏览器插件，请确认扩展和 AI-FREE 已启动';
+    select.title = connections.length || softwareTargets.length
+      ? `可选 ${connections.length} 个浏览器和 ${softwareTargets.length} 个软件窗口`
+      : '未发现可控制的浏览器或软件窗口';
     syncSelectUi(select);
     notifyBrowserSelection();
     if (selectionChanged && !currentMessages().length) renderWelcome();
   }
 
   function clearBrowserConnections(select, errorMessage) {
-    const selectionChanged = Boolean(state.currentBrowserIds.length);
-    select.innerHTML = '<option value="">未发现浏览器插件</option>';
+    const selectionChanged = Boolean(
+      state.currentBrowserIds.length || state.currentSoftwareProfileId,
+    );
+    select.innerHTML = '<option value="">未发现控制目标</option>';
     state.currentBrowserIds = [];
+    state.currentSoftwareProfileId = '';
     state.availableBrowserIds = [];
+    state.availableSoftwareProfileIds = [];
     state.browserConnectionsInitialized = false;
     state.browserConnectionsSnapshot = '';
     state.browserConnectionsError = errorMessage;
@@ -174,8 +228,8 @@
     return Boolean(select && getBrowserConnectionsApi() && !state.browserConnectionsLoading);
   }
 
-  function shouldApplyBrowserConnections(connections) {
-    const snapshot = browserConnectionsSnapshot(connections);
+  function shouldApplyBrowserConnections(connections, softwareTargets) {
+    const snapshot = browserConnectionsSnapshot(connections, softwareTargets);
     return !state.browserConnectionsInitialized
       || snapshot !== state.browserConnectionsSnapshot
       || Boolean(state.browserConnectionsError);
@@ -184,6 +238,7 @@
   function shouldClearBrowserConnections(errorMessage) {
     return state.browserConnectionsInitialized
       || Boolean(state.currentBrowserIds.length)
+      || Boolean(state.currentSoftwareProfileId)
       || state.browserConnectionsError !== errorMessage;
   }
 
@@ -194,14 +249,19 @@
     if (shouldDeferDynamicDataRefresh()) return;
     state.browserConnectionsLoading = true;
     const previousIds = normalizeBrowserIds([...getSelectBrowserIds(select), ...state.currentBrowserIds]);
+    const previousSoftwareId = getSelectSoftwareProfileId(select)
+      || state.currentSoftwareProfileId;
     try {
       const result = requireAiDataResult(await getConnections(), '浏览器连接读取失败');
       if (shouldDeferDynamicDataRefresh()) return;
       const connections = Array.isArray(result.connections) ? result.connections : [];
+      const softwareTargets = Array.isArray(result.softwareTargets) ? result.softwareTargets : [];
       // 心跳轮询只负责发现连接变化。列表内容没变时不重建 select/menu，
       // 也不重复广播到主窗口，避免打断 textarea 的中文输入法合成状态。
-      if (!shouldApplyBrowserConnections(connections)) return;
-      applyBrowserConnections(select, connections, previousIds);
+      if (!shouldApplyBrowserConnections(connections, softwareTargets)) return;
+      applyBrowserConnections(
+        select, connections, softwareTargets, previousIds, previousSoftwareId,
+      );
     } catch (error) {
       if (shouldDeferDynamicDataRefresh()) return;
       const errorMessage = aiDataErrorMessage(error);

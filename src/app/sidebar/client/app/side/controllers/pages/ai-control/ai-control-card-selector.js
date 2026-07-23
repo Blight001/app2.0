@@ -103,12 +103,12 @@
       return;
     }
     const selectedOptions = options.filter((opt) => opt.selected && opt.value);
-    const placeholder = options.find((opt) => !opt.value)?.textContent || '不连接浏览器';
+    const placeholder = options.find((opt) => !opt.value)?.textContent || '不使用控制目标';
     valueEl.textContent = selectedOptions[0]?.textContent || placeholder;
     shell.classList.toggle('has-selection', Boolean(selectedOptions.length || state.currentCardId));
     trigger.title = selectedOptions.length
       ? selectedOptions.map((opt) => opt.title || opt.textContent).join('、')
-      : '未连接浏览器';
+      : '未选择控制目标';
   }
 
   function resolveFocusedOption(menu) {
@@ -172,7 +172,7 @@
     appendBrowserMcpSetting(menu);
     const browserLabel = document.createElement('li');
     browserLabel.className = 'ai-browser-target-label';
-    browserLabel.textContent = '目标浏览器';
+    browserLabel.textContent = '控制目标';
     menu.appendChild(browserLabel);
   }
 

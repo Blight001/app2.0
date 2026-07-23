@@ -4,13 +4,23 @@
       .filter(Boolean))];
   }
 
-  function browserConnectionsSnapshot(connections) {
-    return JSON.stringify((Array.isArray(connections) ? connections : []).map((connection) => ({
-      id: String(connection?.id || ''),
-      profileId: String(connection?.profileId || ''),
-      browserName: String(connection?.browserName || connection?.name || ''),
-      toolCount: Number(connection?.toolCount || 0),
-    })));
+  const SOFTWARE_TARGET_PREFIX = 'software:';
+
+  function browserConnectionsSnapshot(connections, softwareTargets = []) {
+    return JSON.stringify({
+      browsers: (Array.isArray(connections) ? connections : []).map((connection) => ({
+        id: String(connection?.id || ''),
+        profileId: String(connection?.profileId || ''),
+        browserName: String(connection?.browserName || connection?.name || ''),
+        toolCount: Number(connection?.toolCount || 0),
+      })),
+      software: (Array.isArray(softwareTargets) ? softwareTargets : []).map((target) => ({
+        profileId: String(target?.profileId || ''),
+        name: String(target?.name || ''),
+        pid: Number(target?.pid || 0),
+        isActive: target?.isActive === true,
+      })),
+    });
   }
 
   function automationCardsSnapshot(cards, selectedId) {
@@ -34,16 +44,31 @@
   function getSelectBrowserIds(select) {
     return Array.from(select?.selectedOptions || [])
       .map((option) => String(option.value || ''))
-      .filter(Boolean)
+      .filter((value) => Boolean(value) && !value.startsWith(SOFTWARE_TARGET_PREFIX))
       .slice(0, 1);
   }
 
-  function setSelectBrowserIds(select, ids) {
+  function getSelectSoftwareProfileId(select) {
+    const value = String(select?.selectedOptions?.[0]?.value || '');
+    return value.startsWith(SOFTWARE_TARGET_PREFIX)
+      ? value.slice(SOFTWARE_TARGET_PREFIX.length)
+      : '';
+  }
+
+  function setSelectControlTarget(select, ids, softwareProfileId = '') {
     if (!select) return;
-    const wanted = new Set(normalizeBrowserIds(ids).slice(0, 1));
+    const softwareValue = softwareProfileId
+      ? `${SOFTWARE_TARGET_PREFIX}${softwareProfileId}`
+      : '';
+    const browserId = normalizeBrowserIds(ids)[0] || '';
+    const wanted = softwareValue || browserId;
     Array.from(select.options).forEach((option) => {
-      option.selected = Boolean(option.value) && wanted.has(option.value);
+      option.selected = Boolean(wanted) && option.value === wanted;
     });
+  }
+
+  function setSelectBrowserIds(select, ids) {
+    setSelectControlTarget(select, ids, '');
   }
 
   function notifyBrowserSelection() {
@@ -62,6 +87,7 @@
       connectionIds,
       profileId: profileIds[0] || '',
       profileIds,
+      softwareProfileId: String(state.currentSoftwareProfileId || ''),
     });
   }
 
@@ -155,6 +181,7 @@
       modelId: selectionString(session?.modelId),
       browserConnectionId: selectionString(session?.browserConnectionId),
       browserConnectionIds: sessionBrowserIds(session),
+      softwareProfileId: selectionString(session?.softwareProfileId),
       automationCardId: selectionString(session?.automationCardId),
       preview: selectionString(session?.preview),
       messageCount: messages.length,

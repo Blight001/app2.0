@@ -7,14 +7,17 @@
         "src/browser_host_window.cc",
         "src/child_window_manager.cc",
         "src/dpi_manager.cc",
+        "src/external_window_dock.cc",
         "src/focus_manager.cc",
         "src/process_monitor.cc",
+        "src/ui_automation_bridge.cc",
+        "src/ui_automation_input.cc",
         "src/win_delay_load_hook.cc"
       ],
       "defines": ["NAPI_VERSION=9", "UNICODE", "_UNICODE", "WIN32_LEAN_AND_MEAN", "NOMINMAX"],
       "conditions": [
         ["OS=='win'", {
-          "libraries": ["delayimp.lib", "user32.lib", "gdi32.lib", "dwmapi.lib"],
+          "libraries": ["delayimp.lib", "user32.lib", "gdi32.lib", "dwmapi.lib", "ole32.lib", "oleaut32.lib", "uiautomationcore.lib"],
           "msvs_settings": {
             "VCLinkerTool": {
               "DelayLoadDLLs": ["node.exe"]

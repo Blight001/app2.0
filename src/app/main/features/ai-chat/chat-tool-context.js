@@ -55,10 +55,17 @@ function collectConnectionTools(connections, windowTools) {
 
 function appendDownloadWorkflow(workflow, available) {
   if (!available.has('browser_observe') || !available.has('browser_download')) return;
-  workflow.push('用户要求寻找或下载文件时，先主动调用 browser_observe（可用 filter:"link"/"media" 或 keyword 收窄），从 item.downloadUrl 或顶层 downloadLinks[].url 取得真实地址和 downloadFilename/filename，再调用 browser_download action=download；下载图片/视频/音频时把条目的 category 传给 media_type，使工具使用当前 Chromium 登录态和网络环境；不得根据链接文字猜测下载地址');
+  workflow.push('下载前用 browser_observe 找真实 downloadUrl，再交给 browser_download');
 }
 
-function createMcpContext(tools, connections, resolver, controlledConnectionId) {
+function createSoftwareUiWorkflow(available, softwareTarget) {
+  const name = String(softwareTarget?.name || '当前软件').replace(/[\r\n\t]+/g, ' ').slice(0, 80);
+  return available.has('software_ui')
+    ? `software_ui 已绑定“${name}”：先 observe；click 走鼠标，invoke 才走 UIA；界面变化后重取 ref。`
+    : '';
+}
+
+function createMcpContext(tools, connections, resolver, controlledConnectionId, softwareTarget) {
   if (!tools.length) return null;
   const availableNames = tools.map((tool) => String(tool?.name || '').trim()).filter(Boolean);
   const toolNames = availableNames.join('、');
@@ -70,32 +77,33 @@ function createMcpContext(tools, connections, resolver, controlledConnectionId) 
       ? `当前唯一控制浏览器为 ${resolver.describeConnections()}；无需传 change_browser，除非之后出现新的可用连接。`
       : '当前没有可用的浏览器自动化连接，不要调用或虚构浏览器工具。');
   const workflow = [];
-  if (available.has('browser_tab')) workflow.push('使用 browser_tab 确认、切换或导航标签页');
+  if (available.has('browser_tab')) workflow.push('用 browser_tab 管理网页标签');
   if (available.has('browser_observe') && available.has('browser_action')) {
-    workflow.push('网页操作前先用 browser_observe 获取当前状态，再用 browser_action 操作；导航、切换标签页或页面明显变化后重新 observe，禁止跨浏览器或跨页面复用旧 ref');
-  } else if (available.has('browser_observe')) workflow.push('用 browser_observe 读取当前页面，不虚构未返回的元素');
-  if (available.has('browser_wait')) workflow.push('仅在页面确实需要加载或等待元素时使用 browser_wait');
+    workflow.push('网页先 observe 再 action，页面变化后刷新 ref');
+  } else if (available.has('browser_observe')) workflow.push('用 browser_observe 读取网页');
+  if (available.has('browser_wait')) workflow.push('仅在确需加载时 wait');
   appendDownloadWorkflow(workflow, available);
   if (available.has('sandbox_files')) {
-    workflow.push('上传本地资产前先用 sandbox_files 列出 AI-Workspace，再把返回的 absolute_path 交给 browser_action.upload_file；浏览器下载也会自动保存到该工作区');
+    workflow.push('本地文件先用 sandbox_files 获取路径');
   }
   const browserWorkflow = workflow.length
-    ? `${workflow.join('；')}。操作失败时根据错误调整策略，不要原样盲目重试。`
+    ? `${workflow.join('；')}。`
     : '';
+  const softwareWorkflow = createSoftwareUiWorkflow(available, softwareTarget);
   return {
     role: 'system',
-    content: `你可以使用这些 AI-FREE MCP 工具：${toolNames}。${routing}${browserWorkflow}`
-      + '只调用目录中真实存在的工具并严格遵守参数 schema。software_window 仅管理软件窗口：其 list 返回的 history_id 和 tab_id 不能当作 change_browser；窗口名称只有同时出现在可用连接列表时才能用于 change_browser。要聚焦已打开窗口，调用 software_window 的 open，并传 history_id 或唯一名称。'
-      + 'browser_tab/browser_observe/browser_action/browser_wait 等浏览器工具只能控制当前目标，切换目标只能使用 change_browser；窗口已打开不等于其 MCP 已连接。'
-      + 'software_window 的 open/create 会等待目标窗口的 AI 自动化插件连接；只有返回 success=true、mcp_connected=true 和 control_browser_id 后才算可控，此时目标已自动切换，不要在连接就绪前调用页面工具。'
-      + '当用户目标明确且操作安全时直接完成，不要为已知信息反复询问；涉及删除、覆盖、提交、支付或发送等重要动作时，以用户授权范围为准。'
-      + '必须根据工具返回值判断下一步，未收到成功结果前不得声称操作完成；完成后用简洁自然语言说明实际结果，不要暴露内部调用格式。',
+    content: `工具：${toolNames}。${routing}${browserWorkflow}${softwareWorkflow}`
+      + 'software_window 只管理 AI-FREE 浏览器窗口；网页工具仅控制当前浏览器，切换用 change_browser。'
+      + '严格按 schema 和返回结果行动；页面或窗口变化后不要复用旧 ref。重要修改须在用户授权内，未成功不得声称完成。',
     ai_free_card_context: true,
   };
 }
 
 function buildChatToolContext(options = {}) {
-  const { connections, controlledConnectionId, windowTools, selectedAutomationCard, automationCardId, initialMessages } = options;
+  const {
+    connections, controlledConnectionId, windowTools, selectedAutomationCard,
+    automationCardId, initialMessages, softwareTarget,
+  } = options;
   const resolver = createConnectionResolver(connections);
   const tools = [...(windowTools?.tools || []), ...collectConnectionTools(connections, windowTools)];
   const cardName = String(
@@ -108,7 +116,9 @@ function buildChatToolContext(options = {}) {
       ai_free_card_context: true,
     }
     : null;
-  const mcpContext = createMcpContext(tools, connections, resolver, controlledConnectionId);
+  const mcpContext = createMcpContext(
+    tools, connections, resolver, controlledConnectionId, softwareTarget,
+  );
   return {
     ...resolver,
     tools,

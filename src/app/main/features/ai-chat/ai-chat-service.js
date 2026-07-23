@@ -2,6 +2,7 @@
 
 const { createAiBrowserWindowTools } = require('../../services/ai-browser-window-tools');
 const { createAiSandboxFileTools } = require('../../services/ai-sandbox-file-tools');
+const { createAiSoftwareUiTools } = require('../../services/ai-software-ui-tools');
 const { createChatRunRegistry } = require('./chat-run-registry');
 const { prepareChatRequest } = require('./chat-request-context');
 const { runChatConversation } = require('./chat-conversation-runner');
@@ -35,6 +36,55 @@ async function waitForBrowserConnection(deps, target = {}, timeoutMs = 20000) {
   return null;
 }
 
+function createBaseWindowTools(deps, cache, licenseCache, logger) {
+  if (!cache.browser && deps.browserWindowUi) {
+    cache.browser = createAiBrowserWindowTools({
+      ui: deps.browserWindowUi,
+      licenseCache,
+      logger,
+      waitForBrowserConnection: (target) => waitForBrowserConnection(deps, target),
+    });
+  }
+  if (!cache.files) cache.files = createAiSandboxFileTools({ sandboxDir: deps.aiSandboxDir });
+  return [cache.browser, cache.files].filter(Boolean);
+}
+
+function combineWindowTools(sources) {
+  if (!sources.length) return null;
+  return {
+    tools: sources.flatMap((source) => source.tools),
+    has: (name) => sources.some((source) => source.has(name)),
+    execute: (name, args) => {
+      const source = sources.find((candidate) => candidate.has(name));
+      if (!source) throw new Error(`暂无该 MCP 调用：${name}`);
+      return source.execute(name, args);
+    },
+  };
+}
+
+function createWindowToolProvider(deps, licenseCache, logger) {
+  const cache = { browser: null, files: null };
+  return (selection = null) => {
+    try {
+      const profileId = deps.getActiveTabId?.();
+      const activeTarget = deps.browserRuntimeManager?.externalApp?.getAutomationTarget?.(profileId);
+      const target = selection && typeof selection === 'object'
+        ? selection.softwareTarget
+        : activeTarget;
+      const software = createAiSoftwareUiTools({
+        windowBridge: deps.browserRuntimeManager?.windowBridge,
+        target,
+      });
+      const sources = [...createBaseWindowTools(deps, cache, licenseCache, logger), software]
+        .filter((source) => source?.tools?.length);
+      return combineWindowTools(sources);
+    } catch (error) {
+      logger.warn?.('[AI窗口工具] 初始化失败:', error?.message || error);
+      return null;
+    }
+  };
+}
+
 function createAiChatService(deps = {}) {
   const {
     readStoreConfigSafe,
@@ -43,33 +93,7 @@ function createAiChatService(deps = {}) {
   } = deps;
     const chatRuns = createChatRunRegistry();
     let lastPromptRequest = null;
-
-    // 软件端默认的"外层"浏览器窗口控制工具：不依赖任何浏览器插件连接，
-    // 每次对话都会注入，让 AI 能列出/打开/新建/重命名/关闭软件的浏览器窗口。
-    let aiBrowserWindowTools = null;
-    const getAiBrowserWindowTools = () => {
-      if (aiBrowserWindowTools) return aiBrowserWindowTools;
-      if (!deps.browserWindowUi) return null;
-      try {
-        const windowTools = createAiBrowserWindowTools({
-          ui: deps.browserWindowUi,
-          licenseCache,
-          logger,
-          waitForBrowserConnection: (target) => waitForBrowserConnection(deps, target),
-        });
-        const fileTools = createAiSandboxFileTools({ sandboxDir: deps.aiSandboxDir });
-        aiBrowserWindowTools = {
-          tools: [...windowTools.tools, ...fileTools.tools],
-          has: (name) => windowTools.has(name) || fileTools.has(name),
-          execute: (name, args) => (windowTools.has(name)
-            ? windowTools.execute(name, args)
-            : fileTools.execute(name, args)),
-        };
-      } catch (error) {
-        logger.warn?.('[AI窗口工具] 初始化失败:', error?.message || error);
-      }
-      return aiBrowserWindowTools;
-    };
+    const getAiBrowserWindowTools = createWindowToolProvider(deps, licenseCache, logger);
 
     async function insert(_event, input = {}) {
       const requestId = String(input.requestId || '').trim();
@@ -114,4 +138,10 @@ function createAiChatService(deps = {}) {
     return { chat, getPromptDiagnostics, getWindowTools: getAiBrowserWindowTools, insert, stop };
 }
 
-module.exports = { createAiChatService, namedBrowserConnections, waitForBrowserConnection };
+module.exports = {
+  combineWindowTools,
+  createAiChatService,
+  createWindowToolProvider,
+  namedBrowserConnections,
+  waitForBrowserConnection,
+};

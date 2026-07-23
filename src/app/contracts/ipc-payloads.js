@@ -90,7 +90,10 @@ function validateChatMessage(channel, message, index) {
 
 function validateHistorySession(channel, session) {
   if (!isPlainObject(session)) fail(channel, 'session', '必须是对象');
-  for (const key of ['id', 'title', 'modelId', 'browserConnectionId', 'automationCardId', 'preview']) {
+  for (const key of [
+    'id', 'title', 'modelId', 'browserConnectionId',
+    'softwareProfileId', 'automationCardId', 'preview',
+  ]) {
     stringField(channel, session, key, { maxLength: key === 'preview' ? MAX_TEXT_LENGTH : MAX_ID_LENGTH });
   }
   stringListField(channel, session, 'browserConnectionIds');
@@ -116,6 +119,7 @@ const IPC_PAYLOAD_SCHEMAS = Object.freeze({
     const input = objectPayload(channel, payload, { optional: true });
     stringField(channel, input, 'profileId');
     stringListField(channel, input, 'profileIds');
+    stringField(channel, input, 'softwareProfileId');
     return input;
   },
   'ai.card-selection': (channel, payload) => {
@@ -125,7 +129,7 @@ const IPC_PAYLOAD_SCHEMAS = Object.freeze({
   },
   'ai.chat': (channel, payload) => {
     const input = objectPayload(channel, payload, { optional: true });
-    for (const key of ['modelId', 'requestId', 'browserConnectionId', 'automationCardId']) {
+    for (const key of ['modelId', 'requestId', 'browserConnectionId', 'softwareProfileId', 'automationCardId']) {
       stringField(channel, input, key);
     }
     stringListField(channel, input, 'browserConnectionIds');
@@ -152,7 +156,7 @@ const IPC_PAYLOAD_SCHEMAS = Object.freeze({
   },
   'ai.prompt-diagnostics': (channel, payload) => {
     const input = objectPayload(channel, payload, { optional: true });
-    for (const key of ['modelId', 'browserConnectionId', 'automationCardId']) {
+    for (const key of ['modelId', 'browserConnectionId', 'softwareProfileId', 'automationCardId']) {
       stringField(channel, input, key);
     }
     stringListField(channel, input, 'browserConnectionIds');
@@ -186,7 +190,9 @@ const IPC_PAYLOAD_SCHEMAS = Object.freeze({
   },
   'ai.history-create': (channel, payload) => {
     const input = objectPayload(channel, payload, { optional: true });
-    for (const key of ['modelId', 'browserConnectionId', 'automationCardId']) stringField(channel, input, key);
+    for (const key of ['modelId', 'browserConnectionId', 'softwareProfileId', 'automationCardId']) {
+      stringField(channel, input, key);
+    }
     stringListField(channel, input, 'browserConnectionIds');
     return input;
   },
@@ -216,6 +222,11 @@ const IPC_PAYLOAD_SCHEMAS = Object.freeze({
     const input = objectPayload(channel, payload, { optional: true });
     stringField(channel, input, 'keyValue', { maxLength: 4096 });
     stringField(channel, input, 'id');
+    return input;
+  },
+  'software.open': (channel, payload) => {
+    const input = objectPayload(channel, payload);
+    stringField(channel, input, 'softwareId', { maxLength: 80 });
     return input;
   },
 });

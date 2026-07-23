@@ -19,6 +19,7 @@ const { createServerResolver } = require('../services/server-resolver');
 const { createTabHelpers } = require('../services/tab-helpers');
 const { createRuntimeHelpers } = require('../services/runtime-helpers');
 const { createExtensionManager } = require('../services/extension-manager');
+const { createSoftwareCatalog } = require('../features/external-app/software-catalog');
 const { getHardwareFingerprint } = require('../utils/hardware-js');
 const { resolveVipAccess } = require('../utils/vip-access');
 const { extractValidationState, getValidationFailureMessage } = require('../utils/license-response');
@@ -56,6 +57,9 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
     sandboxDir: aiSandboxDir,
     getParentWindow: appRuntime.getMainWindow,
     logger: console,
+  });
+  const softwareCatalog = createSoftwareCatalog({
+    listVisibleWindows: () => browserRuntimeManager.windowBridge.listVisibleTopLevelWindows(),
   });
   try {
     if (process.platform === 'win32' && browserRuntimeManager.isChromiumAvailable()) {
@@ -248,6 +252,7 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
     appRuntime,
     tabs,
     browserRuntimeManager,
+    softwareCatalog,
     aiSandboxDir,
     licenseCache,
     browserPartitionCleaner,

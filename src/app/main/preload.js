@@ -154,6 +154,10 @@ contextBridge.exposeInMainWorld('aiFree', Object.freeze({
     setEnabled: invokeChannel('set-extension-enabled'),
     onStateChanged: subscribeChannel('extension-manager-state'),
   }),
+  software: Object.freeze({
+    list: invokeChannel('list-available-software'),
+    open: invokeChannel('open-external-software'),
+  }),
   updates: Object.freeze({
     getAppVersion: invokeChannel('get-app-version'),
     start: invokeChannel('start-app-update'),

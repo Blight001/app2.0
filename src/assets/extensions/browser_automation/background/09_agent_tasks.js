@@ -139,13 +139,7 @@ async function restoreAndConnectAgent() {
 }
 
 function nudgeAgentSocket() {
-    if (!agentSocket) {
-        void restoreAndConnectAgent();
-        return;
-    }
-    if (!agentSocket.connected && !agentSocket.active) {
-        agentSocket.connect();
-    }
+    if (!agentSocket?.connected && !agentSocket?.active) void restoreAndConnectAgent();
 }
 
 // Offscreen document: MV3 service workers are reclaimed when idle, while an
@@ -220,8 +214,7 @@ async function saveAgentPopupSettings(message) {
 }
 
 async function connectAgentFromPopup() {
-    if (agentSocket?.connected) await emitAgentEnrollOn(agentSocket);
-    else await agentConnect();
+    await agentConnect();
     return { ok: true, ...agentStatePayload() };
 }
 

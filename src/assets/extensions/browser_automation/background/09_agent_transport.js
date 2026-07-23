@@ -95,9 +95,11 @@ async function agentConnect() {
     if (agentConnectPromise) {
         return agentConnectPromise;
     }
-    agentConnectPromise = agentDoConnect().finally(() => {
-        agentConnectPromise = null;
-    });
+    agentConnectPromise = agentDoConnect()
+        .catch(() => undefined)
+        .finally(() => {
+            agentConnectPromise = null;
+        });
     return agentConnectPromise;
 }
 
@@ -127,28 +129,23 @@ async function agentDoConnect() {
 
     agentSocket = new LocalAutomationBridgeSocket(bridgeUrl);
     attachAgentListeners(agentSocket);
-    await agentSocket.connect();
+    const enrollment = await createAgentEnrollment();
+    if (enrollment) await agentSocket.connect(enrollment);
 }
 
 function attachAgentListeners(socket) {
-    socket.on('connect', async () => {
-        setAgentStatus('connected');
-        await agentEnroll();
+    socket.on('connect', () => {
         flushUnsentAgentOutcomes();
     });
 
     socket.on('disconnect', (reason) => {
         setAgentStatus('disconnected', reason);
-        setTimeout(() => {
-            if (agentSocket && !agentSocket.connected && !agentSocket.active) void agentSocket.connect();
-        }, 2000);
+        scheduleAgentReconnect();
     });
 
     socket.on('connect_error', (err) => {
         setAgentStatus('error', err && err.message ? err.message : '连接失败');
-        setTimeout(() => {
-            if (agentSocket && !agentSocket.connected && !agentSocket.active) void agentSocket.connect();
-        }, 2000);
+        scheduleAgentReconnect();
     });
 
     socket.on(DEVICE_ENROLLED, (data) => {
@@ -174,10 +171,22 @@ function attachAgentListeners(socket) {
     socket.on('task:dispatch', (task) => { void handleAgentTask(task); });
 }
 
+function scheduleAgentReconnect(delay = 2000) {
+    if (agentReconnectTimer) return;
+    agentReconnectTimer = setTimeout(() => {
+        agentReconnectTimer = null;
+        void agentConnect();
+    }, delay);
+}
+
 function agentDisconnect() {
+    if (agentReconnectTimer) clearTimeout(agentReconnectTimer);
+    agentReconnectTimer = null;
     if (agentSocket) {
-        agentSocket.disconnect();
+        const socket = agentSocket;
         agentSocket = null;
+        socket.removeAllListeners();
+        socket.disconnect();
     }
     setAgentStatus('disconnected');
 }

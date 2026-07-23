@@ -15,6 +15,7 @@ const {
 } = require('./browser-automation-normalizers');
 
 const DEFAULT_PORT = 18765;
+const BRIDGE_PROTOCOL_VERSION = 1;
 // MV3 may reclaim the extension worker between offscreen keepalive messages.
 // Keep two full 20-second wake intervals plus scheduling jitter before declaring
 // the browser gone; authenticated requests still refresh lastSeenAt immediately.
@@ -153,7 +154,9 @@ class BrowserAutomationBridgeRuntime {
     const token = String(req.headers['x-bridge-token'] || url.searchParams.get('token') || '').trim();
     const connection = this.connections.get(id);
     if (!connection || !token || token !== connection.token) return null;
-    if (Number(req.headers[APP_BROWSER_PID_HEADER] || 0) !== connection.browserProcessId) return null;
+    const requestBrowserProcessId = Number(req.headers[APP_BROWSER_PID_HEADER] || 0) || 0;
+    if (connection.browserProcessId && requestBrowserProcessId !== connection.browserProcessId) return null;
+    if (!connection.browserProcessId && requestBrowserProcessId) connection.browserProcessId = requestBrowserProcessId;
     connection.lastSeenAt = Date.now();
     return connection;
   }
@@ -259,6 +262,8 @@ class BrowserAutomationBridgeRuntime {
 
   async register(req, res, requestBrowserProcessId) {
     const data = await readJson(req);
+    const protocolVersion = Number(data.protocolVersion || BRIDGE_PROTOCOL_VERSION);
+    if (protocolVersion !== BRIDGE_PROTOCOL_VERSION) throw new Error(`不支持的浏览器桥接协议版本: ${protocolVersion}`);
     const identifiers = {
       instanceId: String(data.instanceId || data.id || '').trim(),
       sessionId: String(data.sessionId || '').trim(),
@@ -288,7 +293,7 @@ class BrowserAutomationBridgeRuntime {
 
   updateRegisteredSession(connection, data, browserProcessId) {
     connection.name = String(data.name || connection.name || 'AI自动化浏览器').trim();
-    connection.browserProcessId = browserProcessId;
+    connection.browserProcessId = browserProcessId || connection.browserProcessId;
     connection.platform = String(data.platform || connection.platform || 'browser-extension').trim();
     connection.version = String(data.version || connection.version || '').trim();
     connection.tools = Array.isArray(data.toolDefs) ? data.toolDefs : connection.tools;
@@ -324,12 +329,8 @@ class BrowserAutomationBridgeRuntime {
   }
 
   sendRegistrationResponse(res, connection) {
-    jsonResponse(res, 200, {
-      ok: true,
-      connectionId: connection.id,
-      token: connection.token,
-      pollIntervalMs: 650,
-    });
+    jsonResponse(res, 200, { ok: true, protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      connectionId: connection.id, token: connection.token, pollIntervalMs: 650 });
   }
 
   async saveCardCache(req, res) {
@@ -367,8 +368,9 @@ class BrowserAutomationBridgeRuntime {
       jsonResponse(res, 200, { ok: true });
       return true;
     }
-    if (route === 'GET /v1/tasks') {
-      jsonResponse(res, 200, { ok: true, tasks: connection.queue.splice(0, 4) });
+    if (route === 'POST /v1/poll' || route === 'GET /v1/tasks') {
+      jsonResponse(res, 200, { ok: true, protocolVersion: BRIDGE_PROTOCOL_VERSION,
+        nextPollMs: 650, tasks: connection.queue.splice(0, 4) });
       return true;
     }
     if (route === 'POST /v1/task-result') {
@@ -529,6 +531,7 @@ function createBrowserAutomationBridge(options = {}) {
 
 module.exports = {
   APP_BROWSER_PID_HEADER,
+  BRIDGE_PROTOCOL_VERSION,
   CARD_CACHE_FILE_NAME,
   CONNECTION_TTL_MS,
   DEFAULT_PORT,

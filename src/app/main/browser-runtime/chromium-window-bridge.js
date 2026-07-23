@@ -80,9 +80,43 @@ class ChromiumWindowBridge {
   }
   isWindowAlive(hwnd) { return this.load().isWindowAlive({ hwnd }); }
   getWindowProcessId(hwnd) { return this.load().getWindowProcessId({ hwnd }); }
+  requestWindowClose(hwnd) {
+    const binding = this.load();
+    return typeof binding.requestWindowClose === 'function'
+      ? binding.requestWindowClose({ hwnd })
+      : false;
+  }
   findMainWindowByProcessId(pid) { return this.load().findMainWindowByProcessId({ pid }); }
+  findMainWindowByExecutablePath(executablePath) {
+    return this.load().findMainWindowByExecutablePath({ executablePath });
+  }
+  listVisibleTopLevelWindows() {
+    const binding = this.load();
+    return typeof binding.listVisibleTopLevelWindows === 'function'
+      ? binding.listVisibleTopLevelWindows()
+      : [];
+  }
   setChildWindowTitle(childHwnd, title = 'AI-FREE') { return this.load().setChildWindowTitle({ childHwnd, title }); }
   isChildWindowAttached(hostHwnd, childHwnd) { return this.load().isChildWindowAttached({ hostHwnd, childHwnd }); }
+  dockExternalWindow(options) { return this.load().dockExternalWindow(options); }
+  hideDockedExternalWindow(childHwnd) {
+    return this.load().hideDockedExternalWindow({ childHwnd });
+  }
+  restoreExternalWindow(childHwnd) {
+    return this.load().restoreExternalWindow({ childHwnd });
+  }
+  isExternalWindowDocked(parentHwnd, childHwnd) {
+    return this.load().isExternalWindowDocked({ parentHwnd, childHwnd });
+  }
+  getWindowPlacementSnapshot(hwnd) {
+    return this.load().getWindowPlacementSnapshot({ hwnd });
+  }
+  observeExternalWindowUi(options) {
+    return this.load().observeExternalWindowUi(options);
+  }
+  performExternalWindowUiAction(options) {
+    return this.load().performExternalWindowUiAction(options);
+  }
 }
 
 module.exports = { ChromiumWindowBridge, resolveBindingCandidates };

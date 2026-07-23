@@ -55,9 +55,25 @@ for (const [channel, response] of /** @type {Array<[string, any]>} */ ([
   }],
   ['account-get-session', { authenticated: false }],
   ['get-proxy-traffic-quota', { ok: false }],
-  ['ai-control-get-browser-connections', { ok: true, connections: [] }],
+  ['ai-control-get-browser-connections', {
+    ok: true,
+    connections: [],
+    softwareTargets: [{
+      profileId: 'software-notepad',
+      name: '记事本',
+      pid: 321,
+      isActive: true,
+      toolCount: 1,
+    }],
+  }],
   ['ai-control-history-list', { ok: true, sessions: [] }],
-  ['ai-control-get-models', { ok: true, models: [], quota: null }],
+  ['ai-control-get-models', {
+    ok: true,
+    models: [{ id: 'fixture-model', name: 'Fixture Model' }],
+    quota: null,
+  }],
+  ['ai-control-get-automation-cards', { ok: true, cards: [] }],
+  ['refresh-wool-platforms', { ok: true, woolPlatforms: [] }],
   ['get-ai-server-device-status', {
     ok: true,
     status: {
@@ -67,6 +83,13 @@ for (const [channel, response] of /** @type {Array<[string, any]>} */ ([
     },
   }],
   ['focus-sidebar-input', { ok: true }],
+  ['list-available-software', { ok: true, data: [{
+    id: 'notepad',
+    name: '记事本',
+    description: 'Windows 文本编辑器',
+    iconText: '记',
+    experimental: false,
+  }] }],
 ])) ipcMain.handle(channel, () => response);
 
 app.whenReady().then(async () => {
@@ -86,6 +109,10 @@ app.whenReady().then(async () => {
     const gear = document.getElementById('ai-chat-browser-trigger');
     gear.click();
     await new Promise((resolve) => setTimeout(resolve, 80));
+    const controlTarget = document.getElementById('ai-chat-browser');
+    const softwareTargetOption = controlTarget?.querySelector(
+      'option[value="software:software-notepad"]',
+    );
     const mcpInput = document.getElementById('ai-browser-mcp-call-limit');
     const mcpDefault = mcpInput?.value || '';
     if (mcpInput) mcpInput.value = '125';
@@ -124,6 +151,11 @@ app.whenReady().then(async () => {
       mcpSaved,
       mcpStatus,
       serverDevicePage,
+      softwareTarget: {
+        exists: !!softwareTargetOption,
+        selected: softwareTargetOption?.selected === true,
+        text: softwareTargetOption?.textContent || '',
+      },
       accountHistoryRemoved: !document.getElementById('account-history-toggle-btn') && !document.getElementById('account-panel'),
       removedNetworkHeading: !document.getElementById('network-tools-title') && !panel.querySelector('.settings-network-tools-hint'),
       overflowY: getComputedStyle(document.querySelector('.main-wrapper')).overflowY,
@@ -143,6 +175,9 @@ app.whenReady().then(async () => {
     || result.serverDevicePage.serverVisible !== true
     || result.serverDevicePage.titleActive !== true
     || result.serverDevicePage.serverDefault !== 'http://49.234.181.190:3000'
+    || result.softwareTarget.exists !== true
+    || result.softwareTarget.selected !== true
+    || !result.softwareTarget.text.includes('记事本')
     || !result.browserHistoryText.includes('账号123456')
     || !result.browserHistoryText.includes('循环账号')
     || !result.browserHistoryText.includes('自动删除：')
@@ -344,6 +379,31 @@ app.whenReady().then(async () => {
   }
   await win.loadFile(path.join(__dirname, '../../../src/app/views/app-shell.html'));
   await new Promise((resolve) => setTimeout(resolve, 100));
+  win.webContents.send('update-tabs', [{
+    id: 'software-notepad',
+    title: '记事本',
+    runtimeType: 'external-app',
+    runtimeStatus: 'ready',
+    isActive: true,
+  }]);
+  win.webContents.send('ai-control-browser-selection-changed', {
+    profileIds: [],
+    softwareProfileId: 'software-notepad',
+  });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const softwareParticleResult = await win.webContents.executeJavaScript(`(() => {
+    const tab = document.querySelector('.tab[data-id="software-notepad"]');
+    const layer = tab?.querySelector('.ai-browser-particle-layer');
+    return {
+      tabRendered: !!tab,
+      aiConnected: tab?.classList.contains('ai-browser-connected') === true,
+      particleLayerVisible: !!layer && getComputedStyle(layer).display === 'block',
+      particlesCreated: layer?.childElementCount === 10,
+    };
+  })()`);
+  if (Object.values(softwareParticleResult).some((value) => value !== true)) {
+    throw new Error(`嵌入式软件 AI 粒子效果校验失败: ${JSON.stringify(softwareParticleResult)}`);
+  }
   const shellAccountResult = await win.webContents.executeJavaScript(`(() => {
     const updateWidget = document.getElementById('update-widget');
     const theme = document.getElementById('theme-toggle-btn');

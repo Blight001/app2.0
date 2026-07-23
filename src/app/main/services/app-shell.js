@@ -44,6 +44,7 @@ class AppShellRuntime {
   resolveRefreshActiveTabToUrl() { return this.resolveAction('getRefreshActiveTabToUrl'); }
   resolveRefreshActiveTab() { return this.resolveAction('getRefreshActiveTab'); }
   resolveRefreshTab() { return this.resolveAction('getRefreshTab'); }
+  resolveAddExternalApp() { return this.resolveAction('getAddExternalApp'); }
 
   resolveControlPanelWindow() {
     return this.resolveDependency('getControlPanelWindow', this.controlPanelWindow);
@@ -262,6 +263,7 @@ class AppShellRuntime {
       isControlPanelModeEnabled: this.isControlPanelModeEnabled.bind(this),
       resolveActiveTabId: this.resolveActiveTabId.bind(this),
       resolveAddTab: this.resolveAddTab.bind(this),
+      resolveAddExternalApp: this.resolveAddExternalApp.bind(this),
       resolveAuth: this.resolveAuth.bind(this),
       resolveControlPanelHtmlPath: this.resolveControlPanelHtmlPath.bind(this),
       resolveControlPanelWindow: this.resolveControlPanelWindow.bind(this),
@@ -287,6 +289,7 @@ class AppShellRuntime {
       revealMainWindow: this.revealMainWindow,
       resolveActiveTabId: this.resolveActiveTabId.bind(this),
       resolveAddTab: this.resolveAddTab.bind(this),
+      resolveAddExternalApp: this.resolveAddExternalApp.bind(this),
       resolveAuth: this.resolveAuth.bind(this),
       resolveCloseTab: this.resolveCloseTab.bind(this),
       resolveGlobalHttpClient: this.resolveGlobalHttpClient.bind(this),

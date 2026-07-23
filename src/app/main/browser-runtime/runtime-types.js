@@ -1,5 +1,6 @@
 const RUNTIME_TYPES = Object.freeze({
   CHROMIUM: 'chromium',
+  EXTERNAL_APP: 'external-app',
 });
 
 const RUNTIME_STATUS = Object.freeze({
@@ -40,7 +41,7 @@ function normalizeBounds(bounds = {}) {
 function createRuntimeState(profileId, runtimeType, patch = {}) {
   return {
     profileId: String(profileId || '').trim(),
-    runtimeType: RUNTIME_TYPES.CHROMIUM,
+    runtimeType: runtimeType || RUNTIME_TYPES.CHROMIUM,
     status: RUNTIME_STATUS.STOPPED,
     pid: 0,
     browserHwnd: null,

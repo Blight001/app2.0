@@ -10,6 +10,7 @@ const { registerMiscIPC } = require('./register/misc');
 const { registerSettingsIPC } = require('./register/settings');
 const { registerUiIPC } = require('./register/ui');
 const { registerExtensionsIPC } = require('./register/extensions');
+const { registerExternalAppIPC } = require('../features/external-app/register-external-app-ipc');
 
 // 上一轮 registerIPC 创建的注册器。重登录/重引导会整体重跑 registerIPC，
 // 此时先显式释放旧注册，替代原先 monkeypatch ipcMain 的静默去重补丁；
@@ -28,6 +29,7 @@ function registerIPC(ctx) {
   registerLicenseIPC(ctx);
   registerUiIPC(ctx);
   registerExtensionsIPC(ctx);
+  registerExternalAppIPC(ctx);
   registerMiscIPC(ctx);
   registerSettingsIPC(ctx);
   registerClashIPC(ctx);

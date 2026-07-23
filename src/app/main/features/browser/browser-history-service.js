@@ -77,8 +77,13 @@ function migrateBrowserHistoryAccounts(history, summaries) {
 function readBrowserHistorySafe() {
   const store = readStoreConfigSafe();
   const source = store && Array.isArray(store.browserHistory) ? store.browserHistory : [];
-  const history = source.map(normalizeBrowserHistoryItem).filter((item) => item.id);
-  let changed = source.some((item) => text(item && item.runtimeType) !== 'chromium');
+  const browserSource = source.filter((item) => (
+    text(item && item.runtimeType) !== 'external-app'
+    && !text(item && item.profileId).startsWith('software-')
+  ));
+  const history = browserSource.map(normalizeBrowserHistoryItem).filter((item) => item.id);
+  let changed = browserSource.length !== source.length
+    || browserSource.some((item) => text(item && item.runtimeType) !== 'chromium');
   try {
     const summaries = typeof accountStorage.getAllAccounts === 'function'
       ? accountStorage.getAllAccounts()
@@ -128,7 +133,8 @@ function getManagedTabUrl(tab) {
 
 function tabValues(ui) {
   const tabs = ui && typeof ui.getTabs === 'function' ? ui.getTabs() : new Map();
-  return tabs && typeof tabs.values === 'function' ? tabs.values() : [];
+  const values = tabs && typeof tabs.values === 'function' ? tabs.values() : [];
+  return Array.from(values).filter((tab) => text(tab && tab.runtimeType) !== 'external-app');
 }
 
 function findTabHistoryRecord(history, tab) {

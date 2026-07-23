@@ -54,6 +54,11 @@
 
 本扩展启动后会自动向 AI-FREE 的本机桥接登记工具目录，并通过独立任务队列接受软件 AI 控制页的调用。账号凭据只由 AI-FREE 软件管理，扩展不保存账号、密码或登录令牌。
 
+连接采用版本化的本机 HTTP 会话协议：插件主动 `POST /v1/register`，软件返回
+`protocolVersion + connectionId + token` 后插件才显示已连接；随后统一通过
+`POST /v1/poll` 完成心跳与任务拉取。会话 401 或网络中断时插件会清理旧凭据并
+重新注册；连接旧版软件且 `/v1/poll` 不存在时才回退到 `GET /v1/tasks`。
+
 ### 使用步骤
 
 1. 启动 AI-FREE，并加载本扩展。
@@ -117,6 +122,7 @@ browser_automation/
 │   ├── 07_events.js
 │   ├── 08_agent_settings.js    # 本机桥接设置（不含账号认证）
 │   ├── 09_agent_socket.js      # AI-FREE 本机连接 / 设备登记 / task 调度
+│   ├── 09_agent_connection.js  # 注册成功才上线的版本化会话 / poll 状态机
 │   ├── 10_browser_tools.js     # browser_tab/observe/action/wait 工具封装
 │   └── 11_browser_screenshot.js # browser_screenshot 可视区/分片拼接截图
 ├── content/

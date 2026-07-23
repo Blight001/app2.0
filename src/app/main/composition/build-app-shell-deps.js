@@ -110,6 +110,8 @@ function buildAppShellDeps({
     getRefreshActiveTabToUrl: late.getRefreshActiveTabToUrl,
     getRefreshActiveTab: late.getRefreshActiveTab,
     getRefreshTab: late.getRefreshTab,
+    getAddExternalApp: late.getAddExternalApp,
+    listAvailableSoftware: () => services.softwareCatalog.listAvailable(),
     updateTabs: tabHelpers.updateTabs,
     getActiveWC: tabHelpers.getActiveWC,
     toggleSidebar: tabHelpers.toggleSidebar,

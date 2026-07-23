@@ -135,7 +135,27 @@ const SOFTWARE_WINDOW_INPUT_SCHEMA = {
   },
 };
 
+const SOFTWARE_WINDOW_MODEL_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['action'],
+  properties: {
+    action: { type: 'string', enum: ['list', 'open', 'create', 'edit', 'close'] },
+    history_id: { type: 'string' },
+    name: { type: 'string' },
+    url: { type: 'string' },
+    new_name: { type: 'string' },
+    settings: {
+      type: 'object',
+      description: '环境增量。支持 proxy/homepage/ua/language/timezone/webrtc/geolocation/resolution/fonts/canvas/webgl/cpu/memory 等；先 list(include_settings=true) 查看当前值。',
+    },
+    restart: { type: 'boolean' },
+    include_settings: { type: 'boolean' },
+  },
+};
+
 module.exports = {
   BROWSER_SETTINGS_PATCH_SCHEMA,
   SOFTWARE_WINDOW_INPUT_SCHEMA,
+  SOFTWARE_WINDOW_MODEL_SCHEMA,
 };

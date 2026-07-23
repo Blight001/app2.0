@@ -135,7 +135,7 @@ function resolveLayout(deps, mainWindow, sideView) {
     isSidebarVisible,
     sideViewWidth,
     activeTab,
-    chromiumBounds: activeTab?.runtimeType === 'chromium'
+    runtimeBounds: activeTab
       ? { x: 0, y: tabBarHeight, width: width - sideViewWidth, height: height - tabBarHeight }
       : null,
   };
@@ -153,8 +153,12 @@ function updateMainWindowLayout(deps, mainWindow) {
     });
   }
   sideView?.setVisible?.(layout.isSidebarVisible);
-  if (!layout.activeTab || !layout.chromiumBounds) return;
-  void deps.browserRuntimeManager?.resize(layout.activeTab.id, 'chromium', layout.chromiumBounds)
+  if (!layout.activeTab || !layout.runtimeBounds) return;
+  void deps.browserRuntimeManager?.resize(
+    layout.activeTab.id,
+    layout.activeTab.runtimeType,
+    layout.runtimeBounds,
+  )
     .then(() => deps.updateTabs?.())
     .catch((error) => deps.logger.warn?.('[ChromiumRuntime] 同步窗口尺寸失败:', error?.message || error));
 }
