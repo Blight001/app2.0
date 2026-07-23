@@ -45,6 +45,44 @@ test('Chromium 新建标签页不经过 data URL 启动占位页', async () => {
   assert.equal(tabs.get('new-tab').runtimeUrl, 'chrome://newtab/');
 });
 
+test('主窗口最大化后 Chromium 区域保留最大化前的侧栏宽度', async () => {
+  const chromium = new EventEmitter();
+  const tabs = new Map();
+  let launchedBounds = null;
+  let activeTabId = null;
+  const manager = createTabManager({
+    browserRuntimeManager: {
+      chromium,
+      async launchProfile(_profile, bounds) {
+        launchedBounds = bounds;
+        return { status: 'ready' };
+      },
+      async hide() {},
+      async show() {},
+      async focus() {},
+    },
+    getTabs: () => tabs,
+    getMainWindow: () => ({
+      isDestroyed: () => false,
+      isMaximized: () => true,
+      getContentSize: () => [1920, 1040],
+      getNormalBounds: () => ({ width: 1200, height: 800 }),
+      emit() {},
+    }),
+    getSideView: () => ({ getBounds: () => ({ width: 360 }) }),
+    getActiveTabId: () => activeTabId,
+    setActiveTabId: (tabId) => { activeTabId = tabId; },
+    getIsSidebarVisible: () => true,
+    updateTabs() {},
+    sendToSide() {},
+    logger: { warn() {} },
+  });
+
+  await manager.addTab('chrome://newtab/', { tabId: 'maximized-browser' });
+
+  assert.deepEqual(launchedBounds, { x: 0, y: 41, width: 1560, height: 999 });
+});
+
 test('代理出口探测不阻塞 Chromium 启动并在后台写入 Profile 缓存', async () => {
   const chromium = new EventEmitter();
   const tabs = new Map();

@@ -150,6 +150,18 @@ const IPC_PAYLOAD_SCHEMAS = Object.freeze({
     stringField(channel, input, 'requestId');
     return input;
   },
+  'ai.prompt-diagnostics': (channel, payload) => {
+    const input = objectPayload(channel, payload, { optional: true });
+    for (const key of ['modelId', 'browserConnectionId', 'automationCardId']) {
+      stringField(channel, input, key);
+    }
+    stringListField(channel, input, 'browserConnectionIds');
+    if (input.messages !== undefined) {
+      if (!Array.isArray(input.messages)) fail(channel, 'messages', '必须是数组');
+      input.messages.forEach((message, index) => validateChatMessage(channel, message, index));
+    }
+    return input;
+  },
   'ai.gift-code': (channel, payload) => {
     const input = objectPayload(channel, payload, { optional: true });
     stringField(channel, input, 'code');

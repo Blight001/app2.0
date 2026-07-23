@@ -6,6 +6,7 @@ const { createChatRunRegistry } = require('./chat-run-registry');
 const { prepareChatRequest } = require('./chat-request-context');
 const { runChatConversation } = require('./chat-conversation-runner');
 const { enrichBrowserConnectionNames } = require('./connection-names');
+const { clonePromptValue, createPromptDiagnostics } = require('./chat-prompt-diagnostics');
 
 function namedBrowserConnections(deps) {
   const bridge = deps.browserAutomationBridge;
@@ -41,6 +42,7 @@ function createAiChatService(deps = {}) {
     logger = console,
   } = deps;
     const chatRuns = createChatRunRegistry();
+    let lastPromptRequest = null;
 
     // 软件端默认的"外层"浏览器窗口控制工具：不依赖任何浏览器插件连接，
     // 每次对话都会注入，让 AI 能列出/打开/新建/重命名/关闭软件的浏览器窗口。
@@ -86,6 +88,9 @@ function createAiChatService(deps = {}) {
       let activeRunKey = '';
       try {
         const request = prepareChatRequest(deps, _event, input, chatRuns, getAiBrowserWindowTools);
+        request.capturePromptSnapshot = (snapshot) => {
+          lastPromptRequest = clonePromptValue(snapshot);
+        };
         activeRunKey = request.key || '';
         activeRun = request.run || null;
         if (request.error) return request.error;
@@ -100,7 +105,13 @@ function createAiChatService(deps = {}) {
       }
     }
 
-    return { chat, getWindowTools: getAiBrowserWindowTools, insert, stop };
+    function getPromptDiagnostics(_event, input = {}) {
+      return createPromptDiagnostics(
+        deps, input, getAiBrowserWindowTools, lastPromptRequest,
+      );
+    }
+
+    return { chat, getPromptDiagnostics, getWindowTools: getAiBrowserWindowTools, insert, stop };
 }
 
 module.exports = { createAiChatService, namedBrowserConnections, waitForBrowserConnection };

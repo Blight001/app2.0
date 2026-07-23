@@ -46,7 +46,6 @@
     const button = el('refresh-browser-history');
     const list = el('browser-history-list');
     if (button) {
-      button.classList.toggle('is-refreshing', active);
       button.disabled = active;
       button.setAttribute('aria-label', active ? '正在刷新浏览器记录' : '刷新浏览器记录');
     }
@@ -124,7 +123,7 @@
         ? response.profileAudit
         : null;
       updateBrowserHistorySelection(options);
-      renderBrowserHistory({ animate: options.animate !== false });
+      renderBrowserHistory();
       renderBrowserProfileAudit();
       return browserHistory;
     } catch (error) {

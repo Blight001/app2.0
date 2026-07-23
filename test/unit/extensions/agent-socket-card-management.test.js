@@ -10,6 +10,10 @@ const sourcePath = path.resolve(
   __dirname,
   '../../../src/assets/extensions/browser_automation/background/09_agent_socket.js',
 );
+const lifecycleSourcePath = path.resolve(
+  __dirname,
+  '../../../src/assets/extensions/browser_automation/background/09_agent_tasks.js',
+);
 
 function createContext(overrides = {}) {
   const context = vm.createContext({
@@ -125,4 +129,43 @@ test('工具失败映射保留步骤现场并优先使用显式错误码', () =>
   assert.equal(result.cardId, 'card-1');
   assert.equal(result.stepIndex, 2);
   assert.equal(result.failureSnapshot.url, 'https://example.com');
+});
+
+test('MV3 worker 正常休眠不会主动注销仍有效的软件桥接会话', () => {
+  let suspendHandler = null;
+  let disconnectCalls = 0;
+  const listeners = { addListener() {} };
+  const context = vm.createContext({
+    AbortSignal,
+    Number,
+    String,
+    chrome: {
+      action: {},
+      alarms: { create() {}, onAlarm: listeners },
+      offscreen: {},
+      runtime: {
+        onInstalled: listeners,
+        onStartup: listeners,
+        onSuspend: {
+          addListener(handler) {
+            suspendHandler = handler;
+          },
+        },
+        onMessage: listeners,
+      },
+    },
+  });
+  vm.runInContext(`
+    const AGENT_KEEPALIVE_ALARM = 'agent-keepalive';
+    let agentSocket = { connected: true, disconnect() { disconnectCalls += 1; } };
+    let activeMcpCardTask = null;
+  `, context);
+  context.disconnectCalls = disconnectCalls;
+  vm.runInContext(fs.readFileSync(lifecycleSourcePath, 'utf8'), context, {
+    filename: lifecycleSourcePath,
+  });
+
+  if (suspendHandler) suspendHandler();
+  disconnectCalls = context.disconnectCalls;
+  assert.equal(disconnectCalls, 0);
 });

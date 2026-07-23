@@ -296,6 +296,13 @@ app.whenReady().then(async () => {
     action: 'wait', selector: '#delayed-native-target', timeout: 3000,
   });
   assert.equal(waited.result.found, true);
+  const observed = await manager.dispatchAutomationByProcessId(b.state.pid, 'observe-page', {
+    limit: 20, show_highlights: true, highlight_duration_ms: 30000,
+  });
+  assert.equal(observed.result.highlightMode, 'chromium-native-overlay');
+  assert(observed.result.highlightedCount > 0);
+  assert(observed.result.highlightedCount <= 20);
+  assert.equal(observed.result.highlightDurationMs, 30000);
   const typed = await manager.dispatchAutomationByProcessId(b.state.pid, 'perform-action', {
     action: 'type', selector: '#native-input', text: 'Native42',
   });
@@ -401,6 +408,7 @@ app.whenReady().then(async () => {
   console.log('[phase3-acceptance] navigate/reload command responses passed');
   console.log('[phase3-acceptance] trusted local file selection reached the real HTML file input');
   console.log('[phase3-acceptance] native keyboard and wheel events reached the page as trusted input');
+  console.log('[phase3-acceptance] native observe highlights were attached outside the page DOM');
   console.log('[phase3-acceptance] visible + HttpOnly cookies reached real Chromium requests');
   console.log('[phase3-acceptance] LocalStorage/SessionStorage verification and two-Profile isolation passed');
   console.log('[phase3-acceptance] invalid session/profile/origin/oversized message rejection passed');

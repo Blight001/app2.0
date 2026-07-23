@@ -30,7 +30,7 @@ async function callObserveMethod(tabId, method, callArgs) {
             target: { tabId },
             files: [
                 'content/observe.js', 'content/observe-targets.js',
-                'content/observe-records.js', 'content/observe-actions.js'
+                'content/observe-marks.js', 'content/observe-records.js', 'content/observe-actions.js'
             ]
         }).catch(() => {});
         results = await invoke();
@@ -355,9 +355,26 @@ async function toolBrowserAction(args = {}) {
 
 // ── 页面交互：browser_wait ────────────────────────────────────────────────
 async function toolBrowserWait(args = {}) {
+    const selector = String(args.selector || '').trim();
+    if (!selector) {
+        const requestedMs = Number(args.ms);
+        const waitMs = Number.isFinite(requestedMs) && requestedMs > 0
+            ? Math.min(120000, Math.round(requestedMs))
+            : 1000;
+        await sleep(waitMs);
+        return {
+            success: true,
+            waitedMs: waitMs,
+            cardStep: { name: `等待 ${waitMs}ms`, type: 'wait', timeout: waitMs }
+        };
+    }
     const tab = await resolveAutomationTargetTab(args);
     if (!tab) throw new Error('未找到可等待的真实网页标签页');
-    const nativeResult = await tryForkAutomation('perform-action', { ...args, action: 'wait' });
+    const nativeResult = await tryForkAutomation('perform-action', {
+        ...args,
+        action: 'wait',
+        timeout_ms: args.timeout_ms ?? args.ms
+    });
     if (nativeResult?.success === true || nativeResult?.success === false) return nativeResult;
     await requireBrowserScriptCompatibility('browser_wait 脚本回退');
     await prepareBrowserControl(tab.id);

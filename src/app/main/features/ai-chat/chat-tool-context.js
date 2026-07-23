@@ -53,6 +53,11 @@ function collectConnectionTools(connections, windowTools) {
   return definitions;
 }
 
+function appendDownloadWorkflow(workflow, available) {
+  if (!available.has('browser_observe') || !available.has('browser_download')) return;
+  workflow.push('用户要求寻找或下载文件时，先主动调用 browser_observe（可用 filter:"link"/"media" 或 keyword 收窄），从 item.downloadUrl 或顶层 downloadLinks[].url 取得真实地址和 downloadFilename/filename，再调用 browser_download action=download；下载图片/视频/音频时把条目的 category 传给 media_type，使工具使用当前 Chromium 登录态和网络环境；不得根据链接文字猜测下载地址');
+}
+
 function createMcpContext(tools, connections, resolver, controlledConnectionId) {
   if (!tools.length) return null;
   const availableNames = tools.map((tool) => String(tool?.name || '').trim()).filter(Boolean);
@@ -70,6 +75,7 @@ function createMcpContext(tools, connections, resolver, controlledConnectionId) 
     workflow.push('网页操作前先用 browser_observe 获取当前状态，再用 browser_action 操作；导航、切换标签页或页面明显变化后重新 observe，禁止跨浏览器或跨页面复用旧 ref');
   } else if (available.has('browser_observe')) workflow.push('用 browser_observe 读取当前页面，不虚构未返回的元素');
   if (available.has('browser_wait')) workflow.push('仅在页面确实需要加载或等待元素时使用 browser_wait');
+  appendDownloadWorkflow(workflow, available);
   if (available.has('sandbox_files')) {
     workflow.push('上传本地资产前先用 sandbox_files 列出 AI-Workspace，再把返回的 absolute_path 交给 browser_action.upload_file；浏览器下载也会自动保存到该工作区');
   }

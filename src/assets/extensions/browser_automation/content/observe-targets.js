@@ -425,3 +425,20 @@ function getFrameItemAttributes(el) {
         name: el.name || el.getAttribute('name') || ''
     };
 }
+
+function inferDownloadFilename(element, href) {
+    const explicit = String(element.getAttribute?.('download') || '').trim();
+    if (explicit) return explicit;
+    try {
+        const url = new URL(href);
+        for (const key of ['filename', 'file', 'download']) {
+            const candidate = String(url.searchParams.get(key) || '').trim();
+            if (candidate) return candidate.split(/[\\/]/).pop();
+        }
+        const pathname = decodeURIComponent(url.pathname || '').replace(/\/+$/, '');
+        const basename = pathname.split('/').pop() || '';
+        return /\.[a-z0-9]{1,12}$/i.test(basename) ? basename : '';
+    } catch (_) {
+        return '';
+    }
+}

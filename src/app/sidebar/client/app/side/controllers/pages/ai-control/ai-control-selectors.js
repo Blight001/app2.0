@@ -196,7 +196,16 @@
     status.className = 'ai-browser-mcp-setting-status';
     status.setAttribute('role', 'status');
     status.setAttribute('aria-live', 'polite');
-    item.append(label, editor, status);
+    const promptButton = document.createElement('button');
+    promptButton.type = 'button';
+    promptButton.className = 'ai-prompt-diagnostics-open';
+    promptButton.textContent = '查看 AI 提示词与完整 Prompt';
+    promptButton.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openPromptDiagnostics();
+    });
+    item.append(label, editor, status, promptButton);
     menu.appendChild(item);
     updateBrowserMcpSettingUi();
   }

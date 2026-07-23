@@ -57,10 +57,11 @@ function appendInteractiveStateInfo(item, rec) {
     const element = rec.el;
     if (element.disabled || element.getAttribute?.('aria-disabled') === 'true') item.disabled = true;
     if (element.readOnly) item.readOnly = true;
+    if (['image', 'video', 'audio'].includes(rec.category)) appendMediaSourceInfo(item, element);
     if ((rec.tag === 'a' || rec.category === 'link') && element.href) {
         item.href = String(element.href).slice(0, 2048);
         if (/^https?:/i.test(item.href)) item.downloadUrl = item.href;
-        const downloadName = element.getAttribute?.('download');
+        const downloadName = inferDownloadFilename(element, item.href);
         if (downloadName) item.downloadFilename = String(downloadName).slice(0, 160);
     }
     if (rec.category === 'checkbox' || rec.category === 'radio') item.checked = !!element.checked;
@@ -75,10 +76,29 @@ function appendInteractiveSelectInfo(item, element) {
         item.optionCount = element.options?.length || 0;
     } catch (_) {}
 }
+function mediaSourceUrl(element) {
+    const source = element.querySelector?.('source');
+    const candidates = [
+        element.currentSrc, element.src, element.getAttribute?.('src'),
+        element.getAttribute?.('data-src'), element.getAttribute?.('data-original'),
+        element.getAttribute?.('data-lazy-src'),
+        source?.currentSrc, source?.src, source?.getAttribute?.('src')
+    ].map((value) => String(value || '').trim()).filter(Boolean);
+    return candidates.find((value) => /^https?:/i.test(value)) || candidates[0] || '';
+}
+function appendMediaSourceInfo(item, element) {
+    const src = mediaSourceUrl(element);
+    if (!src) return;
+    item.src = src.slice(0, 2048);
+    if (!/^https?:/i.test(item.src)) return;
+    item.downloadUrl = item.src;
+    const filename = inferDownloadFilename(element, item.src);
+    if (filename) item.downloadFilename = String(filename).slice(0, 160);
+}
 function mediaRecord(el, frame) {
     const r = el.getBoundingClientRect();
     const category = elementCategory(el);
-    const src = el.currentSrc || el.src || el.getAttribute('src') || '';
+    const src = mediaSourceUrl(el);
     const alt = el.getAttribute('alt') || el.getAttribute('aria-label') || el.getAttribute('title') || '';
     return {
         el, frame, kind: 'media', category, tag: el.tagName.toLowerCase(),
@@ -87,13 +107,20 @@ function mediaRecord(el, frame) {
         selector: cssPath(el),
         center: frame ? elementViewportCenter(el, frame) : centerInfo(r),
         rect: frame ? elementViewportRect(el, frame) : rectInfo(r),
-        ...(src ? { src: src.slice(0, 240) } : {})
+        ...(src ? { src: src.slice(0, 2048) } : {})
     };
 }
 function mediaItemFromRecord(rec) {
     const item = { kind: 'media', category: rec.category, role: rec.role, text: rec.text, selector: rec.selector, center: rec.center, rect: rec.rect };
     if (rec.frame) { item.inFrame = true; item.frameSelector = rec.frame.frameSelector; item.framePath = buildFramePath(rec.frame); }
-    if (rec.src) item.src = rec.src;
+    if (rec.src) {
+        item.src = rec.src;
+        if (/^https?:/i.test(rec.src)) {
+            item.downloadUrl = rec.src;
+            const filename = inferDownloadFilename(rec.el, rec.src);
+            if (filename) item.downloadFilename = filename;
+        }
+    }
     return item;
 }
 function collectVisibleMediaIn(root, frame) {
@@ -102,7 +129,7 @@ function collectVisibleMediaIn(root, frame) {
     const add = (el) => {
         if (!isHTMLElement(el) || seen.has(el)) return;
         seen.add(el);
-        if (!isVisible(el) || isInsideInteractive(el)) return;
+        if (!isVisible(el)) return;
         const r = frame ? elementViewportRect(el, frame) : rectInfo(el.getBoundingClientRect());
         if (r.w <= 0 || r.h <= 0) return;
         const center = frame ? elementViewportCenter(el, frame) : centerInfo(el.getBoundingClientRect());
@@ -130,83 +157,6 @@ function shouldDropNested(child, parent) {
     return true;
 }
 
-// ── 标记叠加层（描边 + 变化后自动清除）────────────────────────────────────
-var markMutationObservers = [];
-var markAutoClearTimer = null;
-
-function isOwnMarkNode(node) {
-    const el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
-    return !!(el && el.closest && el.closest(`#${MARK_LAYER_ID},#${MARK_STYLE_ID}`));
-}
-function isPageMutation(records) {
-    return records.some((record) => {
-        if (isOwnMarkNode(record.target)) return false;
-        return [...record.addedNodes, ...record.removedNodes].some((node) => !isOwnMarkNode(node))
-            || record.type === 'characterData' || record.type === 'attributes';
-    });
-}
-function stopMarksAutoClear() {
-    if (markAutoClearTimer !== null) { window.clearTimeout(markAutoClearTimer); markAutoClearTimer = null; }
-    markMutationObservers.forEach((observer) => observer.disconnect());
-    markMutationObservers = [];
-    MARK_CHANGE_EVENTS.forEach((event) => window.removeEventListener(event, clearMarksOverlay, true));
-}
-function clearMarksOverlay() {
-    stopMarksAutoClear();
-    const existing = document.getElementById(MARK_LAYER_ID);
-    if (existing) existing.remove();
-}
-function watchDocumentForMarkChanges(doc) {
-    const root = doc.documentElement || doc.body;
-    if (!root) return;
-    const observer = new MutationObserver((records) => { if (isPageMutation(records)) clearMarksOverlay(); });
-    observer.observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
-    markMutationObservers.push(observer);
-}
-function startMarksAutoClear(marksList) {
-    stopMarksAutoClear();
-    markAutoClearTimer = window.setTimeout(() => {
-        markAutoClearTimer = null;
-        const docs = new Set([document]);
-        marksList.forEach((mark) => { if (mark.frame && mark.frame.doc) docs.add(mark.frame.doc); });
-        docs.forEach(watchDocumentForMarkChanges);
-        MARK_CHANGE_EVENTS.forEach((event) => window.addEventListener(event, clearMarksOverlay, true));
-    }, 150);
-}
-function ensureMarkStyles() {
-    let style = document.getElementById(MARK_STYLE_ID);
-    if (!style) {
-        style = document.createElement('style');
-        style.id = MARK_STYLE_ID;
-        document.documentElement.appendChild(style);
-    }
-    style.textContent = `
-        #${MARK_LAYER_ID} .hs-mark-box{position:fixed;box-sizing:border-box;pointer-events:none;
-          border:2px solid var(--hs-mark-color);border-radius:4px;background:transparent;}
-        #${MARK_LAYER_ID} .hs-mark-clickable{--hs-mark-color:rgba(34,197,94,.92);}
-        #${MARK_LAYER_ID} .hs-mark-blocked{--hs-mark-color:rgba(239,68,68,.92);}
-        #${MARK_LAYER_ID} .hs-mark-frame{--hs-mark-color:rgba(168,85,247,.88);border-style:dashed;}`;
-}
-function drawMarksOverlay(marksList) {
-    clearMarksOverlay();
-    ensureMarkStyles();
-    const layer = document.createElement('div');
-    layer.id = MARK_LAYER_ID;
-    layer.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;margin:0;padding:0;border:0;z-index:2147483646;pointer-events:none;';
-    marksList.forEach(({ el, status, frame }) => {
-        const rect = frame ? elementViewportRect(el, frame) : rectInfo(el.getBoundingClientRect());
-        const box = document.createElement('div');
-        box.className = `hs-mark-box hs-mark-${status}`;
-        box.style.left = `${rect.x}px`;
-        box.style.top = `${rect.y}px`;
-        box.style.width = `${Math.max(0, rect.w)}px`;
-        box.style.height = `${Math.max(0, rect.h)}px`;
-        layer.appendChild(box);
-    });
-    document.documentElement.appendChild(layer);
-    startMarksAutoClear(marksList);
-}
-
 // ── 精简 item（保留 selector/tag + 基本属性以便卡片构造，仅省去较重的 rect）──────────────
 var ITEM_DROP_KEYS = new Set(['rect']);
 function slimItem(item) {
@@ -225,9 +175,15 @@ function countItemsByCategory(items) {
     return Object.fromEntries(Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0])));
 }
 function observeDownloadLinks(items) {
-    return items.filter((item) => item.downloadUrl).map((item) => ({
+    const seen = new Set();
+    return items.filter((item) => {
+        if (!item.downloadUrl || seen.has(item.downloadUrl)) return false;
+        seen.add(item.downloadUrl);
+        return true;
+    }).map((item) => ({
         url: item.downloadUrl, text: item.text || item.title || '', selector: item.selector || '',
-        ...(item.downloadFilename ? { filename: item.downloadFilename } : {})
+        ...(item.downloadFilename ? { filename: item.downloadFilename } : {}),
+        ...(item.kind === 'media' ? { kind: item.kind, category: item.category } : {})
     }));
 }
 function kindSortRank(kind) {
@@ -323,10 +279,12 @@ function collectObserveRecords(config, state) {
         .filter((rec) => interactiveCategoryAllowed(rec.category, config.categoryFilter))
         .filter((rec) => matchesElementFilters(rec.el, config.tagFilter, config.keyword, rec.text));
     interactiveRecords.sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x);
+    const interactiveElements = new Set(interactiveRecords.map((rec) => rec.el));
     const mediaRecords = wantsObserveMedia(config.categoryFilter)
         ? collectVisibleMedia(config.scopes)
             .filter((rec) => mediaCategoryAllowed(rec.category, config.categoryFilter))
             .filter((rec) => matchesElementFilters(rec.el, config.tagFilter, config.keyword, rec.text))
+            .filter((rec) => !interactiveElements.has(rec.el))
             .sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x)
         : [];
     return { interactiveRecords, slicedRecords: interactiveRecords.slice(0, config.limit), mediaRecords };

@@ -139,3 +139,54 @@ test('流式文本 MCP 调用不向界面发送原始外壳并在工具卡前清
   assert.equal(events[replaceIndex].content, '');
   assert.equal(result.message.content, '窗口列表已取得');
 });
+
+test('模型不支持截图输入时把原因回传给 MCP 并继续回答而不发错误事件', async () => {
+  const events = [];
+  const seenMessages = [];
+  const failure = '当前模型“AI-FEEE 极速模型”不支持图片输入，无法读取 browser_screenshot 截图';
+  const fixture = createRequest([], {
+    connections: [{ id: 'browser-1' }],
+    emit: (event) => events.push(event),
+  });
+  fixture.request.toolContext = {
+    describeConnections: () => 'browser-1',
+    findConnectionByRef: () => ({ id: 'browser-1' }),
+    modelMessages: [{ role: 'user', content: '截图并分析页面' }],
+    tools: [{ name: 'browser_screenshot', input_schema: { type: 'object' } }],
+  };
+  fixture.request.bridge = {
+    dispatch: async () => ({
+      success: true,
+      dataUrl: 'data:image/png;base64,SCREENSHOT',
+      method: 'captureVisibleTab',
+    }),
+  };
+  const responses = [
+    {
+      ok: true,
+      message: {
+        content: '',
+        tool_calls: [{ id: 'shot', function: { name: 'browser_screenshot', arguments: '{}' } }],
+      },
+    },
+    { ok: false, errorCode: 'MODEL_IMAGE_INPUT_UNSUPPORTED', message: failure },
+    { ok: true, message: { content: '当前模型不支持图片输入，无法分析这张截图。' } },
+  ];
+  fixture.request.httpClient.sendAIControlMessage = async (_key, _device, _model, messages) => {
+    seenMessages.push(structuredClone(messages));
+    return responses.shift();
+  };
+
+  const result = await runChatConversation(fixture.request, () => ({}));
+
+  assert.equal(result.ok, true);
+  assert.match(result.message.content, /不支持图片输入/);
+  assert.equal(events.some((event) => event.type === 'error'), false);
+  assert.equal(seenMessages[1].some((message) => message.ai_free_transient_image), true);
+  assert.equal(seenMessages[2].some((message) => message.ai_free_transient_image), false);
+  const toolMessage = seenMessages[2].find((message) => message.name === 'browser_screenshot');
+  const toolResult = JSON.parse(toolMessage.content);
+  assert.equal(toolResult.image_attached, false);
+  assert.equal(toolResult.image_input_unsupported, true);
+  assert.equal(toolResult.warning, failure);
+});

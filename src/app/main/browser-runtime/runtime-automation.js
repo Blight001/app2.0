@@ -42,6 +42,13 @@ function normalizeObservePayload(source) {
     filter: optionalText(source.filter, 64).toLowerCase(),
     includeText: source.include_text !== false,
     includeMedia: source.include_media !== false,
+    showHighlights: source.mark !== false
+      && source.show_highlights !== false
+      && source.showHighlights !== false,
+    highlightDurationMs: boundedInteger(
+      source.highlight_duration_ms ?? source.highlightDurationMs,
+      5000, 500, 30000,
+    ),
   };
 }
 

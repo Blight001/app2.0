@@ -68,6 +68,7 @@
 | 自动化卡片 | `manage_card`   | 卡片唯一入口（管理 + 执行合一）：rules 获取 9 种固定步骤与 `flow.nodes/edges/start`；MCP 不暴露 `external_script` 或 JS 条件，并会在 write、局部编辑和 run 时拒绝任意页面脚本。其余 list/get/write/patch_step/insert_step/delete_step/move_step/delete/run 行为及结构化失败现场保持不变。 |
 | 文件与会话 | `browser_download` | 下载 `browser_observe` 发现的 HTTP/HTTPS 链接到 `AI-Workspace`，或用 `save_session` 保存当前页 Cookie + localStorage + sessionStorage |
 | 导航与搜索 | `browser_tab`   | 标签页管理与导航：list / switch / replace / navigate / close / back / forward |
+| 页面观察 | `browser_observe` | Fork 默认在 Chromium 原生 UI 层显示与返回 `id` 对应的元素边框，不修改网页 DOM；可用 `mark:false` 关闭，`highlight_duration_ms` 调整显示时长 |
 | 页面观察   | `browser_observe`    | 感知当前视口的可交互元素、媒体、可见文本与 iframe 边界，返回带 tag/selector/name/placeholder/ariaLabel 等基本信息的 items 列表（含临时 id）；支持用 selector/text 定位构造卡片步骤或 ref 快速操作，便于卡片创建/修改与表单信息填入 |
 | 页面观察   | `browser_screenshot` | 截取当前标签页可视区、完整页面、指定元素或坐标区域，返回可供 AI 视觉分析和发送给用户的图片 dataUrl |
 | 页面交互   | `browser_action`     | 点击 / 双击 / 右键 / 滚动 / 输入文本 / 键盘按键的聚合工具。click/type 成功回执附 `cardStep`（与卡片规范同构的步骤对象），browser_tab navigate/replace、browser_wait 同理——AI 探索验证通过后直接把各步 cardStep 拼进 `manage_card write` 即可固化成卡片 |
@@ -76,8 +77,13 @@
 `browser_observe` 超过 `limit` / `max_items` 时默认返回截断后的真实 `items` 并设置
 `truncated=true`，避免复杂页面因条目过多而表现为观察内容为空。只有显式传
 `allow_truncate:false` 时才只返回分类统计与筛选提示。
-可见链接会同时出现在 item 的 `downloadUrl` 与顶层 `downloadLinks` 中，可直接作为
-`browser_download action=download` 的 `url`。`directory` 只能指定 AI 工作区内子目录。
+可见链接、图片、视频和音频的 HTTP(S) 资源会同时出现在 item 的 `downloadUrl`
+与顶层 `downloadLinks` 中，可直接作为 `browser_download action=download` 的 `url`。
+item 会尽可能通过 `download` 属性、URL 查询参数或路径推导 `downloadFilename`；
+顶层同时返回 `downloadLinkCount`，`downloadLinks[].filename` 保留对应文件名。
+调用 `browser_download` 下载媒体时应把条目的 `category` 传入 `media_type`；
+图片、视频和音频默认优先使用当前 Chromium Profile 原生下载，以继承登录态、代理和站点网络环境。
+`directory` 只能指定 AI 工作区内子目录。
 
 工具 schema 在设备登记时上报给服务器，由服务器在 `mcp.list_tools` / `describe_tool` 中呈现，无需服务端硬编码。
 

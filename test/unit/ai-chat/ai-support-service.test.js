@@ -24,7 +24,13 @@ test('远端模型服务不可用时仍向已验证 VIP 返回本地自定义模
 
   assert.deepEqual(await service.getModels(), {
     ok: true,
-    models: [{ id: '__custom_openai_api__', name: '私有模型', model: 'model-x', custom_api: true }],
+    models: [{
+      id: '__custom_openai_api__',
+      name: '私有模型',
+      model: 'model-x',
+      custom_api: true,
+      supports_image_input: false,
+    }],
     quota: null,
   });
 });

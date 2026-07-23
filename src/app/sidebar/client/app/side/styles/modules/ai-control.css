@@ -492,6 +492,32 @@
 .ai-browser-mcp-setting-status:empty { display: none; }
 .ai-browser-mcp-setting-status[data-type='success'] { color: #6fd4aa; }
 .ai-browser-mcp-setting-status[data-type='error'] { color: #ff8f99; }
+.ai-browser-mcp-setting > .ai-prompt-diagnostics-open {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 28px;
+  border: 1px solid rgba(77, 163, 255, .28);
+  border-radius: 7px;
+  color: #86bfff;
+  background: rgba(77, 163, 255, .1);
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.ai-browser-mcp-setting > .ai-prompt-diagnostics-open:hover { color: #fff; border-color: var(--brand); }
+.ai-prompt-diagnostics-dialog[hidden] { display: none !important; }
+.ai-prompt-diagnostics-dialog { position: fixed; inset: 0; z-index: 1600; display: grid; place-items: center; padding: 12px; box-sizing: border-box; }
+.ai-prompt-diagnostics-panel { position: relative; z-index: 1; display: flex; flex-direction: column; width: min(820px, calc(100vw - 24px)); max-height: calc(100vh - 24px); overflow: hidden; border: 1px solid rgba(91, 116, 153, .46); border-radius: 16px; background: #151b25; box-shadow: 0 24px 70px rgba(0, 0, 0, .48); }
+.ai-prompt-diagnostics-panel h2 { margin: 0; color: #eef4ff; font-size: 15px; }
+.ai-prompt-diagnostics-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: grid; gap: 12px; padding: 14px 16px; }
+.ai-prompt-diagnostics-body section { min-width: 0; }
+.ai-prompt-diagnostics-body h3 { margin: 0 0 6px; color: #dce9fa; font-size: 12px; }
+.ai-prompt-diagnostics-body section > p { margin: -2px 0 6px; color: #8295ae; font-size: 10px; }
+.ai-prompt-diagnostics-body pre { min-height: 100px; max-height: 310px; margin: 0; overflow: auto; padding: 10px; border: 1px solid rgba(120, 150, 200, .2); border-radius: 8px; color: #c8d8ec; background: rgba(5, 9, 15, .64); font: 10px/1.5 Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.ai-prompt-diagnostics-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 11px 16px 14px; border-top: 1px solid rgba(91, 116, 153, .24); }
+.ai-prompt-diagnostics-footer button { height: 31px; padding: 0 12px; border: 1px solid rgba(120, 150, 200, .24); border-radius: 8px; color: #c9d8ec; background: rgba(255,255,255,.05); font: inherit; font-size: 11px; cursor: pointer; }
+.ai-prompt-diagnostics-footer button:first-child { color: #fff; border-color: var(--brand); background: var(--brand); }
+body.ai-prompt-diagnostics-open { overflow: hidden; }
 .ai-chat-model-field {
   flex: 0 1 auto;
   min-width: 0;
@@ -706,6 +732,30 @@ html.theme-light .ai-custom-api-body input { color: #203448; background: #f7f9fc
 }
 .ai-chat-recent-title { font-size: 12px; font-weight: 650; }
 .ai-chat-recent-meta { color: #8295b1; font-size: 11px; }
+.ai-chat-quick-launch {
+  width: min(100%, 460px);
+  margin-top: 18px;
+  text-align: left;
+}
+.ai-chat-quick-launch-item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  flex-direction: initial;
+}
+.ai-chat-quick-launch-item:disabled { cursor: wait; opacity: .68; }
+.ai-chat-quick-launch-icon {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 8px;
+  color: #8dc1ff;
+  background: rgba(62, 130, 221, .16);
+  font-size: 14px;
+  font-weight: 700;
+}
+.ai-chat-quick-launch-content { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 
 .ai-chat-message {
   display: flex;
@@ -1201,6 +1251,7 @@ html.theme-light .ai-chat-recent-item:focus-visible {
   background: rgba(230, 239, 252, .92);
 }
 html.theme-light .ai-chat-recent-meta { color: #70839b; }
+html.theme-light .ai-chat-quick-launch-icon { color: #2f74c7; background: rgba(52, 123, 211, .1); }
 html.theme-light .ai-select-option-new {
   color: #1f3f6b;
   background: rgba(77, 140, 230, .1);
@@ -1249,6 +1300,10 @@ html.theme-light .ai-select-menu {
 }
 html.theme-light .ai-browser-mcp-setting { border-bottom-color: rgba(86, 121, 165, .16); color: #526b85; }
 html.theme-light .ai-browser-mcp-setting-editor input { border-color: rgba(86, 121, 165, .24); color: #203449; background: #f7faff; }
+html.theme-light .ai-prompt-diagnostics-panel { border-color: rgba(78,116,166,.2); background: #fff; }
+html.theme-light .ai-prompt-diagnostics-panel h2,
+html.theme-light .ai-prompt-diagnostics-body h3 { color: #203448; }
+html.theme-light .ai-prompt-diagnostics-body pre { border-color: rgba(86,121,165,.2); color: #28425e; background: #f7f9fc; }
 html.theme-light .ai-browser-card-setting { border-top-color: rgba(86, 121, 165, .16); color: #526b85; }
 html.theme-light .ai-browser-card-refresh { border-color: rgba(86, 121, 165, .22); color: #466783; background: rgba(52, 123, 211, .08); }
 html.theme-light .ai-browser-card-empty { color: #71869d; }

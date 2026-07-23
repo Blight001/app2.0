@@ -21,6 +21,7 @@ const STREAMED_TOOL_PREFIXES = [
   '<mcp-call', '<mcp_call', '<invoke', '<tool_call', '<xai:function_call',
   '```json', '```tool_call', '```tool-call', '```function_call', '```mcp',
 ];
+const IMAGE_INPUT_UNSUPPORTED_PATTERN = /不支持图片输入|未启用图片输入|不支持视觉|不支持图像输入/i;
 
 function createConversationState(request, readStoreConfigSafe) {
   return {
@@ -40,6 +41,7 @@ function createConversationState(request, readStoreConfigSafe) {
     unresolvedToolFailure: '',
     textToolContinuationPending: false,
     textToolSessionRecoveryAttempted: false,
+    imageInputFallbackAttempted: false,
     browserControl: { connectionId: String(request.controlledConnectionId || '') },
   };
 }
@@ -91,9 +93,21 @@ function receiveStreamEvent(state, round, event) {
   if (visibleEvent && !['result', 'error'].includes(visibleEvent?.type)) state.emit({ ...visibleEvent, round });
 }
 
+function capturePromptSnapshot(state, round, tools) {
+  state.capturePromptSnapshot?.({
+    modelId: state.modelId,
+    useCustomApi: state.useCustomApi === true,
+    runId: state.runId,
+    round,
+    messages: state.modelMessages,
+    tools,
+  });
+}
+
 async function requestModelRound(state, round) {
   const tools = state.toolContext.tools;
   const signal = state.run?.controller.signal;
+  capturePromptSnapshot(state, round, tools);
   if (state.useCustomApi) {
     return sendCustomAIControlMessage(state.customApi, state.modelMessages, { tools, signal });
   }
@@ -147,6 +161,47 @@ async function retryExpiredTextToolSession(state, round, result) {
   }
   state.textToolSessionRecoveryAttempted = true;
   state.runId = '';
+  return requestModelRound(state, round);
+}
+
+function isImageInputUnsupported(result) {
+  const code = String(result?.errorCode || result?.error_code || '').trim();
+  const message = String(result?.message || result?.error || '').trim();
+  return result?.ok === false
+    && (code === 'MODEL_IMAGE_INPUT_UNSUPPORTED' || IMAGE_INPUT_UNSUPPORTED_PATTERN.test(message));
+}
+
+function replaceUnsupportedImageToolResult(message, failure) {
+  if (message?.role !== 'tool' || message?.name !== 'browser_screenshot') return message;
+  try {
+    const content = JSON.parse(String(message.content || ''));
+    if (content?.image_attached !== true) return message;
+    return {
+      ...message,
+      content: JSON.stringify({
+        ...content,
+        image_attached: false,
+        image_input_unsupported: true,
+        warning: failure,
+        instruction: '当前模型无法读取本次截图。请直接向用户说明模型不支持图片输入，不要再次调用截图。',
+      }),
+    };
+  } catch (_) {
+    return message;
+  }
+}
+
+async function retryWithoutUnsupportedImages(state, round, result) {
+  if (state.imageInputFallbackAttempted || !isImageInputUnsupported(result)) return result;
+  const hasTransientImage = state.modelMessages.some(
+    (message) => message?.ai_free_transient_image === true,
+  );
+  if (!hasTransientImage) return result;
+  state.imageInputFallbackAttempted = true;
+  const failure = String(result?.message || result?.error || '当前模型不支持图片输入');
+  state.modelMessages = state.modelMessages
+    .filter((message) => message?.ai_free_transient_image !== true)
+    .map((message) => replaceUnsupportedImageToolResult(message, failure));
   return requestModelRound(state, round);
 }
 
@@ -251,7 +306,8 @@ async function requestRoundSafely(state, round) {
   try {
     const initialResult = await requestModelRound(state, round);
     const retriedResult = await retryExpiredTextToolSession(state, round, initialResult);
-    const result = await recoverAndRetryModelRound(state, round, retriedResult);
+    const identityResult = await recoverAndRetryModelRound(state, round, retriedResult);
+    const result = await retryWithoutUnsupportedImages(state, round, identityResult);
     if (result?.ok) state.textToolContinuationPending = false;
     if (isChatStopped(state.run)) return { done: true, result: stoppedResult(state) };
     return { done: false, result };
@@ -326,12 +382,14 @@ async function runChatConversation(request, readStoreConfigSafe) {
 
 module.exports = {
   applyResultMetadata,
+  capturePromptSnapshot,
   classifyStreamedContent,
   createConversationState,
   executeToolRound,
   finishWithoutTools,
   requestModelRound,
   recoverAndRetryModelRound,
+  retryWithoutUnsupportedImages,
   retryExpiredTextToolSession,
   requestRoundSafely,
   runChatRound,

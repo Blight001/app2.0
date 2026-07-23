@@ -1,14 +1,15 @@
 'use strict';
 
 const { createWindowBackgroundController } = require('../features/window/window-background-controller');
+const { resolveSidebarWidth } = require('../../shared/sidebar-layout');
+const { createAppShellWindowStateController } = require('./app-shell-window-state');
 
-function createWindowInstance(deps) {
+function createWindowInstance(deps, windowStateController) {
   const iconPath = typeof deps.resolveAppIconPath === 'function'
     ? deps.resolveAppIconPath()
     : deps.path.join(__dirname, '../../../', deps.FIXED_ICON_RELATIVE_PATH);
-  return new deps.BrowserWindow({
-    width: 1280,
-    height: 850,
+  const mainWindow = new deps.BrowserWindow({
+    ...windowStateController.getWindowOptions(),
     title: deps.APP_DISPLAY_NAME,
     icon: iconPath,
     show: false,
@@ -21,6 +22,9 @@ function createWindowInstance(deps) {
       preload: deps.path.join(__dirname, '../preload.js'),
     },
   });
+  if (windowStateController.shouldMaximize()) mainWindow.maximize();
+  windowStateController.bindWindow(mainWindow);
+  return mainWindow;
 }
 
 function configureWindowMenu(deps, mainWindow) {
@@ -52,6 +56,7 @@ function createSidebarView(deps, mainWindow) {
     tabs: deps.resolveTabs(),
     activeTabId: deps.resolveActiveTabId(),
     refreshPage: deps.resolveRefreshActiveTab(),
+    rendererContextMenuSelector: '.browser-history-item, #browser-history-context-menu',
   });
   try { deps.resolveAuth()?.applyZhHantRequestPrefs(sideView.webContents.session, sideView.webContents); } catch (_) {}
   return sideView;
@@ -111,17 +116,24 @@ function bindSidebarEvents(deps, sideView, mainWindow) {
   });
 }
 
-function resolveLayout(deps, mainWindow) {
+function resolveLayout(deps, mainWindow, sideView) {
   const [width, height] = mainWindow.getContentSize();
   const tabBarHeight = 41;
   const isSidebarVisible = deps.getIsSidebarVisible ? deps.getIsSidebarVisible() : true;
-  const sideViewWidth = isSidebarVisible ? Math.floor(width * 0.3) : 0;
+  const sideViewWidth = resolveSidebarWidth({
+    contentWidth: width,
+    isVisible: isSidebarVisible,
+    isMaximized: mainWindow.isMaximized?.() === true,
+    currentWidth: sideView?.getBounds?.().width,
+    normalWindowWidth: mainWindow.getNormalBounds?.().width,
+  });
   const activeTab = deps.resolveTabs().get(deps.resolveActiveTabId());
   return {
     width,
     tabBarHeight,
     tabContentHeight: height - tabBarHeight,
     isSidebarVisible,
+    sideViewWidth,
     activeTab,
     chromiumBounds: activeTab?.runtimeType === 'chromium'
       ? { x: 0, y: tabBarHeight, width: width - sideViewWidth, height: height - tabBarHeight }
@@ -130,18 +142,17 @@ function resolveLayout(deps, mainWindow) {
 }
 
 function updateMainWindowLayout(deps, mainWindow) {
-  const layout = resolveLayout(deps, mainWindow);
   const sideView = deps.getSideView?.();
-  if (sideView) {
-    const visibleWidth = Math.max(1, Math.floor(layout.width * 0.3));
+  const layout = resolveLayout(deps, mainWindow, sideView);
+  if (sideView && layout.isSidebarVisible) {
     sideView.setBounds({
-      x: layout.width - visibleWidth,
+      x: layout.width - layout.sideViewWidth,
       y: layout.tabBarHeight,
-      width: visibleWidth,
+      width: layout.sideViewWidth,
       height: layout.tabContentHeight,
     });
-    sideView.setVisible?.(layout.isSidebarVisible);
   }
+  sideView?.setVisible?.(layout.isSidebarVisible);
   if (!layout.activeTab || !layout.chromiumBounds) return;
   void deps.browserRuntimeManager?.resize(layout.activeTab.id, 'chromium', layout.chromiumBounds)
     .then(() => deps.updateTabs?.())
@@ -181,8 +192,8 @@ function scheduleControlPanel(deps) {
   }, 0);
 }
 
-function createMainWindow(deps, backgroundController) {
-  const mainWindow = createWindowInstance(deps);
+function createMainWindow(deps, backgroundController, windowStateController) {
+  const mainWindow = createWindowInstance(deps, windowStateController);
   deps.setMainWindow?.(mainWindow);
   mainWindow.loadFile(deps.path.join(__dirname, '../../views/app-shell.html'));
   configureWindowMenu(deps, mainWindow);
@@ -210,8 +221,9 @@ function revealMainWindow(deps) {
 
 function createAppShellMainWindowController(deps = {}) {
   const backgroundController = createWindowBackgroundController(deps);
+  const windowStateController = createAppShellWindowStateController(deps);
   return {
-    createMainWindow: () => createMainWindow(deps, backgroundController),
+    createMainWindow: () => createMainWindow(deps, backgroundController, windowStateController),
     revealMainWindow: () => backgroundController.revealWindow() || revealMainWindow(deps),
   };
 }

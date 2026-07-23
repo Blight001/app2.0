@@ -43,6 +43,14 @@ function suggestedFileName(response, finalUrl, requested) {
   return sanitizeFileName(headerName || urlName, 'download.bin');
 }
 
+function assertExpectedMediaResponse(response, expectedType) {
+  if (!['image', 'video', 'audio'].includes(expectedType)) return;
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  if (/^(?:text\/html|application\/json|text\/plain)\b/.test(contentType)) {
+    throw new Error(`媒体下载返回了非媒体内容: ${contentType || 'unknown'}`);
+  }
+}
+
 function cookieDomainMatches(cookie, url) {
   const domain = String(cookie?.domain || '').replace(/^\./, '').toLowerCase();
   const host = url.hostname.toLowerCase();
@@ -71,18 +79,34 @@ function cookieHeader(cookies, url) {
     .join('; ');
 }
 
+function safeRequestHeader(value, maxLength) {
+  const text = String(value || '').trim();
+  return text && text.length <= maxLength && !/[\r\n\u0000]/.test(text) ? text : '';
+}
+
+function downloadRequestHeaders(input, current) {
+  const headers = { Accept: '*/*' };
+  const cookie = cookieHeader(input.cookies, current);
+  if (cookie) headers.Cookie = cookie;
+  const userAgent = safeRequestHeader(input.user_agent, 512);
+  if (userAgent) headers['User-Agent'] = userAgent;
+  try {
+    const referer = normalizeUrl(input.referer);
+    if (referer.href.length <= 4096) headers.Referer = referer.href;
+  } catch (_) {}
+  return headers;
+}
+
 async function discardResponse(response) {
   if (typeof response.body?.cancel === 'function') return response.body.cancel();
   response.body?.destroy?.();
 }
 
-async function fetchWithRedirects(fetchImpl, sourceUrl, cookies, signal, resolveHost) {
+async function fetchWithRedirects(fetchImpl, sourceUrl, input, signal, resolveHost) {
   let current = normalizeUrl(sourceUrl);
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
     if (fetchImpl) await resolvePublicDownloadHost(current, resolveHost);
-    const headers = { Accept: '*/*' };
-    const cookie = cookieHeader(cookies, current);
-    if (cookie) headers.Cookie = cookie;
+    const headers = downloadRequestHeaders(input, current);
     const response = fetchImpl
       ? await fetchImpl(current, { headers, redirect: 'manual', signal })
       : await secureDownloadFetch(current, { headers, signal }, resolveHost);
@@ -174,9 +198,10 @@ function createBrowserDownloadService(options = {}) {
     let tempPath = '';
     try {
       const { response, finalUrl } = await fetchWithRedirects(
-        fetchImpl, input.url, input.cookies, controller.signal, resolveHost,
+        fetchImpl, input.url, input, controller.signal, resolveHost,
       );
       if (!response.ok) throw new Error(`下载请求失败: HTTP ${response.status}`);
+      assertExpectedMediaResponse(response, String(input.media_type || ''));
       const directory = resolveTargetDirectory(sandboxDir, input.directory);
       const targetPath = availableTarget(directory.target, suggestedFileName(response, finalUrl, input.filename), input.overwrite === true);
       tempPath = path.join(directory.target, `.${path.basename(targetPath)}.${process.pid}.${crypto.randomBytes(5).toString('hex')}.part`);

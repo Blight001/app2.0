@@ -40,9 +40,11 @@ test('window.aiFree AI methods bind fixed channels and subscriptions return disp
   assert.equal(Object.isFrozen(exposed.aiFree.ai), true);
 
   await exposed.aiFree.ai.chat({ requestId: 'request-1' });
+  await exposed.aiFree.ai.getPromptDiagnostics({ modelId: 'model-1' });
   exposed.aiFree.ai.emitBrowserSelectionChanged({ ids: ['browser-1'] });
   assert.deepEqual(calls, [
     ['invoke', 'ai-control-chat', { requestId: 'request-1' }],
+    ['invoke', 'ai-control-get-prompt-diagnostics', { modelId: 'model-1' }],
     ['send', 'ai-control-browser-selection-changed', { ids: ['browser-1'] }],
   ]);
 

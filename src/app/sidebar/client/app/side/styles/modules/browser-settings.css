@@ -107,19 +107,16 @@ body.browser-settings-dialog-open { overflow: hidden; }
 .browser-history-refresh:hover { border-color: var(--brand); color: #fff; transform: translateY(-1px); }
 .browser-history-refresh:active { transform: scale(.92); }
 .browser-history-refresh:focus-visible { outline: 2px solid rgba(77, 156, 255, .72); outline-offset: 2px; }
-.browser-history-refresh.is-refreshing { color: transparent; cursor: wait; transform: none; }
-.browser-history-refresh.is-refreshing::after { position: absolute; inset: 7px; content: ''; border: 2px solid rgba(174, 189, 210, .32); border-top-color: #8fc3ff; border-radius: 50%; animation: browser-history-refresh-spin .68s linear infinite; }
-.browser-history-list { display: grid; gap: 7px; max-height: 238px; overflow: auto; }
+.browser-history-list { display: grid; gap: 7px; max-height: clamp(238px, calc(100vh - 360px), 620px); overflow: auto; }
 .browser-history-empty { padding: 18px 10px; color: #8290a5; font-size: 11px; text-align: center; animation: browser-history-empty-in .2s ease-out both; }
 .browser-history-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: clamp(5px, 1.5vw, 10px); padding: 8px 9px; border: 1px solid rgba(78, 99, 132, .42); border-radius: 9px; background: rgba(13, 18, 27, .55); transform-origin: center; transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease, opacity .16s ease; }
 .browser-history-item:hover { transform: translateY(-1px); box-shadow: 0 5px 14px rgba(0, 0, 0, .14); }
-.browser-history-item.is-entering { animation: browser-history-item-in .26s cubic-bezier(.2, .72, .3, 1) both; animation-delay: min(calc(var(--history-item-index, 0) * 28ms), 168ms); }
 .browser-history-item.is-selection-changing { animation: browser-history-selection-pop .22s cubic-bezier(.2, .72, .3, 1); }
 .browser-history-item.is-removing { z-index: 1; pointer-events: none; animation: browser-history-item-out .18s cubic-bezier(.4, 0, 1, 1) forwards; }
 .browser-history-item.is-open { border-color: rgba(64, 158, 255, .34); background: rgba(64, 158, 255, .12); }
 .browser-history-item.is-active { border-color: rgba(65, 184, 98, .4); background: rgba(65, 184, 98, .14); }
 .browser-history-item.has-error { border-color: rgba(217, 76, 76, .42); background: rgba(217, 76, 76, .12); }
-.browser-history-item.is-selected { border-color: #f04444; background: rgba(214, 45, 45, .18); box-shadow: inset 0 0 0 1px rgba(255, 76, 76, .7), 0 0 10px rgba(214, 45, 45, .16); }
+.browser-history-item.is-selected { border-color: rgba(240, 92, 92, .52); background: rgba(214, 45, 45, .1); box-shadow: inset 0 0 0 1px rgba(255, 118, 118, .28), 0 0 8px rgba(214, 45, 45, .08); }
 .browser-history-main { display: block; width: 100%; min-width: 0; overflow: hidden; border: 0; padding: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .browser-history-main:focus-visible { outline: 2px solid rgba(77, 156, 255, .62); outline-offset: 3px; border-radius: 4px; }
 .browser-history-name { position: relative; display: block; min-width: 0; overflow: hidden; padding-left: 14px; color: #e7edf7; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; transition: color .16s ease, transform .16s ease; }
@@ -159,7 +156,6 @@ body.browser-settings-dialog-open { overflow: hidden; }
 
 @keyframes browser-history-refresh-spin { to { transform: rotate(360deg); } }
 @keyframes browser-history-empty-in { from { opacity: 0; transform: translateY(3px); } }
-@keyframes browser-history-item-in { from { opacity: 0; transform: translateY(7px) scale(.985); } }
 @keyframes browser-history-selection-pop { 50% { transform: scale(.985); } }
 @keyframes browser-history-item-out { to { opacity: 0; transform: translateX(18px) scale(.98); } }
 
@@ -340,11 +336,9 @@ html.theme-light .settings-danger-btn { border-color: rgba(190, 62, 62, .32); co
 @media (prefers-reduced-motion: reduce) {
   .browser-history-empty,
   .browser-history-item,
-  .browser-history-item.is-entering,
   .browser-history-item.is-selection-changing,
   .browser-history-item.is-removing,
   .browser-history-refresh,
-  .browser-history-refresh.is-refreshing::after,
   .browser-history-action,
   .browser-history-action.is-processing::before,
   .browser-history-context-menu {

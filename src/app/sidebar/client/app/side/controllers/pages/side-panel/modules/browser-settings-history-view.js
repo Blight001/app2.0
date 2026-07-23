@@ -19,6 +19,7 @@ constructor({
       applyNetworkMagicToBrowserHistory, openBrowserHistory, selectBrowserHistory,
       openSelectedBrowserHistory, renameSelectedBrowserHistory, deleteSelectedBrowserHistory,
     });
+    this.contextHistoryIds = new Set();
     for (const name of [
       'renderBrowserHistory', 'renderBrowserProfileAudit', 'getSelectedBrowserHistory',
       'toggleBrowserHistorySelection', 'ensureBrowserHistoryContextMenu',
@@ -55,30 +56,35 @@ constructor({
       list.appendChild(empty);
       return;
     }
-    this.getBrowserHistory().forEach((item, index) => {
+    this.getBrowserHistory().forEach((item) => {
       const row = document.createElement('div');
       row.className = 'browser-history-item';
       row.classList.toggle('is-selected', this.getSelectedHistoryIds().has(item.id));
       row.classList.toggle('is-open', item.isOpen === true);
       row.classList.toggle('is-active', item.isActive === true);
       row.classList.toggle('has-error', !!item.lastError);
-      row.classList.toggle('is-entering', options.animate === true);
       row.classList.toggle('is-selection-changing', options.selectionChangedId === item.id);
       row.dataset.historyId = item.id;
-      row.style.setProperty('--history-item-index', String(index));
   
       const main = document.createElement('button');
       main.type = 'button';
       main.className = 'browser-history-main';
-      main.title = `${item.name || '未命名浏览器'}（单击选择，右键批量操作）`;
+      main.title = `${item.name || '未命名浏览器'}（单击选择，双击打开，右键批量操作）`;
       main.setAttribute('aria-pressed', this.getSelectedHistoryIds().has(item.id) ? 'true' : 'false');
-      main.setAttribute('aria-label', `${item.name || '未命名浏览器'}，${item.isActive ? '当前浏览器' : (item.isOpen ? '已打开' : '已关闭')}，点击选择`);
+      main.setAttribute('aria-label', `${item.name || '未命名浏览器'}，${item.isActive ? '当前浏览器' : (item.isOpen ? '已打开' : '已关闭')}，单击选择，双击打开`);
       const name = document.createElement('span');
       name.className = 'browser-history-name';
       name.textContent = item.name || '未命名浏览器';
       main.append(name);
       this.appendAccountMetadata(main, item);
-      main.addEventListener('click', () => this.toggleBrowserHistorySelection(item.id));
+      main.addEventListener('click', (event) => {
+        if (event.button === 0) this.toggleBrowserHistorySelection(item.id);
+      });
+      main.addEventListener('dblclick', (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        void this.openBrowserHistory(item.id);
+      });
   
       const actions = document.createElement('div');
       actions.className = 'browser-history-actions';
@@ -107,8 +113,11 @@ constructor({
       row.append(main, actions);
       row.addEventListener('contextmenu', (event) => {
         event.preventDefault();
-        if (!this.getSelectedHistoryIds().has(item.id)) this.setSelectedHistoryIds(new Set([item.id]));
-        this.renderBrowserHistory({ selectionChangedId: item.id });
+        event.stopPropagation();
+        const selectedIds = this.getSelectedHistoryIds();
+        this.contextHistoryIds = selectedIds.has(item.id)
+          ? new Set(selectedIds)
+          : new Set([item.id]);
         this.showBrowserHistoryContextMenu(event.clientX, event.clientY);
       });
       list.appendChild(row);
@@ -139,7 +148,7 @@ constructor({
     this.hideBrowserHistoryContextMenu();
     this.renderBrowserHistory({ selectionChangedId: id });
   }
-  
+
   ensureBrowserHistoryContextMenu() {
     let menu = this.el('browser-history-context-menu');
     if (menu) return menu;
@@ -157,6 +166,7 @@ constructor({
     menu.addEventListener('click', (event) => {
       const command = event.target.closest('[data-browser-history-command]')?.dataset.browserHistoryCommand;
       if (!command) return;
+      this.setSelectedHistoryIds(new Set(this.contextHistoryIds));
       this.hideBrowserHistoryContextMenu();
       if (command === 'open') void this.openSelectedBrowserHistory();
       if (command === 'rename') this.renameSelectedBrowserHistory();
@@ -171,10 +181,11 @@ constructor({
     if (!menu) return;
     menu.classList.remove('is-visible');
     menu.setAttribute('aria-hidden', 'true');
+    this.contextHistoryIds = new Set();
   }
   
   showBrowserHistoryContextMenu(x, y) {
-    const items = this.getSelectedBrowserHistory();
+    const items = this.getBrowserHistory().filter((item) => this.contextHistoryIds.has(item.id));
     if (!items.length) return;
     const menu = this.ensureBrowserHistoryContextMenu();
     const summary = menu.querySelector('.browser-history-context-summary');

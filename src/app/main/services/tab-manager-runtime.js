@@ -133,6 +133,7 @@ class TabManagerRuntime {
       resolveDefaultTabUrl: this.resolveDefaultTabUrl,
       resolveIsSidebarVisible: () => this.resolveIsSidebarVisible(),
       resolveMainWindow: () => this.resolveMainWindow(),
+      resolveSideView: () => this.resolveSideView(),
       resolveTabBrowserProfile: this.deps.resolveTabBrowserProfile,
       resolveTabs: () => this.resolveTabs(),
       restoreSideViewFocus: () => this.restoreSideViewFocus(),

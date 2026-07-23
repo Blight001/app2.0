@@ -74,10 +74,10 @@ Cookie 属于登录会话数据，不属于 `software_window.settings` 的可编
 
 ### `browser_download`
 
-- 作用：`download` 下载 HTTP/HTTPS 文件；`save_session` 保存当前标签页 Cookie、`localStorage` 和 `sessionStorage`；`info` 返回 AI 工作区路径。
+- 作用：`download` 下载 HTTP/HTTPS 文件；图片、视频和音频默认优先使用当前 Chromium Profile 的原生下载，普通文件使用受限的软件 HTTP 下载并在失败时自动尝试 Chromium；`save_session` 保存当前标签页 Cookie、`localStorage` 和 `sessionStorage`；`info` 返回 AI 工作区路径。
 - 默认目录：`download` 写入安装目录下的 `AI-Workspace` 根目录；`save_session` 默认写入 `AI-Workspace/sessions`。
 - 子目录：`directory` 只接受 AI 工作区内相对路径，例如 `downloads/models`；拒绝绝对路径、`..` 逃逸和指向工作区外的链接目录。
-- 下载参数：`url`、`filename`、`use_cookies`、`overwrite`、`timeout_ms`、`max_bytes`、`tab_id`。
+- 下载参数：`url`、`filename`、`media_type`、`transport`、`use_cookies`、`overwrite`、`timeout_ms`、`max_bytes`、`tab_id`。媒体下载应将 `browser_observe` 返回的 `category` 传给 `media_type`；`transport` 可取 `auto`、`browser`、`software`。
 - 会话参数：`filename`、`directory`、`overwrite`、`tab_id`。保存结果只返回路径和 Cookie 数量，不把 Cookie 原文放入聊天结果。
 - Cookie 规则：`use_cookies` 默认开启，但只发送与目标 URL 域名、路径、Secure 属性和有效期匹配的 Cookie；重定向后会重新匹配，不向其它域泄漏。
 - 网络边界：禁止 localhost、`.local`、IPv4/IPv6 私网、链路本地、组播和保留地址。每次重定向都重新解析，并将实际连接固定到已审核 IP，防止 DNS 重绑定。
@@ -95,7 +95,8 @@ Cookie 属于登录会话数据，不属于 `software_window.settings` 的可编
 - 数量参数：`limit`、`max_items`。
 - 筛选参数：`filter`、`tag`、`tags`、`keyword`、`query`、`text_filter`。
 - 框架参数：`frame`、`frame_path`。
-- 文本与标记参数：`include_text`、`text_limit`、`allow_truncate`、`mark`。
+- 文本与标记参数：`include_text`、`text_limit`、`allow_truncate`、`mark`、`highlight_duration_ms`。
+- Fork 原生 Observe 默认在 Chromium UI 层绘制与元素 `id` 对应的边框标签，不写入网页 DOM、不接收鼠标事件；导航、滚动、窗口隐藏或超时后自动清除。最多绘制 120 个标记。
 - 路由参数：`tab_id`。
 - 下载链接：可见 HTTP/HTTPS 链接会在对应 item 中提供 `downloadUrl`，并汇总到顶层 `downloadLinks`；其中的 `url` 可直接交给 `browser_download`。
 

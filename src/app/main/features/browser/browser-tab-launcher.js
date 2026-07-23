@@ -5,6 +5,7 @@ const {
   parseCookieJson,
 } = require('../../utils/ai-free-browser-settings');
 const { FREE_BROWSER_WINDOW_LIMIT, resolveVipAccess } = require('../../utils/vip-access');
+const { resolveSidebarWidth } = require('../../../shared/sidebar-layout');
 const {
   getClashMiniStatus,
   getClashMiniProxyEndpoint,
@@ -165,7 +166,14 @@ class BrowserTabLauncher {
 
   resolveBounds(mainWindow) {
     const [contentWidth, contentHeight] = mainWindow.getContentSize();
-    const sidebarWidth = this.deps.resolveIsSidebarVisible() ? Math.floor(contentWidth * 0.3) : 0;
+    const sideView = this.deps.resolveSideView?.();
+    const sidebarWidth = resolveSidebarWidth({
+      contentWidth,
+      isVisible: this.deps.resolveIsSidebarVisible(),
+      isMaximized: mainWindow.isMaximized?.() === true,
+      currentWidth: sideView?.getBounds?.().width,
+      normalWindowWidth: mainWindow.getNormalBounds?.().width,
+    });
     return { x: 0, y: 41, width: contentWidth - sidebarWidth, height: Math.max(0, contentHeight - 41) };
   }
 

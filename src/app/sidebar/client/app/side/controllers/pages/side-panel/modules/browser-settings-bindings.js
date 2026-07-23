@@ -50,10 +50,9 @@
     if (panelTab) panelTab.addEventListener('click', () => void deps.loadSettings());
     ['onTabsUpdated', 'onHistoryChanged', 'onAccountListUpdated']
       .forEach((methodName) => subscribeBrowserRefresh(deps, methodName));
-    document.addEventListener('click', (event) => {
+    document.addEventListener('pointerdown', (event) => {
       if (!event.target.closest('#browser-history-context-menu')) deps.hideBrowserHistoryContextMenu();
     });
-    window.addEventListener('blur', deps.hideBrowserHistoryContextMenu);
     window.addEventListener('resize', deps.hideBrowserHistoryContextMenu);
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape') return;

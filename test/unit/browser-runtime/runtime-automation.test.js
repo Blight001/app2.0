@@ -15,7 +15,13 @@ test('normalizes bounded native observe and action payloads', () => {
     max_items: 5000, keyword: '登录', include_media: false,
   }), {
     limit: 1000, keyword: '登录', tag: '', filter: '', includeText: true, includeMedia: false,
+    showHighlights: true, highlightDurationMs: 5000,
   });
+  const hiddenMarks = normalizeRuntimeAutomation('observe-page', {
+    mark: false, highlight_duration_ms: 999999,
+  });
+  assert.equal(hiddenMarks.showHighlights, false);
+  assert.equal(hiddenMarks.highlightDurationMs, 30000);
   assert.equal(normalizeRuntimeAutomation('perform-action', {
     action: 'type', selector: '#email', text: 'a@example.com', timeout: 1,
   }).timeoutMs, 100);
@@ -92,4 +98,18 @@ test('fork keyboard and scroll actions use fixed native input events', () => {
   assert.match(patch, /ForwardKeyboardEvent/);
   assert.match(patch, /ForwardWheelEvent/);
   assert.doesNotMatch(patch, /^\+.*dispatchEvent\(new (?:InputEvent|KeyboardEvent)/m);
+});
+
+test('fork observe highlights stay in the native event-transparent UI layer', () => {
+  const patchDirectory = path.join(__dirname, '../../../native/chromium-fork/patches');
+  const series = fs.readFileSync(path.join(patchDirectory, 'series'), 'utf8');
+  const patch = fs.readFileSync(
+    path.join(patchDirectory, '0024-ai-free-native-observe-highlights.patch'), 'utf8',
+  );
+  assert.match(series, /0023-ai-free-native-keyboard-wheel\.patch\s+0024-ai-free-native-observe-highlights\.patch/);
+  assert.match(patch, /SetCanProcessEventsWithinSubtree\(false\)/);
+  assert.match(patch, /kMaximumHighlightCount = 120/);
+  assert.match(patch, /chromium-native-overlay/);
+  assert.match(patch, /OnVisibilityChanged/);
+  assert.doesNotMatch(patch, /^\+.*(?:document\.body\.append|createElement)/m);
 });

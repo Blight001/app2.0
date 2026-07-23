@@ -514,6 +514,35 @@
         </section>
       </section>
 
+      <section id="ai-prompt-diagnostics-dialog" class="ai-prompt-diagnostics-dialog" role="dialog" aria-modal="true" aria-labelledby="ai-prompt-diagnostics-title" hidden>
+        <button class="ai-custom-api-backdrop" type="button" data-ai-prompt-diagnostics-close aria-label="关闭 AI 提示词查看器"></button>
+        <section class="ai-prompt-diagnostics-panel">
+          <header class="ai-custom-api-header">
+            <div>
+              <h2 id="ai-prompt-diagnostics-title">AI 提示词与完整 Prompt</h2>
+              <p>内容来自主进程实际工具目录和对话组装结果，不包含账号凭据。</p>
+            </div>
+            <button class="ai-custom-api-close" type="button" data-ai-prompt-diagnostics-close aria-label="关闭">&times;</button>
+          </header>
+          <div class="ai-prompt-diagnostics-body">
+            <p id="ai-prompt-diagnostics-status" class="ai-custom-api-status" aria-live="polite"></p>
+            <section>
+              <h3>所有工具对应的 AI 提示词</h3>
+              <pre id="ai-prompt-tools-content"></pre>
+            </section>
+            <section>
+              <h3>发送给 AI 的完整 Prompt</h3>
+              <p>同时显示下一次请求预览，以及最近一次实际发送的请求。</p>
+              <pre id="ai-prompt-full-content"></pre>
+            </section>
+          </div>
+          <footer class="ai-prompt-diagnostics-footer">
+            <button id="ai-prompt-diagnostics-refresh" type="button">刷新</button>
+            <button type="button" data-ai-prompt-diagnostics-close>关闭</button>
+          </footer>
+        </section>
+      </section>
+
     </div>
   </div>
 
@@ -530,9 +559,11 @@
   <script src="./client/app/side/controllers/pages/ai-control.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-selection.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-server-device.js"></script>
+  <script src="./client/app/side/controllers/pages/ai-control/ai-control-prompt-diagnostics.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-selectors.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-card-selector.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-history-list.js"></script>
+  <script src="./client/app/side/controllers/pages/ai-control/ai-control-quick-launch.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-history-session.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-markdown.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-tool-display.js"></script>

@@ -180,3 +180,48 @@ test('新对话空白页展示五条最近聊天并可点击切换', () => {
   list.children[0].listeners.click();
   assert.equal(selectedId, 'session-1');
 });
+
+test('最近聊天下方展示五条浏览器快速启动记录并可点击打开', async () => {
+  const messages = new FakeElement('div');
+  const welcome = new FakeElement('div');
+  welcome.className = 'ai-chat-welcome';
+  const recent = new FakeElement('section');
+  recent.className = 'ai-chat-recent';
+  welcome.appendChild(recent);
+  messages.appendChild(welcome);
+  let openedHistoryId = '';
+  const context = createControllerContext({
+    formatRelativeTime: (value) => `${value}分钟前`,
+    setStatus() {},
+  });
+  context.document.getElementById = (id) => (id === 'ai-chat-messages' ? messages : null);
+  context.document.createElement = (tagName) => new FakeElement(tagName);
+  context.window.aiFree.browser = {
+    getHistory: async () => ({
+      ok: true,
+      history: Array.from({ length: 6 }, (_, index) => ({
+        id: `browser-${index + 1}`,
+        name: `浏览器 ${index + 1}`,
+        lastOpenedAt: index + 1,
+        isOpen: index === 5,
+      })),
+    }),
+    openHistory: async ({ historyId }) => {
+      openedHistoryId = historyId;
+      return { ok: true };
+    },
+  };
+  runController(context, 'ai-control-quick-launch.js');
+
+  await vm.runInContext('refreshQuickLaunchHistory()', context);
+  const quickLaunch = welcome.querySelector('.ai-chat-quick-launch');
+  const list = welcome.querySelector('.ai-chat-quick-launch-list');
+  assert.equal(quickLaunch['aria-label'], '快速启动');
+  assert.equal(welcome.children.indexOf(quickLaunch) > welcome.children.indexOf(recent), true);
+  assert.equal(list.children.length, 5);
+  assert.equal(list.children[0].querySelector('.ai-chat-recent-title').textContent, '浏览器 6');
+  assert.equal(list.children[0].querySelector('.ai-chat-recent-meta').textContent, '已打开 · 6分钟前');
+
+  await list.children[0].listeners.click();
+  assert.equal(openedHistoryId, 'browser-6');
+});

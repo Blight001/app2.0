@@ -49,8 +49,10 @@ function summarizeAgentBrowserTab(result) {
 }
 
 function summarizeAgentBrowserObserve(result) {
+    const downloads = Number(result.downloadLinkCount || 0);
+    const downloadSummary = downloads ? `，发现 ${downloads} 个可下载链接` : '';
     return result.tooMany ? `匹配元素过多（${result.itemCount || 0} 个），已收窄筛选提示`
-        : `共 ${Number(result.count || 0)} 个可交互元素、${Number(result.textCount || 0)} 段文本`;
+        : `共 ${Number(result.count || 0)} 个可交互元素、${Number(result.textCount || 0)} 段文本${downloadSummary}`;
 }
 
 function summarizeAgentBrowserAction(result) {
@@ -205,11 +207,9 @@ chrome.runtime.onStartup.addListener(() => {
     void restoreAndConnectAgent();
 });
 
-// 扩展刷新或后台 worker 被回收时尽力通知软件立即移除旧连接；
-// 浏览器进程直接退出时仍由主进程的短心跳超时兜底。
-chrome.runtime.onSuspend?.addListener(() => {
-    if (agentSocket) agentSocket.disconnect();
-});
+// MV3 的 onSuspend 表示后台 worker 即将被正常回收，并不表示浏览器或扩展
+// 已退出。这里不能主动注销桥接会话；offscreen 会在下一次唤醒时恢复轮询，
+// 浏览器真正退出后的遗留会话则由主进程心跳宽限清理。
 
 // ── popup 消息接口 ──────────────────────────────────────────────────────────
 async function saveAgentPopupSettings(message) {

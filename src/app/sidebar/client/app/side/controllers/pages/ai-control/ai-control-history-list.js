@@ -208,7 +208,10 @@
     const sessions = (Array.isArray(state.sessionList) ? state.sessionList : [])
       .filter((session) => String(session?.id || '') !== currentId)
       .slice(0, 5);
-    if (!sessions.length) return;
+    if (!sessions.length) {
+      if (typeof renderQuickLaunch === 'function') renderQuickLaunch();
+      return;
+    }
 
     const recent = document.createElement('section');
     recent.className = 'ai-chat-recent';
@@ -221,6 +224,7 @@
     sessions.forEach((session) => list.appendChild(createRecentHistoryButton(session)));
     recent.append(heading, list);
     welcome.appendChild(recent);
+    if (typeof renderQuickLaunch === 'function') renderQuickLaunch();
   }
 
   function mergeSessionLists(primary, secondary) {

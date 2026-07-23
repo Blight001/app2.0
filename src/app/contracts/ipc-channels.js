@@ -17,6 +17,7 @@ const INVOKE_CHANNELS = [
   { channel: 'ai-control-get-automation-cards', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/features/ai-chat/register-support-ipc.js' },
   { channel: 'ai-control-get-browser-connections', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/features/ai-chat/register-support-ipc.js' },
   { channel: 'ai-control-get-models', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/features/ai-chat/register-support-ipc.js' },
+  { channel: 'ai-control-get-prompt-diagnostics', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/features/ai-chat/register-chat-ipc.js', requestSchema: 'ai.prompt-diagnostics' },
   { channel: 'ai-control-history-create', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/features/ai-chat/register-history-ipc.js', requestSchema: 'ai.history-create' },
   { channel: 'ai-control-history-delete', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/features/ai-chat/register-history-ipc.js', requestSchema: 'ai.history-id' },
   { channel: 'ai-control-history-get', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/features/ai-chat/register-history-ipc.js', requestSchema: 'ai.history-id' },

@@ -17,6 +17,7 @@ function readAiControlSource() {
     `${base}/ai-control/ai-control-selectors.js`,
     `${base}/ai-control/ai-control-card-selector.js`,
     `${base}/ai-control/ai-control-history-list.js`,
+    `${base}/ai-control/ai-control-quick-launch.js`,
     `${base}/ai-control/ai-control-history-session.js`,
     `${base}/ai-control/ai-control-markdown.js`,
     `${base}/ai-control/ai-control-tool-display.js`,

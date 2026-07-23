@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('aiFree', Object.freeze({
     getAutomationCards: invokeChannel('ai-control-get-automation-cards'),
     getBrowserConnections: invokeChannel('ai-control-get-browser-connections'),
     getModels: invokeChannel('ai-control-get-models'),
+    getPromptDiagnostics: invokeChannel('ai-control-get-prompt-diagnostics'),
     historyDelete: invokeChannel('ai-control-history-delete'),
     historyGet: invokeChannel('ai-control-history-get'),
     historyList: invokeChannel('ai-control-history-list'),

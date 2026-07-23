@@ -14,18 +14,21 @@ app.whenReady().then(async () => {
   });
   const html = `<!doctype html><html><head><style>
     body { font: 16px sans-serif; }
-    button, p { display: block; margin: 8px; }
+    button, p, img, video { display: block; width: 120px; height: 40px; margin: 8px; }
   </style></head><body>
     <button id="first">第一个按钮</button>
     <button id="second">第二个按钮</button>
     <button id="third">第三个按钮</button>
-    <a id="download" href="https://files.example.test/archive.zip" download="archive.zip">下载压缩包</a>
+    <a id="download" href="https://files.example.test/archive.zip">下载压缩包</a>
     <p>第一段页面文字</p><p>第二段页面文字</p><p>第三段页面文字</p>
+    <img id="preview-image" src="https://files.example.test/preview.png" alt="预览图" style="cursor:pointer">
+    <video id="preview-video" src="https://files.example.test/demo.mp4"></video>
   </body></html>`;
   await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
   const contentRoot = path.join(__dirname, '..', '..', '..', 'src', 'assets', 'extensions', 'browser_automation', 'content');
-  for (const name of ['fx.js', 'observe.js', 'observe-targets.js', 'observe-records.js', 'observe-actions.js']) {
+  for (const name of ['fx.js', 'observe.js', 'observe-targets.js', 'observe-marks.js',
+    'observe-records.js', 'observe-actions.js']) {
     const source = fs.readFileSync(path.join(contentRoot, name), 'utf8');
     await win.webContents.executeJavaScript(`${source}\n;undefined`);
   }
@@ -53,6 +56,27 @@ app.whenReady().then(async () => {
     selector: '#download', filename: 'archive.zip',
   }]);
   assert.equal(downloads.items[0].downloadUrl, 'https://files.example.test/archive.zip');
+  assert.equal(downloads.items[0].downloadFilename, 'archive.zip');
+  assert.equal(downloads.downloadLinkCount, 1);
+
+  const media = await win.webContents.executeJavaScript(
+    'window.__hsObserve.scan({ filter: "media", mark: false })',
+  );
+  assert.equal(media.items.find((item) => item.category === 'image').downloadUrl,
+    'https://files.example.test/preview.png');
+  assert.equal(media.items.find((item) => item.category === 'video').downloadUrl,
+    'https://files.example.test/demo.mp4');
+  assert.equal(media.downloadLinkCount, 2);
+
+  const clickableImages = await win.webContents.executeJavaScript(
+    'window.__hsObserve.scan({ tag: "img", include_text: false, max_items: 50, mark: false })',
+  );
+  assert.equal(clickableImages.items[0].kind, 'interactive');
+  assert.equal(clickableImages.items[0].category, 'image');
+  assert.equal(clickableImages.items[0].src, 'https://files.example.test/preview.png');
+  assert.equal(clickableImages.items[0].downloadUrl, 'https://files.example.test/preview.png');
+  assert.equal(clickableImages.downloadLinks[0].url, 'https://files.example.test/preview.png');
+  assert.equal(clickableImages.downloadLinkCount, 1);
 
   const truncated = await win.webContents.executeJavaScript(
     'window.__hsObserve.scan({ limit: 2, max_items: 3, text_limit: 10, mark: false })',

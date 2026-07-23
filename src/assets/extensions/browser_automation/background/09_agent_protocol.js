@@ -28,7 +28,7 @@ const EFFECTIVE_AGENT_TOOL_DEFS = [
         },
         {
             name: 'browser_download',
-            description: 'AI 专用下载与浏览器会话保存工具。action=download 从 HTTP/HTTPS url 下载文件到 AI-Workspace，默认自动携带当前标签页中与下载域名、路径和 HTTPS 属性匹配的 Cookie；action=save_session 将当前页 Cookie、localStorage、sessionStorage 保存为 JSON；action=info 返回 AI 工作区路径。directory 只能是 AI-Workspace 内相对子目录，默认下载到根目录，save_session 默认 sessions。下载采用大小/超时限制及临时文件原子落盘，不返回 Cookie 原文。browser_observe 返回的 downloadLinks[].url 或 item.downloadUrl 可直接作为 url。',
+            description: 'AI 专用下载与浏览器会话保存工具。action=download 从 HTTP/HTTPS url 下载文件到 AI-Workspace：图片/视频/音频默认优先使用当前 Chromium Profile 原生下载，以沿用登录态、代理和站点网络环境；普通文件使用受限的软件 HTTP 下载，失败时自动尝试 Chromium。action=save_session 将当前页 Cookie、localStorage、sessionStorage 保存为 JSON；action=info 返回 AI 工作区路径。directory 只能是 AI-Workspace 内相对子目录，默认下载到根目录，save_session 默认 sessions。下载保留大小/超时限制，不返回 Cookie 原文。browser_observe 返回的 downloadLinks[].url 或 item.downloadUrl 可直接作为 url；媒体条目应同时把 category 传为 media_type。',
             destructive: true,
             input_schema: {
                 type: 'object',
@@ -36,9 +36,11 @@ const EFFECTIVE_AGENT_TOOL_DEFS = [
                 properties: {
                     action: { type: 'string', enum: ['download', 'save_session', 'info'], description: 'download 下载链接；save_session 保存 Cookie/Storage；info 查看工作区。默认 download。' },
                     url: { type: 'string', description: 'action=download 必填；可直接使用 browser_observe 的 downloadUrl。仅支持 HTTP/HTTPS。' },
+                    media_type: { type: 'string', enum: ['image', 'video', 'audio'], description: '可选；使用 browser_observe 媒体条目的 category。媒体会优先使用 Chromium 原生下载，适合防盗链图片和视频。' },
+                    transport: { type: 'string', enum: ['auto', 'browser', 'software'], description: '下载通道，默认 auto。browser 强制使用当前 Chromium Profile；software 强制使用软件 HTTP 下载。' },
                     directory: { type: 'string', description: 'AI-Workspace 内相对子目录，如 downloads/models；不允许 .. 或绝对路径。download 默认根目录，save_session 默认 sessions。' },
                     filename: { type: 'string', description: '可选文件名；省略时依次使用 Content-Disposition 与 URL 文件名。' },
-                    use_cookies: { type: 'boolean', description: '下载时是否携带当前标签页中与目标 URL 匹配的 Cookie，默认 true。跨域 Cookie 不会发送。' },
+                    use_cookies: { type: 'boolean', description: '默认 true，允许沿用当前 Chromium Profile 或携带与目标 URL 匹配的 Cookie。false 时不使用 Chromium 原生下载。' },
                     overwrite: { type: 'boolean', description: '是否覆盖同名文件，默认 false；false 时自动生成不冲突文件名。' },
                     timeout_ms: { type: 'number', description: '下载超时，默认 120000，范围 1000-300000。' },
                     max_bytes: { type: 'number', description: '最大文件字节数，默认 262144000，硬上限 1073741824。' },
@@ -66,7 +68,7 @@ const EFFECTIVE_AGENT_TOOL_DEFS = [
         // ── 页面观察 ───────────────────────────────────────────────────────
         {
             name: 'browser_observe',
-            description: '感知当前视口里用户能看到的内容：返回 items 单一混排列表（按位置排序、已去重），kind=interactive 是最顶层、未被遮挡的按钮/链接/输入框/下拉/菜单项等（每项带临时 id + tag/selector/name/placeholder/ariaLabel/value/optionsSample 等基本信息），kind=text 是普通可见文本，kind=media 是图片/视频/音频（category=image/video/audio，不可点击），kind=frame 是页面内 iframe 边界（accessible=true 表示同源已扫描，其子元素以 inFrame=true 的 interactive 返回）。可见 HTTP/HTTPS 链接在 item.downloadUrl 中标记，并汇总为顶层 downloadLinks，可直接交给 browser_download。会扫描主文档、同源（含嵌套）iframe 内部内容以及 Shadow DOM（开放与被强制开放的封闭 root），并识别 img/video/audio 媒体元素；跨域 iframe 内部仍不可访问。除固定的按钮/链接/表单控件外，还会识别 cursor:pointer 或类名/ID 以 btn/button/link 结尾的自定义控件。若匹配条目超过 limit/max_items，默认截断并返回上限内的真实 items，同时设置 truncated=true；可用 filter/tag/keyword 缩小范围，也可传 frame（iframe 的 frameSelector）或 frame_path 只观察某个 iframe 内部。默认会在页面上绘制描边标记：绿色=可点击、红色=被遮挡/禁用/不可点、紫色虚线=iframe 边界。用途：点击/输入前的首选观察手段 + 卡片信息收集。场景：observe 后优先使用返回的 selector 或 text+tag 构造自动化卡片步骤（持久化推荐）；ref 可用于临时 browser_action 操作；页面变化后重新 observe（id 只在下一次 observe 前有效）。',
+            description: '感知当前视口里用户能看到的内容：返回 items 单一混排列表（按位置排序、已去重），kind=interactive 是最顶层、未被遮挡的按钮/链接/输入框/下拉/菜单项等（每项带临时 id + tag/selector/name/placeholder/ariaLabel/value/optionsSample 等基本信息），kind=text 是普通可见文本，kind=media 是图片/视频/音频（category=image/video/audio，不可点击），kind=frame 是页面内 iframe 边界（accessible=true 表示同源已扫描，其子元素以 inFrame=true 的 interactive 返回）。可见 HTTP/HTTPS 链接以及图片、视频、音频资源会在 item.downloadUrl 中标记，尽可能附带 item.downloadFilename，并汇总为顶层 downloadLinks/downloadLinkCount，可直接交给 browser_download。会扫描主文档、同源（含嵌套）iframe 内部内容以及 Shadow DOM（开放与被强制开放的封闭 root），并识别 img/video/audio 媒体元素；跨域 iframe 内部仍不可访问。除固定的按钮/链接/表单控件外，还会识别 cursor:pointer 或类名/ID 以 btn/button/link 结尾的自定义控件。若匹配条目超过 limit/max_items，默认截断并返回上限内的真实 items，同时设置 truncated=true；可用 filter/tag/keyword 缩小范围，也可传 frame（iframe 的 frameSelector）或 frame_path 只观察某个 iframe 内部。默认会在页面上绘制描边标记：绿色=可点击、红色=被遮挡/禁用/不可点、紫色虚线=iframe 边界。用途：点击/输入前的首选观察手段 + 卡片信息收集。场景：observe 后优先使用返回的 selector 或 text+tag 构造自动化卡片步骤（持久化推荐）；ref 可用于临时 browser_action 操作；页面变化后重新 observe（id 只在下一次 observe 前有效）。',
             input_schema: {
                 type: 'object',
                 properties: {
@@ -87,7 +89,8 @@ const EFFECTIVE_AGENT_TOOL_DEFS = [
                     include_text: { type: 'boolean', description: '是否同时包含普通可见文本（items 中 kind=text 的条目）。默认 true；传 false 时只返回可交互元素。' },
                     text_limit: { type: 'number', description: '最多返回的普通可见文本条数。默认 200，最大 500。' },
                     allow_truncate: { type: 'boolean', description: '是否在超过 limit/max_items 时截断并返回内容，默认 true。显式传 false 时只返回 tooMany/categoryCounts 和筛选提示。' },
-                    mark: { type: 'boolean', description: '是否在页面上绘制状态色描边标记，便于随后截图查看。默认 true；传 false 只清除已有标记、不重绘。标记为纯视觉叠加，不影响其他工具或点击。' },
+                    mark: { type: 'boolean', description: '是否绘制状态色描边标记。Fork 默认在 Chromium 原生 UI 层绘制，网页 DOM 无法读取且不会拦截点击；兼容模式使用页面视觉叠加。默认 true；传 false 清除已有标记且不重绘。' },
+                    highlight_duration_ms: { type: 'number', description: 'Fork 原生描边显示时长，默认 5000 毫秒，范围 500-30000；导航、滚动或窗口隐藏会提前清除。' },
                     tab_id: { type: 'number', description: '可选：指定要观察的真实网页标签页；省略时使用最近操作目标。' }
                 }
             }

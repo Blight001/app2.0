@@ -9,6 +9,7 @@ const test = require('node:test');
 
 const {
   APP_BROWSER_PID_HEADER,
+  CONNECTION_TTL_MS,
   createBrowserAutomationBridge,
 } = require('../../src/app/main/services/browser-automation-bridge');
 const { createExtensionManager } = require('../../src/app/main/services/extension-manager');
@@ -23,6 +24,14 @@ async function reserveFreePort() {
   await new Promise((resolve) => server.close(resolve));
   return port;
 }
+
+test('automation bridge heartbeat grace covers the MV3 offscreen wake interval', () => {
+  const offscreenWakeIntervalMs = 20_000;
+  assert.ok(
+    CONNECTION_TTL_MS >= offscreenWakeIntervalMs * 2,
+    `heartbeat grace ${CONNECTION_TTL_MS}ms is shorter than two offscreen wake intervals`,
+  );
+});
 
 test('automation bridge accepts browser extensions through the loopback port', async (t) => {
   const port = await reserveFreePort();

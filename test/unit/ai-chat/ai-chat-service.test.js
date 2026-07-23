@@ -79,6 +79,32 @@ test('内置模型正常返回完整消息链并发布流式完成事件', async
   assert.equal(fixture.sent.at(-1).payload.type, 'done');
 });
 
+test('提示词诊断返回下一次预览和最近一次实际发送的完整请求', async () => {
+  const client = {
+    sendAIControlMessage: async () => ({
+      ok: true,
+      message: { role: 'assistant', content: '完成' },
+    }),
+  };
+  const service = createService(client);
+  await service.chat(eventFixture().event, {
+    modelId: 'builtin',
+    messages: [{ role: 'user', content: '检查提示词' }],
+    disableTools: true,
+  });
+
+  const diagnostics = service.getPromptDiagnostics(eventFixture().event, {
+    modelId: 'builtin',
+    messages: [{ role: 'user', content: '下一条消息' }],
+  });
+
+  assert.equal(diagnostics.ok, true);
+  assert.equal(diagnostics.preview.messages.at(-1).content, '下一条消息');
+  assert.equal(diagnostics.lastRequest.modelId, 'builtin');
+  assert.equal(diagnostics.lastRequest.messages.at(-1).content, '检查提示词');
+  assert.equal(Array.isArray(diagnostics.lastRequest.tools), true);
+});
+
 test('额度耗尽时不调用模型服务', async () => {
   let calls = 0;
   const service = createService({ sendAIControlMessage: async () => { calls += 1; return { ok: true }; } });

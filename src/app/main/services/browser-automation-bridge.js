@@ -15,7 +15,10 @@ const {
 } = require('./browser-automation-normalizers');
 
 const DEFAULT_PORT = 18765;
-const CONNECTION_TTL_MS = 3000;
+// MV3 may reclaim the extension worker between offscreen keepalive messages.
+// Keep two full 20-second wake intervals plus scheduling jitter before declaring
+// the browser gone; authenticated requests still refresh lastSeenAt immediately.
+const CONNECTION_TTL_MS = 45000;
 const CARD_CACHE_SCHEMA_VERSION = 1;
 const CARD_CACHE_FILE_NAME = 'automation-cards.json';
 

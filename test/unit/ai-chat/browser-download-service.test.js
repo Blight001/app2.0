@@ -44,6 +44,35 @@ test('browser download saves into an AI workspace subdirectory with matching coo
   }
 });
 
+test('browser download forwards page headers and rejects HTML returned for a media URL', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-media-download-'));
+  const requests = [];
+  const service = createBrowserDownloadService({
+    sandboxDir: root,
+    resolveHost: async () => [{ address: '93.184.216.34', family: 4 }],
+    fetchImpl: async (_url, options) => {
+      requests.push(options.headers);
+      return new Response('<html>hotlink denied</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    },
+  });
+  try {
+    await assert.rejects(service.execute({
+      action: 'download',
+      url: 'https://cdn.example.test/video.mp4',
+      referer: 'https://www.example.test/watch/1',
+      user_agent: 'AI-FREE Chromium',
+      media_type: 'video',
+    }), /非媒体内容/);
+    assert.equal(requests[0].Referer, 'https://www.example.test/watch/1');
+    assert.equal(requests[0]['User-Agent'], 'AI-FREE Chromium');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('browser download saves session JSON and rejects directories outside the workspace', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-session-download-'));
   const service = createBrowserDownloadService({ sandboxDir: root, fetchImpl: globalThis.fetch });

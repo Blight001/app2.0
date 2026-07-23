@@ -68,6 +68,22 @@ const shortcutManager = {
 // 清除页面的注入记录，允许重新注入（用于页面刷新等场景）
 function clearInjectionRecord() {}
 
+async function isRendererContextMenuPoint(wc, params, selector) {
+  if (!selector || !wc || wc.isDestroyed?.()) return false;
+  const x = Number(params?.x);
+  const y = Number(params?.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+  const script = `(() => {
+    const target = document.elementFromPoint(${Math.round(x)}, ${Math.round(y)});
+    return Boolean(target && target.closest(${JSON.stringify(selector)}));
+  })()`;
+  try {
+    return await wc.executeJavaScript(script, true) === true;
+  } catch (_) {
+    return false;
+  }
+}
+
 // 右键菜单功能 - 使用传统原生菜单
 function attachContextMenu(wc, dependencies = {}) {
   const { addTab, downloadOrSaveMedia, tabs, activeTabId, refreshPage } = dependencies;
@@ -91,9 +107,13 @@ function attachContextMenu(wc, dependencies = {}) {
     });
 
     // 监听右键菜单事件 - 使用最传统的原生菜单
-    wc.on('context-menu', (event, params) => {
-      // 直接使用原生菜单，简单可靠
-        fallbackToNativeMenu(wc, params, dependencies);
+    wc.on('context-menu', async (_event, params) => {
+      const rendererOwnsMenu = await isRendererContextMenuPoint(
+        wc,
+        params,
+        dependencies.rendererContextMenuSelector,
+      );
+      if (!rendererOwnsMenu) fallbackToNativeMenu(wc, params, dependencies);
     });
   } catch (_) {}
 }
@@ -243,5 +263,6 @@ function fallbackToNativeMenu(wc, params, dependencies) {
 module.exports = {
   attachContextMenu,
   clearInjectionRecord,
+  isRendererContextMenuPoint,
   shortcutManager
 };
