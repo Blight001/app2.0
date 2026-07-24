@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const asar = require('@electron/asar');
+const crypto = require('crypto');
 
 const REQUIRED_CLASH_ASSETS = [
   'geoip.metadb',
@@ -102,6 +103,24 @@ function configuredPackagedExtensions(projectDir) {
   return config.packagedExtensions;
 }
 
+function verifyCursorRuntime(resourcesDir) {
+  const runtimeDir = path.join(resourcesDir, 'cursor-runtime');
+  const executablePath = path.join(runtimeDir, 'ai-free-cursor-host.exe');
+  const manifestPath = path.join(runtimeDir, 'cursor-runtime-manifest.json');
+  assertPeX64(executablePath);
+  assertStaticVCRuntime(executablePath);
+  assertFile(manifestPath, 64);
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const actualHash = crypto.createHash('sha256')
+    .update(fs.readFileSync(executablePath))
+    .digest('hex');
+  if (manifest.schemaVersion !== 1 || manifest.protocolVersion !== '1'
+      || manifest.executable !== 'ai-free-cursor-host.exe'
+      || manifest.sha256 !== actualHash) {
+    throw new Error(`Cursor Runtime manifest 无效或哈希不匹配: ${manifestPath}`);
+  }
+}
+
 function verifyUnpackedRuntimeFiles(projectDir, resourcesDir, extractDir) {
   const unpackedRoot = path.join(resourcesDir, 'app.asar.unpacked', 'src');
   for (const name of configuredPackagedExtensions(projectDir)) {
@@ -188,6 +207,7 @@ function verifyPackagedRuntime(options = {}) {
   const nativeHostPath = path.join(resourcesDir, 'native', 'browser-host', 'browser_host.node');
   assertPeX64(nativeHostPath);
   assertStaticVCRuntime(nativeHostPath);
+  verifyCursorRuntime(resourcesDir);
   assertPeX64(path.join(resourcesDir, 'chromium', 'ai-free-browser.exe'));
   assertFile(path.join(resourcesDir, 'chromium', 'chrome.dll'), 100 * 1024 * 1024);
 
@@ -218,7 +238,7 @@ function verifyPackagedRuntime(options = {}) {
     'Chromium',
   );
   verifyAsarIntegrity(projectDir, appOutDir);
-  console.log(`[packaged-runtime] 校验通过: Chromium ${chromiumCount} 个文件，ASAR/unpacked/Watchdog/Extensions/Native/Logo/ANI Cursor/Clash 资源完整`);
+  console.log(`[packaged-runtime] 校验通过: Chromium ${chromiumCount} 个文件，ASAR/unpacked/Watchdog/Extensions/Native/Cursor Sidecar/Logo/ANI Cursor/Clash 资源完整`);
   return { ok: true, chromiumCount, appOutDir };
 }
 

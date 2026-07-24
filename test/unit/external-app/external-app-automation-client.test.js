@@ -43,14 +43,14 @@ test('软件自动化客户端在独立 worker 中串行返回原生结果', asy
     Worker: FakeWorker,
   });
   const result = await client.execute(
-    'observeExternalWindowUi', { childHwnd: '100' },
+    'performExternalWindowAction', { action: 'focus', childHwnd: '100' },
   );
   assert.deepEqual(result, {
     success: true,
-    method: 'observeExternalWindowUi',
+    method: 'performExternalWindowAction',
   });
   assert.equal(client.worker.options.workerData.bindingPath, 'C:/native/browser_host.node');
-  assert.deepEqual(client.worker.messages[0].options, { childHwnd: '100' });
+  assert.deepEqual(client.worker.messages[0].options, { action: 'focus', childHwnd: '100' });
   const worker = client.worker;
   await client.dispose();
   assert.equal(worker.terminated, true);
@@ -85,7 +85,7 @@ test('软件自动化动作不注入鼠标显示资源', async () => {
       },
     },
   });
-  await bridge.performExternalWindowUiActionAsync({ action: 'click', x: 10, y: 20 });
-  assert.equal(calls[0].method, 'performExternalWindowUiAction');
+  await bridge.performExternalWindowActionAsync({ action: 'click', x: 10, y: 20 });
+  assert.equal(calls[0].method, 'performExternalWindowAction');
   assert.equal(calls[0].options.cursorPath, undefined);
 });

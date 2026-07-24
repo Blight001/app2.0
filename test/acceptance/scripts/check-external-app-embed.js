@@ -78,22 +78,22 @@ async function verifyOwnedPopupAutomation() {
   });
   const observed = await waitForValue(async () => {
     try {
-      const result = await tools.execute(
-        'software_ui', { action: 'observe', mode: 'accessibility', limit: 40, max_depth: 6 },
-      );
-      return result.popup ? result : null;
+      const result = await tools.execute('software_ui', { action: 'observe' });
+      return result?.dataUrl ? result : null;
     } catch (_) {
       return null;
     }
   }, 5000);
-  assert.ok(observed?.popup, '软件模态弹窗应自动成为 UI Automation 根节点');
-  const button = observed.items.find(
-    (item) => item.type === 'button' && Number.isFinite(item.click_x),
-  );
-  assert.ok(button?.ref, '模态弹窗应暴露可点击按钮');
-  const clicked = await tools.execute(
-    'software_ui', { action: 'mouse_click', ref: button.ref, refresh: false },
-  );
+  assert.ok(observed?.observation_id, '模态弹窗应可截图观察');
+  assert.match(observed.dataUrl, /^data:image\/png;base64,/);
+  // 弹窗中部通常是确认按钮区域；纯视觉用截图中心点击关闭。
+  const clicked = await tools.execute('software_ui', {
+    action: 'mouse_click',
+    observation_id: observed.observation_id,
+    x: Math.floor(observed.width / 2),
+    y: Math.floor(observed.height * 0.62),
+    refresh: false,
+  });
   assert.equal(clicked.method, 'mouse');
   assert.ok(
     await waitForValue(() => !manager.windowBridge.isWindowAlive(ownerHwnd)),
@@ -175,75 +175,32 @@ app.whenReady().then(async () => {
       windowBridge: manager.windowBridge,
       target: manager.externalApp.getAutomationTarget('external-app-acceptance'),
     });
-    const observed = await uiTools.execute('software_ui', {
-      action: 'observe',
-      mode: 'accessibility',
-      limit: 80,
-      max_depth: 10,
-    });
+    const observed = await uiTools.execute('software_ui', { action: 'observe' });
     assert.equal(observed.success, true);
-    assert.ok(observed.items.length > 0 && observed.items.length <= 80);
-    const editable = observed.items.find(
-      (item) => Array.isArray(item.actions) && item.actions.includes('set_value'),
-    );
-    assert.ok(editable?.ref, 'UI Automation 应发现记事本的可写控件');
-    const typed = await uiTools.execute('software_ui', {
-      action: 'type',
-      ref: editable.ref,
-      text: 'AI-FREE UI Automation acceptance',
-      refresh: false,
-    });
-    assert.equal(typed.success, true);
-    const observedAfterType = await uiTools.execute('software_ui', {
-      action: 'observe',
-      mode: 'accessibility',
-      limit: 80,
-      max_depth: 10,
-    });
-    assert.ok(
-      observedAfterType.items.some(
-        (item) => String(item.value || '').includes('AI-FREE UI Automation acceptance'),
-      ),
-      'UI Automation 写入结果应能被后续 observe 读取',
-    );
-    const visual = await uiTools.execute('software_ui', { action: 'screenshot' });
-    assert.match(visual.dataUrl, /^data:image\/png;base64,/);
-    assert.ok(visual.width > 0 && visual.height > 0);
-    assert.equal(visual.observation_mode, 'visual');
-    const visualX = Math.round(
-      (editable.x + editable.width / 2 - visual.originX)
-      * visual.width / visual.sourceWidth,
-    );
-    const visualY = Math.round(
-      (editable.y + editable.height / 2 - visual.originY)
-      * visual.height / visual.sourceHeight,
-    );
+    assert.equal(observed.observation_mode, 'visual');
+    assert.match(observed.dataUrl, /^data:image\/png;base64,/);
+    assert.ok(observed.width > 0 && observed.height > 0);
+    assert.ok(Array.isArray(observed.visual_candidates));
+    assert.ok(observed.visual_candidates.length <= 24);
+    const clickX = Math.floor(observed.width / 2);
+    const clickY = Math.floor(observed.height / 2);
     const clickedVisual = await uiTools.execute('software_ui', {
       action: 'click',
-      observation_id: visual.observation_id,
-      x: visualX,
-      y: visualY,
+      observation_id: observed.observation_id,
+      x: clickX,
+      y: clickY,
     });
     assert.equal(clickedVisual.action_result.method, 'mouse');
     const typedVisual = await uiTools.execute('software_ui', {
       action: 'type',
       observation_id: clickedVisual.observation_id,
-      text: ' visual-input',
+      text: 'AI-FREE visual input',
       refresh: false,
     });
     assert.equal(typedVisual.method, 'keyboard');
-    const observedAfterVisualInput = await uiTools.execute('software_ui', {
-      action: 'observe',
-      mode: 'accessibility',
-      limit: 80,
-      max_depth: 10,
-    });
-    assert.ok(
-      observedAfterVisualInput.items.some(
-        (item) => String(item.value || '').includes('visual-input'),
-      ),
-      '截图坐标点击和 SendInput 文字输入应形成可验证闭环',
-    );
+    const observedAgain = await uiTools.execute('software_ui', { action: 'observe' });
+    assert.equal(observedAgain.observation_mode, 'visual');
+    assert.match(observedAgain.dataUrl, /^data:image\/png;base64,/);
     const dockedPlacement = manager.windowBridge.getWindowPlacementSnapshot(state.browserHwnd);
     const [windowX, windowY] = window.getPosition();
     window.setPosition(windowX + 70, windowY + 45);

@@ -115,11 +115,8 @@ class ChromiumWindowBridge {
   getWindowPlacementSnapshot(hwnd) {
     return this.load().getWindowPlacementSnapshot({ hwnd });
   }
-  observeExternalWindowUi(options) {
-    return this.load().observeExternalWindowUi(options);
-  }
-  performExternalWindowUiAction(options) {
-    return this.load().performExternalWindowUiAction(options);
+  performExternalWindowAction(options) {
+    return this.load().performExternalWindowAction(options);
   }
   getAutomationClient() {
     this.load();
@@ -136,16 +133,10 @@ class ChromiumWindowBridge {
       ? client.execute(method, options)
       : Promise.resolve(fallback());
   }
-  observeExternalWindowUiAsync(options) {
+  performExternalWindowActionAsync(options) {
     return this.runExternalAutomation(
-      'observeExternalWindowUi', options,
-      () => this.observeExternalWindowUi(options),
-    );
-  }
-  performExternalWindowUiActionAsync(options) {
-    return this.runExternalAutomation(
-      'performExternalWindowUiAction', options,
-      () => this.performExternalWindowUiAction(options),
+      'performExternalWindowAction', options,
+      () => this.performExternalWindowAction(options),
     );
   }
   captureExternalWindow(options) {

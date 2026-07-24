@@ -95,6 +95,14 @@ builder-effective-config.yaml
 /native/browser-host/*.lib
 /native/browser-host/*.obj
 /native/browser-host/*.pdb
+/native/cursor-host/build/
+/native/cursor-host/*.exp
+/native/cursor-host/*.ilk
+/native/cursor-host/*.lib
+/native/cursor-host/*.obj
+/native/cursor-host/*.pdb
+/resources/cursor-runtime/ai-free-cursor-host.exe
+/resources/cursor-runtime/cursor-runtime-manifest.json
 
 # Installers and Packages (Root level)
 /*.exe

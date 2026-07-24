@@ -12,6 +12,7 @@
     "start:dev": "npm run prepare:source && node scripts/run-electron.js .generated/app",
     "start:chromium": "npm run prepare:source && node scripts/run-chromium-fork.js .generated/app",
     "start:prototype": "node scripts/run-chromium-runtime.js .",
+    "start:cursor-prototype": "node scripts/run-cursor-host-prototype.js",
     "smoke:chromium": "node scripts/run-electron.js scripts/smoke-chromium-embed.js",
     "accept:chromium-phase2": "node scripts/run-electron.js scripts/accept-chromium-phase2.js",
     "accept:chromium-input": "node scripts/run-electron.js scripts/accept-chromium-input.js",
@@ -31,9 +32,11 @@
     "check:software-settings-ui": "node scripts/run-electron.js scripts/check-software-settings-ui.js",
     "check:packaged-runtime": "node scripts/verify-packaged-runtime.js appbuild/win-unpacked",
     "build:native-host": "node scripts/build-native-host.js",
-    "build": "npm run prepare:source && npm run build:native-host && electron-builder",
+    "build:cursor-host": "node scripts/build-cursor-host.js",
+    "build:native": "npm run build:native-host && npm run build:cursor-host",
+    "build": "npm run prepare:source && npm run build:native && electron-builder",
     "build:win": "node scripts/build-windows.js",
-    "build:portable": "npm run prepare:source && npm run build:native-host && electron-builder --win portable",
+    "build:portable": "npm run prepare:source && npm run build:native && electron-builder --win portable",
     "pretest": "npm run prepare:source",
     "test": "node --test \"test/**/*.test.js\"",
     "test:unit": "node --test \"test/unit/**/*.test.js\"",
@@ -131,6 +134,14 @@
       {
         "from": "resources/cursors/[CC] Handwrite v1.ani",
         "to": "cursors/[CC] Handwrite v1.ani"
+      },
+      {
+        "from": "resources/cursor-runtime",
+        "to": "cursor-runtime",
+        "filter": [
+          "ai-free-cursor-host.exe",
+          "cursor-runtime-manifest.json"
+        ]
       }
     ],
     "win": {

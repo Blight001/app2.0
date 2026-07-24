@@ -61,7 +61,7 @@ function appendDownloadWorkflow(workflow, available) {
 function createSoftwareUiWorkflow(available, softwareTarget) {
   const name = String(softwareTarget?.name || '当前软件').replace(/[\r\n\t]+/g, ' ').slice(0, 80);
   return available.has('software_ui')
-    ? `software_ui 已绑定“${name}”：先 observe；UIA 不足会返回截图；坐标必须带当次 observation_id；动作后使用新状态。`
+    ? `software_ui 已绑定“${name}”：纯视觉；先 observe 取截图与 visual_candidates；用 vref 或 x/y + observation_id 操作；动作后刷新。`
     : '';
 }
 

@@ -51,14 +51,22 @@ test('native host and runtime logo are packaged only as external resources', () 
     entry.from === 'resources/cursors/[CC] Handwrite v1.ani'
       && entry.to === 'cursors/[CC] Handwrite v1.ani'
   )));
+  assert.ok(extraResources.some((entry) => (
+    entry.from === 'resources/cursor-runtime'
+      && entry.to === 'cursor-runtime'
+      && entry.filter.includes('ai-free-cursor-host.exe')
+      && entry.filter.includes('cursor-runtime-manifest.json')
+  )));
 });
 
 test('native host has no external VC++ redistributable dependency', () => {
   assert.doesNotThrow(() => assertStaticVCRuntime(
     path.join(__dirname, '../../native/browser-host/build/Release/browser_host.node'),
   ));
-  assert.match(packageJson.scripts.build, /build:native-host/);
-  assert.match(packageJson.scripts['build:portable'], /build:native-host/);
+  assert.match(packageJson.scripts.build, /build:native/);
+  assert.match(packageJson.scripts['build:native'], /build:native-host/);
+  assert.match(packageJson.scripts['build:native'], /build:cursor-host/);
+  assert.match(packageJson.scripts['build:portable'], /build:native/);
 });
 
 test('sidebar logos use the runtime asset resolver in source and packaged apps', () => {

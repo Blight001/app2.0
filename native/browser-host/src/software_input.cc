@@ -1,50 +1,8 @@
-#include "ui_automation_input.h"
-
-#include <ole2.h>
-#include <wrl/client.h>
+#include "software_input.h"
 
 #include <vector>
 
-using Microsoft::WRL::ComPtr;
-
 namespace {
-template <typename Pattern>
-ComPtr<Pattern> CurrentPattern(IUIAutomationElement* element, PATTERNID id) {
-  ComPtr<Pattern> pattern;
-  element->GetCurrentPatternAs(id, __uuidof(Pattern), &pattern);
-  return pattern;
-}
-
-HRESULT InvokeElement(IUIAutomationElement* element) {
-  if (auto pattern = CurrentPattern<IUIAutomationInvokePattern>(
-      element, UIA_InvokePatternId)) return pattern->Invoke();
-  if (auto pattern = CurrentPattern<IUIAutomationSelectionItemPattern>(
-      element, UIA_SelectionItemPatternId)) return pattern->Select();
-  if (auto pattern = CurrentPattern<IUIAutomationLegacyIAccessiblePattern>(
-      element, UIA_LegacyIAccessiblePatternId)) return pattern->DoDefaultAction();
-  return UIA_E_NOTSUPPORTED;
-}
-
-HRESULT SetElementValue(IUIAutomationElement* element, const std::wstring& text) {
-  auto pattern = CurrentPattern<IUIAutomationValuePattern>(element, UIA_ValuePatternId);
-  if (!pattern) return UIA_E_NOTSUPPORTED;
-  BSTR value = SysAllocStringLen(text.data(), static_cast<UINT>(text.size()));
-  if (!value && !text.empty()) return E_OUTOFMEMORY;
-  const HRESULT result = pattern->SetValue(value);
-  SysFreeString(value);
-  return result;
-}
-
-bool ResolveClickPoint(IUIAutomationElement* element, POINT* point) {
-  BOOL clickable = FALSE;
-  if (SUCCEEDED(element->GetClickablePoint(point, &clickable)) && clickable) return true;
-  RECT rect = {};
-  if (FAILED(element->get_CurrentBoundingRectangle(&rect))
-      || rect.right <= rect.left || rect.bottom <= rect.top) return false;
-  point->x = rect.left + (rect.right - rect.left) / 2;
-  point->y = rect.top + (rect.bottom - rect.top) / 2;
-  return true;
-}
 
 bool IsBoundWindowOrOwnedPopup(HWND window, HWND bound_window) {
   for (HWND current = window; current; current = GetParent(current)) {
@@ -201,71 +159,20 @@ HRESULT SendDragBetweenPoints(
   return result;
 }
 
-HRESULT SendMouseClick(
-    IUIAutomationElement* element, HWND bound_window, DWORD expected_pid,
-    const std::wstring& action, POINT* used_point) {
-  POINT point = {};
-  if (!ResolveClickPoint(element, &point)) return UIA_E_NOTSUPPORTED;
-  const HRESULT result = SendMouseAtPoint(
-      bound_window, expected_pid, action, point);
-  *used_point = point;
-  return result;
 }
 
-void PerformPatternAction(
-    IUIAutomationElement* element, const std::wstring& action,
-    UiAutomationActionResult* output) {
-  if (action == L"toggle") {
-    auto pattern = CurrentPattern<IUIAutomationTogglePattern>(
-        element, UIA_TogglePatternId);
-    output->result = pattern ? pattern->Toggle() : UIA_E_NOTSUPPORTED;
-  } else if (action == L"select") {
-    auto pattern = CurrentPattern<IUIAutomationSelectionItemPattern>(
-        element, UIA_SelectionItemPatternId);
-    output->result = pattern ? pattern->Select() : UIA_E_NOTSUPPORTED;
-  } else if (action == L"expand" || action == L"collapse") {
-    auto pattern = CurrentPattern<IUIAutomationExpandCollapsePattern>(
-        element, UIA_ExpandCollapsePatternId);
-    output->result = action == L"expand"
-      ? (pattern ? pattern->Expand() : UIA_E_NOTSUPPORTED)
-      : (pattern ? pattern->Collapse() : UIA_E_NOTSUPPORTED);
-  }
-}
-}
-
-UiAutomationActionResult PerformUiAutomationAction(
-    IUIAutomationElement* element, const std::wstring& action,
-    const std::wstring& text, HWND bound_window, DWORD expected_pid) {
-  UiAutomationActionResult output = { E_INVALIDARG, L"uia", {}, false };
-  if (action == L"focus") output.result = element->SetFocus();
-  else if (action == L"invoke") output.result = InvokeElement(element);
-  else if (action == L"click" || action == L"mouse_click" || action == L"double_click"
-      || action == L"right_click") {
-    output.result = SendMouseClick(
-        element, bound_window, expected_pid, action, &output.point);
-    output.method = L"mouse";
-    output.has_point = SUCCEEDED(output.result);
-  } else if (action == L"set_value" || action == L"type") {
-    output.result = SetElementValue(element, text);
-  } else {
-    PerformPatternAction(element, action, &output);
-  }
-  return output;
-}
-
-UiAutomationActionResult PerformBoundMouseAction(
+SoftwareInputResult PerformBoundMouseAction(
     HWND bound_window, DWORD expected_pid,
     const std::wstring& action, POINT point) {
-  UiAutomationActionResult output = { E_INVALIDARG, L"mouse", point, false };
-  output.result = SendMouseAtPoint(
-      bound_window, expected_pid, action, point);
+  SoftwareInputResult output = { E_INVALIDARG, L"mouse", point, false };
+  output.result = SendMouseAtPoint(bound_window, expected_pid, action, point);
   output.has_point = SUCCEEDED(output.result);
   return output;
 }
 
-UiAutomationActionResult PerformBoundTextInput(
+SoftwareInputResult PerformBoundTextInput(
     HWND bound_window, DWORD expected_pid, const std::wstring& text) {
-  UiAutomationActionResult output = { E_ACCESSDENIED, L"keyboard", {}, false };
+  SoftwareInputResult output = { E_ACCESSDENIED, L"keyboard", {}, false };
   if (!TargetOwnsKeyboardFocus(bound_window, expected_pid)) return output;
   std::vector<INPUT> inputs;
   inputs.reserve(text.size() * 2);
@@ -283,9 +190,9 @@ UiAutomationActionResult PerformBoundTextInput(
   return output;
 }
 
-UiAutomationActionResult PerformBoundKeyInput(
+SoftwareInputResult PerformBoundKeyInput(
     HWND bound_window, DWORD expected_pid, const std::wstring& key) {
-  UiAutomationActionResult output = { E_INVALIDARG, L"keyboard", {}, false };
+  SoftwareInputResult output = { E_INVALIDARG, L"keyboard", {}, false };
   if (!TargetOwnsKeyboardFocus(bound_window, expected_pid)) {
     output.result = E_ACCESSDENIED;
     return output;
@@ -307,20 +214,42 @@ UiAutomationActionResult PerformBoundKeyInput(
   return output;
 }
 
-UiAutomationActionResult PerformBoundScroll(
+SoftwareInputResult PerformBoundScroll(
     HWND bound_window, DWORD expected_pid, POINT point, int delta) {
-  UiAutomationActionResult output = { E_INVALIDARG, L"mouse", point, false };
-  output.result = SendScrollAtPoint(
-      bound_window, expected_pid, point, delta);
+  SoftwareInputResult output = { E_INVALIDARG, L"mouse", point, false };
+  output.result = SendScrollAtPoint(bound_window, expected_pid, point, delta);
   output.has_point = SUCCEEDED(output.result);
   return output;
 }
 
-UiAutomationActionResult PerformBoundDrag(
+SoftwareInputResult PerformBoundDrag(
     HWND bound_window, DWORD expected_pid, POINT start, POINT end) {
-  UiAutomationActionResult output = { E_INVALIDARG, L"mouse", end, false };
-  output.result = SendDragBetweenPoints(
-      bound_window, expected_pid, start, end);
+  SoftwareInputResult output = { E_INVALIDARG, L"mouse", end, false };
+  output.result = SendDragBetweenPoints(bound_window, expected_pid, start, end);
   output.has_point = SUCCEEDED(output.result);
+  return output;
+}
+
+SoftwareInputResult FocusBoundWindow(HWND bound_window, DWORD expected_pid) {
+  SoftwareInputResult output = { E_INVALIDARG, L"focus", {}, false };
+  if (!IsWindow(bound_window)) {
+    output.result = E_HANDLE;
+    return output;
+  }
+  DWORD actual_pid = 0;
+  GetWindowThreadProcessId(bound_window, &actual_pid);
+  if (!expected_pid || actual_pid != expected_pid) {
+    output.result = E_ACCESSDENIED;
+    return output;
+  }
+  const HWND root = GetAncestor(bound_window, GA_ROOT);
+  const HWND target = root ? root : bound_window;
+  AllowSetForegroundWindow(ASFW_ANY);
+  if (IsIconic(target)) ShowWindow(target, SW_RESTORE);
+  SetForegroundWindow(target);
+  SetFocus(bound_window);
+  output.result = TargetOwnsKeyboardFocus(bound_window, expected_pid)
+    ? S_OK
+    : S_FALSE;
   return output;
 }

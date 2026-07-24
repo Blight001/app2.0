@@ -2,12 +2,14 @@
 
 const { parentPort, workerData } = require('worker_threads');
 const sharp = require('sharp');
+const {
+  detectVisualCandidates,
+} = require('../services/ai-software-ui-visual');
 
 const binding = require(workerData.bindingPath);
 const ALLOWED_METHODS = new Set([
   'captureExternalWindow',
-  'observeExternalWindowUi',
-  'performExternalWindowUiAction',
+  'performExternalWindowAction',
 ]);
 
 function boundedDimension(value, fallback) {
@@ -35,15 +37,31 @@ async function encodeCapture(result, options) {
   if (width !== sourceWidth || height !== sourceHeight) {
     image = image.resize(width, height, { fit: 'fill' });
   }
-  const png = await image.png({ compressionLevel: 6 }).toBuffer();
+  const raw = await image.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const includeCandidates = options.includeVisualCandidates !== false;
+  const candidateLimit = Number(options.candidateLimit || 24);
+  const visual_candidates = includeCandidates
+    ? detectVisualCandidates(raw.data, raw.info.width, raw.info.height, {
+      limit: candidateLimit,
+    })
+    : [];
+  const png = await sharp(raw.data, {
+    raw: {
+      width: raw.info.width,
+      height: raw.info.height,
+      channels: 4,
+    },
+  }).png({ compressionLevel: 6 }).toBuffer();
   const { pixels: _pixels, ...metadata } = result;
   return {
     ...metadata,
     sourceWidth,
     sourceHeight,
-    width,
-    height,
+    width: raw.info.width,
+    height: raw.info.height,
     dataUrl: `data:image/png;base64,${png.toString('base64')}`,
+    visual_candidates,
+    visual_candidate_count: visual_candidates.length,
   };
 }
 

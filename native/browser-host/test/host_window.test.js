@@ -16,10 +16,12 @@ test('native host exports the documented API', { skip: !fs.existsSync(bindingPat
     'setChildWindowTitle', 'isChildWindowAttached',
     'dockExternalWindow', 'hideDockedExternalWindow', 'restoreExternalWindow',
     'isExternalWindowDocked', 'getWindowPlacementSnapshot',
-    'observeExternalWindowUi', 'performExternalWindowUiAction', 'captureExternalWindow',
+    'performExternalWindowAction', 'captureExternalWindow',
   ]) {
     assert.equal(typeof binding[name], 'function', `${name} must be exported`);
   }
+  assert.equal(typeof binding.observeExternalWindowUi, 'undefined');
+  assert.equal(typeof binding.performExternalWindowUiAction, 'undefined');
 });
 
 const dpiTestPath = path.join(__dirname, '..', 'build', 'Release', 'dpi_scaling_test.exe');

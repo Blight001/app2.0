@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { createMsvcEnvironment, findVsRoot } = require('./msvc-toolchain');
 
 const root = path.resolve(__dirname, '..');
 const nativeRoot = path.join(root, 'native', 'browser-host');
@@ -14,35 +15,6 @@ const dpiTestFile = path.join(outputDir, 'dpi_scaling_test.exe');
 
 function quote(value) {
   return `"${String(value).replace(/"/g, '""')}"`;
-}
-
-function findVsRoot() {
-  const vswhereCandidates = [
-    path.join(process.env['ProgramFiles(x86)'] || '', 'Microsoft', 'Visual Studio', 'Installer', 'vswhere.exe'),
-    path.join(process.env.ProgramFiles || '', 'Microsoft', 'Visual Studio', 'Installer', 'vswhere.exe'),
-  ];
-  for (const vswhere of vswhereCandidates) {
-    if (!vswhere || !fs.existsSync(vswhere)) continue;
-    const detected = spawnSync(vswhere, [
-      '-latest', '-products', '*',
-      '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
-      '-property', 'installationPath',
-    ], { encoding: 'utf8' });
-    const detectedRoot = String(detected.stdout || '').trim();
-    if (detected.status === 0 && fs.existsSync(path.join(detectedRoot, 'VC', 'Auxiliary', 'Build', 'vcvars64.bat'))) {
-      return detectedRoot;
-    }
-  }
-  const roots = [
-    process.env.VSINSTALLDIR,
-    'C:\\Program',
-    'C:\\Program Files\\Microsoft Visual Studio\\2022\\BuildTools',
-    'C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools',
-    'C:\\Program Files\\Microsoft Visual Studio\\2022\\Community',
-    'C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional',
-    'C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise',
-  ].filter(Boolean);
-  return roots.find((candidate) => fs.existsSync(path.join(candidate, 'VC', 'Auxiliary', 'Build', 'vcvars64.bat'))) || '';
 }
 
 function findElectronSdk() {
@@ -76,7 +48,6 @@ function runManualMsvcBuild() {
   }
 
   fs.mkdirSync(outputDir, { recursive: true });
-  const vcvars = path.join(vsRoot, 'VC', 'Auxiliary', 'Build', 'vcvars64.bat');
   const sources = [
     'src/addon.cc',
     'src/browser_host_window.cc',
@@ -85,25 +56,13 @@ function runManualMsvcBuild() {
     'src/external_window_dock.cc',
     'src/focus_manager.cc',
     'src/process_monitor.cc',
-    'src/ui_automation_bridge.cc',
-    'src/ui_automation_input.cc',
+    'src/software_action_bridge.cc',
+    'src/software_input.cc',
     'src/window_capture.cc',
     'src/win_delay_load_hook.cc',
   ].map((item) => path.join(nativeRoot, item));
 
-  const envResult = spawnSync('cmd.exe', [
-    '/d', '/s', '/c', `"call "${vcvars}" >nul && set"`,
-  ], {
-    cwd: nativeRoot,
-    encoding: 'utf8',
-    windowsVerbatimArguments: true,
-  });
-  if (envResult.status !== 0) throw new Error('无法初始化 MSVC x64 编译环境');
-  const msvcEnv = { ...process.env };
-  for (const line of String(envResult.stdout || '').split(/\r?\n/)) {
-    const separator = line.indexOf('=');
-    if (separator > 0) msvcEnv[line.slice(0, separator)] = line.slice(separator + 1);
-  }
+  const msvcEnv = createMsvcEnvironment(vsRoot, nativeRoot);
 
   const compileArgs = [
     // 原生宿主会被安装到可能没有 VC++ Redistributable 的 Win10 机器。
@@ -115,7 +74,7 @@ function runManualMsvcBuild() {
     ...sources,
     '/link', `/OUT:${outputFile}`, '/DELAYLOAD:node.exe', sdk.nodeLib,
     'delayimp.lib', 'user32.lib', 'gdi32.lib', 'dwmapi.lib',
-    'ole32.lib', 'oleaut32.lib', 'uiautomationcore.lib',
+    'ole32.lib', 'oleaut32.lib',
     'd3d11.lib', 'dxgi.lib', 'windowsapp.lib',
   ];
   const testResult = spawnSync('cl.exe', [

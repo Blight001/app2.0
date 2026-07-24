@@ -4,6 +4,7 @@ const path = require('path');
 const { build, Platform } = require('electron-builder');
 const { verifyPackagedRuntime } = require('./verify-packaged-runtime');
 const { buildNativeHost } = require('./build-native-host');
+const { buildCursorHost } = require('./build-cursor-host');
 const { buildRoot, buildSource } = require('./build-source');
 
 const projectDir = path.resolve(__dirname, '..');
@@ -309,6 +310,7 @@ async function buildWindowsPackage(snapshotSourceDir) {
   // 禁止把工作区中的旧 .node 产物直接带入安装包。
   // Electron ABI 目标和 CRT 链接方式都由当前源码在本次打包中重建。
   buildNativeHost();
+  buildCursorHost();
 
   await stageApplication({
     appOutDir,
