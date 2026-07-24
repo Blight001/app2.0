@@ -574,16 +574,16 @@ DOWNLOAD_DIRECTORY_UNAVAILABLE
 0018-ai-free-silent-notifications-and-promos.patch
 0019-ai-free-popup-routing.patch
 0020-ai-free-page-automation.patch
-0021-ai-free-visible-pointer.patch
+0021-ai-free-native-mouse-input.patch
 0022-ai-free-observe-download-links.patch
 0023-ai-free-native-keyboard-wheel.patch
 0024-ai-free-native-observe-highlights.patch
 0025-ai-free-native-tab-and-site-data.patch
 0026-ai-free-native-card-targeting.patch
 0027-ai-free-native-screenshot-and-input-parity.patch
-0028-ai-free-animated-cursor-resource.patch
 0029-ai-free-click-target-and-failure.patch
 0030-ai-free-frame-element-coordinates.patch
+0031-ai-free-cursor-two-phase-actions.patch
 ```
 
 不创建通用 `0020-automation-security-bypass.patch`。证书和 Mixed Content 的开发绕过由启动器显式添加 Chromium 现有参数，并由构建类型与嵌入模式双重门禁。
@@ -594,19 +594,15 @@ DOWNLOAD_DIRECTORY_UNAVAILABLE
 RenderWidget Surface，Cookie 由 Browser 进程 CookieManager 返回，鼠标点击由
 RenderWidgetHost 派发。扩展仅在外部 Chrome 缺少该通道时按需回退。
 
-`0021-ai-free-visible-pointer.patch` 将点击从“瞬时坐标派发”升级为 Chromium
-Views 层的可见虚拟指针。指针层不进入页面 DOM、不参与命中测试、不会移动
-Windows 全局鼠标；移动期间按固定 16ms 节拍将缓入缓出轨迹逐点交给
-RenderWidgetHost，点击使用独立的按下、抬起和双击间隔，并显示短暂轨迹与点击
-波纹。动画时长只按像素距离确定，不加入随机抖动或规避检测逻辑。标签页或窗口
-销毁时会取消未完成动作并释放覆盖层。
+`0021-ai-free-native-mouse-input.patch` 提供 Chromium 原生可信鼠标输入边界。
+最终的 `0031-ai-free-cursor-two-phase-actions.patch` 删除 Chromium Views 自绘
+鼠标模块，将其收敛为 `ai_free_mouse_input`，并加入“解析目标但不点击”与“提交
+同一次解析坐标”命令。可见动画、ANI 帧和点击波纹只由 Win32 Cursor Sidecar
+负责；Chromium 不再拥有显示状态。
 
-`0028-ai-free-animated-cursor-resource.patch` 将覆盖层的箭头替换为统一的
-`[CC] Handwrite v1.ani`。Chromium 通过只读启动参数接收外置资源路径，使用
-Windows ANI 帧信息按原始 1/60 秒 jiffy 速率逐帧绘制，仍保留轨迹与点击波纹。
-软件窗口自动化由 Native Host 加载同一 ANI，并在点击、滚动和拖拽期间显示；
-资源在开发态位于 `resources/cursors`，打包态位于
-`process.resourcesPath/cursors`，不得放入 ASAR 或静默替换为普通静态箭头。
+`0031` 返回由 RenderWidgetHostView 和当前窗口 DPI 上下文换算出的物理屏幕坐标，
+主程序在一个 Profile 串行事务内等待 Sidecar `ARRIVED`，随后把同一
+`resolvedInput` 提交给 Chromium。Sidecar 不可用或等待超时时仍提交真实输入。
 
 `0029-ai-free-click-target-and-failure.patch` 区分选择器点击与显式坐标点击，禁止把
 缺省坐标归一化为 `(0,0)`。空容器和视口外坐标会返回失败，卡片执行保留原始

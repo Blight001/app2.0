@@ -165,6 +165,51 @@ test('缺少坐标时拒绝点击', async () => {
   );
 });
 
+test('软件鼠标先等待统一 Sidecar，再用同一物理坐标提交输入', async () => {
+  const actions = [];
+  const cursorCalls = [];
+  const tools = createAiSoftwareUiTools({
+    target: { hwnd: '88', pid: 99, profileId: 'software-one', name: 'Demo' },
+    cursorSidecarService: {
+      async moveAndWait(tabId, point) {
+        cursorCalls.push(['move', tabId, point]);
+        return { displayed: true, sequenceId: 7 };
+      },
+      feedback(tabId, sequenceId) {
+        cursorCalls.push(['feedback', tabId, sequenceId]);
+      },
+    },
+    windowBridge: {
+      async captureExternalWindow() {
+        return {
+          originX: 100, originY: 200,
+          sourceWidth: 800, sourceHeight: 600,
+          width: 800, height: 600,
+          visual_candidates: [],
+        };
+      },
+      async performExternalWindowActionAsync(options) {
+        actions.push(options);
+        return { success: true };
+      },
+    },
+  });
+  const observed = await tools.execute('software_ui', { action: 'observe' });
+  await tools.execute('software_ui', {
+    action: 'click',
+    observation_id: observed.observation_id,
+    x: 25,
+    y: 30,
+    refresh: false,
+  });
+  assert.deepEqual(cursorCalls, [
+    ['move', 'software-one', { x: 125, y: 230 }],
+    ['feedback', 'software-one', 7],
+  ]);
+  assert.equal(actions[0].x, 125);
+  assert.equal(actions[0].y, 230);
+});
+
 test('AI 对话按显式选择绑定软件窗口', () => {
   let activeTarget = null;
   const provider = createWindowToolProvider({

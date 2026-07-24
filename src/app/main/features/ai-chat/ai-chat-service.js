@@ -77,6 +77,7 @@ function activeSoftwareTools(deps, cache, target) {
       key,
       tools: createAiSoftwareUiTools({
         windowBridge: deps.browserRuntimeManager?.windowBridge,
+        cursorSidecarService: deps.cursorSidecarService,
         target,
       }),
     };
@@ -96,6 +97,7 @@ function createWindowToolProvider(deps, licenseCache, logger) {
       const software = selection && typeof selection === 'object'
         ? createAiSoftwareUiTools({
           windowBridge: deps.browserRuntimeManager?.windowBridge,
+          cursorSidecarService: deps.cursorSidecarService,
           target,
         })
         : activeSoftwareTools(deps, cache, target);

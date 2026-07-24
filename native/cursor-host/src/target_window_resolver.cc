@@ -18,7 +18,18 @@ HWND Root(HWND window) {
 
 TargetWindowResolver::TargetWindowResolver(
     HWND owner, HWND target, HWND overlay)
-    : owner_(owner), target_(target), overlay_(overlay) {}
+    : owner_(owner), target_(target), overlay_(overlay) {
+  if (IsWindow(target_)) GetWindowRect(target_, &target_rect_);
+}
+
+void TargetWindowResolver::UpdateTarget(
+    HWND owner, HWND target, RECT rect, HWND overlay) {
+  owner_ = owner;
+  target_ = target;
+  overlay_ = overlay;
+  target_rect_ = rect;
+  cached_at_ = {};
+}
 
 bool TargetWindowResolver::IsInteractiveAt(POINT point) {
   const auto now = std::chrono::steady_clock::now();
@@ -39,9 +50,7 @@ bool TargetWindowResolver::IsInteractiveAt(POINT point) {
 }
 
 RECT TargetWindowResolver::TargetRect() const {
-  RECT rect{};
-  if (IsWindow(target_)) GetWindowRect(target_, &rect);
-  return rect;
+  return target_rect_;
 }
 
 bool TargetWindowResolver::Resolve(POINT point) const {

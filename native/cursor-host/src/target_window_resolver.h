@@ -9,6 +9,7 @@ namespace cursor_host {
 class TargetWindowResolver {
  public:
   TargetWindowResolver(HWND owner, HWND target, HWND overlay);
+  void UpdateTarget(HWND owner, HWND target, RECT rect, HWND overlay);
   bool IsInteractiveAt(POINT point);
   RECT TargetRect() const;
 
@@ -20,6 +21,7 @@ class TargetWindowResolver {
   HWND owner_;
   HWND target_;
   HWND overlay_;
+  RECT target_rect_{};
   HWND cached_foreground_ = nullptr;
   POINT cached_point_{LONG_MIN, LONG_MIN};
   bool cached_result_ = false;

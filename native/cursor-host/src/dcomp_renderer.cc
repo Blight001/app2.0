@@ -4,12 +4,13 @@
 #include <dwmapi.h>
 #include <dxgi1_2.h>
 
+#include <algorithm>
+#include <cmath>
+
 namespace cursor_host {
 namespace {
 
-constexpr int kSurfaceSize = 48;
-constexpr int kHotspotX = 7;
-constexpr int kHotspotY = 5;
+constexpr int kSurfaceSize = 64;
 constexpr wchar_t kWindowClass[] = L"AI_FREE_CURSOR_HOST_OVERLAY";
 
 bool Succeeded(HRESULT result) { return SUCCEEDED(result); }
@@ -18,15 +19,35 @@ bool Succeeded(HRESULT result) { return SUCCEEDED(result); }
 
 DCompRenderer::~DCompRenderer() { Reset(); }
 
-bool DCompRenderer::Initialize(HWND owner) {
+bool DCompRenderer::Initialize(
+    HWND owner, const std::wstring& cursor_asset_path) {
+  owner_ = owner;
+  cursor_asset_path_ = cursor_asset_path;
+  device_lost_ = false;
   return CreateOverlayWindow(owner) && CreateDevices() && CreateSurface() &&
-      DrawCursor();
+      CreateAssetBitmaps(cursor_asset_path) && DrawCursor();
 }
 
-bool DCompRenderer::RenderAt(POINT screen_position) {
+bool DCompRenderer::Recover() {
+  const HWND owner = owner_;
+  const std::wstring asset_path = cursor_asset_path_;
+  Reset();
+  return IsWindow(owner) && Initialize(owner, asset_path);
+}
+
+bool DCompRenderer::RenderAt(
+    POINT screen_position, double feedback_progress) {
   if (!window_ || !has_committed_frame_) return false;
-  const int x = screen_position.x - kHotspotX;
-  const int y = screen_position.y - kHotspotY;
+  std::size_t asset_frame = SIZE_MAX;
+  asset_cache_.FrameAt(std::chrono::steady_clock::now(), &asset_frame);
+  const bool asset_changed = asset_frame != last_asset_frame_;
+  const bool feedback_visible = feedback_progress >= 0.0;
+  if (asset_changed || feedback_visible || feedback_was_visible_) {
+    if (!DrawCursor(feedback_progress)) return false;
+  }
+  feedback_was_visible_ = feedback_visible;
+  const int x = screen_position.x - current_hotspot_.x;
+  const int y = screen_position.y - current_hotspot_.y;
   if (!SetWindowPos(window_, HWND_TOP, x, y, kSurfaceSize, kSurfaceSize,
                     SWP_NOACTIVATE | SWP_SHOWWINDOW)) {
     return false;
@@ -105,11 +126,32 @@ bool DCompRenderer::CreateSurface() {
   return true;
 }
 
-bool DCompRenderer::DrawCursor() {
+bool DCompRenderer::CreateAssetBitmaps(const std::wstring& path) {
+  if (path.empty() || !asset_cache_.LoadAni(path)) return true;
+  for (const DecodedCursorFrame& frame : asset_cache_.frames()) {
+    D2D1_BITMAP_PROPERTIES1 properties = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_NONE,
+        D2D1::PixelFormat(
+            DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> bitmap;
+    const HRESULT result = d2d_context_->CreateBitmap(
+        D2D1::SizeU(frame.width, frame.height), frame.pixels.data(),
+        frame.width * 4, &properties, &bitmap);
+    if (FAILED(result)) {
+      asset_bitmaps_.clear();
+      return true;
+    }
+    asset_bitmaps_.push_back(std::move(bitmap));
+  }
+  return true;
+}
+
+bool DCompRenderer::DrawCursor(double feedback_progress) {
   POINT offset{};
   Microsoft::WRL::ComPtr<IDXGISurface> dxgi_surface;
   if (!Succeeded(surface_->BeginDraw(
           nullptr, IID_PPV_ARGS(&dxgi_surface), &offset))) {
+    device_lost_ = true;
     return false;
   }
   D2D1_BITMAP_PROPERTIES1 properties = D2D1::BitmapProperties1(
@@ -123,27 +165,69 @@ bool DCompRenderer::DrawCursor() {
     d2d_context_->SetTarget(target.Get());
     d2d_context_->BeginDraw();
     d2d_context_->Clear(D2D1::ColorF(0, 0));
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> fill;
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> outline;
-    result = d2d_context_->CreateSolidColorBrush(
-        D2D1::ColorF(0.18f, 0.67f, 1.0f, 1.0f), &fill);
-    if (Succeeded(result)) {
-      result = d2d_context_->CreateSolidColorBrush(
-          D2D1::ColorF(0.02f, 0.08f, 0.14f, 0.95f), &outline);
+    std::size_t asset_frame = SIZE_MAX;
+    const DecodedCursorFrame* decoded = asset_cache_.FrameAt(
+        std::chrono::steady_clock::now(), &asset_frame);
+    const bool has_asset = decoded && asset_frame < asset_bitmaps_.size();
+    if (has_asset) {
+      const float scale = std::min(
+          1.0f, std::min(
+              static_cast<float>(kSurfaceSize) / decoded->width,
+              static_cast<float>(kSurfaceSize) / decoded->height));
+      const D2D1_RECT_F destination = D2D1::RectF(
+          0, 0, decoded->width * scale, decoded->height * scale);
+      d2d_context_->DrawBitmap(
+          asset_bitmaps_[asset_frame].Get(), destination, 1.0f,
+          D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+      current_hotspot_ = POINT{
+          static_cast<LONG>(std::lround(decoded->hotspot.x * scale)),
+          static_cast<LONG>(std::lround(decoded->hotspot.y * scale)),
+      };
+      last_asset_frame_ = asset_frame;
     }
-    const D2D1_ELLIPSE body = D2D1::Ellipse(
-        D2D1::Point2F(18.0f, 17.0f), 10.0f, 10.0f);
-    if (Succeeded(result)) {
+    if (!has_asset) {
+      Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> fill;
+      Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> outline;
+      result = d2d_context_->CreateSolidColorBrush(
+          D2D1::ColorF(0.18f, 0.67f, 1.0f, 1.0f), &fill);
+      if (Succeeded(result)) {
+        result = d2d_context_->CreateSolidColorBrush(
+            D2D1::ColorF(0.02f, 0.08f, 0.14f, 0.95f), &outline);
+      }
+      const D2D1_ELLIPSE body = D2D1::Ellipse(
+          D2D1::Point2F(18.0f, 17.0f), 10.0f, 10.0f);
+      if (Succeeded(result)) {
       d2d_context_->FillEllipse(body, fill.Get());
       d2d_context_->DrawEllipse(body, outline.Get(), 2.0f);
       d2d_context_->DrawLine(
           D2D1::Point2F(7.0f, 5.0f), D2D1::Point2F(12.0f, 10.0f),
           fill.Get(), 4.0f);
-      result = d2d_context_->EndDraw();
+      }
     }
+    if (Succeeded(result) && feedback_progress >= 0.0) {
+      Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> ripple;
+      const float opacity = static_cast<float>(
+          std::clamp(1.0 - feedback_progress, 0.0, 1.0));
+      result = d2d_context_->CreateSolidColorBrush(
+          D2D1::ColorF(0.25f, 0.78f, 1.0f, opacity), &ripple);
+      if (Succeeded(result)) {
+        const float radius =
+            12.0f + static_cast<float>(feedback_progress * 9.0);
+        const D2D1_POINT_2F center = has_asset
+            ? D2D1::Point2F(
+                static_cast<float>(current_hotspot_.x),
+                static_cast<float>(current_hotspot_.y))
+            : D2D1::Point2F(18.0f, 17.0f);
+        d2d_context_->DrawEllipse(
+            D2D1::Ellipse(center, radius, radius), ripple.Get(), 2.0f);
+      }
+    }
+    const HRESULT end_result = d2d_context_->EndDraw();
+    if (Succeeded(result)) result = end_result;
   }
   surface_->EndDraw();
   if (!Succeeded(result) || !Succeeded(composition_device_->Commit())) {
+    device_lost_ = true;
     return false;
   }
   has_committed_frame_ = true;
@@ -153,6 +237,7 @@ bool DCompRenderer::DrawCursor() {
 void DCompRenderer::Reset() {
   Hide();
   surface_.Reset();
+  asset_bitmaps_.clear();
   root_visual_.Reset();
   composition_target_.Reset();
   composition_device_.Reset();

@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const {
   createFrameDecoder,
   encodeMessage,
-} = require('../../../scripts/run-cursor-host-prototype');
+} = require('../../../src/app/main/features/cursor-sidecar/cursor-sidecar-protocol');
 
 test('cursor prototype transport decodes fragmented length-prefixed messages', () => {
   const received = [];

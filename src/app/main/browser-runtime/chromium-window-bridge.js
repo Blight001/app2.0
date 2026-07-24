@@ -102,6 +102,7 @@ class ChromiumWindowBridge {
   }
   setChildWindowTitle(childHwnd, title = 'AI-FREE') { return this.load().setChildWindowTitle({ childHwnd, title }); }
   isChildWindowAttached(hostHwnd, childHwnd) { return this.load().isChildWindowAttached({ hostHwnd, childHwnd }); }
+  getWindowBounds(hwnd) { return this.load().getWindowBounds({ hwnd }); }
   dockExternalWindow(options) { return this.load().dockExternalWindow(options); }
   hideDockedExternalWindow(childHwnd) {
     return this.load().hideDockedExternalWindow({ childHwnd });

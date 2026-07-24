@@ -4,37 +4,14 @@ const crypto = require('crypto');
 const net = require('net');
 const { spawn } = require('child_process');
 const { buildCursorHost, outputFile } = require('./build-cursor-host');
-
-const MAXIMUM_MESSAGE_BYTES = 64 * 1024;
+const {
+  createFrameDecoder,
+  encodeMessage,
+} = require('../src/app/main/features/cursor-sidecar/cursor-sidecar-protocol');
 
 function readOption(name) {
   const index = process.argv.indexOf(name);
   return index >= 0 ? String(process.argv[index + 1] || '').trim() : '';
-}
-
-function encodeMessage(message) {
-  const json = Buffer.from(JSON.stringify(message), 'utf8');
-  if (json.length > MAXIMUM_MESSAGE_BYTES) throw new Error('Cursor Host 消息超过 64 KiB');
-  const frame = Buffer.allocUnsafe(json.length + 4);
-  frame.writeUInt32LE(json.length, 0);
-  json.copy(frame, 4);
-  return frame;
-}
-
-function createFrameDecoder(onMessage) {
-  let pending = Buffer.alloc(0);
-  return (chunk) => {
-    pending = Buffer.concat([pending, chunk]);
-    while (pending.length >= 4) {
-      const size = pending.readUInt32LE(0);
-      if (size === 0 || size > MAXIMUM_MESSAGE_BYTES) {
-        throw new Error('Cursor Host 返回了非法消息长度');
-      }
-      if (pending.length < size + 4) return;
-      onMessage(JSON.parse(pending.subarray(4, size + 4).toString('utf8')));
-      pending = pending.subarray(size + 4);
-    }
-  };
 }
 
 function connectWithRetry(pipePath, attempts = 100) {

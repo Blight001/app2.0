@@ -337,6 +337,7 @@ class TabManagerRuntime {
     }
     this.deps.setActiveTabId?.(tabId);
     const activeTab = tabs.get(tabId);
+    void this.deps.cursorSidecarService?.activateTarget?.(activeTab.id);
     void this.deps.browserRuntimeManager?.show(activeTab.id, activeTab.runtimeType).then(() => (
       options.focusBrowser === true
         ? this.deps.browserRuntimeManager.focus(activeTab.id, activeTab.runtimeType)

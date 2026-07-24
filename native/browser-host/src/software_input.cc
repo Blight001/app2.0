@@ -1,5 +1,7 @@
 #include "software_input.h"
 
+#include <array>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -16,12 +18,63 @@ bool IsBoundWindowOrOwnedPopup(HWND window, HWND bound_window) {
   return false;
 }
 
+bool ContainsPoint(HWND window, POINT point) {
+  RECT rect = {};
+  return IsWindowVisible(window) && GetWindowRect(window, &rect) &&
+      point.x >= rect.left && point.x < rect.right &&
+      point.y >= rect.top && point.y < rect.bottom;
+}
+
+bool IsCursorSidecarOverlay(HWND window) {
+  std::array<wchar_t, 64> class_name = {};
+  const int length = GetClassNameW(
+      window, class_name.data(), static_cast<int>(class_name.size()));
+  return length > 0 &&
+      std::wstring_view(class_name.data(), length) ==
+          L"AI_FREE_CURSOR_HOST_OVERLAY";
+}
+
+HWND DeepestChildAtPoint(HWND root, POINT screen_point) {
+  HWND current = root;
+  for (int depth = 0; current && depth < 32; ++depth) {
+    POINT client_point = screen_point;
+    if (!ScreenToClient(current, &client_point)) break;
+    const HWND child = ChildWindowFromPointEx(
+        current, client_point,
+        CWP_SKIPDISABLED | CWP_SKIPINVISIBLE | CWP_SKIPTRANSPARENT);
+    if (!child || child == current) break;
+    current = child;
+  }
+  return current;
+}
+
+HWND ResolveInputTargetAtPoint(POINT point) {
+  HWND hit = WindowFromPoint(point);
+  for (int depth = 0;
+       hit && depth < 4 && IsCursorSidecarOverlay(hit);
+       ++depth) {
+    HWND below = GetWindow(hit, GW_HWNDNEXT);
+    while (below && !ContainsPoint(below, point)) {
+      below = GetWindow(below, GW_HWNDNEXT);
+    }
+    hit = DeepestChildAtPoint(below, point);
+  }
+  return hit;
+}
+
 bool PointBelongsToTarget(POINT point, HWND bound_window, DWORD expected_pid) {
-  const HWND hit = WindowFromPoint(point);
+  const HWND top_hit = WindowFromPoint(point);
+  if (IsCursorSidecarOverlay(top_hit)) {
+    DWORD bound_pid = 0;
+    GetWindowThreadProcessId(bound_window, &bound_pid);
+    return bound_pid == expected_pid && ContainsPoint(bound_window, point);
+  }
+  const HWND hit = ResolveInputTargetAtPoint(point);
   if (!IsWindow(hit)) return false;
   DWORD actual_pid = 0;
   GetWindowThreadProcessId(hit, &actual_pid);
-  return actual_pid == expected_pid && IsBoundWindowOrOwnedPopup(hit, bound_window);
+  return actual_pid == expected_pid &&
+      IsBoundWindowOrOwnedPopup(hit, bound_window);
 }
 
 bool TargetOwnsKeyboardFocus(HWND bound_window, DWORD expected_pid) {

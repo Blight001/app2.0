@@ -10,3 +10,4 @@ napi_value FindMainWindowByExecutablePath(napi_env env, napi_callback_info info)
 napi_value ListVisibleTopLevelWindows(napi_env env, napi_callback_info info);
 napi_value SetChildWindowTitle(napi_env env, napi_callback_info info);
 napi_value IsChildWindowAttached(napi_env env, napi_callback_info info);
+napi_value GetWindowBounds(napi_env env, napi_callback_info info);

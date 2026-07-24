@@ -31,6 +31,7 @@ NAPI_MODULE_INIT() {
     {"listVisibleTopLevelWindows", nullptr, ListVisibleTopLevelWindows, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"setChildWindowTitle", nullptr, SetChildWindowTitle, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"isChildWindowAttached", nullptr, IsChildWindowAttached, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"getWindowBounds", nullptr, GetWindowBounds, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"dockExternalWindow", nullptr, DockExternalWindow, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"hideDockedExternalWindow", nullptr, HideDockedExternalWindow, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"restoreExternalWindow", nullptr, RestoreExternalWindow, nullptr, nullptr, nullptr, napi_default, nullptr},

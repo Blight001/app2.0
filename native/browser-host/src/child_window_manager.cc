@@ -226,6 +226,27 @@ napi_value IsChildWindowAttached(napi_env env, napi_callback_info info) {
       && GetParent(child) == host && IsChild(host, child));
 }
 
+napi_value GetWindowBounds(napi_env env, napi_callback_info info) {
+  napi_value options = SingleObjectArg(env, info);
+  HWND window = ReadHwnd(env, GetNamed(env, options, "hwnd"));
+  RECT rect{};
+  if (!IsWindow(window) || !GetWindowRect(window, &rect)) return nullptr;
+  napi_value result;
+  napi_create_object(env, &result);
+  const struct { const char* name; int32_t value; } values[] = {
+    {"x", rect.left},
+    {"y", rect.top},
+    {"width", rect.right - rect.left},
+    {"height", rect.bottom - rect.top},
+  };
+  for (const auto& item : values) {
+    napi_value number;
+    napi_create_int32(env, item.value, &number);
+    SetNamed(env, result, item.name, number);
+  }
+  return result;
+}
+
 napi_value DetachChildWindow(napi_env env, napi_callback_info info) {
   napi_value options = SingleObjectArg(env, info);
   HWND child = ReadHwnd(env, GetNamed(env, options, "childHwnd"));

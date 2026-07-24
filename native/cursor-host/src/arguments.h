@@ -16,6 +16,7 @@ struct Arguments {
   std::wstring session_id;
   std::wstring hidden_event;
   std::wstring clean_event;
+  std::wstring cursor_asset_path;
 };
 
 bool ParseArguments(int argc, wchar_t** argv, Arguments* output,

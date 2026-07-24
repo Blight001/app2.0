@@ -102,6 +102,7 @@ function cacheVisualCandidates(target, candidates) {
 class AiSoftwareUiTools {
   constructor(options = {}) {
     this.windowBridge = options.windowBridge;
+    this.cursorSidecarService = options.cursorSidecarService;
     this.target = normalizeTarget(options.target);
     this.visualCandidates = new Map();
     this.observation = null;
@@ -257,12 +258,27 @@ class AiSoftwareUiTools {
         { ...options, action: 'focus', text: '' },
       );
     }
+    let display = null;
+    if (MOUSE_ACTIONS.has(action)) {
+      try {
+        display = await this.cursorSidecarService?.moveAndWait?.(
+          this.target.profileId,
+          { x: options.x, y: options.y },
+          { durationMs: 180 },
+        );
+      } catch (_) {}
+    }
     const actionResult = await callBridge(
       this.windowBridge,
       'performExternalWindowActionAsync',
       'performExternalWindowAction',
       options,
     );
+    if (display?.sequenceId) {
+      this.cursorSidecarService?.feedback?.(
+        this.target.profileId, display.sequenceId,
+      );
+    }
     this.clearObservationState();
     if (args.refresh === false) {
       return {

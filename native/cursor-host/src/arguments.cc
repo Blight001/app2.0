@@ -77,6 +77,8 @@ bool ParseArguments(int argc, wchar_t** argv, Arguments* output,
       parsed.hidden_event = value;
     } else if (key == L"--clean-event") {
       parsed.clean_event = value;
+    } else if (key == L"--cursor-asset") {
+      parsed.cursor_asset_path = value;
     } else {
       std::uint64_t number = 0;
       if (!ParseUnsigned(value, &number)) {
@@ -101,8 +103,7 @@ bool ParseArguments(int argc, wchar_t** argv, Arguments* output,
   const bool watchdog_valid = parsed.watchdog && parsed.parent_pid != 0 &&
       IsSafeEventName(parsed.hidden_event) &&
       IsSafeEventName(parsed.clean_event);
-  const bool host_valid = !parsed.watchdog && parsed.owner_hwnd &&
-      parsed.target_hwnd && IsHexToken(parsed.token) &&
+  const bool host_valid = !parsed.watchdog && IsHexToken(parsed.token) &&
       parsed.pipe_name.size() > 9 && parsed.pipe_name.size() <= 160;
   if (!shared_valid || (!watchdog_valid && !host_valid)) {
     *error = L"Cursor Host 启动参数不完整或不安全";

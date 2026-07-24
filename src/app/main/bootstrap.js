@@ -116,6 +116,7 @@ function startMainApp() {
   // ---- 标签管理 ----
   tabManager = createTabManager({
     browserRuntimeManager: services.browserRuntimeManager,
+    cursorSidecarService: services.cursorSidecarService,
     softwareCatalog: services.softwareCatalog,
     fs,
     logger: console,

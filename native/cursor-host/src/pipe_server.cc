@@ -46,6 +46,19 @@ bool PipeServer::Start() {
   return true;
 }
 
+bool PipeServer::SendEvent(const std::string& json) {
+  const HANDLE pipe = active_pipe_.load();
+  return pipe != INVALID_HANDLE_VALUE && WriteJson(pipe, json);
+}
+
+bool PipeServer::TakeCommand(Command* command) {
+  std::lock_guard lock(state_->command_mutex);
+  if (state_->commands.empty()) return false;
+  *command = std::move(state_->commands.front());
+  state_->commands.pop_front();
+  return true;
+}
+
 void PipeServer::Stop() {
   stopping_.store(true);
   HANDLE pipe = active_pipe_.exchange(INVALID_HANDLE_VALUE);
@@ -103,6 +116,7 @@ bool PipeServer::HandleMessage(HANDLE pipe, const std::string& message) {
   Command command;
   std::string error;
   if (!ParseCommand(message, &command, &error)) {
+    if (error.empty()) error = "MESSAGE_SCHEMA_INVALID";
     WriteJson(pipe, ErrorEvent(session_id_, error));
     return false;
   }
@@ -128,11 +142,24 @@ bool PipeServer::HandleMessage(HANDLE pipe, const std::string& message) {
     state_->shutdown_requested.store(true);
     return false;
   }
-  WriteJson(pipe, ErrorEvent(session_id_, "COMMAND_NOT_ALLOWED"));
-  return false;
+  if (command.type == CommandType::kHello) {
+    WriteJson(pipe, ErrorEvent(session_id_, "COMMAND_NOT_ALLOWED"));
+    return false;
+  }
+  state_->last_heartbeat_millis.store(MonotonicMilliseconds());
+  {
+    std::lock_guard lock(state_->command_mutex);
+    if (state_->commands.size() >= 256) {
+      WriteJson(pipe, ErrorEvent(session_id_, "COMMAND_QUEUE_FULL"));
+      return false;
+    }
+    state_->commands.push_back(std::move(command));
+  }
+  return true;
 }
 
 bool PipeServer::WriteJson(HANDLE pipe, const std::string& json) {
+  std::lock_guard lock(write_mutex_);
   const std::vector<std::uint8_t> frame = FrameJson(json);
   DWORD written = 0;
   return WriteFile(pipe, frame.data(), static_cast<DWORD>(frame.size()),

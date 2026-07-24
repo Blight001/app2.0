@@ -187,3 +187,24 @@ test('fork native screenshot and input parity supports precise capture and modif
   assert.match(patch, /scrollHeight/);
   assert.match(patch, /a\.clearFirst/);
 });
+
+test('fork cursor actions resolve physical coordinates before committing input', () => {
+  const patchDirectory = path.join(__dirname, '../../../native/chromium-fork/patches');
+  const patch = fs.readFileSync(
+    path.join(patchDirectory, '0031-ai-free-cursor-two-phase-actions.patch'),
+    'utf8',
+  );
+  assert.match(patch, /resolve-action-target/);
+  assert.match(patch, /commit-resolved-action/);
+  assert.match(patch, /targetPhysical/);
+  assert.match(patch, /TransformPointToRootCoordSpaceF/);
+  assert.match(patch, /DIPToScreenRectInWindow/);
+  assert.match(patch, /deleted file mode 100644[\s\S]*ai_free_automation_pointer/);
+  assert.match(patch, /ai_free_mouse_input\.cc/);
+  assert.doesNotMatch(patch, /^\+.*(?:PointerOverlay|chromium-visible-pointer)/m);
+  const series = fs.readFileSync(path.join(patchDirectory, 'series'), 'utf8');
+  assert.match(
+    series,
+    /0030-ai-free-frame-element-coordinates\.patch\s+0031-ai-free-cursor-two-phase-actions\.patch/,
+  );
+});

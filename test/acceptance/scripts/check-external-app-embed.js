@@ -10,10 +10,14 @@ const { createBrowserRuntimeManager } = require('../../../src/app/main/browser-r
 const { ChromiumWindowBridge } = require('../../../src/app/main/browser-runtime/chromium-window-bridge');
 const { createSoftwareCatalog } = require('../../../src/app/main/features/external-app/software-catalog');
 const { createAiSoftwareUiTools } = require('../../../src/app/main/services/ai-software-ui-tools');
+const {
+  createCursorSidecarService,
+} = require('../../../src/app/main/features/cursor-sidecar/cursor-sidecar-service');
 
 const testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-external-app-'));
 const executablePath = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'notepad.exe');
 let manager = null;
+let cursorSidecarService = null;
 let window = null;
 let launchedPid = 0;
 const launchedPids = new Set();
@@ -29,6 +33,7 @@ async function waitForValue(read, timeoutMs = 15000) {
 }
 
 async function cleanup(exitCode) {
+  try { await cursorSidecarService?.shutdown?.(); } catch (_) {}
   try { await manager?.stopAll(); } catch (_) {}
   for (const pid of launchedPids) {
     try { process.kill(pid); } catch (_) {}
@@ -74,6 +79,7 @@ async function verifyOwnedPopupAutomation() {
   }, { x: 0, y: 0, width: 800, height: 560 });
   const tools = createAiSoftwareUiTools({
     windowBridge: manager.windowBridge,
+    cursorSidecarService,
     target: manager.externalApp.getAutomationTarget(state.profileId),
   });
   const observed = await waitForValue(async () => {
@@ -114,12 +120,21 @@ app.whenReady().then(async () => {
   const windowBridge = bindingPath
     ? new ChromiumWindowBridge({ bindingPath, logger: console })
     : undefined;
+  const projectRoot = path.resolve(__dirname, '..', '..', '..');
+  cursorSidecarService = createCursorSidecarService({
+    resourcesPath: path.join(projectRoot, 'resources'),
+    workingDirectory: projectRoot,
+    logger: console,
+  });
+  let sidecarArrivals = 0;
+  cursorSidecarService.on('arrived', () => { sidecarArrivals += 1; });
   manager = createBrowserRuntimeManager({
     userDataDir: testRoot,
     resourcesPath: process.resourcesPath,
     getParentWindow: () => window,
     logger: console,
     windowBridge,
+    cursorSidecarService,
   });
   try {
     const child = spawn(executablePath, [], {
@@ -173,6 +188,7 @@ app.whenReady().then(async () => {
     );
     const uiTools = createAiSoftwareUiTools({
       windowBridge: manager.windowBridge,
+      cursorSidecarService,
       target: manager.externalApp.getAutomationTarget('external-app-acceptance'),
     });
     const observed = await uiTools.execute('software_ui', { action: 'observe' });
@@ -182,6 +198,10 @@ app.whenReady().then(async () => {
     assert.ok(observed.width > 0 && observed.height > 0);
     assert.ok(Array.isArray(observed.visual_candidates));
     assert.ok(observed.visual_candidates.length <= 24);
+    window.show();
+    window.focus();
+    await manager.focus('external-app-acceptance', 'external-app');
+    await new Promise((resolve) => setTimeout(resolve, 120));
     const clickX = Math.floor(observed.width / 2);
     const clickY = Math.floor(observed.height / 2);
     const clickedVisual = await uiTools.execute('software_ui', {
@@ -191,6 +211,7 @@ app.whenReady().then(async () => {
       y: clickY,
     });
     assert.equal(clickedVisual.action_result.method, 'mouse');
+    assert.equal(sidecarArrivals, 1, '软件点击必须等待统一 Sidecar ARRIVED');
     const typedVisual = await uiTools.execute('software_ui', {
       action: 'type',
       observation_id: clickedVisual.observation_id,

@@ -8,6 +8,9 @@ const path = require('path');
 const { once } = require('events');
 const { app, BrowserWindow } = require('electron');
 const { createBrowserRuntimeManager } = require('../../../src/app/main/browser-runtime');
+const {
+  createCursorSidecarService,
+} = require('../../../src/app/main/features/cursor-sidecar/cursor-sidecar-service');
 const { MAX_MESSAGE_BYTES, PROTOCOL_VERSION } = require('../../../src/app/main/browser-runtime/chromium-command-client');
 
 const acceptanceChromiumPath = String(process.env.AI_FREE_ACCEPTANCE_CHROMIUM_PATH || '').trim();
@@ -23,6 +26,8 @@ const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-phase3-'));
 const pageLoads = new Map();
 const requests = [];
 let manager;
+let cursorSidecarService;
+let sidecarArrivals = 0;
 let window;
 let server;
 
@@ -222,6 +227,7 @@ async function stopAndAssertReleased(profileId, pid) {
 }
 
 async function shutdown(exitCode) {
+  try { await cursorSidecarService?.shutdown?.(); } catch (_) {}
   try { await manager?.stopAll({ timeoutMs: 5000 }); } catch (_) {}
   try { await new Promise((resolve) => server?.close(resolve)); } catch (_) {}
   if (exitCode === 0) {
@@ -243,11 +249,18 @@ app.whenReady().then(async () => {
     || (acceptanceChromiumPath
       ? path.dirname(acceptanceChromiumPath)
       : path.resolve(__dirname, '..', '..', '..', 'resources'));
+  cursorSidecarService = createCursorSidecarService({
+    resourcesPath: acceptanceResourcesPath,
+    workingDirectory: path.resolve(__dirname, '..', '..', '..'),
+    logger: console,
+  });
+  cursorSidecarService.on('arrived', () => { sidecarArrivals += 1; });
   manager = createBrowserRuntimeManager({
     userDataDir: runtimeRoot,
     resourcesPath: acceptanceResourcesPath,
     getParentWindow: () => window,
     logger: console,
+    cursorSidecarService,
   });
 
   const a = await launchProfile('phase3_a', `${origin}/page?profile=a`);
@@ -325,10 +338,11 @@ app.whenReady().then(async () => {
   assert(observed.result.highlightedCount > 0);
   assert(observed.result.highlightedCount <= 20);
   assert.equal(observed.result.highlightDurationMs, 30000);
-  const clicked = await manager.dispatchAutomationByProcessId(b.state.pid, 'perform-action', {
+  const clicked = await manager.dispatchAutomation('phase3_b', 'perform-action', {
     action: 'click', selector: '#native-click-target',
   });
   assert.equal(clicked.result.inputMode, 'chromium-native-input');
+  assert.equal(sidecarArrivals, 1, '两阶段动作必须等待 Sidecar ARRIVED');
   const clickRequest = await waitForRequest((item) => item.path === '/native-click');
   const clickQuery = new URLSearchParams(clickRequest.query);
   assert.equal(clickQuery.get('trusted'), 'true');

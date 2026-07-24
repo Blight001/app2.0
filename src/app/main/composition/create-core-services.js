@@ -8,6 +8,7 @@ const { createLicenseCache } = require('../runtime/license-cache');
 const { createUiBridge } = require('./create-ui-bridge');
 const { createAppUpdater } = require('../services/app-updater');
 const { createBrowserRuntimeManager } = require('../browser-runtime');
+const { createCursorSidecarService } = require('../features/cursor-sidecar/cursor-sidecar-service');
 const { createLogger } = require('../utils/logger');
 const { createBrowserPartitionCleaner } = require('../services/browser-partitions');
 const { createBrowserAutomationBridge } = require('../services/browser-automation-bridge');
@@ -52,13 +53,19 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
   } catch (error) {
     console.warn('[AI工作区] 无法创建安装目录工作区:', error?.message || error);
   }
+  const runtimeResourcesPath = resolveChromiumResourcesPath(app);
   const browserRuntimeManager = createBrowserRuntimeManager({
     userDataDir: app.getPath('userData'),
-    resourcesPath: resolveChromiumResourcesPath(app),
+    resourcesPath: runtimeResourcesPath,
     sandboxDir: aiSandboxDir,
     getParentWindow: appRuntime.getMainWindow,
     logger: console,
   });
+  const cursorSidecarService = createCursorSidecarService({
+    resourcesPath: runtimeResourcesPath,
+    logger: console,
+  });
+  browserRuntimeManager.setCursorSidecarService(cursorSidecarService);
   const softwareCatalog = createSoftwareCatalog({
     listVisibleWindows: () => browserRuntimeManager.windowBridge.listVisibleTopLevelWindows(),
     resolveIconDataUrl: async (executablePath) => {
@@ -203,6 +210,7 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
     setIsSidebarVisible: appRuntime.setIsSidebarVisible,
     sendToSide,
     browserRuntimeManager,
+    cursorSidecarService,
   });
 
   const runtimeHelpers = createRuntimeHelpers({

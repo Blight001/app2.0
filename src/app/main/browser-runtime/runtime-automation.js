@@ -8,6 +8,7 @@ const AUTOMATION_COMMANDS = new Set([
 const ACTIONS = new Set([
   'click', 'double_click', 'right_click', 'upload_file', 'scroll', 'type', 'press_key', 'wait',
 ]);
+const MOUSE_ACTIONS = new Set(['click', 'double_click', 'right_click']);
 
 function automationError(code, message) {
   const error = /** @type {Error & {code?: string}} */ (new Error(message));
@@ -152,6 +153,7 @@ async function dispatchRuntimeAutomationByProcessId(runtime, processId, command,
 module.exports = {
   ACTIONS,
   AUTOMATION_COMMANDS,
+  MOUSE_ACTIONS,
   dispatchRuntimeAutomation,
   dispatchRuntimeAutomationByProcessId,
   normalizeRuntimeAutomation,

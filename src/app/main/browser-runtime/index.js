@@ -7,7 +7,11 @@ const { cleanupLocalModels } = require('./chromium-local-model-policy');
 const { RUNTIME_TYPES } = require('./runtime-types');
 const { selectRuntimeFilesByProcessId } = require('./runtime-file-selection');
 const { selectRuntimeFiles } = require('./runtime-file-selection');
-const { dispatchRuntimeAutomation } = require('./runtime-automation');
+const {
+  MOUSE_ACTIONS,
+  dispatchRuntimeAutomation,
+  normalizeRuntimeAutomation,
+} = require('./runtime-automation');
 
 class BrowserRuntimeManager {
   constructor(options = {}) {
@@ -36,6 +40,7 @@ class BrowserRuntimeManager {
       windowBridge: this.windowBridge,
       getParentWindow: options.getParentWindow,
     });
+    this.cursorSidecarService = options.cursorSidecarService || null;
   }
 
   resolveType(profile = {}) {
@@ -48,10 +53,68 @@ class BrowserRuntimeManager {
   runtimeFor(type) {
     return type === RUNTIME_TYPES.EXTERNAL_APP ? this.externalApp : this.chromium;
   }
-  async launchProfile(profile, bounds) { return this.runtimeFor(this.resolveType(profile)).launchProfile(profile, bounds); }
-  async show(profileId, type) { return this.runtimeFor(type).show(profileId); }
+  setCursorSidecarService(service) { this.cursorSidecarService = service || null; }
+  nativeHandleValue(value) {
+    const direct = String(
+      typeof value === 'string' || typeof value === 'number' ? value : '',
+    ).trim();
+    if (/^\d+$/.test(direct)) return direct;
+    const buffer = Buffer.isBuffer(value)
+      ? value
+      : value?.getNativeWindowHandle?.();
+    if (!Buffer.isBuffer(buffer) || buffer.length < 4) return '';
+    return buffer.length >= 8
+      ? buffer.readBigUInt64LE(0).toString()
+      : String(buffer.readUInt32LE(0));
+  }
+  async syncCursorTarget(profileId, type) {
+    const service = this.cursorSidecarService;
+    if (!service) return false;
+    try {
+      const runtime = this.runtimeFor(type);
+      const state = await runtime.getState(profileId);
+      const instance = runtime.instances?.get?.(String(profileId));
+      if (!state?.browserHwnd || !instance) return false;
+      const rectPhysical = this.windowBridge.getWindowBounds(state.browserHwnd);
+      const ownerHwnd = this.nativeHandleValue(instance.parentHwnd) ||
+        this.nativeHandleValue(instance.parentWindow);
+      if (!rectPhysical || !ownerHwnd) return false;
+      service.bindMainWindow?.(instance.parentWindow);
+      return await service.registerTarget({
+        tabId: profileId,
+        targetHwnd: state.browserHwnd,
+        ownerHwnd,
+        rectPhysical,
+      });
+    } catch (error) {
+      this.logger.warn?.(
+        '[CursorSidecar] 目标同步失败，浏览器继续运行:',
+        error?.message || error,
+      );
+      return false;
+    }
+  }
+  async launchProfile(profile, bounds) {
+    const type = this.resolveType(profile);
+    const state = await this.runtimeFor(type).launchProfile(profile, bounds);
+    await this.syncCursorTarget(state?.profileId || profile.profileId, type);
+    await this.cursorSidecarService?.activateTarget?.(
+      state?.profileId || profile.profileId,
+    );
+    return state;
+  }
+  async show(profileId, type) {
+    const state = await this.runtimeFor(type).show(profileId);
+    await this.syncCursorTarget(profileId, type);
+    await this.cursorSidecarService?.activateTarget?.(profileId);
+    return state;
+  }
   async hide(profileId, type) { return this.runtimeFor(type).hide(profileId); }
-  async resize(profileId, type, bounds) { return this.runtimeFor(type).resize(profileId, bounds); }
+  async resize(profileId, type, bounds) {
+    const state = await this.runtimeFor(type).resize(profileId, bounds);
+    await this.syncCursorTarget(profileId, type);
+    return state;
+  }
   async focus(profileId, type) { return this.runtimeFor(type).focus(profileId); }
   releaseFocus(profileId, type) { return this.runtimeFor(type).releaseFocus(profileId); }
   async reload(profileId, type) { return this.runtimeFor(type).reload(profileId); }
@@ -64,7 +127,44 @@ class BrowserRuntimeManager {
     return this.chromium.dispatchAutomationByProcessId(processId, command, input);
   }
   async dispatchAutomation(profileId, command, input) {
+    if (command === 'perform-action' && MOUSE_ACTIONS.has(String(input?.action || ''))) {
+      return this.dispatchMouseAutomation(profileId, input);
+    }
     return dispatchRuntimeAutomation(this.chromium, profileId, command, input);
+  }
+  async dispatchMouseAutomation(profileId, input) {
+    const payload = normalizeRuntimeAutomation('perform-action', input);
+    return this.chromium.enqueueProfileOperation(profileId, async () => {
+      const client = this.chromium.getReadyInstance(profileId).commandClient;
+      let resolved;
+      try {
+        resolved = await client.send('resolve-action-target', payload, {
+          timeoutMs: payload.timeoutMs + 2000,
+        });
+      } catch (_) {
+        return client.send('perform-action', payload, {
+          timeoutMs: payload.timeoutMs + 2000,
+        });
+      }
+      const body = resolved?.result || resolved || {};
+      const targetPhysical = body.targetPhysical;
+      if (!targetPhysical) {
+        return client.send('perform-action', payload, {
+          timeoutMs: payload.timeoutMs + 2000,
+        });
+      }
+      const display = await this.cursorSidecarService?.moveAndWait?.(
+        profileId, targetPhysical, { durationMs: input?.cursorDurationMs },
+      );
+      const committed = await client.send('commit-resolved-action', {
+        action: payload.action,
+        resolvedInput: body.resolvedInput,
+      }, { timeoutMs: payload.timeoutMs + 2000 });
+      if (display?.sequenceId) {
+        this.cursorSidecarService?.feedback?.(profileId, display.sequenceId);
+      }
+      return committed;
+    });
   }
   async sendChromiumCommand(profileId, command, input, options) {
     return this.chromium.enqueueProfileOperation(profileId, () => (
@@ -81,7 +181,10 @@ class BrowserRuntimeManager {
   async setCookies(profileId, cookies) { return this.chromium.setCookies(profileId, cookies); }
   async restart(profileId, options) { return this.chromium.restart(profileId, options); }
   async clearData(profileId) { return this.chromium.clearData(profileId); }
-  async stop(profileId, type, options) { return this.runtimeFor(type).stop(profileId, options); }
+  async stop(profileId, type, options) {
+    this.cursorSidecarService?.removeTarget?.(profileId);
+    return this.runtimeFor(type).stop(profileId, options);
+  }
   async stopAll(options) {
     const [chromium, externalApps] = await Promise.all([
       this.chromium.stopAll(options),
