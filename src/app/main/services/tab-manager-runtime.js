@@ -6,8 +6,7 @@ const { createBrowserTabLauncher } = require('../features/browser/browser-tab-la
 const { createBrowserRuntimeSettingsController } = require('../features/browser/browser-runtime-settings-controller');
 const { createExternalAppTabLauncher } = require('../features/external-app/external-app-tab-launcher');
 
-const MAX_PROFILE_REFRESH_ATTEMPTS = 3;
-const PROFILE_REFRESH_RETRY_DELAY_MS = 4000;
+
 
 function isUsableWebContents(webContents) {
   return Boolean(webContents) && !webContents.isDestroyed?.();
@@ -227,22 +226,19 @@ class TabManagerRuntime {
     this.deps.updateTabs();
   }
 
-  refreshBrowserProfileInBackground(tabId, browserSettings, proxyServer = '', cacheKey = '', attempt = 0) {
+  refreshBrowserProfileInBackground(tabId, browserSettings, proxyServer = '', cacheKey = '') {
     if (typeof this.deps.resolveTabBrowserProfile !== 'function') return;
     void this.deps.resolveTabBrowserProfile({
       browserSettings,
-      httpGetUniversal: this.deps.httpGetUniversal,
       logger: this.logger,
-      geoProxyServer: proxyServer,
-      forceGeoLookup: true,
     }).then((profile) => this.applyBackgroundProfile(
-      tabId, browserSettings, proxyServer, cacheKey, attempt, profile,
-    )).catch((error) => this.handleProfileRefreshFailure(
-      tabId, browserSettings, proxyServer, cacheKey, attempt, error,
-    ));
+      tabId, cacheKey, profile,
+    )).catch((error) => {
+      this.logger.warn?.('[BrowserMask] 后台更新浏览器地区参数失败:', error?.message || error);
+    });
   }
 
-  applyBackgroundProfile(tabId, browserSettings, proxyServer, cacheKey, attempt, profile) {
+  applyBackgroundProfile(tabId, cacheKey, profile) {
     const tab = this.resolveTabs().get(String(tabId || ''));
     if (!tab || !profile) return;
     tab.browserProfile = profile;
@@ -250,9 +246,6 @@ class TabManagerRuntime {
     this.resolveTabs().set(tab.id, tab);
     if (String(tab.runtimeType || '') === 'chromium') this.updateChromiumInstanceProfile(tab.id, profile);
     this.deps.updateTabs(true);
-    if (!String(profile.sourceIp || '').trim()) {
-      this.scheduleProfileRefresh(tabId, browserSettings, proxyServer, cacheKey, attempt);
-    }
   }
 
   updateChromiumInstanceProfile(tabId, profile) {
@@ -274,20 +267,6 @@ class TabManagerRuntime {
       'region', 'regionLabel', 'sourceIp', 'sourceCountryCode',
       'sourceCountry', 'sourceRegion', 'sourceCity',
     ].map((key) => [key, String(profile[key] || '').trim()]));
-  }
-
-  handleProfileRefreshFailure(tabId, settings, proxyServer, cacheKey, attempt, error) {
-    this.logger.warn?.('[BrowserMask] 后台更新浏览器地区参数失败:', error?.message || error);
-    this.scheduleProfileRefresh(tabId, settings, proxyServer, cacheKey, attempt);
-  }
-
-  scheduleProfileRefresh(tabId, settings, proxyServer, cacheKey, attempt) {
-    const followsIp = ['language', 'timezone', 'geolocation'].some((key) => settings?.[key]?.mode === 'ip');
-    if (!followsIp || attempt + 1 >= MAX_PROFILE_REFRESH_ATTEMPTS) return;
-    setTimeout(
-      () => this.refreshBrowserProfileInBackground(tabId, settings, proxyServer, cacheKey, attempt + 1),
-      PROFILE_REFRESH_RETRY_DELAY_MS,
-    );
   }
 
   readPersistedBrowserSettings() {

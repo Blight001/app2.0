@@ -82,6 +82,7 @@ async function verifyOwnedPopupAutomation() {
     cursorSidecarService,
     target: manager.externalApp.getAutomationTarget(state.profileId),
   });
+  await new Promise((resolve) => setTimeout(resolve, 1700));
   const observed = await waitForValue(async () => {
     try {
       const result = await tools.execute('software_ui', { action: 'observe' });
@@ -92,12 +93,12 @@ async function verifyOwnedPopupAutomation() {
   }, 5000);
   assert.ok(observed?.observation_id, '模态弹窗应可截图观察');
   assert.match(observed.dataUrl, /^data:image\/png;base64,/);
-  // 弹窗中部通常是确认按钮区域；纯视觉用截图中心点击关闭。
+  // Win32 MessageBox 的确认按钮位于下方、水平中线左侧。
   const clicked = await tools.execute('software_ui', {
     action: 'mouse_click',
     observation_id: observed.observation_id,
-    x: Math.floor(observed.width / 2),
-    y: Math.floor(observed.height * 0.62),
+    x: Math.floor(observed.width * 0.42),
+    y: Math.floor(observed.height * 0.78),
     refresh: false,
   });
   assert.equal(clicked.method, 'mouse');
@@ -198,8 +199,7 @@ app.whenReady().then(async () => {
     assert.ok(observed.width > 0 && observed.height > 0);
     assert.ok(Array.isArray(observed.visual_candidates));
     assert.ok(observed.visual_candidates.length <= 24);
-    window.show();
-    window.focus();
+    window.setAlwaysOnTop(true, 'screen-saver');
     await manager.focus('external-app-acceptance', 'external-app');
     await new Promise((resolve) => setTimeout(resolve, 120));
     const clickX = Math.floor(observed.width / 2);
@@ -210,8 +210,10 @@ app.whenReady().then(async () => {
       x: clickX,
       y: clickY,
     });
+    window.setAlwaysOnTop(false);
     assert.equal(clickedVisual.action_result.method, 'mouse');
     assert.equal(sidecarArrivals, 1, '软件点击必须等待统一 Sidecar ARRIVED');
+    console.log('[external-app-embed] Sidecar click passed');
     const typedVisual = await uiTools.execute('software_ui', {
       action: 'type',
       observation_id: clickedVisual.observation_id,
@@ -219,6 +221,7 @@ app.whenReady().then(async () => {
       refresh: false,
     });
     assert.equal(typedVisual.method, 'keyboard');
+    console.log('[external-app-embed] keyboard input passed');
     const observedAgain = await uiTools.execute('software_ui', { action: 'observe' });
     assert.equal(observedAgain.observation_mode, 'visual');
     assert.match(observedAgain.dataUrl, /^data:image\/png;base64,/);
@@ -234,6 +237,7 @@ app.whenReady().then(async () => {
         : null;
     }, 5000);
     assert.ok(followedPlacement, '移动 AI-FREE 后软件窗口应自动对齐跟随');
+    console.log('[external-app-embed] window follow passed');
     const inspectMs = Math.max(0, Number(process.env.AI_FREE_EXTERNAL_APP_INSPECT_MS) || 0);
     if (inspectMs) await new Promise((resolve) => setTimeout(resolve, inspectMs));
     const stopped = await manager.stop('external-app-acceptance', 'external-app');
@@ -256,6 +260,7 @@ app.whenReady().then(async () => {
     assert.equal(restoredPlacement.minimized, originalPlacement.minimized);
     assert.equal(restoredPlacement.maximized, originalPlacement.maximized);
     assert.equal(restoredPlacement.visible, originalPlacement.visible);
+    console.log('[external-app-embed] stop and restore passed');
     await verifyOwnedPopupAutomation();
     console.log('[external-app-embed] PASS');
     await cleanup(0);

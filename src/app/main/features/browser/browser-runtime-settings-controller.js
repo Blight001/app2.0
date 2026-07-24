@@ -57,7 +57,7 @@ async function applyConfiguredCookies(deps, tabId, normalized) {
 }
 
 async function setTabBrowserSettings(deps, tabId, settings, options = {}) {
-    const { browserRuntimeManager, httpGetUniversal, resolveTabBrowserProfile, resolveTabs, updateTabs } = deps;
+    const { browserRuntimeManager, resolveTabBrowserProfile, resolveTabs, updateTabs } = deps;
     const logger = deps.logger || console;
     try {
       const tabs = resolveTabs();
@@ -67,10 +67,7 @@ async function setTabBrowserSettings(deps, tabId, settings, options = {}) {
       const proxyState = resolveEffectiveBrowserProxy(deps, normalized);
       const browserProfile = await resolveTabBrowserProfile({
         browserSettings: normalized,
-        httpGetUniversal: httpGetUniversal,
         logger,
-        geoProxyServer: proxyState.effectiveProxy.enabled ? proxyState.effectiveProxy.server : '',
-        forceGeoLookup: true,
       });
       tab.browserSettings = { ...((tab.browserSettings && typeof tab.browserSettings === 'object') ? tab.browserSettings : {}), ...normalized };
       tab.browserProfile = browserProfile;

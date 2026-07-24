@@ -22,7 +22,7 @@ class CursorAssetCache {
   bool LoadAni(const std::wstring& path);
   const DecodedCursorFrame* FrameAt(
       std::chrono::steady_clock::time_point now, std::size_t* frame_index) const;
-  bool animated() const { return sequence_.size() > 1; }
+  bool animated() const { return false; }
   bool empty() const { return frames_.empty(); }
   const std::vector<DecodedCursorFrame>& frames() const { return frames_; }
 
@@ -31,10 +31,6 @@ class CursorAssetCache {
   bool ParseChunks(const std::vector<std::uint8_t>& file);
 
   std::vector<DecodedCursorFrame> frames_;
-  std::vector<std::size_t> sequence_;
-  std::vector<std::chrono::milliseconds> durations_;
-  std::chrono::milliseconds total_duration_{0};
-  std::chrono::steady_clock::time_point started_at_{};
 };
 
 }  // namespace cursor_host

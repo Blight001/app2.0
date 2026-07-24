@@ -48,8 +48,8 @@ test('browser mouse action holds one profile transaction across resolve, animati
       assert.deepEqual(point, { x: 900, y: 500 });
       return { displayed: true, sequenceId: 4 };
     },
-    feedback(tabId, sequenceId) {
-      order.push(`feedback:${tabId}:${sequenceId}`);
+    feedback(tabId, sequenceId, button) {
+      order.push(`feedback:${tabId}:${sequenceId}:${button}`);
     },
   });
 
@@ -64,8 +64,36 @@ test('browser mouse action holds one profile transaction across resolve, animati
     'resolve-action-target',
     'sidecar-arrived',
     'commit-resolved-action',
-    'feedback:profile-one:4',
+    'feedback:profile-one:4:left',
   ]);
+});
+
+test('browser right click requests the right-button effect', async () => {
+  let feedbackButton = '';
+  const manager = createManager(async (command) => {
+    if (command === 'resolve-action-target') {
+      return {
+        result: {
+          targetPhysical: { x: 20, y: 30 },
+          resolvedInput: { x: 20, y: 30 },
+        },
+      };
+    }
+    return { result: { success: true, dispatched: true } };
+  }, {
+    async moveAndWait() {
+      return { displayed: true, sequenceId: 5 };
+    },
+    feedback(_tabId, _sequenceId, button) {
+      feedbackButton = button;
+    },
+  });
+  await manager.dispatchAutomation(
+    'profile-one',
+    'perform-action',
+    { action: 'right_click', x: 20, y: 30 },
+  );
+  assert.equal(feedbackButton, 'right');
 });
 
 test('unsupported two-phase Chromium falls back to real input without failing the action', async () => {

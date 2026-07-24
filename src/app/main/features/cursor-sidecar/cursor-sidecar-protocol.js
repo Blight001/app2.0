@@ -1,7 +1,7 @@
 'use strict';
 
 const MAXIMUM_MESSAGE_BYTES = 64 * 1024;
-const PROTOCOL_VERSION = '1';
+const PROTOCOL_VERSION = '2';
 
 function encodeMessage(message) {
   const json = Buffer.from(JSON.stringify(message), 'utf8');

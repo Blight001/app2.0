@@ -13,7 +13,7 @@ test('浏览器 Profile 缓存键稳定且不会把代理凭据写入 fingerprin
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-profile-cache-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const store = new ProfileRuntimeStore({ rootDir: root });
-  const settings = { language: { mode: 'ip' }, proxy: { password: 'secret' } };
+  const settings = { language: { mode: 'custom' }, proxy: { password: 'secret' } };
   const key = buildBrowserProfileCacheKey(settings, 'http://127.0.0.1:7897');
   const profile = { region: 'jp', sourceIp: '203.0.113.8', timezoneId: 'Asia/Tokyo' };
 

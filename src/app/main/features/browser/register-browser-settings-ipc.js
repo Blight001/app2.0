@@ -288,6 +288,51 @@ async function writeBrowserSettings(deps, payload, reset) {
   }
 }
 
+/**
+ * 预留：外部检测方案写入出口 IP/地区。合并进现有 settings.exitIp 并刷新活动标签 profile。
+ * payload: { historyId?, exitIp: {...}, applyToActive?, restartChromium? }
+ */
+async function setBrowserExitIp(deps, payload = {}) {
+  try {
+    const historyId = text(payload.historyId);
+    const store = readStoreConfigSafe();
+    const history = historyId ? syncOpenTabsToBrowserHistory(deps.ui) : [];
+    const record = history.find((item) => item.id === historyId) || null;
+    const base = resolveSavedBrowserSettings(store, record);
+    const merged = normalizeAiFreeBrowserSettings({
+      ...base,
+      exitIp: {
+        ...(base && base.exitIp && typeof base.exitIp === 'object' ? base.exitIp : {}),
+        ...(payload.exitIp && typeof payload.exitIp === 'object' ? payload.exitIp : payload),
+      },
+    });
+    const persisted = persistBrowserSettingsTarget(deps, historyId, merged, false);
+    if (persisted.error) return { ok: false, error: persisted.error };
+    const activeResult = await applySavedBrowserSettings(
+      deps,
+      {
+        applyToActive: payload.applyToActive !== false,
+        restartChromium: payload.restartChromium === true,
+      },
+      historyId,
+      persisted.targetTabId,
+      merged,
+    );
+    callOptional(deps.ui, 'sendToSide', 'browser-history-changed');
+    return {
+      ok: true,
+      data: {
+        settings: merged,
+        historyId,
+        activeResult,
+        runtimeInfo: getBrowserRuntimeInfo(),
+      },
+    };
+  } catch (error) {
+    return { ok: false, error: errorMessage(error) };
+  }
+}
+
 function registerBrowserSettingsIpc({ ipc, ui, licenseCache }) {
   const deps = { ui, licenseCache };
   ipc.handle('get-ai-free-browser-settings', (_event, payload = {}) => getBrowserSettings(deps, payload));
@@ -295,6 +340,11 @@ function registerBrowserSettingsIpc({ ipc, ui, licenseCache }) {
   ipc.handle('extract-ai-free-proxy', (_event, payload = {}) => extractBrowserProxy(payload));
   ipc.handle('set-ai-free-browser-settings', (_event, payload = {}) => writeBrowserSettings(deps, payload, false));
   ipc.handle('reset-ai-free-browser-settings', (_event, payload = {}) => writeBrowserSettings(deps, payload, true));
+  ipc.handle('set-browser-exit-ip', (_event, payload = {}) => setBrowserExitIp(deps, payload));
 }
 
-module.exports = { registerBrowserSettingsIpc, validateBrowserSettingsPayload };
+module.exports = {
+  registerBrowserSettingsIpc,
+  setBrowserExitIp,
+  validateBrowserSettingsPayload,
+};

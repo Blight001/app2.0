@@ -244,9 +244,7 @@ class BrowserTabLauncher {
     if (cached) return cached;
     return this.deps.resolveTabBrowserProfile({
       browserSettings: context.browserSettings,
-      httpGetUniversal: this.deps.httpGetUniversal,
       logger: this.logger,
-      skipGeoLookup: true,
     });
   }
 

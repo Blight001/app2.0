@@ -242,9 +242,9 @@ function buildAdvancedIdentityTooltip(settings, profile) {
   if (userAgent) lines.push(`用户代理（UA）：${userAgent}`);
   lines.push(
     `Sec-CH-UA：${settingLabel(secChUa.mode, { default: '默认生成', custom: '自定义' })}${brands ? `（${brands}）` : ''}`,
-    `语言：${language.mode === 'custom' ? '自定义' : '基于 IP 自动匹配'}${locale ? `（当前 ${formatBrowserLocale(locale)}）` : ''}`,
+    `语言：自定义${locale ? `（当前 ${formatBrowserLocale(locale)}）` : ''}`,
     `网页请求语言：${acceptLanguage ? formatRequestLanguages(acceptLanguage) : '自动'}`,
-    `时区：${timezoneSetting.mode === 'custom' ? '自定义' : '基于 IP 自动匹配'}${timezone ? `（当前 ${formatBrowserTimezone(timezone)}）` : ''}`,
+    `时区：自定义${timezone ? `（当前 ${formatBrowserTimezone(timezone)}）` : ''}`,
     `WebRTC：${settingLabel(webrtc.mode, { replace: '替换', allow: '允许', block: '禁止' })}`,
   );
   return lines;
@@ -252,8 +252,7 @@ function buildAdvancedIdentityTooltip(settings, profile) {
 
 function formatGeolocationSetting(settings) {
   const geo = tooltipObject(settings, 'geolocation');
-  const mode = geo.mode === 'custom'
-    ? `自定义（经度 ${geo.longitude}，纬度 ${geo.latitude}，精度 ${geo.accuracy} 米）` : '基于 IP 自动匹配';
+  const mode = `自定义（经度 ${geo.longitude}，纬度 ${geo.latitude}，精度 ${geo.accuracy} 米）`;
   return { geo, mode };
 }
 

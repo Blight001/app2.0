@@ -33,8 +33,9 @@ bool ExtractString(std::string_view json, std::string_view key,
   return false;
 }
 
-bool ExtractUint32(std::string_view json, std::string_view key,
-                   std::uint32_t* output) {
+template <typename Integer>
+bool ExtractUnsigned(std::string_view json, std::string_view key,
+                     Integer* output) {
   const std::string marker = "\"" + std::string(key) + "\"";
   std::size_t cursor = json.find(marker);
   if (cursor == std::string_view::npos) return false;
@@ -43,25 +44,8 @@ bool ExtractUint32(std::string_view json, std::string_view key,
   do {
     ++cursor;
   } while (cursor < json.size() && json[cursor] == ' ');
-  const char* begin = json.data() + cursor;
-  const char* end = json.data() + json.size();
-  auto result = std::from_chars(begin, end, *output);
-  return result.ec == std::errc();
-}
-
-bool ExtractUint64(std::string_view json, std::string_view key,
-                   std::uint64_t* output) {
-  const std::string marker = "\"" + std::string(key) + "\"";
-  std::size_t cursor = json.find(marker);
-  if (cursor == std::string_view::npos) return false;
-  cursor = json.find(':', cursor + marker.size());
-  if (cursor == std::string_view::npos) return false;
-  do {
-    ++cursor;
-  } while (cursor < json.size() && json[cursor] == ' ');
-  const char* begin = json.data() + cursor;
-  const char* end = json.data() + json.size();
-  auto result = std::from_chars(begin, end, *output);
+  const auto result = std::from_chars(
+      json.data() + cursor, json.data() + json.size(), *output);
   return result.ec == std::errc();
 }
 
@@ -93,7 +77,7 @@ bool ExtractSigned(std::string_view json, std::string_view key, LONG* output) {
     ++cursor;
   } while (cursor < json.size() && json[cursor] == ' ');
   long long value = 0;
-  auto result = std::from_chars(
+  const auto result = std::from_chars(
       json.data() + cursor, json.data() + json.size(), value);
   if (result.ec != std::errc() ||
       value < std::numeric_limits<LONG>::min() ||
@@ -111,22 +95,18 @@ bool ExtractPoint(std::string_view json, std::string_view key, POINT* output) {
       ExtractSigned(object, "y", &output->y);
 }
 
-bool ExtractRect(std::string_view json, std::string_view key, RECT* output) {
-  std::string_view object;
-  LONG x = 0;
-  LONG y = 0;
-  LONG width = 0;
-  LONG height = 0;
-  if (!ExtractObject(json, key, &object) ||
-      !ExtractSigned(object, "x", &x) ||
-      !ExtractSigned(object, "y", &y) ||
-      !ExtractSigned(object, "width", &width) ||
-      !ExtractSigned(object, "height", &height) ||
-      width <= 0 || height <= 0) {
-    return false;
+bool ExtractButton(std::string_view json, PointerButton* output) {
+  std::wstring button;
+  if (!ExtractString(json, "button", &button)) return false;
+  if (button == L"left") {
+    *output = PointerButton::kLeft;
+    return true;
   }
-  *output = RECT{x, y, x + width, y + height};
-  return true;
+  if (button == L"right") {
+    *output = PointerButton::kRight;
+    return true;
+  }
+  return false;
 }
 
 std::string Narrow(std::wstring_view source) {
@@ -140,19 +120,24 @@ std::string Narrow(std::wstring_view source) {
 }
 
 std::string EventPrefix(std::string_view type, std::wstring_view session_id) {
-  return "{\"type\":\"" + std::string(type) + "\",\"version\":\"1\","
+  return "{\"type\":\"" + std::string(type) + "\",\"version\":\"2\","
       "\"sessionId\":\"" + Narrow(session_id) + "\"";
 }
 
-bool ReadTargetCommand(std::string_view json, Command* command) {
-  return ExtractString(json, "tabId", &command->tab_id);
+bool ReadMove(std::string_view json, Command* command) {
+  command->has_position =
+      ExtractPoint(json, "targetPhysical", &command->position);
+  return ExtractString(json, "tabId", &command->context_id) &&
+      ExtractUnsigned(json, "sequenceId", &command->sequence_id) &&
+      command->has_position &&
+      ExtractUnsigned(json, "durationMs", &command->duration_ms);
 }
 
 }  // namespace
 
 bool ParseCommand(std::string_view json, Command* output, std::string* error) {
-  if (json.empty() || json.size() > kMaximumMessageBytes) {
-    *error = "MESSAGE_SIZE_INVALID";
+  if (!output || !error || json.empty() || json.size() > kMaximumMessageBytes) {
+    if (error) *error = "MESSAGE_SIZE_INVALID";
     return false;
   }
   std::wstring type;
@@ -167,59 +152,39 @@ bool ParseCommand(std::string_view json, Command* output, std::string* error) {
     command.type = CommandType::kHello;
     if (!ExtractString(json, "token", &command.token) ||
         !ExtractString(json, "version", &command.version) ||
-        !ExtractUint32(json, "pid", &command.pid)) {
+        !ExtractUnsigned(json, "pid", &command.pid)) {
       *error = "HELLO_SCHEMA_INVALID";
       return false;
     }
-  } else if (type == L"REGISTER_TARGET") {
-    command.type = CommandType::kRegisterTarget;
-    std::wstring target;
-    std::wstring owner;
-    command.has_position = ExtractPoint(json, "initialPosition", &command.position);
-    if (!ReadTargetCommand(json, &command) ||
-        !ExtractString(json, "targetHwnd", &target) ||
-        !ExtractString(json, "ownerHwnd", &owner) ||
-        !ExtractRect(json, "rectPhysical", &command.rect)) {
-      *error = "REGISTER_TARGET_INVALID";
+  } else if (type == L"SHOW_CURSOR") {
+    command.type = CommandType::kShowCursor;
+    command.has_position =
+        ExtractPoint(json, "positionPhysical", &command.position);
+  } else if (type == L"HIDE_CURSOR") {
+    command.type = CommandType::kHideCursor;
+  } else if (type == L"MOVE_CURSOR") {
+    command.type = CommandType::kMoveCursor;
+    if (!ReadMove(json, &command)) {
+      *error = "MOVE_CURSOR_INVALID";
       return false;
     }
-    try {
-      command.target_hwnd = std::stoull(target);
-      command.owner_hwnd = std::stoull(owner);
-    } catch (...) {
-      *error = "REGISTER_TARGET_INVALID";
-      return false;
-    }
-  } else if (type == L"REMOVE_TARGET") {
-    command.type = CommandType::kRemoveTarget;
-    if (!ReadTargetCommand(json, &command)) return false;
-  } else if (type == L"ACTIVATE_TARGET") {
-    command.type = CommandType::kActivateTarget;
-    if (!ReadTargetCommand(json, &command)) return false;
-  } else if (type == L"UPDATE_TARGET_RECT") {
-    command.type = CommandType::kUpdateTargetRect;
-    if (!ReadTargetCommand(json, &command) ||
-        !ExtractRect(json, "rectPhysical", &command.rect)) return false;
-  } else if (type == L"SET_CURSOR_ASSET") {
-    command.type = CommandType::kSetCursorAsset;
-    if (!ReadTargetCommand(json, &command) ||
-        !ExtractString(json, "assetId", &command.asset_id)) return false;
-  } else if (type == L"MOVE_AUTOMATION") {
-    command.type = CommandType::kMoveAutomation;
-    if (!ReadTargetCommand(json, &command) ||
-        !ExtractUint64(json, "sequenceId", &command.sequence_id) ||
-        !ExtractPoint(json, "targetPhysical", &command.position) ||
-        !ExtractUint32(json, "durationMs", &command.duration_ms)) return false;
     ExtractString(json, "easing", &command.easing);
-    command.has_position = true;
-  } else if (type == L"CLICK_FEEDBACK") {
-    command.type = CommandType::kClickFeedback;
-    if (!ReadTargetCommand(json, &command) ||
-        !ExtractUint64(json, "sequenceId", &command.sequence_id)) return false;
-  } else if (type == L"SUSPEND") {
-    command.type = CommandType::kSuspend;
-  } else if (type == L"RESUME") {
-    command.type = CommandType::kResume;
+  } else if (type == L"POINTER_DOWN" || type == L"POINTER_UP") {
+    command.type = type == L"POINTER_DOWN"
+        ? CommandType::kPointerDown
+        : CommandType::kPointerUp;
+    if (!ExtractButton(json, &command.button)) {
+      *error = "POINTER_BUTTON_INVALID";
+      return false;
+    }
+  } else if (type == L"CLICK_EFFECT") {
+    command.type = CommandType::kClickEffect;
+    if (!ExtractString(json, "tabId", &command.context_id) ||
+        !ExtractUnsigned(json, "sequenceId", &command.sequence_id) ||
+        !ExtractButton(json, &command.button)) {
+      *error = "CLICK_EFFECT_INVALID";
+      return false;
+    }
   } else if (type == L"SHUTDOWN") {
     command.type = CommandType::kShutdown;
   } else if (type == L"PING") {
@@ -256,40 +221,19 @@ std::string ErrorEvent(std::wstring_view session_id, std::string_view code) {
 }
 
 std::string ArrivedEvent(std::wstring_view session_id,
-                         std::wstring_view tab_id,
+                         std::wstring_view context_id,
                          std::uint64_t sequence_id) {
   return EventPrefix("ARRIVED", session_id) + ",\"tabId\":\"" +
-      Narrow(tab_id) + "\",\"sequenceId\":" + std::to_string(sequence_id) +
-      "}";
+      Narrow(context_id) + "\",\"sequenceId\":" +
+      std::to_string(sequence_id) + "}";
 }
 
 std::string FeedbackFinishedEvent(std::wstring_view session_id,
-                                  std::wstring_view tab_id,
+                                  std::wstring_view context_id,
                                   std::uint64_t sequence_id) {
   return EventPrefix("FEEDBACK_FINISHED", session_id) + ",\"tabId\":\"" +
-      Narrow(tab_id) + "\",\"sequenceId\":" + std::to_string(sequence_id) +
-      "}";
-}
-
-std::string PositionSnapshotEvent(std::wstring_view session_id,
-                                  std::wstring_view tab_id,
-                                  POINT position) {
-  return EventPrefix("POSITION_SNAPSHOT", session_id) + ",\"tabId\":\"" +
-      Narrow(tab_id) + "\",\"positionPhysical\":{\"x\":" +
-      std::to_string(position.x) + ",\"y\":" + std::to_string(position.y) +
-      "}}";
-}
-
-std::string CursorRestoredEvent(std::wstring_view session_id,
-                                std::string_view reason) {
-  return EventPrefix("CURSOR_RESTORED", session_id) + ",\"reason\":\"" +
-      std::string(reason) + "\"}";
-}
-
-std::string TargetLostEvent(std::wstring_view session_id,
-                            std::wstring_view tab_id) {
-  return EventPrefix("TARGET_LOST", session_id) + ",\"tabId\":\"" +
-      Narrow(tab_id) + "\"}";
+      Narrow(context_id) + "\",\"sequenceId\":" +
+      std::to_string(sequence_id) + "}";
 }
 
 std::string RenderDeviceLostEvent(std::wstring_view session_id) {

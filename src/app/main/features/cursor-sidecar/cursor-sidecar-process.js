@@ -24,7 +24,7 @@ function verifyRuntime(directory, fileSystem = fs) {
   const manifest = JSON.parse(fileSystem.readFileSync(manifestPath, 'utf8'));
   const executable = fileSystem.readFileSync(executablePath);
   const actual = crypto.createHash('sha256').update(executable).digest('hex');
-  if (manifest.schemaVersion !== 1 || manifest.protocolVersion !== '1'
+  if (manifest.schemaVersion !== 1 || manifest.protocolVersion !== '2'
       || manifest.executable !== path.basename(executablePath)
       || manifest.sha256 !== actual) {
     const error = /** @type {Error & {code?: string}} */ (

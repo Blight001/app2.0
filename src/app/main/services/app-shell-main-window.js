@@ -180,6 +180,7 @@ function bindMainWindowEvents(deps, mainWindow) {
     deps.logger.log?.('[WindowTitle] did-finish-load, set title:', deps.APP_DISPLAY_NAME);
   });
   mainWindow.on('focus', () => setTimeout(() => deps.updateTabs(true), 0));
+  mainWindow.on('move', updateLayout);
   mainWindow.on('resize', updateLayout);
   mainWindow.on('ready-to-show', updateLayout);
   mainWindow.on('closed', () => handleMainWindowClosed(deps));

@@ -137,14 +137,28 @@ function buildAppliedBrowserEnvironment(profile = {}) {
   };
 }
 
-/** @param {BrowserSettingsRecord} [settings] */
-function buildAppliedBrowserSettings(settings = {}) {
-  if (!settings || typeof settings !== 'object') return null;
-  const {
-    proxy, homepage, ua, secChUa, language, timezone, webrtc, geolocation, resolution,
-    fonts, canvas, webglImage, webglMetadata, webgpu, audioContext, clientRects,
-    speechVoices, deviceName, macAddress, portScanProtection, launchArgs,
-  } = createSettingsSections(settings);
+function optionalAppliedCoord(value) {
+  if (value == null || value === '') return null;
+  return numberOr(value, null);
+}
+
+function buildAppliedExitIp(settings) {
+  const exitIp = asRecord(settings.exitIp);
+  return {
+    ip: copyMode(exitIp.ip),
+    region: copyMode(exitIp.region),
+    countryCode: copyMode(exitIp.countryCode),
+    country: copyMode(exitIp.country),
+    regionName: copyMode(exitIp.regionName),
+    city: copyMode(exitIp.city),
+    timezoneId: copyMode(exitIp.timezoneId),
+    longitude: optionalAppliedCoord(exitIp.longitude),
+    latitude: optionalAppliedCoord(exitIp.latitude),
+  };
+}
+
+function buildAppliedIdentitySettings(settings, sections) {
+  const { proxy, homepage, ua, secChUa, language, timezone, webrtc, geolocation } = sections;
   return {
     os: copyMode(settings.os, 'win11'),
     browserVersion: copyMode(settings.browserVersion),
@@ -160,20 +174,27 @@ function buildAppliedBrowserSettings(settings = {}) {
     cookieCount: parseCookieCount(settings.cookies),
     homepage: { mode: copyMode(homepage.mode, 'default'), url: copyMode(homepage.url) },
     ua: { mode: copyMode(ua.mode, 'default') },
-    secChUa: {
-      mode: copyMode(secChUa.mode, 'default'),
-      brands: normalizeBrands(secChUa.brands),
-    },
-    language: { mode: copyMode(language.mode, 'ip'), value: copyMode(language.value) },
-    timezone: { mode: copyMode(timezone.mode, 'ip'), value: copyMode(timezone.value) },
+    secChUa: { mode: copyMode(secChUa.mode, 'default'), brands: normalizeBrands(secChUa.brands) },
+    language: { mode: copyMode(language.mode, 'custom'), value: copyMode(language.value) },
+    timezone: { mode: copyMode(timezone.mode, 'custom'), value: copyMode(timezone.value) },
     webrtc: { mode: copyMode(webrtc.mode, 'replace') },
     geolocation: {
       permission: copyMode(geolocation.permission, 'ask'),
-      mode: copyMode(geolocation.mode, 'ip'),
+      mode: copyMode(geolocation.mode, 'custom'),
       longitude: numberOr(geolocation.longitude, 0),
       latitude: numberOr(geolocation.latitude, 0),
       accuracy: Math.max(1, numberOrNonZero(geolocation.accuracy, 100)),
     },
+    exitIp: buildAppliedExitIp(settings),
+  };
+}
+
+function buildAppliedFingerprintSettings(settings, sections) {
+  const {
+    resolution, fonts, canvas, webglImage, webglMetadata, webgpu, audioContext,
+    clientRects, speechVoices, deviceName, macAddress, portScanProtection, launchArgs,
+  } = sections;
+  return {
     resolution: {
       mode: copyMode(resolution.mode, 'follow'),
       width: Math.max(0, numberOr(resolution.width, 0)),
@@ -204,10 +225,17 @@ function buildAppliedBrowserSettings(settings = {}) {
         : [],
     },
     hardwareAcceleration: settings.hardwareAcceleration !== false,
-    launchArgs: {
-      mode: copyMode(launchArgs.mode, 'default'),
-      value: copyMode(launchArgs.value),
-    },
+    launchArgs: { mode: copyMode(launchArgs.mode, 'default'), value: copyMode(launchArgs.value) },
+  };
+}
+
+/** @param {BrowserSettingsRecord} [settings] */
+function buildAppliedBrowserSettings(settings = {}) {
+  if (!settings || typeof settings !== 'object') return null;
+  const sections = createSettingsSections(settings);
+  return {
+    ...buildAppliedIdentitySettings(settings, sections),
+    ...buildAppliedFingerprintSettings(settings, sections),
   };
 }
 

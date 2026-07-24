@@ -9,6 +9,10 @@ const {
   normalizeTabId,
 } = require('./cursor-sidecar-protocol');
 
+function normalizeButton(value) {
+  return String(value || 'left').toLowerCase() === 'right' ? 'right' : 'left';
+}
+
 class CursorSidecarService extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -17,9 +21,10 @@ class CursorSidecarService extends EventEmitter {
     this.client = null;
     this.targets = new Map();
     this.positions = new Map();
-    this.sequences = new Map();
     this.pendingArrivals = new Map();
     this.activeTabId = '';
+    this.nextSequenceId = 0;
+    this.hostSuppressed = false;
     this.startPromise = null;
     this.restartCount = 0;
     this.boundWindows = new WeakSet();
@@ -39,11 +44,11 @@ class CursorSidecarService extends EventEmitter {
   bindMainWindow(window) {
     if (!window?.on || this.boundWindows.has(window)) return;
     this.boundWindows.add(window);
-    for (const eventName of ['hide', 'minimize', 'closed']) {
-      window.on(eventName, () => this.suspend());
+    for (const eventName of ['blur', 'hide', 'minimize', 'closed']) {
+      window.on(eventName, () => this.suppressHost());
     }
     for (const eventName of ['show', 'restore', 'focus']) {
-      window.on(eventName, () => this.resume());
+      window.on(eventName, () => { void this.restoreHost(); });
     }
   }
 
@@ -64,18 +69,7 @@ class CursorSidecarService extends EventEmitter {
 
   bindClient(client) {
     this.client = client;
-    client.on('POSITION_SNAPSHOT', (event) => {
-      if (event.tabId && event.positionPhysical) {
-        const position = normalizePoint(event.positionPhysical);
-        this.positions.set(event.tabId, position);
-        const target = this.targets.get(event.tabId);
-        if (target) target.initialPosition = position;
-      }
-    });
     client.on('ARRIVED', (event) => this.resolveArrival(event));
-    client.on('TARGET_LOST', (event) => {
-      if (event.tabId) this.emit('target-lost', { tabId: event.tabId });
-    });
     client.on('RENDER_DEVICE_LOST', (event) => {
       this.logger.warn?.('[CursorSidecar] DirectComposition 设备已重建');
       this.emit('render-device-lost', event);
@@ -94,53 +88,111 @@ class CursorSidecarService extends EventEmitter {
 
   async registerTarget(input) {
     const tabId = normalizeTabId(input.tabId);
-    const target = {
+    const rectPhysical = normalizeRect(input.rectPhysical);
+    const previous = this.targets.get(tabId);
+    const savedPosition = this.positions.get(tabId);
+    const translatedPosition = previous && savedPosition ? {
+      x: savedPosition.x + rectPhysical.x - previous.rectPhysical.x,
+      y: savedPosition.y + rectPhysical.y - previous.rectPhysical.y,
+    } : null;
+    const initialPosition = normalizePoint(
+      translatedPosition || savedPosition || input.initialPosition || {
+        x: rectPhysical.x + rectPhysical.width / 2,
+        y: rectPhysical.y + rectPhysical.height / 2,
+      },
+    );
+    this.targets.set(tabId, {
       tabId,
-      targetHwnd: String(input.targetHwnd || ''),
-      ownerHwnd: String(input.ownerHwnd || ''),
-      rectPhysical: normalizeRect(input.rectPhysical),
-      initialPosition: normalizePoint(
-        this.positions.get(tabId) || input.initialPosition || {
-          x: input.rectPhysical.x + input.rectPhysical.width / 2,
-          y: input.rectPhysical.y + input.rectPhysical.height / 2,
-        },
-      ),
-    };
-    if (!/^\d+$/.test(target.targetHwnd) || !/^\d+$/.test(target.ownerHwnd)) {
-      throw new Error('Cursor Sidecar HWND 无效');
-    }
-    this.targets.set(tabId, target);
+      rectPhysical,
+      initialPosition,
+      visible: previous?.visible !== false,
+      button: previous?.button || '',
+    });
+    this.positions.set(tabId, initialPosition);
     if (!await this.ensureStarted()) return false;
-    this.send('REGISTER_TARGET', target);
-    if (this.activeTabId === tabId) this.send('ACTIVATE_TARGET', { tabId });
+    if (this.activeTabId === tabId) this.applyActiveTargetState();
     return true;
   }
 
   removeTarget(tabIdValue) {
     const tabId = normalizeTabId(tabIdValue);
     this.targets.delete(tabId);
-    if (this.activeTabId === tabId) this.activeTabId = '';
-    return this.send('REMOVE_TARGET', { tabId });
+    this.positions.delete(tabId);
+    if (this.activeTabId !== tabId) return true;
+    this.activeTabId = '';
+    return this.hideCursor();
   }
 
   async activateTarget(tabIdValue) {
     const tabId = normalizeTabId(tabIdValue);
+    const switching = Boolean(this.activeTabId && this.activeTabId !== tabId);
     this.activeTabId = tabId;
     if (!await this.ensureStarted()) return false;
-    const target = this.targets.get(tabId);
-    if (target) this.send('REGISTER_TARGET', target);
-    return this.send('ACTIVATE_TARGET', { tabId });
+    return this.applyActiveTargetState(switching);
   }
 
   updateTargetRect(tabIdValue, rectPhysical) {
     const tabId = normalizeTabId(tabIdValue);
     const target = this.targets.get(tabId);
     if (!target) return false;
-    target.rectPhysical = normalizeRect(rectPhysical);
-    return this.send('UPDATE_TARGET_RECT', {
-      tabId,
-      rectPhysical: target.rectPhysical,
-    });
+    const nextRect = normalizeRect(rectPhysical);
+    const position = this.positions.get(tabId);
+    if (position) {
+      this.positions.set(tabId, normalizePoint({
+        x: position.x + nextRect.x - target.rectPhysical.x,
+        y: position.y + nextRect.y - target.rectPhysical.y,
+      }));
+    }
+    target.rectPhysical = nextRect;
+    target.initialPosition = this.positions.get(tabId);
+    if (this.activeTabId === tabId) this.applyActiveTargetState();
+    return true;
+  }
+
+  setTargetVisibility(tabIdValue, visible) {
+    const tabId = normalizeTabId(tabIdValue);
+    const target = this.targets.get(tabId);
+    if (!target) return false;
+    target.visible = Boolean(visible);
+    if (this.activeTabId === tabId) this.applyActiveTargetState();
+    return true;
+  }
+
+  showCursor(positionPhysical) {
+    const input = positionPhysical
+      ? { positionPhysical: normalizePoint(positionPhysical) }
+      : {};
+    return this.send('SHOW_CURSOR', input);
+  }
+
+  hideCursor() {
+    return this.send('HIDE_CURSOR');
+  }
+
+  applyActiveTargetState(switching = false) {
+    const target = this.targets.get(this.activeTabId);
+    if (this.hostSuppressed || !target?.visible) return this.hideCursor();
+    if (switching) this.hideCursor();
+    const shown = this.showCursor(this.positions.get(this.activeTabId));
+    if (target.button) {
+      this.send('POINTER_DOWN', { button: target.button });
+    }
+    return shown;
+  }
+
+  async showActiveCursor() {
+    if (!this.activeTabId || !await this.ensureStarted()) return false;
+    return this.applyActiveTargetState();
+  }
+
+  suppressHost() {
+    this.hostSuppressed = true;
+    return this.hideCursor();
+  }
+
+  async restoreHost() {
+    this.hostSuppressed = false;
+    return this.showActiveCursor();
   }
 
   async moveAndWait(tabIdValue, targetPhysical, options = {}) {
@@ -148,30 +200,66 @@ class CursorSidecarService extends EventEmitter {
     if (!await this.ensureStarted() || !this.targets.has(tabId)) {
       return { displayed: false, reason: 'sidecar_unavailable' };
     }
-    const sequenceId = (this.sequences.get(tabId) || 0) + 1;
-    this.sequences.set(tabId, sequenceId);
+    const point = normalizePoint(targetPhysical);
+    const sequenceId = ++this.nextSequenceId;
     const requestedDuration = Number(options.durationMs);
     const durationMs = Math.max(
       0,
       Math.min(5000, Number.isFinite(requestedDuration) ? requestedDuration : 180),
     );
+    this.activeTabId = tabId;
+    this.showCursor(this.positions.get(tabId) || point);
     const arrival = this.waitForArrival(tabId, sequenceId, durationMs + 350);
-    this.send('MOVE_AUTOMATION', {
+    this.send('MOVE_CURSOR', {
       tabId,
       sequenceId,
-      targetPhysical: normalizePoint(targetPhysical),
+      targetPhysical: point,
       durationMs,
       easing: String(options.easing || 'ease-out'),
     });
-    return arrival;
+    const result = await arrival;
+    if (result.displayed) this.positions.set(tabId, point);
+    return result;
   }
 
-  feedback(tabIdValue, sequenceId) {
+  feedback(tabIdValue, sequenceId, button = 'left') {
     const tabId = normalizeTabId(tabIdValue);
-    return this.send('CLICK_FEEDBACK', {
+    return this.send('CLICK_EFFECT', {
       tabId,
-      sequenceId: Number(sequenceId || this.sequences.get(tabId) || 0),
+      sequenceId: Number(sequenceId || this.nextSequenceId || 0),
+      button: normalizeButton(button),
     });
+  }
+
+  pointerDown(button = 'left') {
+    const normalized = normalizeButton(button);
+    const target = this.targets.get(this.activeTabId);
+    if (target) target.button = normalized;
+    return this.send('POINTER_DOWN', { button: normalized });
+  }
+
+  pointerUp(button = 'left') {
+    const normalized = normalizeButton(button);
+    const target = this.targets.get(this.activeTabId);
+    if (target?.button === normalized) target.button = '';
+    return this.send('POINTER_UP', { button: normalized });
+  }
+
+  async dragAndWait(tabIdValue, startPhysical, endPhysical, options = {}) {
+    const start = await this.moveAndWait(tabIdValue, startPhysical, {
+      durationMs: options.startDurationMs ?? 120,
+      easing: options.easing,
+    });
+    if (!start.displayed) return start;
+    this.pointerDown('left');
+    try {
+      return await this.moveAndWait(tabIdValue, endPhysical, {
+        durationMs: options.durationMs ?? 260,
+        easing: options.easing || 'ease-in-out',
+      });
+    } finally {
+      this.pointerUp('left');
+    }
   }
 
   waitForArrival(tabId, sequenceId, timeoutMs) {
@@ -201,9 +289,6 @@ class CursorSidecarService extends EventEmitter {
     this.emit('arrived', arrival);
   }
 
-  suspend() { return this.send('SUSPEND'); }
-  resume() { return this.send('RESUME'); }
-
   rejectArrivals(reason) {
     for (const pending of this.pendingArrivals.values()) {
       clearTimeout(pending.timer);
@@ -218,12 +303,7 @@ class CursorSidecarService extends EventEmitter {
       return;
     }
     this.restartCount += 1;
-    const client = await this.ensureStarted();
-    if (!client) return;
-    for (const target of this.targets.values()) {
-      this.send('REGISTER_TARGET', target);
-    }
-    if (this.activeTabId) this.send('ACTIVATE_TARGET', { tabId: this.activeTabId });
+    if (await this.ensureStarted()) this.showActiveCursor();
   }
 
   handleFailure(error) {
@@ -243,4 +323,8 @@ function createCursorSidecarService(options) {
   return new CursorSidecarService(options);
 }
 
-module.exports = { CursorSidecarService, createCursorSidecarService };
+module.exports = {
+  CursorSidecarService,
+  createCursorSidecarService,
+  normalizeButton,
+};

@@ -105,6 +105,7 @@ const INVOKE_CHANNELS = [
   { channel: 'set-ai-control-custom-api', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/features/ai-chat/register-settings-ipc.js', requestSchema: 'ai.custom-api' },
   { channel: 'set-ai-control-settings', kind: 'invoke', domain: 'ai', registrar: 'src/app/main/features/ai-chat/register-settings-ipc.js', requestSchema: 'ai.settings' },
   { channel: 'set-ai-free-browser-settings', kind: 'invoke', domain: 'browser', registrar: 'src/app/main/features/browser/register-browser-settings-ipc.js' },
+  { channel: 'set-browser-exit-ip', kind: 'invoke', domain: 'browser', registrar: 'src/app/main/features/browser/register-browser-settings-ipc.js' },
   { channel: 'set-network-magic-auto-start-enabled', kind: 'invoke', domain: 'network', registrar: 'src/app/main/ipc/register/settings.js' },
   { channel: 'set-plugin-settings', kind: 'invoke', domain: 'ui', registrar: 'src/app/main/ipc/register/settings.js' },
   { channel: 'show-browser-history-gesture-popup', kind: 'invoke', domain: 'browser', registrar: 'src/app/main/features/browser/register-browser-history-ipc.js' },

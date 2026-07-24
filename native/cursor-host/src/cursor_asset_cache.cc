@@ -3,8 +3,6 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 
-#include <algorithm>
-#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <iterator>
@@ -49,9 +47,6 @@ POINT IconHotspot(const std::uint8_t* data, std::size_t size) {
 
 bool CursorAssetCache::LoadAni(const std::wstring& path) {
   frames_.clear();
-  sequence_.clear();
-  durations_.clear();
-  total_duration_ = std::chrono::milliseconds(0);
   std::ifstream stream(path, std::ios::binary);
   if (!stream) return false;
   const std::istreambuf_iterator<char> begin(stream);
@@ -62,63 +57,30 @@ bool CursorAssetCache::LoadAni(const std::wstring& path) {
     return false;
   }
   if (!ParseChunks(file) || frames_.empty()) return false;
-  if (sequence_.empty()) {
-    for (std::size_t index = 0; index < frames_.size(); ++index) {
-      sequence_.push_back(index);
-    }
-  }
-  if (durations_.size() < sequence_.size()) {
-    durations_.resize(sequence_.size(), std::chrono::milliseconds(100));
-  }
-  for (const auto duration : durations_) total_duration_ += duration;
-  started_at_ = std::chrono::steady_clock::now();
-  return total_duration_.count() > 0;
+  return true;
 }
 
 bool CursorAssetCache::ParseChunks(const std::vector<std::uint8_t>& file) {
-  std::uint32_t default_jiffies = 6;
-  std::vector<std::uint32_t> rate;
-  std::vector<std::uint32_t> sequence;
   for (std::size_t cursor = 12; cursor + 8 <= file.size();) {
     const std::uint8_t* header = file.data() + cursor;
     const std::uint32_t size = ReadU32(header + 4);
     const std::size_t data_start = cursor + 8;
     const std::size_t data_end = data_start + size;
     if (data_end > file.size()) return false;
-    if (FourCc(header, "anih") && size >= 36) {
-      default_jiffies = std::max(1u, ReadU32(file.data() + data_start + 28));
-    } else if (FourCc(header, "rate")) {
-      for (std::size_t offset = 0; offset + 4 <= size; offset += 4) {
-        rate.push_back(std::max(1u, ReadU32(file.data() + data_start + offset)));
-      }
-    } else if (FourCc(header, "seq ")) {
-      for (std::size_t offset = 0; offset + 4 <= size; offset += 4) {
-        sequence.push_back(ReadU32(file.data() + data_start + offset));
-      }
-    } else if (FourCc(header, "LIST") && size >= 4 &&
-               FourCc(file.data() + data_start, "fram")) {
+    if (FourCc(header, "LIST") && size >= 4 &&
+        FourCc(file.data() + data_start, "fram")) {
       std::size_t nested = data_start + 4;
       while (nested + 8 <= data_end) {
         const std::uint32_t nested_size = ReadU32(file.data() + nested + 4);
         const std::size_t nested_data = nested + 8;
         if (nested_data + nested_size > data_end) return false;
-        if (FourCc(file.data() + nested, "icon")) {
+        if (frames_.empty() && FourCc(file.data() + nested, "icon")) {
           DecodeIcon(file.data() + nested_data, nested_size);
         }
         nested = nested_data + nested_size + (nested_size & 1);
       }
     }
     cursor = data_end + (size & 1);
-  }
-  for (const std::uint32_t index : sequence) {
-    if (index < frames_.size()) sequence_.push_back(index);
-  }
-  const std::size_t steps = sequence_.empty() ? frames_.size() : sequence_.size();
-  for (std::size_t index = 0; index < steps; ++index) {
-    const std::uint32_t jiffies = index < rate.size() ? rate[index] : default_jiffies;
-    durations_.push_back(std::chrono::milliseconds(
-        std::max(1u, static_cast<std::uint32_t>(
-            std::lround(jiffies * 1000.0 / 60.0)))));
   }
   return true;
 }
@@ -168,23 +130,11 @@ bool CursorAssetCache::DecodeIcon(
 }
 
 const DecodedCursorFrame* CursorAssetCache::FrameAt(
-    std::chrono::steady_clock::time_point now,
+    std::chrono::steady_clock::time_point,
     std::size_t* frame_index) const {
-  if (frames_.empty() || sequence_.empty()) return nullptr;
-  auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-      now - started_at_);
-  std::int64_t remaining = total_duration_.count()
-      ? elapsed.count() % total_duration_.count()
-      : 0;
-  std::size_t step = 0;
-  while (step + 1 < durations_.size() &&
-         remaining >= durations_[step].count()) {
-    remaining -= durations_[step].count();
-    ++step;
-  }
-  const std::size_t index = sequence_[std::min(step, sequence_.size() - 1)];
-  if (frame_index) *frame_index = index;
-  return index < frames_.size() ? &frames_[index] : nullptr;
+  if (frames_.empty()) return nullptr;
+  if (frame_index) *frame_index = 0;
+  return &frames_.front();
 }
 
 }  // namespace cursor_host

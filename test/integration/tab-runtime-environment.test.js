@@ -28,7 +28,7 @@ test('tab payload reports the applied Chromium snapshot instead of pending setti
     },
     browserSettings: {
       os: 'win11',
-      language: { mode: 'ip' },
+      language: { mode: 'custom' },
     },
   }]]);
   const appliedProfile = {

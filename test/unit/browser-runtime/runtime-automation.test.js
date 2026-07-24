@@ -70,7 +70,7 @@ test('routes native automation only to a live managed Chromium process', async (
 test('fork automation commands are allowlisted without a browser automation extension', () => {
   for (const command of [
     'observe-page', 'capture-screenshot', 'perform-action', 'get-session-data',
-    'manage-tabs', 'clear-site-data',
+    'manage-tabs', 'clear-site-data', 'resolve-action-target', 'commit-resolved-action',
   ]) {
     assert.equal(ALLOWED_COMMANDS.has(command), true);
   }

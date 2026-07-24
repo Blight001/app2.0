@@ -60,30 +60,17 @@ function runtimeRestartRequired(proxyChanged, profileChanged) {
 }
 
 async function refreshTabBrowserProfile(deps, tab, instance, options) {
-  const { proxyChanged, forceProfileRefresh, nextProxyServer } = options;
+  const { proxyChanged, forceProfileRefresh } = options;
   if (typeof deps.resolveTabBrowserProfile !== 'function' || (!proxyChanged && !forceProfileRefresh)) return false;
   const previousProfile = tab.browserProfile && typeof tab.browserProfile === 'object' ? tab.browserProfile : {};
   const resolvedProfile = await deps.resolveTabBrowserProfile({
     browserSettings: tab.browserSettings || {},
-    httpGetUniversal: deps.httpGetUniversal,
     logger: deps.logger || console,
-    geoProxyServer: nextProxyServer,
-    forceGeoLookup: true,
   });
-  const profileUsable = resolvedProfile && (!nextProxyServer || resolvedProfile.proxyExitVerified !== false);
-  if (profileUsable) {
-    const changed = profileRuntimeChanged(previousProfile, resolvedProfile);
-    applyResolvedProfile(instance, tab, resolvedProfile);
-    return changed;
-  }
-  if (resolvedProfile && resolvedProfile.proxyExitVerified === false) {
-    callOptional(
-      deps.logger || console,
-      'warn',
-      `[ChromiumRuntime] 标签 ${tab.id} 的代理出口地区探测失败，保留当前浏览器环境且不因本次探测重启`,
-    );
-  }
-  return false;
+  if (!resolvedProfile) return false;
+  const changed = profileRuntimeChanged(previousProfile, resolvedProfile);
+  applyResolvedProfile(instance, tab, resolvedProfile);
+  return changed;
 }
 
 async function applyProxyToTab(deps, tab, context) {

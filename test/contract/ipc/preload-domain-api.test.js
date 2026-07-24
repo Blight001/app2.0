@@ -110,11 +110,13 @@ test('license methods expose named operations without caller-provided channels',
 test('browser, network, content and update operations bind fixed channels', async () => {
   const { calls, exposed } = loadPreloadApi();
   await exposed.aiFree.browser.getSettings({ historyId: 'history-1' });
+  await exposed.aiFree.browser.setExitIp({ exitIp: { ip: '203.0.113.8', region: 'jp' } });
   await exposed.aiFree.network.switchClashProxy({ name: 'node-a' });
   await exposed.aiFree.content.refreshTutorialUrl();
   await exposed.aiFree.updates.start({ version: '2.7.0' });
   assert.deepEqual(calls, [
     ['invoke', 'get-ai-free-browser-settings', { historyId: 'history-1' }],
+    ['invoke', 'set-browser-exit-ip', { exitIp: { ip: '203.0.113.8', region: 'jp' } }],
     ['invoke', 'switch-clash-mini-proxy', { name: 'node-a' }],
     ['invoke', 'refresh-tutorial-url', undefined],
     ['invoke', 'start-app-update', { version: '2.7.0' }],

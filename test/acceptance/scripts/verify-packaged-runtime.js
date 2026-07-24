@@ -114,7 +114,7 @@ function verifyCursorRuntime(resourcesDir) {
   const actualHash = crypto.createHash('sha256')
     .update(fs.readFileSync(executablePath))
     .digest('hex');
-  if (manifest.schemaVersion !== 1 || manifest.protocolVersion !== '1'
+  if (manifest.schemaVersion !== 1 || manifest.protocolVersion !== '2'
       || manifest.executable !== 'ai-free-cursor-host.exe'
       || manifest.sha256 !== actualHash) {
     throw new Error(`Cursor Runtime manifest 无效或哈希不匹配: ${manifestPath}`);

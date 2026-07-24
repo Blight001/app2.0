@@ -175,8 +175,8 @@ test('软件鼠标先等待统一 Sidecar，再用同一物理坐标提交输入
         cursorCalls.push(['move', tabId, point]);
         return { displayed: true, sequenceId: 7 };
       },
-      feedback(tabId, sequenceId) {
-        cursorCalls.push(['feedback', tabId, sequenceId]);
+      feedback(tabId, sequenceId, button) {
+        cursorCalls.push(['feedback', tabId, sequenceId, button]);
       },
     },
     windowBridge: {
@@ -204,10 +204,69 @@ test('软件鼠标先等待统一 Sidecar，再用同一物理坐标提交输入
   });
   assert.deepEqual(cursorCalls, [
     ['move', 'software-one', { x: 125, y: 230 }],
-    ['feedback', 'software-one', 7],
+    ['feedback', 'software-one', 7, 'left'],
   ]);
   assert.equal(actions[0].x, 125);
   assert.equal(actions[0].y, 230);
+});
+
+test('软件右键与拖拽映射为独立 UI 光标 API', async () => {
+  const cursorCalls = [];
+  const tools = createAiSoftwareUiTools({
+    target: { hwnd: '88', pid: 99, profileId: 'software-one', name: 'Demo' },
+    cursorSidecarService: {
+      async moveAndWait() {
+        return { displayed: true, sequenceId: 8 };
+      },
+      feedback(_tabId, _sequenceId, button) {
+        cursorCalls.push(['effect', button]);
+      },
+      async dragAndWait(tabId, start, end) {
+        cursorCalls.push(['drag', tabId, start, end]);
+        return { displayed: true, sequenceId: 9 };
+      },
+    },
+    windowBridge: {
+      async captureExternalWindow() {
+        return {
+          originX: 100, originY: 200,
+          sourceWidth: 800, sourceHeight: 600,
+          width: 800, height: 600,
+          visual_candidates: [],
+        };
+      },
+      async performExternalWindowActionAsync() {
+        return { success: true };
+      },
+    },
+  });
+  let observed = await tools.execute('software_ui', { action: 'observe' });
+  await tools.execute('software_ui', {
+    action: 'right_click',
+    observation_id: observed.observation_id,
+    x: 10,
+    y: 20,
+    refresh: false,
+  });
+  observed = await tools.execute('software_ui', { action: 'observe' });
+  await tools.execute('software_ui', {
+    action: 'drag',
+    observation_id: observed.observation_id,
+    x: 10,
+    y: 20,
+    end_x: 50,
+    end_y: 60,
+    refresh: false,
+  });
+  assert.deepEqual(cursorCalls, [
+    ['effect', 'right'],
+    [
+      'drag',
+      'software-one',
+      { x: 110, y: 220 },
+      { x: 150, y: 260 },
+    ],
+  ]);
 });
 
 test('AI 对话按显式选择绑定软件窗口', () => {

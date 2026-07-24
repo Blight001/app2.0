@@ -37,7 +37,7 @@ function createFixture(overrides = {}) {
     logger: { warn: (...args) => loggerMessages.push(args.join(' ')) },
     resolveTabBrowserProfile: async () => ({
       region: 'US', locale: 'en-US', acceptLanguage: 'en-US', timezoneId: 'America/New_York',
-      userAgent: 'fixture-agent', proxyExitVerified: true,
+      userAgent: 'fixture-agent',
     }),
     resolveTabs: () => tabs,
     updateTabs: () => { updates += 1; },
@@ -87,17 +87,19 @@ test('proxy application updates only selected profiles and avoids redundant rest
   assert.equal(fixture.updates(), 2);
 });
 
-test('profile lookup failure preserves environment while proxy changes', async () => {
+test('profile refresh applies injected region without proxy-exit probe gate', async () => {
   const fixture = createFixture({
-    resolveTabBrowserProfile: async () => ({ region: 'CN', proxyExitVerified: false }),
+    resolveTabBrowserProfile: async () => ({
+      region: 'CN', locale: 'zh-CN', acceptLanguage: 'zh-CN', timezoneId: 'Asia/Shanghai', userAgent: 'fixture-agent',
+    }),
   });
   const tab = { id: 'one', browserSettings: { proxy: { mode: 'magic' } }, browserProfile: { region: 'US' } };
   fixture.tabs.set(tab.id, tab);
   fixture.instances.set(tab.id, { profile: { proxyServer: '', proxyBypassList: '', locale: 'en-US' } });
   const result = await fixture.controller.applyClashMiniBrowserProxy(true, { forceProfileRefresh: true });
   assert.equal(result.updated, 1);
-  assert.equal(tab.browserProfile.region, 'US');
-  assert.match(fixture.loggerMessages[0], /探测失败/);
+  assert.equal(tab.browserProfile.region, 'CN');
+  assert.equal(fixture.instances.get('one').profile.locale, 'zh-CN');
 });
 
 test('shutdown and missing runtime instances are safe no-op paths', async () => {

@@ -338,11 +338,25 @@ app.whenReady().then(async () => {
   assert(observed.result.highlightedCount > 0);
   assert(observed.result.highlightedCount <= 20);
   assert.equal(observed.result.highlightDurationMs, 30000);
+  const resolvedTarget = await manager.chromium.instances
+    .get('phase3_b').commandClient.send('resolve-action-target', {
+    action: 'click',
+    selector: '#native-click-target',
+  });
+  assert.ok(resolvedTarget.result.targetPhysical);
+  assert.ok(resolvedTarget.result.resolvedInput);
+  assert.equal(cursorSidecarService.targets.has('phase3_b'), true);
+  assert.equal(cursorSidecarService.activeTabId, 'phase3_b');
+  const arrivalsBeforeClick = sidecarArrivals;
   const clicked = await manager.dispatchAutomation('phase3_b', 'perform-action', {
     action: 'click', selector: '#native-click-target',
   });
   assert.equal(clicked.result.inputMode, 'chromium-native-input');
-  assert.equal(sidecarArrivals, 1, '两阶段动作必须等待 Sidecar ARRIVED');
+  assert.equal(
+    sidecarArrivals,
+    arrivalsBeforeClick + 1,
+    `两阶段动作必须等待 Sidecar ARRIVED，实际计数 ${sidecarArrivals}`,
+  );
   const clickRequest = await waitForRequest((item) => item.path === '/native-click');
   const clickQuery = new URLSearchParams(clickRequest.query);
   assert.equal(clickQuery.get('trusted'), 'true');

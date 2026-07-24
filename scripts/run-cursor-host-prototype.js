@@ -1,18 +1,15 @@
 'use strict';
 
 const crypto = require('crypto');
+const fs = require('fs');
 const net = require('net');
 const { spawn } = require('child_process');
 const { buildCursorHost, outputFile } = require('./build-cursor-host');
 const {
+  PROTOCOL_VERSION,
   createFrameDecoder,
   encodeMessage,
 } = require('../src/app/main/features/cursor-sidecar/cursor-sidecar-protocol');
-
-function readOption(name) {
-  const index = process.argv.indexOf(name);
-  return index >= 0 ? String(process.argv[index + 1] || '').trim() : '';
-}
 
 function connectWithRetry(pipePath, attempts = 100) {
   return new Promise((resolve, reject) => {
@@ -29,13 +26,48 @@ function connectWithRetry(pipePath, attempts = 100) {
   });
 }
 
+function command(socket, sessionId, type, input = {}) {
+  socket.write(encodeMessage({ type, sessionId, ...input }));
+}
+
+function demo(socket, sessionId) {
+  command(socket, sessionId, 'SHOW_CURSOR', {
+    positionPhysical: { x: 500, y: 350 },
+  });
+  command(socket, sessionId, 'MOVE_CURSOR', {
+    tabId: 'prototype',
+    sequenceId: 1,
+    targetPhysical: { x: 800, y: 500 },
+    durationMs: 600,
+    easing: 'ease-in-out',
+  });
+  setTimeout(() => command(socket, sessionId, 'CLICK_EFFECT', {
+    tabId: 'prototype',
+    sequenceId: 1,
+    button: 'left',
+  }), 700);
+  setTimeout(() => {
+    command(socket, sessionId, 'POINTER_DOWN', { button: 'left' });
+    command(socket, sessionId, 'MOVE_CURSOR', {
+      tabId: 'prototype',
+      sequenceId: 2,
+      targetPhysical: { x: 600, y: 650 },
+      durationMs: 800,
+      easing: 'ease-in-out',
+    });
+  }, 1100);
+  setTimeout(() => {
+    command(socket, sessionId, 'POINTER_UP', { button: 'left' });
+    command(socket, sessionId, 'CLICK_EFFECT', {
+      tabId: 'prototype',
+      sequenceId: 2,
+      button: 'right',
+    });
+  }, 2000);
+}
+
 async function runPrototype() {
-  const ownerHwnd = readOption('--owner-hwnd');
-  const targetHwnd = readOption('--target-hwnd');
-  if (!/^\d+$/.test(ownerHwnd) || !/^\d+$/.test(targetHwnd)) {
-    throw new Error('请提供十进制 --owner-hwnd 和 --target-hwnd');
-  }
-  if (!require('fs').existsSync(outputFile)) buildCursorHost();
+  if (!fs.existsSync(outputFile)) buildCursorHost({ stage: false });
   const sessionId = crypto.randomBytes(16).toString('hex');
   const token = crypto.randomBytes(32).toString('hex');
   const pipeName = `ai_free_cursor_${sessionId}`;
@@ -44,37 +76,30 @@ async function runPrototype() {
     '--pipe', pipeName,
     '--token', token,
     '--session', sessionId,
-    '--owner-hwnd', ownerHwnd,
-    '--target-hwnd', targetHwnd,
   ], { stdio: 'ignore', windowsHide: true });
   const socket = await connectWithRetry(pipePath);
   socket.on('data', createFrameDecoder((message) => {
+    if (message.type === 'READY') demo(socket, sessionId);
     if (message.type === 'ERROR') {
       console.error(`[cursor-prototype] Sidecar 错误: ${message.code}`);
     }
   }));
-  socket.write(encodeMessage({
-    type: 'HELLO',
-    version: '1',
+  command(socket, sessionId, 'HELLO', {
+    version: PROTOCOL_VERSION,
     pid: process.pid,
     token,
-    sessionId,
-  }));
+  });
   let requestId = 0;
   const heartbeat = setInterval(() => {
-    if (socket.destroyed) return;
     requestId += 1;
-    socket.write(encodeMessage({
-      type: 'PING',
-      requestId: String(requestId),
-      sessionId,
-    }));
+    command(socket, sessionId, 'PING', { requestId: String(requestId) });
   }, 100);
-  console.log(`[cursor-prototype] 已连接 Sidecar PID ${child.pid}，按 Ctrl+C 退出`);
+  console.log(`[cursor-prototype] 已连接 UI Cursor PID ${child.pid}，按 Ctrl+C 退出`);
   const shutdown = () => {
     clearInterval(heartbeat);
     if (!socket.destroyed) {
-      socket.end(encodeMessage({ type: 'SHUTDOWN', sessionId }));
+      command(socket, sessionId, 'SHUTDOWN');
+      socket.end();
     }
   };
   process.once('SIGINT', shutdown);

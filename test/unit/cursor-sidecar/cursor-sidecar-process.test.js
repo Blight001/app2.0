@@ -18,11 +18,11 @@ test('cursor runtime rejects a manifest whose executable hash changed', () => {
     fs.writeFileSync(path.join(directory, 'ai-free-cursor-host.exe'), executable);
     fs.writeFileSync(path.join(directory, 'cursor-runtime-manifest.json'), JSON.stringify({
       schemaVersion: 1,
-      protocolVersion: '1',
+      protocolVersion: '2',
       executable: 'ai-free-cursor-host.exe',
       sha256: crypto.createHash('sha256').update(executable).digest('hex'),
     }));
-    assert.equal(verifyRuntime(directory).manifest.protocolVersion, '1');
+    assert.equal(verifyRuntime(directory).manifest.protocolVersion, '2');
     fs.writeFileSync(path.join(directory, 'ai-free-cursor-host.exe'), 'tampered');
     assert.throws(() => verifyRuntime(directory), {
       code: 'CURSOR_SIDECAR_INTEGRITY_FAILED',

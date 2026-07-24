@@ -135,6 +135,7 @@ contextBridge.exposeInMainWorld('aiFree', Object.freeze({
     renameHistoryBatch: invokeChannel('rename-browser-history-batch'),
     resetSettings: invokeChannel('reset-ai-free-browser-settings'),
     resolveDataClearConfirm: invokeChannel('resolve-browser-data-clear-confirm'),
+    setExitIp: invokeChannel('set-browser-exit-ip'),
     setSettings: invokeChannel('set-ai-free-browser-settings'),
     testProxy: invokeChannel('test-ai-free-proxy'),
     onAccountListUpdated: subscribeChannel('account-list-updated'),

@@ -105,11 +105,16 @@ class BrowserRuntimeManager {
   }
   async show(profileId, type) {
     const state = await this.runtimeFor(type).show(profileId);
+    this.cursorSidecarService?.setTargetVisibility?.(profileId, true);
     await this.syncCursorTarget(profileId, type);
     await this.cursorSidecarService?.activateTarget?.(profileId);
     return state;
   }
-  async hide(profileId, type) { return this.runtimeFor(type).hide(profileId); }
+  async hide(profileId, type) {
+    const state = await this.runtimeFor(type).hide(profileId);
+    this.cursorSidecarService?.setTargetVisibility?.(profileId, false);
+    return state;
+  }
   async resize(profileId, type, bounds) {
     const state = await this.runtimeFor(type).resize(profileId, bounds);
     await this.syncCursorTarget(profileId, type);
@@ -161,7 +166,10 @@ class BrowserRuntimeManager {
         resolvedInput: body.resolvedInput,
       }, { timeoutMs: payload.timeoutMs + 2000 });
       if (display?.sequenceId) {
-        this.cursorSidecarService?.feedback?.(profileId, display.sequenceId);
+        const button = payload.action === 'right_click' ? 'right' : 'left';
+        this.cursorSidecarService?.feedback?.(
+          profileId, display.sequenceId, button,
+        );
       }
       return committed;
     });

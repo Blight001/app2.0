@@ -9,10 +9,22 @@ const DEFAULT_AI_FREE_BROWSER_SETTINGS = Object.freeze({
   homepage: { mode: 'default', url: '' },
   ua: { mode: 'default', value: '' },
   secChUa: { mode: 'default', brands: [] },
-  language: { mode: 'ip', value: '' },
-  timezone: { mode: 'ip', value: '' },
+  language: { mode: 'custom', value: '' },
+  timezone: { mode: 'custom', value: '' },
   webrtc: { mode: 'replace' },
-  geolocation: { permission: 'ask', mode: 'ip', longitude: 0, latitude: 0, accuracy: 100 },
+  geolocation: { permission: 'ask', mode: 'custom', longitude: 0, latitude: 0, accuracy: 100 },
+  // 出口 IP/地区由外部检测方案或设置/IPC 写入，不再内置自动探测。
+  exitIp: {
+    ip: '',
+    region: '',
+    countryCode: '',
+    country: '',
+    regionName: '',
+    city: '',
+    timezoneId: '',
+    longitude: null,
+    latitude: null,
+  },
   resolution: { mode: 'follow', width: 1366, height: 768 },
   fonts: { mode: 'system', seed: '' },
   canvas: { mode: 'noise', seed: '' },
@@ -88,10 +100,45 @@ function normalizeAutomationSettings(source) {
   };
 }
 
+/** 旧数据 mode:'ip' 映射为 custom；仅保留 custom。 */
+function pickCustomMode(value, fallback = 'custom') {
+  const mode = String(value || '').toLowerCase();
+  if (mode === 'ip' || mode === 'custom') return 'custom';
+  return fallback;
+}
+
+function optionalCoord(value) {
+  if (value === '' || value == null) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeExitIpSettings(source) {
+  const exitIp = object(source.exitIp);
+  const defaults = DEFAULT_AI_FREE_BROWSER_SETTINGS.exitIp;
+  const longitude = optionalCoord(exitIp.longitude);
+  const latitude = optionalCoord(exitIp.latitude);
+  return {
+    ip: text(exitIp.ip ?? source.sourceIp, defaults.ip, 64),
+    region: text(exitIp.region ?? source.region ?? source.browserRegion, defaults.region, 32).toLowerCase(),
+    countryCode: text(exitIp.countryCode ?? exitIp.country_code, defaults.countryCode, 8).toUpperCase(),
+    country: text(exitIp.country, defaults.country, 80),
+    regionName: text(exitIp.regionName ?? exitIp.region_name, defaults.regionName, 80),
+    city: text(exitIp.city, defaults.city, 80),
+    timezoneId: text(exitIp.timezoneId ?? exitIp.timezone_id, defaults.timezoneId, 100),
+    longitude: longitude == null ? null : Math.max(-180, Math.min(180, longitude)),
+    latitude: latitude == null ? null : Math.max(-90, Math.min(90, latitude)),
+  };
+}
+
 function applyFlatBrowserSettingAliases(normalized, width, height) {
   normalized.userAgent = normalized.ua.mode === 'custom' ? normalized.ua.value : '';
   normalized.locale = normalized.language.mode === 'custom' ? normalized.language.value : '';
   normalized.timezoneId = normalized.timezone.mode === 'custom' ? normalized.timezone.value : '';
+  if (!normalized.timezoneId && normalized.exitIp.timezoneId) {
+    normalized.timezoneId = normalized.exitIp.timezoneId;
+  }
+  if (normalized.exitIp.region) normalized.region = normalized.exitIp.region;
   normalized.acceptLanguage = normalized.locale ? `${normalized.locale},${normalized.locale.split('-')[0]};q=0.9,en;q=0.8` : '';
   normalized.hardwareConcurrency = normalized.cpu;
   normalized.deviceMemory = normalized.memory;
@@ -102,8 +149,7 @@ function applyFlatBrowserSettingAliases(normalized, width, height) {
   return normalized;
 }
 
-function normalizeAiFreeBrowserSettings(input = {}) {
-  const source = object(input), defaults = DEFAULT_AI_FREE_BROWSER_SETTINGS;
+function normalizeCoreBrowserSettings(source, defaults) {
   const proxy = object(source.proxy);
   const homepage = object(source.homepage);
   const ua = object(source.ua);
@@ -112,22 +158,7 @@ function normalizeAiFreeBrowserSettings(input = {}) {
   const timezone = object(source.timezone);
   const webrtc = object(source.webrtc);
   const geolocation = object(source.geolocation);
-  const resolution = object(source.resolution);
-  const fonts = object(source.fonts);
-  const canvas = object(source.canvas);
-  const webglImage = object(source.webglImage);
-  const webglMetadata = object(source.webglMetadata);
-  const webgpu = object(source.webgpu);
-  const audioContext = object(source.audioContext);
-  const clientRects = object(source.clientRects);
-  const speechVoices = object(source.speechVoices);
-  const deviceName = object(source.deviceName);
-  const macAddress = object(source.macAddress);
-  const portScanProtection = object(source.portScanProtection);
-  const launchArgs = object(source.launchArgs);
-  const width = num(resolution.width ?? source.screen?.width, defaults.resolution.width, 800, 7680, true);
-  const height = num(resolution.height ?? source.screen?.height, defaults.resolution.height, 600, 4320, true);
-  const normalized = {
+  return {
     os: pick(source.os, ['win7', 'win8', 'win10', 'win11'], defaults.os),
     browserVersion: text(source.browserVersion, '', 30).replace(/[^0-9.]/g, ''),
     kernelVersion: text(source.kernelVersion, 'auto', 60),
@@ -145,15 +176,34 @@ function normalizeAiFreeBrowserSettings(input = {}) {
     homepage: { mode: pick(homepage.mode, ['default', 'custom'], defaults.homepage.mode), url: text(homepage.url, '', 2048) },
     ua: { mode: pick(ua.mode, ['default', 'custom'], defaults.ua.mode), value: text(ua.value ?? source.userAgent, '', 2048) },
     secChUa: { mode: pick(secChUa.mode, ['default', 'custom'], defaults.secChUa.mode), brands: normalizeBrands(secChUa.brands) },
-    language: { mode: pick(language.mode, ['ip', 'custom'], defaults.language.mode), value: text(language.value ?? source.locale, '', 80) },
-    timezone: { mode: pick(timezone.mode, ['ip', 'custom'], defaults.timezone.mode), value: text(timezone.value ?? source.timezoneId, '', 100) },
+    language: { mode: pickCustomMode(language.mode, defaults.language.mode), value: text(language.value ?? source.locale, '', 80) },
+    timezone: { mode: pickCustomMode(timezone.mode, defaults.timezone.mode), value: text(timezone.value ?? source.timezoneId, '', 100) },
     webrtc: { mode: pick(webrtc.mode, ['replace', 'allow', 'block'], defaults.webrtc.mode) },
     geolocation: {
       permission: pick(geolocation.permission, ['ask', 'allow', 'block'], defaults.geolocation.permission),
-      mode: pick(geolocation.mode, ['ip', 'custom'], defaults.geolocation.mode),
+      mode: pickCustomMode(geolocation.mode, defaults.geolocation.mode),
       longitude: num(geolocation.longitude, 0, -180, 180), latitude: num(geolocation.latitude, 0, -90, 90),
       accuracy: num(geolocation.accuracy, 100, 1, 100000),
     },
+    exitIp: normalizeExitIpSettings(source),
+  };
+}
+
+function normalizeFingerprintBrowserSettings(source, defaults, width, height) {
+  const resolution = object(source.resolution);
+  const fonts = object(source.fonts);
+  const canvas = object(source.canvas);
+  const webglImage = object(source.webglImage);
+  const webglMetadata = object(source.webglMetadata);
+  const webgpu = object(source.webgpu);
+  const audioContext = object(source.audioContext);
+  const clientRects = object(source.clientRects);
+  const speechVoices = object(source.speechVoices);
+  const deviceName = object(source.deviceName);
+  const macAddress = object(source.macAddress);
+  const portScanProtection = object(source.portScanProtection);
+  const launchArgs = object(source.launchArgs);
+  return {
     resolution: { mode: pick(resolution.mode, ['follow', 'custom'], defaults.resolution.mode), width, height },
     fonts: { mode: pick(fonts.mode, ['system', 'random'], defaults.fonts.mode), seed: seed(fonts.seed) },
     canvas: { mode: pick(canvas.mode, ['default', 'noise'], defaults.canvas.mode), seed: seed(canvas.seed) },
@@ -181,7 +231,18 @@ function normalizeAiFreeBrowserSettings(input = {}) {
     launchArgs: { mode: pick(launchArgs.mode, ['default', 'custom'], defaults.launchArgs.mode), value: text(launchArgs.value, '', 10000) },
     automation: normalizeAutomationSettings(source),
   };
+}
 
+function normalizeAiFreeBrowserSettings(input = {}) {
+  const source = object(input);
+  const defaults = DEFAULT_AI_FREE_BROWSER_SETTINGS;
+  const resolution = object(source.resolution);
+  const width = num(resolution.width ?? source.screen?.width, defaults.resolution.width, 800, 7680, true);
+  const height = num(resolution.height ?? source.screen?.height, defaults.resolution.height, 600, 4320, true);
+  const normalized = {
+    ...normalizeCoreBrowserSettings(source, defaults),
+    ...normalizeFingerprintBrowserSettings(source, defaults, width, height),
+  };
   return applyFlatBrowserSettingAliases(normalized, width, height);
 }
 

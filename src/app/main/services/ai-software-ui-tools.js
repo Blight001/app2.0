@@ -248,6 +248,27 @@ class AiSoftwareUiTools {
     throw new Error(`不支持的软件 UI 操作: ${action}`);
   }
 
+  async displayPointerAction(action, options) {
+    try {
+      if (action === 'drag') {
+        return await this.cursorSidecarService?.dragAndWait?.(
+          this.target.profileId,
+          { x: options.x, y: options.y },
+          { x: options.endX, y: options.endY },
+          { durationMs: 260 },
+        );
+      }
+      if (MOUSE_ACTIONS.has(action)) {
+        return await this.cursorSidecarService?.moveAndWait?.(
+          this.target.profileId,
+          { x: options.x, y: options.y },
+          { durationMs: 180 },
+        );
+      }
+    } catch (_) {}
+    return null;
+  }
+
   async perform(action, args) {
     const options = this.buildActionOptions(action, args);
     if (action === 'type' || action === 'press_key') {
@@ -258,25 +279,17 @@ class AiSoftwareUiTools {
         { ...options, action: 'focus', text: '' },
       );
     }
-    let display = null;
-    if (MOUSE_ACTIONS.has(action)) {
-      try {
-        display = await this.cursorSidecarService?.moveAndWait?.(
-          this.target.profileId,
-          { x: options.x, y: options.y },
-          { durationMs: 180 },
-        );
-      } catch (_) {}
-    }
+    const display = await this.displayPointerAction(action, options);
     const actionResult = await callBridge(
       this.windowBridge,
       'performExternalWindowActionAsync',
       'performExternalWindowAction',
       options,
     );
-    if (display?.sequenceId) {
+    if (display?.sequenceId && MOUSE_ACTIONS.has(action)) {
+      const button = action === 'right_click' ? 'right' : 'left';
       this.cursorSidecarService?.feedback?.(
-        this.target.profileId, display.sequenceId,
+        this.target.profileId, display.sequenceId, button,
       );
     }
     this.clearObservationState();

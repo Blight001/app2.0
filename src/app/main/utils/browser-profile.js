@@ -4,24 +4,9 @@ const {
   getBrowserRegionPreset,
   inferBrowserRegionKeyFromLocale,
 } = require('./browser-region');
-const { callOptional, firstNonNull, firstText } = require('../../shared/safe-values');
+const { firstNonNull, firstText } = require('../../shared/safe-values');
 
 const TAB_PLATFORM = 'Win32';
-// Cloudflare trace 作为权威首选。其余服务可能被 Clash 的国内规则分流为
-// DIRECT，不能再与 Cloudflare 并发抢答，否则较快的中国直连结果会误判出口。
-const GEO_IP_PRIMARY_ENDPOINT = 'https://www.cloudflare.com/cdn-cgi/trace';
-const GEO_IP_FALLBACK_ENDPOINTS = [
-  'https://ipwho.is/',
-  'https://ipinfo.io/json',
-  'https://api.ip.sb/geoip',
-];
-const GEO_IP_REQUEST_TIMEOUT_MS = 5000;
-const GEO_IP_PRIMARY_TIMEOUT_MS = 3000;
-const GEO_IP_OVERALL_TIMEOUT_MS = 6000;
-const GEO_IP_CACHE_TTL_MS = 5 * 60 * 1000;
-
-const cachedGeoProfiles = new Map();
-const pendingGeoProfiles = new Map();
 
 function text(...values) {
   return firstText(...values).trim();
@@ -55,12 +40,6 @@ function normalizeRegionKey(region) {
   return String(region || '').trim().toLowerCase().replace(/\s+/g, '');
 }
 
-function shouldResolveProfileFromIp(settings = {}) {
-  return settings.language?.mode === 'ip'
-    || settings.timezone?.mode === 'ip'
-    || settings.geolocation?.mode === 'ip';
-}
-
 function inferRegionFromCountry(countryCode) {
   const normalized = normalizeRegionKey(countryCode).replace(/[^a-z0-9]/g, '');
   if (REGION_PRESETS[normalized]) return normalized;
@@ -72,69 +51,6 @@ function inferRegionFromCountry(countryCode) {
     unitedstates: 'us', usa: 'us', america: 'us', canada: 'ca',
     australia: 'au', netherlands: 'nl', india: 'in', russia: 'ru', thailand: 'th',
   })[normalized] || null;
-}
-
-function inferRegionFromIpInfo(info = {}) {
-  const country = info.country_code || info.countryCode || info.country
-    || info.country_name || info.countryName || '';
-  return inferRegionFromCountry(country)
-    || inferBrowserRegionKeyFromLocale(info.locale || info.language || '');
-}
-
-function parseCloudflareTrace(raw) {
-  const text = typeof raw === 'string'
-    ? raw
-    : (raw && typeof raw.raw === 'string' ? raw.raw : '');
-  if (!/(^|\n)\s*ip=/i.test(text) || !/(^|\n)\s*loc=/i.test(text)) return null;
-
-  const fields = {};
-  for (const line of text.split(/\r?\n/)) {
-    const separator = line.indexOf('=');
-    if (separator <= 0) continue;
-    const key = line.slice(0, separator).trim();
-    const value = line.slice(separator + 1).trim();
-    if (key) fields[key] = value;
-  }
-  if (!fields.ip || !fields.loc) return null;
-  return {
-    ip: fields.ip,
-    country_code: fields.loc,
-    country: fields.loc,
-  };
-}
-
-function buildGeoProfile(response, endpoint) {
-  if (response && response.ok === false) return null;
-  const body = response && response.body && typeof response.body === 'object'
-    ? response.body
-    : parseCloudflareTrace(response && (response.body || response.raw));
-  if (!body || body.success === false || body.error === true) return null;
-
-  const regionKey = inferRegionFromIpInfo(body);
-  if (!regionKey) return null;
-
-  const country = text(body.country_code, body.countryCode, body.country, body.country_name, body.countryName);
-  const countryCode = text(
-    body.country_code,
-    body.countryCode,
-    /^[a-z]{2}$/i.test(country) ? country : '',
-  );
-  const rawTimezone = body.timezone;
-  const timezoneValue = rawTimezone && typeof rawTimezone === 'object'
-    ? firstNonNull(rawTimezone.id, rawTimezone.name, rawTimezone.timezone)
-    : rawTimezone;
-
-  return {
-    regionKey,
-    sourceIp: text(body.ip, body.query, body.ip_address, body.ipAddress),
-    sourceCountryCode: countryCode,
-    sourceCountry: text(body.country_name, body.countryName, body.country),
-    sourceRegion: text(body.region, body.region_name, body.regionName),
-    sourceCity: text(body.city),
-    timezoneId: text(timezoneValue, body.timezone_id, body.timezoneId),
-    endpoint,
-    raw: body,
-  };
 }
 
 function getAcceptLanguage(locale) {
@@ -219,7 +135,20 @@ function resolveBrowserIdentity(settings, geoInfo, preset) {
   const os = text(settings.os, 'win11').toLowerCase();
   const userAgent = resolveBrowserUserAgent(settings, os, major);
   const brands = resolveBrowserUaBrands(settings, major);
-  return { acceptLanguage: text(settings.accept_language, settings.acceptLanguage, preset && preset.acceptLanguage, getAcceptLanguage(locale)), brands, locale, major, os, timezoneId, userAgent };
+  return {
+    acceptLanguage: text(
+      settings.accept_language,
+      settings.acceptLanguage,
+      preset && preset.acceptLanguage,
+      getAcceptLanguage(locale),
+    ),
+    brands,
+    locale,
+    major,
+    os,
+    timezoneId,
+    userAgent,
+  };
 }
 
 function resolvePlatformVersion(settings, os) {
@@ -231,16 +160,52 @@ function resolveFingerprintSettings(settings, geoInfo) {
   const geolocation = settings.geolocation && typeof settings.geolocation === 'object'
     ? settings.geolocation
     : null;
-  if (!geolocation || geolocation.mode !== 'ip') return { ...settings, geolocation };
+  if (!geolocation) return { ...settings, geolocation };
   const raw = geoInfo.raw && typeof geoInfo.raw === 'object' ? geoInfo.raw : {};
+  const hasExitCoords = Number.isFinite(Number(raw.longitude)) || Number.isFinite(Number(raw.latitude))
+    || Number.isFinite(Number(raw.lon)) || Number.isFinite(Number(raw.lat));
+  if (!hasExitCoords) return { ...settings, geolocation };
+  const lonEmpty = !Number(geolocation.longitude) && !Number(geolocation.latitude);
+  if (!lonEmpty) return { ...settings, geolocation };
   return {
     ...settings,
     geolocation: {
       ...geolocation,
       longitude: Number(firstNonNull(raw.longitude, raw.lon, geolocation.longitude, 0)),
       latitude: Number(firstNonNull(raw.latitude, raw.lat, geolocation.latitude, 0)),
-      resolvedFromIp: Boolean(geoInfo.raw),
+      resolvedFromExitIp: true,
     },
+  };
+}
+
+/**
+ * 从设置中的 exitIp（外部检测方案/IPC 注入）构建 geoInfo。
+ * 不再发起任何外网 IP 探测。
+ */
+function buildGeoInfoFromSettings(settings = {}) {
+  const exitIp = settings.exitIp && typeof settings.exitIp === 'object' ? settings.exitIp : {};
+  const sourceIp = text(exitIp.ip, settings.sourceIp);
+  const countryCode = text(exitIp.countryCode, exitIp.country_code);
+  const regionFromExit = normalizeRegionKey(exitIp.region);
+  const regionKey = (regionFromExit && REGION_PRESETS[regionFromExit] && regionFromExit)
+    || inferRegionFromCountry(countryCode)
+    || '';
+  const timezoneId = text(exitIp.timezoneId, exitIp.timezone_id, settings.timezoneId);
+  const longitude = exitIp.longitude;
+  const latitude = exitIp.latitude;
+  const raw = {};
+  if (Number.isFinite(Number(longitude))) raw.longitude = Number(longitude);
+  if (Number.isFinite(Number(latitude))) raw.latitude = Number(latitude);
+  return {
+    regionKey,
+    sourceIp,
+    sourceCountryCode: countryCode,
+    sourceCountry: text(exitIp.country),
+    sourceRegion: text(exitIp.regionName, exitIp.region_name),
+    sourceCity: text(exitIp.city),
+    timezoneId,
+    endpoint: sourceIp || regionKey ? 'settings.exitIp' : '',
+    raw,
   };
 }
 
@@ -299,207 +264,34 @@ function buildBrowserProfileFromRegion(regionKey, settings = {}, geoInfo = {}) {
   };
 }
 
-function finishGeoProbe(state, profile) {
-  if (state.resolved) return;
-  state.resolved = true;
-  if (state.primaryTimer) clearTimeout(state.primaryTimer);
-  if (state.overallTimer) clearTimeout(state.overallTimer);
-  if (profile) {
-    cachedGeoProfiles.set(state.cacheKey, { profile, cachedAt: Date.now() });
-    callOptional(state.logger, 'info', '[BrowserProfile] 出口 IP 地区探测成功:', {
-      ip: profile.sourceIp,
-      countryCode: profile.sourceCountryCode,
-      country: profile.sourceCountry,
-      region: profile.regionKey,
-      timezoneId: profile.timezoneId,
-      endpoint: profile.endpoint,
-      proxyServer: state.proxyServer || 'direct',
-    });
-  } else {
-    const reason = state.failures.filter(Boolean).join('; ') || `超过 ${GEO_IP_OVERALL_TIMEOUT_MS}ms`;
-    callOptional(state.logger, 'warn', '[BrowserProfile] IP 地区探测不可用，已回退到系统地区:', reason);
-  }
-  state.resolve(profile);
-}
-
-function validateGeoProbeProfile(state, endpoint, profile) {
-  const host = new URL(endpoint).hostname;
-  if (!profile) {
-    state.failures.push(`${host}: 无有效地区数据`);
-    return null;
-  }
-  if (state.rejectDirectIp && text(profile.sourceIp) === state.rejectDirectIp) {
-    state.failures.push(`${host}: 出口=直连IP(${state.rejectDirectIp})，未过代理节点`);
-    return null;
-  }
-  if (state.rejectDirectRegionKey === 'cn' && profile.regionKey === state.rejectDirectRegionKey) {
-    state.failures.push(`${host}: 代理出口仍为直连地区(${state.rejectDirectRegionKey.toUpperCase()})`);
-    return null;
-  }
-  return profile;
-}
-
-function geoRequestHeaders(endpoint) {
-  if (!endpoint.includes('/cdn-cgi/trace')) return undefined;
-  return {
-    Accept: 'text/plain, application/json;q=0.9',
-    'Cache-Control': 'no-cache',
-    Pragma: 'no-cache',
-  };
-}
-
-function requestGeoEndpoint(state, endpoint, timeoutMs = GEO_IP_REQUEST_TIMEOUT_MS) {
-  return Promise.resolve()
-    .then(() => state.httpGetUniversal(endpoint, timeoutMs, {
-      proxyServer: state.proxyServer,
-      headers: geoRequestHeaders(endpoint),
-    }))
-    .then((response) => validateGeoProbeProfile(state, endpoint, buildGeoProfile(response, endpoint)))
-    .catch((error) => {
-      state.failures.push(`${new URL(endpoint).hostname}: ${text(error && error.message, error)}`);
-      return null;
-    });
-}
-
-function startGeoFallbacks(state) {
-  if (state.fallbackStarted || state.resolved) return;
-  state.fallbackStarted = true;
-  let completed = 0;
-  for (const endpoint of GEO_IP_FALLBACK_ENDPOINTS) {
-    requestGeoEndpoint(state, endpoint)
-      .then((profile) => { if (profile) finishGeoProbe(state, profile); })
-      .finally(() => {
-        completed += 1;
-        if (completed === GEO_IP_FALLBACK_ENDPOINTS.length) finishGeoProbe(state, null);
-      });
-  }
-}
-
-function startGeoProbe(state) {
-  state.overallTimer = setTimeout(() => finishGeoProbe(state, null), GEO_IP_OVERALL_TIMEOUT_MS);
-  state.primaryTimer = setTimeout(() => {
-    state.failures.push(`www.cloudflare.com: 超过 ${GEO_IP_PRIMARY_TIMEOUT_MS}ms，启用备用检测`);
-    startGeoFallbacks(state);
-  }, GEO_IP_PRIMARY_TIMEOUT_MS);
-  requestGeoEndpoint(state, GEO_IP_PRIMARY_ENDPOINT, GEO_IP_PRIMARY_TIMEOUT_MS)
-    .then((profile) => {
-      if (profile) finishGeoProbe(state, profile);
-      else {
-        clearTimeout(state.primaryTimer);
-        startGeoFallbacks(state);
-      }
-    });
-}
-
-function createGeoProbePromise(httpGetUniversal, logger, options, cacheKey, proxyServer) {
-  return new Promise((resolve) => {
-    const state = {
-      cacheKey,
-      failures: [],
-      fallbackStarted: false,
-      httpGetUniversal,
-      logger,
-      overallTimer: null,
-      primaryTimer: null,
-      proxyServer,
-      rejectDirectIp: text(options.rejectDirectIp),
-      rejectDirectRegionKey: normalizeRegionKey(options.rejectDirectRegionKey || ''),
-      resolve,
-      resolved: false,
-    };
-    startGeoProbe(state);
-  });
-}
-
-async function resolveGeoIpInfo(httpGetUniversal, logger = console, options = {}) {
-  const proxyServer = text(options.proxyServer);
-  const cacheKey = proxyServer || 'direct';
-  const cached = cachedGeoProfiles.get(cacheKey);
-  if (options.forceRefresh !== true && cached && Date.now() - cached.cachedAt < GEO_IP_CACHE_TTL_MS) {
-    return cached.profile;
-  }
-  if (pendingGeoProfiles.has(cacheKey)) return pendingGeoProfiles.get(cacheKey);
-  if (typeof httpGetUniversal !== 'function') return null;
-  callOptional(logger, 'info', `[BrowserProfile] 开始按出口 IP 探测地区（${proxyServer ? `代理 ${proxyServer}` : '直连'}）`);
-  const pending = createGeoProbePromise(httpGetUniversal, logger, options, cacheKey, proxyServer)
-    .finally(() => { pendingGeoProfiles.delete(cacheKey); });
-  pendingGeoProfiles.set(cacheKey, pending);
-  return pending;
-}
-
-async function resolveDirectBrowserProfile(options, settings, localeRegion) {
-  const ipInfo = await resolveGeoIpInfo(options.httpGetUniversal, options.logger, {
-    proxyServer: '',
-    forceRefresh: options.forceGeoLookup === true,
-  });
-  return buildBrowserProfileFromRegion(
-    ipInfo && ipInfo.regionKey || localeRegion || 'us',
-    settings,
-    ipInfo || {},
-  );
-}
-
-async function resolveProxyBrowserProfile(options, settings, localeRegion, proxyServer) {
-  const direct = await resolveGeoIpInfo(options.httpGetUniversal, options.logger, { proxyServer: '' });
-  const baselineIp = text(direct && direct.sourceIp);
-  const proxied = await resolveGeoIpInfo(options.httpGetUniversal, options.logger, {
-    proxyServer,
-    forceRefresh: options.forceGeoLookup === true,
-    rejectDirectIp: baselineIp,
-    rejectDirectRegionKey: direct && direct.regionKey || '',
-  });
-  if (proxied) {
-    return buildBrowserProfileFromRegion(proxied.regionKey || localeRegion || 'us', settings, proxied);
-  }
-  callOptional(
-    options.logger,
-    'warn',
-    '[BrowserProfile] 代理已启用，但所有探测端点均从直连出口返回，判定代理未改变出口',
-    { proxyServer, baselineIp: baselineIp || '未知' },
-  );
-  const fallback = buildBrowserProfileFromRegion(
-    direct && direct.regionKey || localeRegion || 'us',
-    settings,
-    direct || {},
-  );
-  fallback.regionLabel = `${fallback.regionLabel || '直连'}（代理未改变出口）`;
-  fallback.proxyExitVerified = false;
-  return fallback;
-}
-
+/**
+ * 纯本地解析浏览器环境。出口 IP/地区仅来自 settings.exitIp 或显式 region。
+ * 兼容保留 httpGetUniversal / forceGeoLookup / geoProxyServer / skipGeoLookup 参数，但忽略探测。
+ */
 async function resolveTabBrowserProfile(options = {}) {
   const settings = options.browserSettings && typeof options.browserSettings === 'object'
     ? options.browserSettings
     : {};
+  const geoInfo = buildGeoInfoFromSettings(settings);
   const explicitRegion = normalizeRegionKey(firstNonNull(
+    geoInfo.regionKey,
     settings.region,
     settings.browser_region,
     settings.browserRegion,
     '',
   ));
-  // 历史窗口可能保留旧的 region 字段。只要任一配置要求跟随 IP，
-  // 就必须重新探测当前出口，不能让旧地区提前短路整个解析流程。
-  if (!shouldResolveProfileFromIp(settings) && explicitRegion && REGION_PRESETS[explicitRegion]) {
-    return buildBrowserProfileFromRegion(explicitRegion, settings);
+  if (explicitRegion && REGION_PRESETS[explicitRegion]) {
+    return buildBrowserProfileFromRegion(explicitRegion, settings, geoInfo);
   }
 
   const localeRegion = inferBrowserRegionKeyFromLocale(
     firstNonNull(settings.locale, settings.browser_locale, settings.browserLocale, getDefaultLocale()),
   );
-  if (options.skipGeoLookup === true) {
-    return buildBrowserProfileFromRegion(localeRegion || 'us', settings);
-  }
-
-  const proxyServer = text(options.geoProxyServer);
-
-  // 无代理：直连探测，返回的就是本机真实出口，无需校验。
-  if (!proxyServer) {
-    return resolveDirectBrowserProfile(options, settings, localeRegion);
-  }
-  return resolveProxyBrowserProfile(options, settings, localeRegion, proxyServer);
+  return buildBrowserProfileFromRegion(localeRegion || 'us', settings, geoInfo);
 }
 
 module.exports = {
   buildBrowserProfileFromRegion,
+  buildGeoInfoFromSettings,
   resolveTabBrowserProfile,
 };

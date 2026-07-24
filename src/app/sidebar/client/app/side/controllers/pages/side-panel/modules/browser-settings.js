@@ -372,9 +372,7 @@
     if (el('homepage-url')) el('homepage-url').hidden = getSegment('homepage.mode') !== 'custom';
     if (el('browser-user-agent')) el('browser-user-agent').disabled = getSegment('ua.mode') !== 'custom';
     if (el('sec-ch-ua-brands')) el('sec-ch-ua-brands').hidden = getSegment('secChUa.mode') !== 'custom';
-    if (el('browser-locale')) el('browser-locale').hidden = checked('language-by-ip');
-    if (el('browser-timezone')) el('browser-timezone').hidden = checked('timezone-by-ip');
-    if (el('custom-geolocation')) el('custom-geolocation').hidden = checked('geolocation-by-ip') || getSegment('geolocation.permission') === 'block';
+    if (el('custom-geolocation')) el('custom-geolocation').hidden = getSegment('geolocation.permission') === 'block';
     if (el('custom-resolution')) el('custom-resolution').hidden = getSegment('resolution.mode') !== 'custom';
     if (el('webgl-metadata-fields')) el('webgl-metadata-fields').hidden = getSegment('webglMetadata.mode') !== 'custom';
     if (el('launch-args')) el('launch-args').hidden = getSegment('launchArgs.mode') !== 'custom';
@@ -387,15 +385,29 @@
     }, settings, runtimeInfo);
   }
 
-  function collectForm() {
-    let brands = []; try { brands = JSON.parse(value('sec-ch-ua-brands', '[]')); } catch (_) { brands = []; }
-    const setting = {
-      ...current, os: getSegment('os', 'win11'), browserVersion: value('browser-version'), kernelVersion: value('kernel-version', 'auto'),
+  function collectExitIpForm() {
+    const prev = current.exitIp || {};
+    return {
+      ip: value('exit-ip'), region: value('exit-ip-region'), country: value('exit-ip-country'), city: value('exit-ip-city'),
+      countryCode: prev.countryCode || '', regionName: prev.regionName || '', timezoneId: prev.timezoneId || '',
+      longitude: prev.longitude ?? null, latitude: prev.latitude ?? null,
+    };
+  }
+
+  function collectIdentityForm(brands) {
+    return {
+      os: getSegment('os', 'win11'), browserVersion: value('browser-version'), kernelVersion: value('kernel-version', 'auto'),
       proxy: { mode: getSegment('proxy.mode','default'), protocol: value('proxy-protocol','http'), host: value('proxy-host'), port: value('proxy-port'), username: value('proxy-username'), password: value('proxy-password'), apiUrl: value('proxy-api-url') },
       cookies: value('browser-cookies','[]'), homepage: { mode: getSegment('homepage.mode','default'), url: value('homepage-url') },
       ua: { mode: getSegment('ua.mode','default'), value: value('browser-user-agent') }, secChUa: { mode: getSegment('secChUa.mode','default'), brands },
-      language: { mode: checked('language-by-ip') ? 'ip' : 'custom', value: value('browser-locale') }, timezone: { mode: checked('timezone-by-ip') ? 'ip' : 'custom', value: value('browser-timezone') },
-      webrtc: { mode: getSegment('webrtc.mode','replace') }, geolocation: { permission: getSegment('geolocation.permission','ask'), mode: checked('geolocation-by-ip') ? 'ip' : 'custom', longitude: number('geo-longitude'), latitude: number('geo-latitude'), accuracy: number('geo-accuracy',100) },
+      language: { mode: 'custom', value: value('browser-locale') }, timezone: { mode: 'custom', value: value('browser-timezone') },
+      exitIp: collectExitIpForm(), webrtc: { mode: getSegment('webrtc.mode','replace') },
+      geolocation: { permission: getSegment('geolocation.permission','ask'), mode: 'custom', longitude: number('geo-longitude'), latitude: number('geo-latitude'), accuracy: number('geo-accuracy',100) },
+    };
+  }
+
+  function collectFingerprintForm() {
+    return {
       resolution: { mode: getSegment('resolution.mode','follow'), width: number('resolution-width',1366), height: number('resolution-height',768) },
       fonts: { mode: getSegment('fonts.mode','system'), seed: current.fonts?.seed }, canvas: { mode: getSegment('canvas.mode','noise'), seed: current.canvas?.seed },
       webglImage: { mode: getSegment('webglImage.mode','noise'), seed: current.webglImage?.seed }, webglMetadata: { mode: getSegment('webglMetadata.mode','custom'), vendor: value('browser-webgl-vendor'), renderer: value('browser-webgl-renderer') },
@@ -403,7 +415,11 @@
       cpu: number('browser-cpu',8), memory: number('browser-memory',8), deviceName: { mode: getSegment('deviceName.mode','default'), value: value('device-name') }, macAddress: { mode: getSegment('macAddress.mode','default'), value: value('mac-address') },
       doNotTrack: checked('do-not-track'), sslEnabled: getSegment('sslEnabled') === 'true', portScanProtection: { enabled: getSegment('portScanProtection.enabled') === 'true', allowList: value('port-scan-allow-list').split(/[\s,;]+/).filter(Boolean) }, hardwareAcceleration: checked('hardware-acceleration'), launchArgs: { mode: getSegment('launchArgs.mode','default'), value: value('launch-args') },
     };
-    return setting;
+  }
+
+  function collectForm() {
+    let brands = []; try { brands = JSON.parse(value('sec-ch-ua-brands', '[]')); } catch (_) { brands = []; }
+    return { ...current, ...collectIdentityForm(brands), ...collectFingerprintForm() };
   }
 
   const validateSettings = window.validateAiFreeBrowserSettings;
