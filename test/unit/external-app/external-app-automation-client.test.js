@@ -74,11 +74,10 @@ test('软件自动化 worker 错误会拒绝全部等待中的调用', async () 
   assert.equal(client.pending.size, 0);
 });
 
-test('软件自动化动作始终绑定统一的动画鼠标资源', async () => {
+test('软件自动化动作不注入鼠标显示资源', async () => {
   const calls = [];
   const bridge = new ChromiumWindowBridge({
     binding: {},
-    cursorPath: 'C:/AI-FREE/resources/cursors/[CC] Handwrite v1.ani',
     automationClient: {
       execute: async (method, options) => {
         calls.push({ method, options });
@@ -88,8 +87,5 @@ test('软件自动化动作始终绑定统一的动画鼠标资源', async () =>
   });
   await bridge.performExternalWindowUiActionAsync({ action: 'click', x: 10, y: 20 });
   assert.equal(calls[0].method, 'performExternalWindowUiAction');
-  assert.equal(
-    calls[0].options.cursorPath,
-    'C:/AI-FREE/resources/cursors/[CC] Handwrite v1.ani',
-  );
+  assert.equal(calls[0].options.cursorPath, undefined);
 });

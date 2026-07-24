@@ -6,7 +6,6 @@ const { enforceLocalModelDisabled } = require('./chromium-local-model-policy');
 const { buildChromiumProfileArgs } = require('./chromium-profile-args');
 const { createChromiumLaunchDiagnostics } = require('./chromium-process-diagnostics');
 const { callOptional, firstText } = require('../../shared/safe-values');
-const { resolveAutomationCursorPath } = require('../config/paths');
 
 const SESSION_FILE_PATTERN = /^(Session|Tabs)_(\d+)$/;
 
@@ -430,7 +429,6 @@ function buildChromiumArgs(options = {}) {
     '--disable-component-update',
     '--disable-session-crashed-bubble',
     '--disable-backgrounding-occluded-windows',
-    `--hs-automation-cursor=${resolveAutomationCursorPath(options)}`,
   ];
   args.push(...buildChromiumProfileArgs(options, profile, bounds));
   args.push(...(Array.isArray(profile.extraArgs) ? profile.extraArgs : []));

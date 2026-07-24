@@ -13,142 +13,25 @@ index 44d16233..eac375a5 100644
        "views/frame/browser_desktop_window_tree_host.h",
 diff --git a/chrome/browser/ui/views/frame/ai_free_automation_pointer.cc b/chrome/browser/ui/views/frame/ai_free_automation_pointer.cc
 new file mode 100644
-index 00000000..525360d2
 --- /dev/null
 +++ b/chrome/browser/ui/views/frame/ai_free_automation_pointer.cc
-@@ -0,0 +1,377 @@
+@@ -0,0 +1,70 @@
 +// Copyright 2026 AI-FREE Authors. All rights reserved.
 +
 +#include "chrome/browser/ui/views/frame/ai_free_automation_pointer.h"
 +
 +#include <algorithm>
-+#include <map>
-+#include <memory>
-+#include <utility>
-+#include <vector>
 +
-+#include "base/functional/bind.h"
-+#include "base/memory/raw_ptr.h"
-+#include "base/no_destructor.h"
-+#include "base/task/sequenced_task_runner.h"
-+#include "base/time/time.h"
-+#include "base/timer/timer.h"
-+#include "cc/paint/paint_flags.h"
-+#include "chrome/browser/ui/browser.h"
-+#include "chrome/browser/ui/browser_finder.h"
-+#include "chrome/browser/ui/views/frame/browser_view.h"
-+#include "chrome/browser/ui/views/frame/contents_web_view.h"
 +#include "content/public/browser/render_frame_host.h"
 +#include "content/public/browser/render_widget_host.h"
++#include "content/public/browser/render_widget_host_view.h"
 +#include "content/public/browser/web_contents.h"
 +#include "third_party/blink/public/common/input/web_input_event.h"
 +#include "third_party/blink/public/common/input/web_mouse_event.h"
-+#include "third_party/skia/include/core/SkPathBuilder.h"
-+#include "ui/compositor/layer.h"
 +#include "ui/events/event_utils.h"
-+#include "ui/gfx/canvas.h"
 +#include "ui/gfx/geometry/rect.h"
-+#include "ui/views/view.h"
-+#include "ui/views/view_class_properties.h"
-+#include "ui/views/view_observer.h"
 +
 +namespace {
-+
-+class PointerOverlay : public views::View {
-+ public:
-+  PointerOverlay() {
-+    SetCanProcessEventsWithinSubtree(false);
-+    SetProperty(views::kViewIgnoredByLayoutKey, true);
-+    SetPaintToLayer();
-+    layer()->SetFillsBoundsOpaquely(false);
-+  }
-+
-+  void SetPointer(const gfx::PointF& point, bool pressed) {
-+    if (!trail_.empty() && (trail_.back() - point).Length() > 2) {
-+      trail_.push_back(point);
-+      if (trail_.size() > 7) {
-+        trail_.erase(trail_.begin());
-+      }
-+    } else if (trail_.empty()) {
-+      trail_.push_back(point);
-+    }
-+    point_ = point;
-+    pressed_ = pressed;
-+    SetVisible(true);
-+    SchedulePaint();
-+  }
-+
-+  void Pulse() {
-+    pulse_started_ = base::TimeTicks::Now();
-+    pulse_timer_.Start(FROM_HERE, base::Milliseconds(16),
-+                       base::BindRepeating(&PointerOverlay::TickPulse,
-+                                           base::Unretained(this)));
-+    SchedulePaint();
-+  }
-+
-+  void ClearPulse() {
-+    pulse_timer_.Stop();
-+    pulse_started_ = base::TimeTicks();
-+    SchedulePaint();
-+  }
-+
-+  void OnPaint(gfx::Canvas* canvas) override {
-+    cc::PaintFlags flags;
-+    flags.setAntiAlias(true);
-+    for (size_t i = 0; i < trail_.size(); ++i) {
-+      const U8CPU alpha = static_cast<U8CPU>(18 + 72 * (i + 1) / trail_.size());
-+      flags.setColor(SkColorSetARGB(alpha, 28, 132, 255));
-+      flags.setStyle(cc::PaintFlags::kFill_Style);
-+      canvas->DrawCircle(trail_[i], 2.0f + i * 0.25f, flags);
-+    }
-+    if (!pulse_started_.is_null()) {
-+      const double elapsed =
-+          (base::TimeTicks::Now() - pulse_started_).InMillisecondsF();
-+      const float progress =
-+          std::clamp(static_cast<float>(elapsed / 320.0), 0.0f, 1.0f);
-+      flags.setColor(SkColorSetARGB(static_cast<U8CPU>(110 * (1 - progress)),
-+                                    28, 132, 255));
-+      flags.setStyle(cc::PaintFlags::kStroke_Style);
-+      flags.setStrokeWidth(2.0f);
-+      canvas->DrawCircle(point_, 8.0f + 20.0f * progress, flags);
-+    }
-+    const float scale = pressed_ ? 0.88f : 1.0f;
-+    const SkPath path =
-+        SkPathBuilder()
-+            .moveTo(point_.x(), point_.y())
-+            .lineTo(point_.x() + 4 * scale, point_.y() + 17 * scale)
-+            .lineTo(point_.x() + 8 * scale, point_.y() + 11 * scale)
-+            .lineTo(point_.x() + 14 * scale, point_.y() + 10 * scale)
-+            .close()
-+            .detach();
-+    flags.setStyle(cc::PaintFlags::kFill_Style);
-+    flags.setColor(SK_ColorWHITE);
-+    canvas->DrawPath(path, flags);
-+    flags.setStyle(cc::PaintFlags::kStroke_Style);
-+    flags.setStrokeWidth(1.5f);
-+    flags.setColor(SkColorSetRGB(20, 91, 196));
-+    canvas->DrawPath(path, flags);
-+  }
-+
-+ private:
-+  void TickPulse() {
-+    if (base::TimeTicks::Now() - pulse_started_ >= base::Milliseconds(320)) {
-+      return ClearPulse();
-+    }
-+    SchedulePaint();
-+  }
-+
-+  gfx::PointF point_;
-+  std::vector<gfx::PointF> trail_;
-+  base::TimeTicks pulse_started_;
-+  base::RepeatingTimer pulse_timer_;
-+  bool pressed_ = false;
-+};
-+
-+class PointerSession;
-+using SessionMap =
-+    std::map<content::WebContents*, std::unique_ptr<PointerSession>>;
-+SessionMap& Sessions();
 +
 +blink::WebMouseEvent MouseEvent(blink::WebInputEvent::Type type,
 +                                blink::WebMouseEvent::Button button,
@@ -161,242 +44,50 @@ index 00000000..525360d2
 +  event.click_count = clicks;
 +  event.pointer_type = blink::WebPointerProperties::PointerType::kMouse;
 +  event.SetPositionInWidget(point.x(), point.y());
-+  event.SetPositionInScreen(bounds.x() + point.x(), bounds.y() + point.y());
++  event.SetPositionInScreen(bounds.x() + point.x(),
++                            bounds.y() + point.y());
 +  return event;
-+}
-+
-+class PointerSession : public content::WebContentsObserver,
-+                       public views::ViewObserver {
-+ public:
-+  explicit PointerSession(content::WebContents* contents)
-+      : content::WebContentsObserver(contents), observed_contents_(contents) {}
-+
-+  ~PointerSession() override { DetachOverlay(); }
-+
-+  void Start(const gfx::PointF& target,
-+             bool right_button,
-+             int click_count,
-+             base::OnceCallback<void(bool)> callback) {
-+    Finish(false);
-+    hide_timer_.Stop();
-+    target_ = target;
-+    right_button_ = right_button;
-+    click_count_ = std::clamp(click_count, 1, 2);
-+    completed_clicks_ = 0;
-+    callback_ = std::move(callback);
-+    if (!AttachOverlay()) {
-+      return Finish(false);
-+    }
-+    if (!has_position_) {
-+      position_ = gfx::PointF(std::max(8.0f, target.x() - 72.0f),
-+                              std::max(8.0f, target.y() - 48.0f));
-+    }
-+    start_ = position_;
-+    const float distance = (target_ - start_).Length();
-+    move_duration_ = base::Milliseconds(static_cast<int>(
-+        std::clamp(170.0f + distance * 0.42f, 190.0f, 620.0f)));
-+    phase_started_ = base::TimeTicks::Now();
-+    phase_ = Phase::kMoving;
-+    overlay_->SetPointer(position_, false);
-+    timer_.Start(
-+        FROM_HERE, base::Milliseconds(16),
-+        base::BindRepeating(&PointerSession::Tick, base::Unretained(this)));
-+  }
-+
-+  void WebContentsDestroyed() override {
-+    content::WebContents* key = observed_contents_;
-+    Finish(false);
-+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
-+        FROM_HERE,
-+        base::BindOnce([](content::WebContents* key) { Sessions().erase(key); },
-+                       key));
-+  }
-+
-+  void OnViewIsDeleting(views::View* observed) override {
-+    if (observed == overlay_) {
-+      overlay_ = nullptr;
-+      Finish(false);
-+    }
-+  }
-+
-+ private:
-+  enum class Phase { kIdle, kMoving, kPressed, kBetweenClicks };
-+
-+  bool AttachOverlay() {
-+    BrowserView* browser_view = CurrentBrowserView();
-+    if (!browser_view || !browser_view->contents_web_view()) {
-+      return false;
-+    }
-+    if (overlay_ && overlay_->parent() != browser_view) {
-+      DetachOverlay();
-+    }
-+    if (!overlay_) {
-+      std::unique_ptr<views::View> overlay = std::make_unique<PointerOverlay>();
-+      overlay_ = static_cast<PointerOverlay*>(
-+          browser_view->AddChildView(std::move(overlay)));
-+      overlay_->AddObserver(this);
-+    }
-+    UpdateOverlayBounds(browser_view);
-+    overlay_->SetVisible(true);
-+    return true;
-+  }
-+
-+  void UpdateOverlayBounds(BrowserView* browser_view) {
-+    views::View* web_view = browser_view->contents_web_view();
-+    overlay_->SetBoundsRect(views::View::ConvertRectToTarget(
-+        web_view, browser_view, web_view->GetLocalBounds()));
-+  }
-+
-+  content::RenderWidgetHost* Widget() const {
-+    content::RenderFrameHost* frame = web_contents()->GetPrimaryMainFrame();
-+    return frame ? frame->GetRenderWidgetHost() : nullptr;
-+  }
-+
-+  BrowserView* CurrentBrowserView() const {
-+    return BrowserView::GetBrowserViewForBrowser(
-+        chrome::FindBrowserWithTab(web_contents()));
-+  }
-+
-+  void Dispatch(blink::WebInputEvent::Type type, int clicks) {
-+    content::RenderWidgetHost* widget = Widget();
-+    if (!widget || !widget->GetView()) {
-+      return Finish(false);
-+    }
-+    const gfx::Rect bounds = web_contents()->GetContainerBounds();
-+    const auto button = right_button_ ? blink::WebMouseEvent::Button::kRight
-+                                      : blink::WebMouseEvent::Button::kLeft;
-+    int modifiers = blink::WebInputEvent::kFromDebugger;
-+    if (type == blink::WebInputEvent::Type::kMouseDown) {
-+      modifiers |= right_button_ ? blink::WebInputEvent::kRightButtonDown
-+                                 : blink::WebInputEvent::kLeftButtonDown;
-+    }
-+    widget->ForwardMouseEvent(
-+        MouseEvent(type, button, modifiers, clicks, position_, bounds));
-+  }
-+
-+  void Tick() {
-+    if (!overlay_ || !web_contents()) {
-+      return Finish(false);
-+    }
-+    BrowserView* browser_view = CurrentBrowserView();
-+    if (!browser_view || overlay_->parent() != browser_view) {
-+      return Finish(false);
-+    }
-+    UpdateOverlayBounds(browser_view);
-+    const base::TimeDelta elapsed = base::TimeTicks::Now() - phase_started_;
-+    if (phase_ == Phase::kMoving) {
-+      const float linear =
-+          std::clamp(static_cast<float>(elapsed / move_duration_), 0.0f, 1.0f);
-+      const float eased = linear * linear * (3.0f - 2.0f * linear);
-+      position_.SetPoint(start_.x() + (target_.x() - start_.x()) * eased,
-+                         start_.y() + (target_.y() - start_.y()) * eased);
-+      overlay_->SetPointer(position_, false);
-+      Dispatch(blink::WebInputEvent::Type::kMouseMove, 0);
-+      if (linear >= 1.0f) {
-+        content::RenderWidgetHost* widget = Widget();
-+        if (widget) {
-+          widget->Focus();
-+        }
-+        BeginPress();
-+      }
-+      return;
-+    }
-+    if (phase_ == Phase::kPressed && elapsed >= base::Milliseconds(58)) {
-+      Dispatch(blink::WebInputEvent::Type::kMouseUp, completed_clicks_ + 1);
-+      overlay_->SetPointer(position_, false);
-+      overlay_->Pulse();
-+      ++completed_clicks_;
-+      if (completed_clicks_ >= click_count_) {
-+        return Finish(true);
-+      }
-+      phase_ = Phase::kBetweenClicks;
-+      phase_started_ = base::TimeTicks::Now();
-+      return;
-+    }
-+    if (phase_ == Phase::kBetweenClicks && elapsed >= base::Milliseconds(92)) {
-+      BeginPress();
-+    }
-+  }
-+
-+  void BeginPress() {
-+    phase_ = Phase::kPressed;
-+    phase_started_ = base::TimeTicks::Now();
-+    overlay_->SetPointer(position_, true);
-+    Dispatch(blink::WebInputEvent::Type::kMouseDown, completed_clicks_ + 1);
-+  }
-+
-+  void Finish(bool success) {
-+    timer_.Stop();
-+    phase_ = Phase::kIdle;
-+    has_position_ = has_position_ || success;
-+    if (overlay_) {
-+      overlay_->SetPointer(position_, false);
-+      hide_timer_.Start(
-+          FROM_HERE, base::Milliseconds(520),
-+          base::BindOnce(&PointerSession::HideOverlay, base::Unretained(this)));
-+    }
-+    if (callback_) {
-+      std::move(callback_).Run(success);
-+    }
-+  }
-+
-+  void HideOverlay() {
-+    if (overlay_ && phase_ == Phase::kIdle) {
-+      overlay_->ClearPulse();
-+      overlay_->SetVisible(false);
-+    }
-+  }
-+
-+  void DetachOverlay() {
-+    hide_timer_.Stop();
-+    if (!overlay_) {
-+      return;
-+    }
-+    overlay_->RemoveObserver(this);
-+    if (overlay_->parent()) {
-+      overlay_->parent()->RemoveChildViewT(overlay_);
-+    }
-+    overlay_ = nullptr;
-+  }
-+
-+  raw_ptr<content::WebContents> observed_contents_ = nullptr;
-+  raw_ptr<PointerOverlay> overlay_ = nullptr;
-+  gfx::PointF start_;
-+  gfx::PointF position_;
-+  gfx::PointF target_;
-+  base::TimeTicks phase_started_;
-+  base::TimeDelta move_duration_;
-+  base::RepeatingTimer timer_;
-+  base::OneShotTimer hide_timer_;
-+  base::OnceCallback<void(bool)> callback_;
-+  Phase phase_ = Phase::kIdle;
-+  int click_count_ = 1;
-+  int completed_clicks_ = 0;
-+  bool right_button_ = false;
-+  bool has_position_ = false;
-+};
-+
-+SessionMap& Sessions() {
-+  static base::NoDestructor<SessionMap> sessions;
-+  return *sessions;
 +}
 +
 +}  // namespace
 +
-+void DispatchAiFreeAnimatedClick(content::WebContents* web_contents,
-+                                 const gfx::PointF& target,
-+                                 bool right_button,
-+                                 int click_count,
-+                                 base::OnceCallback<void(bool)> callback) {
-+  auto [it, inserted] = Sessions().try_emplace(web_contents);
-+  if (inserted) {
-+    it->second = std::make_unique<PointerSession>(web_contents);
++void DispatchAiFreeMouseInput(content::WebContents* web_contents,
++                              const gfx::PointF& target,
++                              bool right_button,
++                              int click_count,
++                              base::OnceCallback<void(bool)> callback) {
++  content::RenderFrameHost* frame =
++      web_contents ? web_contents->GetPrimaryMainFrame() : nullptr;
++  content::RenderWidgetHost* widget =
++      frame ? frame->GetRenderWidgetHost() : nullptr;
++  if (!widget || !widget->GetView()) {
++    return std::move(callback).Run(false);
 +  }
-+  it->second->Start(target, right_button, click_count, std::move(callback));
++  const gfx::Rect bounds = web_contents->GetContainerBounds();
++  const auto button = right_button
++      ? blink::WebMouseEvent::Button::kRight
++      : blink::WebMouseEvent::Button::kLeft;
++  const int count = std::clamp(click_count, 1, 2);
++  const int down_modifiers = blink::WebInputEvent::kFromDebugger |
++      (right_button ? blink::WebInputEvent::kRightButtonDown
++                    : blink::WebInputEvent::kLeftButtonDown);
++  widget->Focus();
++  widget->ForwardMouseEvent(MouseEvent(
++      blink::WebInputEvent::Type::kMouseMove,
++      blink::WebMouseEvent::Button::kNoButton,
++      blink::WebInputEvent::kFromDebugger, 0, target, bounds));
++  for (int index = 1; index <= count; ++index) {
++    widget->ForwardMouseEvent(MouseEvent(
++        blink::WebInputEvent::Type::kMouseDown, button, down_modifiers,
++        index, target, bounds));
++    widget->ForwardMouseEvent(MouseEvent(
++        blink::WebInputEvent::Type::kMouseUp, button,
++        blink::WebInputEvent::kFromDebugger, index, target, bounds));
++  }
++  std::move(callback).Run(true);
 +}
 diff --git a/chrome/browser/ui/views/frame/ai_free_automation_pointer.h b/chrome/browser/ui/views/frame/ai_free_automation_pointer.h
 new file mode 100644
-index 00000000..df7391c0
 --- /dev/null
 +++ b/chrome/browser/ui/views/frame/ai_free_automation_pointer.h
 @@ -0,0 +1,21 @@
@@ -412,13 +103,13 @@ index 00000000..df7391c0
 +class WebContents;
 +}
 +
-+// Shows an event-transparent Chromium UI cursor and dispatches mouse events
-+// along its eased path. The callback receives false if the target disappears.
-+void DispatchAiFreeAnimatedClick(content::WebContents* web_contents,
-+                                 const gfx::PointF& target,
-+                                 bool right_button,
-+                                 int click_count,
-+                                 base::OnceCallback<void(bool)> callback);
++// Reserved native mouse-input boundary. This dispatches trusted input without
++// owning or rendering any cursor visualization.
++void DispatchAiFreeMouseInput(content::WebContents* web_contents,
++                              const gfx::PointF& target,
++                              bool right_button,
++                              int click_count,
++                              base::OnceCallback<void(bool)> callback);
 +
 +#endif  // CHROME_BROWSER_UI_VIEWS_FRAME_AI_FREE_AUTOMATION_POINTER_H_
 diff --git a/chrome/browser/ui/views/frame/ai_free_page_automation.cc b/chrome/browser/ui/views/frame/ai_free_page_automation.cc
@@ -511,7 +202,7 @@ index bf68dd95..7080a7cb 100644
 -                                         button, modifier, i, px, py, bounds));
 -  }
 -  return true;
-+  DispatchAiFreeAnimatedClick(contents, gfx::PointF(px, py), right, clicks,
++  DispatchAiFreeMouseInput(contents, gfx::PointF(px, py), right, clicks,
 +                              std::move(callback));
  }
  
@@ -529,7 +220,7 @@ index bf68dd95..7080a7cb 100644
 +                "Chromium 原生输入目标不可用");
 +  }
 +  response.Set("dispatched", true);
-+  response.Set("inputMode", "chromium-visible-pointer");
++  response.Set("inputMode", "chromium-native-input");
 +  std::move(success).Run(std::move(response));
 +}
 +

@@ -259,6 +259,16 @@ app.whenReady().then(async () => {
     const cardListMaxHeight = parseFloat(
       getComputedStyle(document.getElementById('automation-card-list')).maxHeight,
     );
+    const cardListNestedInEditor = document.getElementById('automation-card-list')
+      .closest('.automation-editor') !== null;
+    const cardToolbarAboveList = document.querySelector('.automation-toolbar')
+      .closest('.automation-card-library') !== null
+      && document.querySelector('.automation-toolbar').compareDocumentPosition(
+        document.getElementById('automation-card-list'),
+      ) === Node.DOCUMENT_POSITION_FOLLOWING;
+    const cardStatusBelowList = document.getElementById('automation-card-list')
+      .compareDocumentPosition(document.getElementById('automation-status'))
+      === Node.DOCUMENT_POSITION_FOLLOWING;
     const headingRemoved = !document.querySelector('.automation-heading')
       && !document.querySelector('.automation-kicker');
     const pointsInputRemoved = !document.getElementById('automation-card-points');
@@ -276,6 +286,14 @@ app.whenReady().then(async () => {
     name.dispatchEvent(new Event('input', { bubbles: true }));
     website.value = 'https://example.com/workflow';
     website.dispatchEvent(new Event('input', { bubbles: true }));
+    const settingsSaveButton = document.querySelector(
+      '#automation-edit-dialog .automation-dialog-footer .automation-primary-button',
+    );
+    const settingsSaveLabel = settingsSaveButton?.textContent.trim() || '';
+    settingsSaveButton?.click();
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    const cardCreatedFromDialog = document.querySelectorAll('.automation-card-item').length === 2
+      && document.getElementById('automation-edit-dialog').hidden === true;
     document.getElementById('automation-edit-json').click();
     const jsonDialogOpened = document.getElementById('automation-json-dialog').hidden === false
       && document.getElementById('automation-edit-dialog').hidden === true;
@@ -288,12 +306,17 @@ app.whenReady().then(async () => {
       panelActive: document.getElementById('automation-panel').classList.contains('active'),
       initialCards,
       cardListMaxHeight,
+      cardListNestedInEditor,
+      cardToolbarAboveList,
+      cardStatusBelowList,
       headingRemoved,
       pointsInputRemoved,
       dialogsInitiallyClosed,
       fieldsHiddenFromMain,
       flowPopupRemoved,
       editDialogOpened,
+      settingsSaveLabel,
+      cardCreatedFromDialog,
       jsonDialogOpened,
       jsonFooterActions,
     };
@@ -370,12 +393,17 @@ app.whenReady().then(async () => {
     automationSetup.panelActive !== true
     || automationSetup.initialCards !== 1
     || automationSetup.cardListMaxHeight !== 601
+    || automationSetup.cardListNestedInEditor !== true
+    || automationSetup.cardToolbarAboveList !== true
+    || automationSetup.cardStatusBelowList !== true
     || automationSetup.headingRemoved !== true
     || automationSetup.pointsInputRemoved !== true
     || automationSetup.dialogsInitiallyClosed !== true
     || automationSetup.fieldsHiddenFromMain !== true
     || automationSetup.flowPopupRemoved !== true
     || automationSetup.editDialogOpened !== true
+    || automationSetup.settingsSaveLabel !== '保存卡片'
+    || automationSetup.cardCreatedFromDialog !== true
     || automationSetup.jsonDialogOpened !== true
     || automationSetup.jsonFooterActions.join('|') !== '复制 JSON|应用 JSON|完成'
     || !flowResult.windowTitle.includes('软件端编辑流程')

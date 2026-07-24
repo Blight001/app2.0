@@ -197,7 +197,7 @@
   }
 
   async function saveAutomationCard(options = {}) {
-    const button = automationState.nodes.save;
+    const button = options.button || automationState.nodes.save;
     const cardData = readAutomationFormCard();
     if (!validateAutomationCardSettings(cardData)) return null;
     setAutomationBusy(button, true, '保存中…');
@@ -375,6 +375,10 @@
       event.preventDefault();
       void saveAutomationCard();
     });
+    nodes.saveSettings.addEventListener('click', async () => {
+      const saved = await saveAutomationCard({ button: nodes.saveSettings });
+      if (saved) automationState.dialogs.closeAll();
+    });
     nodes.applyJson.addEventListener('click', applyAutomationJson);
     nodes.copyJson.addEventListener('click', () => void copyAutomationJson());
     nodes.run.addEventListener('click', () => void runAutomationCard());
@@ -430,7 +434,8 @@
       startStep: 'automation-run-start-step', loopCount: 'automation-run-loop-count',
       refresh: 'automation-refresh', run: 'automation-run-card',
       stop: 'automation-stop-card',
-      save: 'automation-save-card', status: 'automation-status',
+      save: 'automation-save-card', saveSettings: 'automation-save-settings',
+      status: 'automation-status',
       title: 'automation-editor-title', website: 'automation-card-website',
     };
     return Object.fromEntries(Object.entries(ids).map(([key, id]) => [key, automationElement(id)]));

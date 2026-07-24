@@ -104,8 +104,9 @@
 }
 
 .automation-toolbar {
+  flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .automation-count {
@@ -115,19 +116,26 @@
 }
 
 .automation-workspace {
-  display: grid;
-  grid-template-columns: minmax(120px, .68fr) minmax(0, 1.7fr);
-  gap: 10px;
-  align-items: start;
+  display: block;
 }
 
-.automation-card-list,
 .automation-editor {
   min-width: 0;
   border: 1px solid rgba(80, 101, 134, .45);
   border-radius: 13px;
   background: rgba(18, 24, 34, .72);
   box-shadow: 0 9px 24px rgba(0, 0, 0, .16);
+}
+
+.automation-card-library {
+  padding: 0 12px 12px;
+  border-top: 1px solid rgba(80, 101, 134, .28);
+}
+
+.automation-card-library-heading {
+  padding: 11px 1px 8px;
+  color: #aebdd1;
+  font-size: 11px;
 }
 
 .automation-card-list {
@@ -138,6 +146,8 @@
   overflow: auto;
   padding: 8px;
   box-sizing: border-box;
+  border-radius: 10px;
+  background: rgba(12, 17, 25, .32);
 }
 
 .automation-card-item {

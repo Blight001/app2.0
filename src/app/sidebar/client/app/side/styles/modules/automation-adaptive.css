@@ -1,8 +1,4 @@
 @media (max-width: 519px) {
-  .automation-workspace {
-    grid-template-columns: 1fr;
-  }
-
   .automation-editor-heading,
   .automation-flow-heading {
     align-items: flex-start;
@@ -29,11 +25,22 @@ html.theme-light .automation-flow-heading h4 {
   color: #21364f;
 }
 
-html.theme-light .automation-card-list,
 html.theme-light .automation-editor {
   border-color: rgba(82, 116, 158, .24);
   background: rgba(255, 255, 255, .72);
   box-shadow: 0 9px 24px rgba(40, 75, 115, .08);
+}
+
+html.theme-light .automation-card-library {
+  border-color: rgba(82, 116, 158, .18);
+}
+
+html.theme-light .automation-card-library-heading {
+  color: #536b88;
+}
+
+html.theme-light .automation-card-list {
+  background: rgba(235, 242, 250, .56);
 }
 
 html.theme-light .automation-card-item,

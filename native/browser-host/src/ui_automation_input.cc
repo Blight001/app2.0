@@ -8,38 +8,6 @@
 using Microsoft::WRL::ComPtr;
 
 namespace {
-class AnimatedCursorScope {
- public:
-  explicit AnimatedCursorScope(const std::wstring& path)
-      : cursor_(path.empty() ? nullptr : LoadCursorFromFileW(path.c_str())) {}
-
-  ~AnimatedCursorScope() {
-    if (!cursor_) return;
-    SetCursor(previous_);
-    DestroyCursor(cursor_);
-  }
-
-  void Show() {
-    if (!cursor_) return;
-    if (!captured_previous_) {
-      previous_ = GetCursor();
-      captured_previous_ = true;
-    }
-    SetCursor(cursor_);
-  }
-
-  void HoldAnimation() {
-    if (!cursor_) return;
-    SetCursor(cursor_);
-    Sleep(360);
-  }
-
- private:
-  HCURSOR cursor_ = nullptr;
-  HCURSOR previous_ = nullptr;
-  bool captured_previous_ = false;
-};
-
 template <typename Pattern>
 ComPtr<Pattern> CurrentPattern(IUIAutomationElement* element, PATTERNID id) {
   ComPtr<Pattern> pattern;
@@ -163,14 +131,11 @@ void AppendKeyInput(std::vector<INPUT>* inputs, WORD virtual_key, bool key_up) {
 
 HRESULT SendMouseAtPoint(
     HWND bound_window, DWORD expected_pid,
-    const std::wstring& action, POINT point,
-    const std::wstring& cursor_path) {
+    const std::wstring& action, POINT point) {
   if (!PointBelongsToTarget(point, bound_window, expected_pid)) return E_ACCESSDENIED;
   POINT original = {};
   const bool restore_cursor = GetCursorPos(&original) != FALSE;
   if (!SetCursorPos(point.x, point.y)) return HRESULT_FROM_WIN32(GetLastError());
-  AnimatedCursorScope animated_cursor(cursor_path);
-  animated_cursor.Show();
   const bool right = action == L"right_click";
   const int clicks = action == L"double_click" ? 2 : 1;
   const DWORD down = right ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_LEFTDOWN;
@@ -188,41 +153,33 @@ HRESULT SendMouseAtPoint(
     }
     if (clicks > 1 && index == 0) Sleep(40);
   }
-  animated_cursor.HoldAnimation();
   if (restore_cursor) SetCursorPos(original.x, original.y);
   return result;
 }
 
 HRESULT SendScrollAtPoint(
-    HWND bound_window, DWORD expected_pid, POINT point, int delta,
-    const std::wstring& cursor_path) {
+    HWND bound_window, DWORD expected_pid, POINT point, int delta) {
   if (!PointBelongsToTarget(point, bound_window, expected_pid)) return E_ACCESSDENIED;
   POINT original = {};
   const bool restore_cursor = GetCursorPos(&original) != FALSE;
   if (!SetCursorPos(point.x, point.y)) return HRESULT_FROM_WIN32(GetLastError());
-  AnimatedCursorScope animated_cursor(cursor_path);
-  animated_cursor.Show();
   INPUT input = {};
   input.type = INPUT_MOUSE;
   input.mi.dwFlags = MOUSEEVENTF_WHEEL;
   input.mi.mouseData = static_cast<DWORD>(delta);
   const HRESULT result = SendInput(1, &input, sizeof(INPUT)) == 1
     ? S_OK : HRESULT_FROM_WIN32(GetLastError());
-  animated_cursor.HoldAnimation();
   if (restore_cursor) SetCursorPos(original.x, original.y);
   return result;
 }
 
 HRESULT SendDragBetweenPoints(
-    HWND bound_window, DWORD expected_pid, POINT start, POINT end,
-    const std::wstring& cursor_path) {
+    HWND bound_window, DWORD expected_pid, POINT start, POINT end) {
   if (!PointBelongsToTarget(start, bound_window, expected_pid)
       || !PointBelongsToTarget(end, bound_window, expected_pid)) return E_ACCESSDENIED;
   POINT original = {};
   const bool restore_cursor = GetCursorPos(&original) != FALSE;
   if (!SetCursorPos(start.x, start.y)) return HRESULT_FROM_WIN32(GetLastError());
-  AnimatedCursorScope animated_cursor(cursor_path);
-  animated_cursor.Show();
   INPUT down = {};
   down.type = INPUT_MOUSE;
   down.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
@@ -240,19 +197,17 @@ HRESULT SendDragBetweenPoints(
   up.mi.dwFlags = MOUSEEVENTF_LEFTUP;
   const HRESULT result = SendInput(1, &up, sizeof(INPUT)) == 1
     ? S_OK : HRESULT_FROM_WIN32(GetLastError());
-  animated_cursor.HoldAnimation();
   if (restore_cursor) SetCursorPos(original.x, original.y);
   return result;
 }
 
 HRESULT SendMouseClick(
     IUIAutomationElement* element, HWND bound_window, DWORD expected_pid,
-    const std::wstring& action, const std::wstring& cursor_path,
-    POINT* used_point) {
+    const std::wstring& action, POINT* used_point) {
   POINT point = {};
   if (!ResolveClickPoint(element, &point)) return UIA_E_NOTSUPPORTED;
   const HRESULT result = SendMouseAtPoint(
-      bound_window, expected_pid, action, point, cursor_path);
+      bound_window, expected_pid, action, point);
   *used_point = point;
   return result;
 }
@@ -280,15 +235,14 @@ void PerformPatternAction(
 
 UiAutomationActionResult PerformUiAutomationAction(
     IUIAutomationElement* element, const std::wstring& action,
-    const std::wstring& text, const std::wstring& cursor_path,
-    HWND bound_window, DWORD expected_pid) {
+    const std::wstring& text, HWND bound_window, DWORD expected_pid) {
   UiAutomationActionResult output = { E_INVALIDARG, L"uia", {}, false };
   if (action == L"focus") output.result = element->SetFocus();
   else if (action == L"invoke") output.result = InvokeElement(element);
   else if (action == L"click" || action == L"mouse_click" || action == L"double_click"
       || action == L"right_click") {
     output.result = SendMouseClick(
-        element, bound_window, expected_pid, action, cursor_path, &output.point);
+        element, bound_window, expected_pid, action, &output.point);
     output.method = L"mouse";
     output.has_point = SUCCEEDED(output.result);
   } else if (action == L"set_value" || action == L"type") {
@@ -301,11 +255,10 @@ UiAutomationActionResult PerformUiAutomationAction(
 
 UiAutomationActionResult PerformBoundMouseAction(
     HWND bound_window, DWORD expected_pid,
-    const std::wstring& action, POINT point,
-    const std::wstring& cursor_path) {
+    const std::wstring& action, POINT point) {
   UiAutomationActionResult output = { E_INVALIDARG, L"mouse", point, false };
   output.result = SendMouseAtPoint(
-      bound_window, expected_pid, action, point, cursor_path);
+      bound_window, expected_pid, action, point);
   output.has_point = SUCCEEDED(output.result);
   return output;
 }
@@ -355,21 +308,19 @@ UiAutomationActionResult PerformBoundKeyInput(
 }
 
 UiAutomationActionResult PerformBoundScroll(
-    HWND bound_window, DWORD expected_pid, POINT point, int delta,
-    const std::wstring& cursor_path) {
+    HWND bound_window, DWORD expected_pid, POINT point, int delta) {
   UiAutomationActionResult output = { E_INVALIDARG, L"mouse", point, false };
   output.result = SendScrollAtPoint(
-      bound_window, expected_pid, point, delta, cursor_path);
+      bound_window, expected_pid, point, delta);
   output.has_point = SUCCEEDED(output.result);
   return output;
 }
 
 UiAutomationActionResult PerformBoundDrag(
-    HWND bound_window, DWORD expected_pid, POINT start, POINT end,
-    const std::wstring& cursor_path) {
+    HWND bound_window, DWORD expected_pid, POINT start, POINT end) {
   UiAutomationActionResult output = { E_INVALIDARG, L"mouse", end, false };
   output.result = SendDragBetweenPoints(
-      bound_window, expected_pid, start, end, cursor_path);
+      bound_window, expected_pid, start, end);
   output.has_point = SUCCEEDED(output.result);
   return output;
 }

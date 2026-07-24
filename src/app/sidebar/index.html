@@ -193,20 +193,7 @@
 
       <section id="automation-panel" class="automation-panel panel" aria-label="自动化卡片">
         <div class="automation-shell">
-          <div class="automation-toolbar">
-            <button id="automation-new-card" class="automation-primary-button" type="button">新建卡片</button>
-            <button id="automation-import-card" class="automation-secondary-button" type="button">导入卡片</button>
-            <button id="automation-export-card" class="automation-secondary-button" type="button">导出当前卡片</button>
-            <input id="automation-import-file" type="file" accept=".json,application/json" multiple hidden>
-            <span id="automation-card-count" class="automation-count">0 张卡片</span>
-            <button id="automation-refresh" class="automation-icon-button" type="button" aria-label="刷新卡片" title="刷新卡片">↻</button>
-          </div>
-
           <div class="automation-workspace">
-            <aside id="automation-card-list" class="automation-card-list" aria-label="全部自动化卡片" aria-live="polite">
-              <div class="automation-empty-list">正在读取卡片…</div>
-            </aside>
-
             <main class="automation-editor">
               <div id="automation-editor-empty" class="automation-editor-empty">
                 <span class="automation-empty-icon" aria-hidden="true">◇</span>
@@ -260,7 +247,7 @@
                       </details>
                     </div>
                     <footer class="automation-dialog-footer">
-                      <button class="automation-primary-button" type="button" data-automation-dialog-close>完成</button>
+                      <button id="automation-save-settings" class="automation-primary-button" type="button">保存卡片</button>
                     </footer>
                   </div>
                 </section>
@@ -289,8 +276,24 @@
                   </div>
                 </section>
 
-                <div id="automation-status" class="automation-status" role="status" aria-live="polite"></div>
               </form>
+
+              <section class="automation-card-library" aria-labelledby="automation-card-library-title">
+                <header class="automation-card-library-heading">
+                  <strong id="automation-card-library-title">卡片列表</strong>
+                </header>
+                <div class="automation-toolbar">
+                  <button id="automation-new-card" class="automation-primary-button" type="button">新建卡片</button>
+                  <button id="automation-import-card" class="automation-secondary-button" type="button">导入卡片</button>
+                  <button id="automation-export-card" class="automation-secondary-button" type="button">导出当前卡片</button>
+                  <input id="automation-import-file" type="file" accept=".json,application/json" multiple hidden>
+                  <span id="automation-card-count" class="automation-count">0 张卡片</span>
+                  <button id="automation-refresh" class="automation-icon-button" type="button" aria-label="刷新卡片" title="刷新卡片">↻</button>
+                </div>
+                <aside id="automation-card-list" class="automation-card-list" aria-label="全部自动化卡片" aria-live="polite">
+                </aside>
+                <div id="automation-status" class="automation-status" role="status" aria-live="polite">正在读取卡片…</div>
+              </section>
             </main>
           </div>
         </div>

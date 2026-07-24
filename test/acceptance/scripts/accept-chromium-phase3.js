@@ -328,7 +328,7 @@ app.whenReady().then(async () => {
   const clicked = await manager.dispatchAutomationByProcessId(b.state.pid, 'perform-action', {
     action: 'click', selector: '#native-click-target',
   });
-  assert.equal(clicked.result.inputMode, 'chromium-visible-pointer');
+  assert.equal(clicked.result.inputMode, 'chromium-native-input');
   const clickRequest = await waitForRequest((item) => item.path === '/native-click');
   const clickQuery = new URLSearchParams(clickRequest.query);
   assert.equal(clickQuery.get('trusted'), 'true');
@@ -337,7 +337,7 @@ app.whenReady().then(async () => {
   const frameClicked = await manager.dispatchAutomationByProcessId(b.state.pid, 'perform-action', {
     action: 'click', selector: '#native-frame-target',
   });
-  assert.equal(frameClicked.result.inputMode, 'chromium-visible-pointer');
+  assert.equal(frameClicked.result.inputMode, 'chromium-native-input');
   const frameClickRequest = await waitForRequest(
     (item) => item.path === '/native-frame-click', 2000,
   );
@@ -472,7 +472,7 @@ app.whenReady().then(async () => {
 
   console.log('[phase3-acceptance] navigate/reload command responses passed');
   console.log('[phase3-acceptance] trusted local file selection reached the real HTML file input');
-  console.log('[phase3-acceptance] native pointer, keyboard and wheel events reached the page as trusted input');
+  console.log('[phase3-acceptance] native mouse, keyboard and wheel events reached the page as trusted input');
   console.log('[phase3-acceptance] native observe highlights were attached outside the page DOM');
   console.log('[phase3-acceptance] visible + HttpOnly cookies reached real Chromium requests');
   console.log('[phase3-acceptance] LocalStorage/SessionStorage verification and two-Profile isolation passed');

@@ -37,10 +37,7 @@ test('buildChromiumArgs adds permission switches only with a valid allowlist', (
     launchToken: 'token',
   };
   const disabled = buildChromiumArgs({ ...base, profile: {} });
-  assert.ok(disabled.some((arg) => (
-    arg.includes('--hs-automation-cursor=')
-      && arg.endsWith('[CC] Handwrite v1.ani')
-  )));
+  assert.equal(disabled.some((arg) => arg.startsWith('--hs-automation-cursor=')), false);
   assert.equal(disabled.some((arg) => arg === '--auto-grant-permissions'), false);
 
   const enabled = buildChromiumArgs({

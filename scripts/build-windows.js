@@ -1,15 +1,19 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { build, Platform } = require('electron-builder');
 const { verifyPackagedRuntime } = require('./verify-packaged-runtime');
 const { buildNativeHost } = require('./build-native-host');
-const { buildSource } = require('./build-source');
+const { buildRoot, buildSource } = require('./build-source');
 
 const projectDir = path.resolve(__dirname, '..');
 const extensionsDir = path.join(projectDir, 'src', 'assets', 'extensions');
 const configPath = path.join(projectDir, 'platforms-config.json');
 const packagePath = path.join(projectDir, 'package.json');
 const alwaysPackagedExtensions = new Set(['clash-mini']);
+const sourceSnapshotPrefix = 'ai-free-package-source-';
+const sourceSnapshotOwner = 'ai-free-build-windows';
+const sourceSnapshotOwnerFile = '.owner.json';
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -140,6 +144,70 @@ function cleanAppOutput(appOutDir) {
   fs.rmSync(resolvedOutput, { recursive: true, force: true });
 }
 
+function isProcessRunning(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function cleanupStaleSourceSnapshots(tempRoot = os.tmpdir(), processIsRunning = isProcessRunning) {
+  if (!fs.existsSync(tempRoot)) return [];
+  const removed = [];
+  for (const entry of fs.readdirSync(tempRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.startsWith(sourceSnapshotPrefix)) continue;
+    const rootDir = path.join(tempRoot, entry.name);
+    const ownerPath = path.join(rootDir, sourceSnapshotOwnerFile);
+    try {
+      const owner = JSON.parse(fs.readFileSync(ownerPath, 'utf8'));
+      if (owner.owner !== sourceSnapshotOwner || processIsRunning(owner.pid)) continue;
+      fs.rmSync(rootDir, { recursive: true, force: true });
+      removed.push(rootDir);
+    } catch {
+      // Unknown or malformed directories are not ours to remove.
+    }
+  }
+  return removed;
+}
+
+function createPackagedSourceSnapshot(
+  sourceDir = path.join(buildRoot, 'src'),
+  tempRoot = os.tmpdir(),
+) {
+  const resolvedSource = path.resolve(sourceDir);
+  const mainEntry = path.join(resolvedSource, 'app', 'main', 'main.js');
+  if (!fs.existsSync(mainEntry)) {
+    throw new Error(`打包源码快照缺少主进程入口: ${mainEntry}`);
+  }
+  cleanupStaleSourceSnapshots(tempRoot);
+  const rootDir = fs.mkdtempSync(path.join(tempRoot, sourceSnapshotPrefix));
+  const snapshotSourceDir = path.join(rootDir, 'src');
+  const exitCleanup = () => fs.rmSync(rootDir, { recursive: true, force: true });
+  try {
+    fs.writeFileSync(
+      path.join(rootDir, sourceSnapshotOwnerFile),
+      `${JSON.stringify({ owner: sourceSnapshotOwner, pid: process.pid })}\n`,
+      'utf8',
+    );
+    fs.cpSync(resolvedSource, snapshotSourceDir, { recursive: true, force: true });
+  } catch (error) {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+    throw error;
+  }
+  process.once('exit', exitCleanup);
+  return {
+    rootDir,
+    sourceDir: snapshotSourceDir,
+    dispose: () => {
+      process.removeListener('exit', exitCleanup);
+      exitCleanup();
+    },
+  };
+}
+
 async function cleanAppOutputForRetry(appOutDir) {
   const maxAttempts = 3;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -191,12 +259,23 @@ function resolvePackagedExtensions() {
 
 async function main() {
   buildSource();
+  const sourceSnapshot = createPackagedSourceSnapshot();
+  try {
+    await buildWindowsPackage(sourceSnapshot.sourceDir);
+  } finally {
+    sourceSnapshot.dispose();
+  }
+}
+
+async function buildWindowsPackage(snapshotSourceDir) {
   const packageJson = readJson(packagePath);
   const builderConfig = packageJson.build || {};
   const { selected, excluded } = resolvePackagedExtensions();
   const configuredFiles = Array.isArray(builderConfig.files) ? builderConfig.files : [];
 
-  const mappedFiles = configuredFiles.map((entry) => appendGeneratedExtensionExclusions(entry, excluded));
+  const mappedFiles = configuredFiles
+    .map((entry) => appendGeneratedExtensionExclusions(entry, excluded))
+    .map((entry) => replaceGeneratedSourceMapping(entry, snapshotSourceDir));
   builderConfig.files = [
     ...mappedFiles,
     ...excluded.map((name) => `!src/assets/extensions/${name}/**/*`),
@@ -231,33 +310,11 @@ async function main() {
   // Electron ABI 目标和 CRT 链接方式都由当前源码在本次打包中重建。
   buildNativeHost();
 
-  // Chromium 和 Clash Core 都包含会触发签名/实时扫描的可执行文件。若交给
-  // electron-builder 与其它资源并行复制，Windows 偶发返回 EBUSY/EPERM。
-  // 先生成主程序，再串行同步这两项资源，最后由预打包目录生成 NSIS。
-  const stageConfig = {
-    ...builderConfig,
-    extraResources: extraResources.filter((entry) => !isDeferredExtraResource(entry)),
-  };
-  // electron-builder 会把 API 对象中的数组与 package.json 数组追加合并，直接把
-  // stageConfig 作为 options.config 传入无法真正删除原 extraResources。显式配置
-  // 文件会替代 package.json 的 build 字段，确保延后资源只在串行阶段复制一次。
-  cleanAppOutput(appOutDir);
-  const stageConfigPath = writeStageConfigFile(appOutDir, stageConfig);
-  const stageOptions = {
-    projectDir,
-    targets: Platform.WINDOWS.createTarget('dir'),
-    config: stageConfigPath,
-  };
-
-  try {
-    await buildWithRetry(stageOptions, '应用预打包阶段', {
-      // 首次失败会留下半成品。重试前清掉它，避免刚生成的 exe 被扫描器
-      // 短暂占用后，下一轮继续复制到同一个目标文件而再次触发 EBUSY。
-      beforeRetry: () => cleanAppOutputForRetry(appOutDir),
-    });
-  } finally {
-    fs.rmSync(stageConfigPath, { force: true });
-  }
+  await stageApplication({
+    appOutDir,
+    builderConfig,
+    extraResources,
+  });
   await syncDeferredExtraResource(appOutDir, clashCoreResource, {
     label: 'Clash Mini Core',
     requiredFile: 'verge-mihomo.exe',
@@ -277,6 +334,29 @@ async function main() {
   await buildWithRetry(installerOptions, 'NSIS 安装包阶段');
 }
 
+async function stageApplication({ appOutDir, builderConfig, extraResources }) {
+  // Chromium 和 Clash Core 都包含会触发签名/实时扫描的可执行文件。若交给
+  // electron-builder 与其它资源并行复制，Windows 偶发返回 EBUSY/EPERM。
+  const stageConfig = {
+    ...builderConfig,
+    extraResources: extraResources.filter((entry) => !isDeferredExtraResource(entry)),
+  };
+  cleanAppOutput(appOutDir);
+  const stageConfigPath = writeStageConfigFile(appOutDir, stageConfig);
+  const stageOptions = {
+    projectDir,
+    targets: Platform.WINDOWS.createTarget('dir'),
+    config: stageConfigPath,
+  };
+  try {
+    await buildWithRetry(stageOptions, '应用预打包阶段', {
+      beforeRetry: () => cleanAppOutputForRetry(appOutDir),
+    });
+  } finally {
+    fs.rmSync(stageConfigPath, { force: true });
+  }
+}
+
 function appendGeneratedExtensionExclusions(entry, excluded) {
   const source = entry && typeof entry === 'object'
     ? String(entry.from || '').replace(/\\/g, '/')
@@ -289,6 +369,15 @@ function appendGeneratedExtensionExclusions(entry, excluded) {
   };
 }
 
+function replaceGeneratedSourceMapping(entry, snapshotSourceDir) {
+  const source = entry && typeof entry === 'object'
+    ? String(entry.from || '').replace(/\\/g, '/')
+    : '';
+  return source === '.generated/app/src'
+    ? { ...entry, from: snapshotSourceDir }
+    : entry;
+}
+
 if (require.main === module) {
   main().catch((error) => {
     console.error(`[build:win] ${error && error.stack ? error.stack : error}`);
@@ -297,9 +386,12 @@ if (require.main === module) {
 }
 
 module.exports = {
+  cleanupStaleSourceSnapshots,
+  createPackagedSourceSnapshot,
   isChromiumExtraResource,
   isClashCoreExtraResource,
   isDeferredExtraResource,
+  replaceGeneratedSourceMapping,
   syncDeferredExtraResource,
   writeStageConfigFile,
 };
