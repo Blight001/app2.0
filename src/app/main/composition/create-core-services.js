@@ -64,6 +64,11 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
   const cursorSidecarService = createCursorSidecarService({
     resourcesPath: runtimeResourcesPath,
     logger: console,
+    isTargetForeground: (target) => (
+      browserRuntimeManager.windowBridge.isWindowForegroundFamily(
+        target.targetHwnd,
+      )
+    ),
   });
   browserRuntimeManager.setCursorSidecarService(cursorSidecarService);
   const softwareCatalog = createSoftwareCatalog({

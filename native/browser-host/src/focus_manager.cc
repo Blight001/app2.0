@@ -90,6 +90,18 @@ bool ReleaseBrowserChildWindowFocus(HWND child) {
   return released;
 }
 
+bool IsWindowForegroundFamilyValue(HWND window) {
+  if (!IsWindow(window)) return false;
+  const HWND root = GetAncestor(window, GA_ROOT);
+  for (HWND candidate = GetForegroundWindow(); candidate;
+       candidate = GetWindow(candidate, GW_OWNER)) {
+    if (candidate == root || GetAncestor(candidate, GA_ROOT) == root) {
+      return true;
+    }
+  }
+  return false;
+}
+
 napi_value FocusChildWindow(napi_env env, napi_callback_info info) {
   napi_value options = SingleObjectArg(env, info);
   HWND child = ReadHwnd(env, GetNamed(env, options, "childHwnd"));
@@ -102,4 +114,11 @@ napi_value ReleaseChildWindowFocus(napi_env env, napi_callback_info info) {
   napi_value options = SingleObjectArg(env, info);
   HWND child = ReadHwnd(env, GetNamed(env, options, "childHwnd"));
   return BoolValue(env, ReleaseBrowserChildWindowFocus(child));
+}
+
+napi_value IsWindowForegroundFamily(
+    napi_env env, napi_callback_info info) {
+  napi_value options = SingleObjectArg(env, info);
+  HWND window = ReadHwnd(env, GetNamed(env, options, "hwnd"));
+  return BoolValue(env, IsWindowForegroundFamilyValue(window));
 }

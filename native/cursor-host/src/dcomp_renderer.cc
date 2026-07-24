@@ -11,10 +11,13 @@ namespace cursor_host {
 namespace {
 
 constexpr int kSurfaceSize = 64;
+constexpr float kCursorScale = 0.75f;
 constexpr auto kMinEffectRedrawInterval = std::chrono::milliseconds(11);
 constexpr wchar_t kWindowClass[] = L"AI_FREE_CURSOR_HOST_OVERLAY";
 
 bool Succeeded(HRESULT result) { return SUCCEEDED(result); }
+
+float CursorScaled(float value) { return value * kCursorScale; }
 
 float EaseOutQuad(float t) {
   const float clamped = std::clamp(t, 0.0f, 1.0f);
@@ -196,7 +199,8 @@ bool DCompRenderer::DrawCursor(
       const float scale = std::min(
           1.0f, std::min(
               static_cast<float>(kSurfaceSize) / decoded->width,
-              static_cast<float>(kSurfaceSize) / decoded->height));
+              static_cast<float>(kSurfaceSize) / decoded->height)) *
+          kCursorScale;
       const D2D1_RECT_F destination = D2D1::RectF(
           0, 0, decoded->width * scale, decoded->height * scale);
       d2d_context_->DrawBitmap(
@@ -218,21 +222,27 @@ bool DCompRenderer::DrawCursor(
             D2D1::ColorF(0.02f, 0.08f, 0.14f, 0.95f), &outline);
       }
       const D2D1_ELLIPSE body = D2D1::Ellipse(
-          D2D1::Point2F(18.0f, 17.0f), 10.0f, 10.0f);
+          D2D1::Point2F(CursorScaled(18.0f), CursorScaled(17.0f)),
+          CursorScaled(10.0f), CursorScaled(10.0f));
       if (Succeeded(result)) {
         d2d_context_->FillEllipse(body, fill.Get());
-        d2d_context_->DrawEllipse(body, outline.Get(), 2.0f);
+        d2d_context_->DrawEllipse(
+            body, outline.Get(), CursorScaled(2.0f));
         d2d_context_->DrawLine(
-            D2D1::Point2F(7.0f, 5.0f), D2D1::Point2F(12.0f, 10.0f),
-            fill.Get(), 4.0f);
+            D2D1::Point2F(CursorScaled(7.0f), CursorScaled(5.0f)),
+            D2D1::Point2F(CursorScaled(12.0f), CursorScaled(10.0f)),
+            fill.Get(), CursorScaled(4.0f));
       }
-      current_hotspot_ = POINT{7, 5};
+      current_hotspot_ = POINT{
+          static_cast<LONG>(std::lround(CursorScaled(7.0f))),
+          static_cast<LONG>(std::lround(CursorScaled(5.0f))),
+      };
     }
     const D2D1_POINT_2F center = has_asset
         ? D2D1::Point2F(
             static_cast<float>(current_hotspot_.x),
             static_cast<float>(current_hotspot_.y))
-        : D2D1::Point2F(18.0f, 17.0f);
+        : D2D1::Point2F(CursorScaled(18.0f), CursorScaled(17.0f));
     // Static press/drag ring (no click effect).
     if (Succeeded(result) && button != PointerButton::kNone &&
         effect_progress < 0.0) {
@@ -245,9 +255,10 @@ bool DCompRenderer::DrawCursor(
               : D2D1::ColorF(0.25f, 0.78f, 1.0f, opacity);
       result = d2d_context_->CreateSolidColorBrush(color, &press);
       if (Succeeded(result)) {
-        const float radius = dragging ? 8.0f : 7.0f;
+        const float radius = CursorScaled(dragging ? 8.0f : 7.0f);
         d2d_context_->DrawEllipse(
-            D2D1::Ellipse(center, radius, radius), press.Get(), 1.5f);
+            D2D1::Ellipse(center, radius, radius), press.Get(),
+            CursorScaled(1.5f));
       }
     }
     // Soft expanding click ripple: ease-out growth + quadratic fade.
@@ -255,8 +266,8 @@ bool DCompRenderer::DrawCursor(
       const float t = static_cast<float>(std::clamp(effect_progress, 0.0, 1.0));
       const float expand = EaseOutQuad(t);
       const float fade = (1.0f - t) * (1.0f - t);
-      const float radius = 4.0f + expand * 14.0f;
-      const float stroke = (1.8f - expand * 0.6f);
+      const float radius = CursorScaled(4.0f + expand * 14.0f);
+      const float stroke = CursorScaled(1.8f - expand * 0.6f);
       const float fill_alpha = fade * 0.22f;
       const float stroke_alpha = fade * 0.85f;
       const bool right = button == PointerButton::kRight;

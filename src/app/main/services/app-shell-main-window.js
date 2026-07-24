@@ -1,7 +1,7 @@
 'use strict';
 
 const { createWindowBackgroundController } = require('../features/window/window-background-controller');
-const { resolveSidebarWidth } = require('../../shared/sidebar-layout');
+const { resolveSidebarWidth, resolveShellContentBounds } = require('../../shared/sidebar-layout');
 const { createAppShellWindowStateController } = require('./app-shell-window-state');
 
 function createWindowInstance(deps, windowStateController) {
@@ -118,7 +118,6 @@ function bindSidebarEvents(deps, sideView, mainWindow) {
 
 function resolveLayout(deps, mainWindow, sideView) {
   const [width, height] = mainWindow.getContentSize();
-  const tabBarHeight = 41;
   const isSidebarVisible = deps.getIsSidebarVisible ? deps.getIsSidebarVisible() : true;
   const sideViewWidth = resolveSidebarWidth({
     contentWidth: width,
@@ -127,16 +126,26 @@ function resolveLayout(deps, mainWindow, sideView) {
     currentWidth: sideView?.getBounds?.().width,
     normalWindowWidth: mainWindow.getNormalBounds?.().width,
   });
+  const contentBounds = resolveShellContentBounds({
+    contentWidth: width,
+    contentHeight: height,
+    sideViewWidth,
+  });
   const activeTab = deps.resolveTabs().get(deps.resolveActiveTabId());
   return {
     width,
-    tabBarHeight,
-    tabContentHeight: height - tabBarHeight,
+    tabBarHeight: contentBounds.tabBarHeight,
+    tabContentHeight: contentBounds.height,
     isSidebarVisible,
     sideViewWidth,
     activeTab,
     runtimeBounds: activeTab
-      ? { x: 0, y: tabBarHeight, width: width - sideViewWidth, height: height - tabBarHeight }
+      ? {
+        x: contentBounds.x,
+        y: contentBounds.y,
+        width: contentBounds.width,
+        height: contentBounds.height,
+      }
       : null,
   };
 }
@@ -147,7 +156,7 @@ function updateMainWindowLayout(deps, mainWindow) {
   if (sideView && layout.isSidebarVisible) {
     sideView.setBounds({
       x: layout.width - layout.sideViewWidth,
-      y: layout.tabBarHeight,
+      y: 0,
       width: layout.sideViewWidth,
       height: layout.tabContentHeight,
     });

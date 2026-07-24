@@ -1,6 +1,6 @@
 'use strict';
 
-const { resolveSidebarWidth } = require('../../../shared/sidebar-layout');
+const { resolveSidebarWidth, resolveShellContentBounds } = require('../../../shared/sidebar-layout');
 
 class ExternalAppTabLauncher {
   constructor(deps = {}) {
@@ -16,7 +16,8 @@ class ExternalAppTabLauncher {
       currentWidth: this.deps.resolveSideView()?.getBounds?.().width,
       normalWindowWidth: mainWindow.getNormalBounds?.().width,
     });
-    return { x: 0, y: 41, width: contentWidth - sidebarWidth, height: Math.max(0, contentHeight - 41) };
+    const bounds = resolveShellContentBounds({ contentWidth, contentHeight, sideViewWidth: sidebarWidth });
+    return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
   }
 
   async addExternalApp(softwareId) {

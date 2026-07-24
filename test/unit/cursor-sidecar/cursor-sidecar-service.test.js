@@ -99,7 +99,7 @@ test('move API supports instant/smooth arrival and ignores stale events', async 
   await service.shutdown();
 });
 
-test('window lifecycle maps only to explicit hide and show commands', async () => {
+test('window lifecycle maps hide and show to explicit cursor commands', async () => {
   const process = new FakeProcess();
   const service = new CursorSidecarService({ process, logger: { warn() {} } });
   const mainWindow = new EventEmitter();
@@ -108,9 +108,35 @@ test('window lifecycle maps only to explicit hide and show commands', async () =
   service.bindMainWindow(mainWindow);
   process.client.sent.length = 0;
 
-  mainWindow.emit('blur');
+  mainWindow.emit('hide');
   mainWindow.emit('focus');
   await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(
+    process.client.sent.map((item) => item.type),
+    ['HIDE_CURSOR', 'SHOW_CURSOR'],
+  );
+  await service.shutdown();
+});
+
+test('embedded target focus stays visible while other apps hide the cursor', async () => {
+  const process = new FakeProcess();
+  let targetForeground = true;
+  const service = new CursorSidecarService({
+    process,
+    logger: { warn() {} },
+    isTargetForeground: () => targetForeground,
+  });
+  await service.registerTarget(target('one', 10));
+  await service.activateTarget('one');
+  process.client.sent.length = 0;
+
+  service.syncForegroundState();
+  assert.deepEqual(process.client.sent, []);
+  targetForeground = false;
+  service.syncForegroundState();
+  targetForeground = true;
+  service.syncForegroundState();
 
   assert.deepEqual(
     process.client.sent.map((item) => item.type),

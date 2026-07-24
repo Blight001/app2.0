@@ -80,7 +80,7 @@ test('主窗口最大化后 Chromium 区域保留最大化前的侧栏宽度', a
 
   await manager.addTab('chrome://newtab/', { tabId: 'maximized-browser' });
 
-  assert.deepEqual(launchedBounds, { x: 0, y: 41, width: 1560, height: 999 });
+  assert.deepEqual(launchedBounds, { x: 0, y: 0, width: 1560, height: 999 });
 });
 
 test('本地 profile 解析不阻塞 Chromium 启动并在后台写入 Profile 缓存', async () => {

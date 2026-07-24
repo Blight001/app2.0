@@ -50,7 +50,7 @@ class DCompRenderer {
   double last_effect_progress_ = -1.0;
   std::chrono::steady_clock::time_point last_draw_at_{};
   std::wstring cursor_asset_path_;
-  POINT current_hotspot_{7, 5};
+  POINT current_hotspot_{5, 4};
   std::size_t last_asset_frame_ = SIZE_MAX;
   CursorAssetCache asset_cache_;
   std::vector<Microsoft::WRL::ComPtr<ID2D1Bitmap1>> asset_bitmaps_;

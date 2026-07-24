@@ -105,10 +105,13 @@ class AccountCenterPopupController {
     const width = 430;
     const height = 520;
     const anchorRight = Number.isFinite(Number(anchor.right)) ? Number(anchor.right) : contentBounds.width - 8;
-    const anchorBottom = Number.isFinite(Number(anchor.bottom)) ? Number(anchor.bottom) : 36;
+    // 标签栏在底部：个人中心浮窗从锚点上方展开。
+    const anchorTop = Number.isFinite(Number(anchor.top))
+      ? Number(anchor.top)
+      : (Number.isFinite(Number(anchor.bottom)) ? Number(anchor.bottom) - 30 : contentBounds.height - 36);
     const desiredX = Math.round(contentBounds.x + anchorRight - width);
-    const desiredY = Math.round(contentBounds.y + anchorBottom + 6);
-    const workArea = screen.getDisplayNearestPoint({ x: desiredX, y: desiredY }).workArea;
+    const desiredY = Math.round(contentBounds.y + anchorTop - height - 6);
+    const workArea = screen.getDisplayNearestPoint({ x: desiredX, y: Math.max(desiredY, contentBounds.y) }).workArea;
     const x = Math.min(Math.max(desiredX, workArea.x + 8), workArea.x + workArea.width - width - 8);
     const y = Math.min(Math.max(desiredY, workArea.y + 8), workArea.y + workArea.height - height - 8);
     this.layout = { desiredY, width, workArea, x };

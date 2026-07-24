@@ -8,6 +8,8 @@
 // explicit focus requests; ordinary browser clicks follow native activation.
 bool FocusBrowserChildWindow(HWND child);
 bool ReleaseBrowserChildWindowFocus(HWND child);
+bool IsWindowForegroundFamilyValue(HWND window);
 
 napi_value FocusChildWindow(napi_env env, napi_callback_info info);
 napi_value ReleaseChildWindowFocus(napi_env env, napi_callback_info info);
+napi_value IsWindowForegroundFamily(napi_env env, napi_callback_info info);

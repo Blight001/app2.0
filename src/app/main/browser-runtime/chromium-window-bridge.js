@@ -82,6 +82,12 @@ class ChromiumWindowBridge {
     if (typeof binding.releaseChildWindowFocus !== 'function') return true;
     return binding.releaseChildWindowFocus({ childHwnd });
   }
+  isWindowForegroundFamily(hwnd) {
+    const binding = this.load();
+    return typeof binding.isWindowForegroundFamily === 'function'
+      ? binding.isWindowForegroundFamily({ hwnd })
+      : true;
+  }
   isWindowAlive(hwnd) { return this.load().isWindowAlive({ hwnd }); }
   getWindowProcessId(hwnd) { return this.load().getWindowProcessId({ hwnd }); }
   requestWindowClose(hwnd) {

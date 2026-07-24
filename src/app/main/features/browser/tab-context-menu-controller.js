@@ -41,7 +41,12 @@ function resolveContextMenuBounds(parent, x, y) {
     : screen.getPrimaryDisplay();
   const workArea = display?.workArea || { x: 0, y: 0, width: 1920, height: 1080 };
   const left = Math.min(Math.max(anchorX - 12, workArea.x + 8), workArea.x + workArea.width - width - 8);
-  const top = Math.min(Math.max(anchorY + 8, workArea.y + 8), workArea.y + workArea.height - height - 8);
+  // 标签栏在底部时优先向上展开，避免菜单贴底溢出。
+  const preferredTop = anchorY - height - 8;
+  const top = Math.min(
+    Math.max(preferredTop, workArea.y + 8),
+    workArea.y + workArea.height - height - 8,
+  );
   return { x: Math.round(left), y: Math.round(top), width, height };
 }
 

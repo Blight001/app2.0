@@ -23,6 +23,7 @@ NAPI_MODULE_INIT() {
     {"hideHostWindow", nullptr, HideHostWindow, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"focusChildWindow", nullptr, FocusChildWindow, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"releaseChildWindowFocus", nullptr, ReleaseChildWindowFocus, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"isWindowForegroundFamily", nullptr, IsWindowForegroundFamily, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"isWindowAlive", nullptr, IsWindowAlive, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"getWindowProcessId", nullptr, GetWindowProcessId, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"requestWindowClose", nullptr, RequestWindowClose, nullptr, nullptr, nullptr, napi_default, nullptr},

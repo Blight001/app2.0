@@ -13,6 +13,39 @@ function normalizeButton(value) {
   return String(value || 'left').toLowerCase() === 'right' ? 'right' : 'left';
 }
 
+function translatePosition(previous, savedPosition, rectPhysical) {
+  if (!previous || !savedPosition) return null;
+  return {
+    x: savedPosition.x + rectPhysical.x - previous.rectPhysical.x,
+    y: savedPosition.y + rectPhysical.y - previous.rectPhysical.y,
+  };
+}
+
+function createTargetState(input, previous, savedPosition) {
+  const tabId = normalizeTabId(input.tabId);
+  const rectPhysical = normalizeRect(input.rectPhysical);
+  const position = normalizePoint(
+    translatePosition(previous, savedPosition, rectPhysical) ||
+    savedPosition || input.initialPosition || {
+      x: rectPhysical.x + rectPhysical.width / 2,
+      y: rectPhysical.y + rectPhysical.height / 2,
+    },
+  );
+  return {
+    tabId,
+    position,
+    target: {
+      tabId,
+      targetHwnd: String(input.targetHwnd || previous?.targetHwnd || ''),
+      ownerHwnd: String(input.ownerHwnd || previous?.ownerHwnd || ''),
+      rectPhysical,
+      initialPosition: position,
+      visible: previous?.visible !== false,
+      button: previous?.button || '',
+    },
+  };
+}
+
 class CursorSidecarService extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -24,7 +57,10 @@ class CursorSidecarService extends EventEmitter {
     this.pendingArrivals = new Map();
     this.activeTabId = '';
     this.nextSequenceId = 0;
-    this.hostSuppressed = false;
+    this.windowSuppressed = false;
+    this.foregroundSuppressed = false;
+    this.isTargetForeground = options.isTargetForeground || null;
+    this.foregroundMonitor = null;
     this.startPromise = null;
     this.restartCount = 0;
     this.boundWindows = new WeakSet();
@@ -44,12 +80,13 @@ class CursorSidecarService extends EventEmitter {
   bindMainWindow(window) {
     if (!window?.on || this.boundWindows.has(window)) return;
     this.boundWindows.add(window);
-    for (const eventName of ['blur', 'hide', 'minimize', 'closed']) {
+    for (const eventName of ['hide', 'minimize', 'closed']) {
       window.on(eventName, () => this.suppressHost());
     }
     for (const eventName of ['show', 'restore', 'focus']) {
       window.on(eventName, () => { void this.restoreHost(); });
     }
+    this.startForegroundMonitor();
   }
 
   async ensureStarted() {
@@ -88,27 +125,11 @@ class CursorSidecarService extends EventEmitter {
 
   async registerTarget(input) {
     const tabId = normalizeTabId(input.tabId);
-    const rectPhysical = normalizeRect(input.rectPhysical);
     const previous = this.targets.get(tabId);
     const savedPosition = this.positions.get(tabId);
-    const translatedPosition = previous && savedPosition ? {
-      x: savedPosition.x + rectPhysical.x - previous.rectPhysical.x,
-      y: savedPosition.y + rectPhysical.y - previous.rectPhysical.y,
-    } : null;
-    const initialPosition = normalizePoint(
-      translatedPosition || savedPosition || input.initialPosition || {
-        x: rectPhysical.x + rectPhysical.width / 2,
-        y: rectPhysical.y + rectPhysical.height / 2,
-      },
-    );
-    this.targets.set(tabId, {
-      tabId,
-      rectPhysical,
-      initialPosition,
-      visible: previous?.visible !== false,
-      button: previous?.button || '',
-    });
-    this.positions.set(tabId, initialPosition);
+    const state = createTargetState(input, previous, savedPosition);
+    this.targets.set(tabId, state.target);
+    this.positions.set(tabId, state.position);
     if (!await this.ensureStarted()) return false;
     if (this.activeTabId === tabId) this.applyActiveTargetState();
     return true;
@@ -171,7 +192,7 @@ class CursorSidecarService extends EventEmitter {
 
   applyActiveTargetState(switching = false) {
     const target = this.targets.get(this.activeTabId);
-    if (this.hostSuppressed || !target?.visible) return this.hideCursor();
+    if (this.isHostSuppressed() || !target?.visible) return this.hideCursor();
     if (switching) this.hideCursor();
     const shown = this.showCursor(this.positions.get(this.activeTabId));
     if (target.button) {
@@ -186,19 +207,53 @@ class CursorSidecarService extends EventEmitter {
   }
 
   suppressHost() {
-    this.hostSuppressed = true;
+    this.windowSuppressed = true;
     return this.hideCursor();
   }
 
   async restoreHost() {
-    this.hostSuppressed = false;
+    this.windowSuppressed = false;
+    this.syncForegroundState();
     return this.showActiveCursor();
+  }
+
+  isHostSuppressed() {
+    return this.windowSuppressed || this.foregroundSuppressed;
+  }
+
+  startForegroundMonitor() {
+    if (this.foregroundMonitor || !this.isTargetForeground) return;
+    this.foregroundMonitor = setInterval(
+      () => this.syncForegroundState(),
+      100,
+    );
+    this.foregroundMonitor.unref?.();
+  }
+
+  syncForegroundState() {
+    const target = this.targets.get(this.activeTabId);
+    if (!target || !this.isTargetForeground) return false;
+    let foreground = false;
+    try {
+      foreground = Boolean(this.isTargetForeground(target));
+    } catch (_) {
+      return false;
+    }
+    const suppressed = !foreground;
+    if (this.foregroundSuppressed === suppressed) return foreground;
+    this.foregroundSuppressed = suppressed;
+    this.applyActiveTargetState();
+    return foreground;
   }
 
   async moveAndWait(tabIdValue, targetPhysical, options = {}) {
     const tabId = normalizeTabId(tabIdValue);
     if (!await this.ensureStarted() || !this.targets.has(tabId)) {
       return { displayed: false, reason: 'sidecar_unavailable' };
+    }
+    const target = this.targets.get(tabId);
+    if (this.isHostSuppressed() || !target.visible) {
+      return { displayed: false, reason: 'target_hidden' };
     }
     const point = normalizePoint(targetPhysical);
     const sequenceId = ++this.nextSequenceId;
@@ -313,6 +368,8 @@ class CursorSidecarService extends EventEmitter {
 
   async shutdown() {
     this.disabled = true;
+    if (this.foregroundMonitor) clearInterval(this.foregroundMonitor);
+    this.foregroundMonitor = null;
     this.rejectArrivals('Cursor Sidecar 已关闭');
     await this.process.stop();
     this.client = null;

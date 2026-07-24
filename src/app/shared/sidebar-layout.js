@@ -1,6 +1,8 @@
 'use strict';
 
 const SIDEBAR_WIDTH_RATIO = 0.3;
+/** 主窗口底部标签栏占用高度（与 app-shell.css 视觉高度对齐）。 */
+const SHELL_TAB_BAR_HEIGHT = 41;
 
 /**
  * @param {unknown} value
@@ -39,4 +41,32 @@ function resolveSidebarWidth({
   return Math.max(1, Math.floor(availableWidth * SIDEBAR_WIDTH_RATIO));
 }
 
-module.exports = { resolveSidebarWidth };
+/**
+ * 标签栏固定在底部时的主内容区（浏览器 / 侧栏）bounds。
+ * @param {{
+ *   contentWidth?: number,
+ *   contentHeight?: number,
+ *   sideViewWidth?: number,
+ * }} options
+ */
+function resolveShellContentBounds({
+  contentWidth = 0,
+  contentHeight = 0,
+  sideViewWidth = 0,
+} = {}) {
+  const width = Math.max(0, positiveWidth(contentWidth) - Math.max(0, Math.floor(Number(sideViewWidth) || 0)));
+  const height = Math.max(0, positiveWidth(contentHeight) - SHELL_TAB_BAR_HEIGHT);
+  return {
+    x: 0,
+    y: 0,
+    width,
+    height,
+    tabBarHeight: SHELL_TAB_BAR_HEIGHT,
+  };
+}
+
+module.exports = {
+  SHELL_TAB_BAR_HEIGHT,
+  resolveSidebarWidth,
+  resolveShellContentBounds,
+};

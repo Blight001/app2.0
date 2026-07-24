@@ -5,7 +5,7 @@ const {
   parseCookieJson,
 } = require('../../utils/ai-free-browser-settings');
 const { FREE_BROWSER_WINDOW_LIMIT, resolveVipAccess } = require('../../utils/vip-access');
-const { resolveSidebarWidth } = require('../../../shared/sidebar-layout');
+const { resolveSidebarWidth, resolveShellContentBounds } = require('../../../shared/sidebar-layout');
 const {
   getClashMiniStatus,
   getClashMiniProxyEndpoint,
@@ -174,7 +174,8 @@ class BrowserTabLauncher {
       currentWidth: sideView?.getBounds?.().width,
       normalWindowWidth: mainWindow.getNormalBounds?.().width,
     });
-    return { x: 0, y: 41, width: contentWidth - sidebarWidth, height: Math.max(0, contentHeight - 41) };
+    const bounds = resolveShellContentBounds({ contentWidth, contentHeight, sideViewWidth: sidebarWidth });
+    return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
   }
 
   createStartingTab(id, url, options, identity, browserSettings, proxy, urls) {
