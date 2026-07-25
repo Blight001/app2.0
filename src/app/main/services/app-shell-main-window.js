@@ -156,7 +156,7 @@ function updateMainWindowLayout(deps, mainWindow) {
   if (sideView && layout.isSidebarVisible) {
     sideView.setBounds({
       x: layout.width - layout.sideViewWidth,
-      y: 0,
+      y: layout.tabBarHeight,
       width: layout.sideViewWidth,
       height: layout.tabContentHeight,
     });

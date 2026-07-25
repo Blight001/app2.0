@@ -96,9 +96,8 @@ body, html {
   gap: var(--shell-tab-gap);
   background-color: var(--shell-panel);
   padding: 5px 8px;
-  border-top: 1px solid var(--shell-border);
+  border-bottom: 1px solid var(--shell-border);
   flex-shrink: 0;
-  order: 1;
 }
 
 .shell-action-btn {
@@ -403,7 +402,6 @@ html.theme-light #new-browser-window-btn:hover:not(:disabled) {
   position: relative;
   flex-grow: 1;
   min-height: 0;
-  order: 0;
   background: var(--shell-bg);
 }
 
@@ -466,7 +464,7 @@ html.sidebar-collapsed #browser-empty-state {
   padding: 0 12px 0 14px;
   background-color: var(--shell-tab-bg);
   border: 1px solid var(--shell-tab-border);
-  border-radius: 0 0 5px 5px;
+  border-radius: 5px 5px 0 0;
   margin-right: 0;
   cursor: pointer;
   position: relative;
