@@ -94,9 +94,9 @@ class BrowserRuntimeManager {
       return false;
     }
   }
-  async launchProfile(profile, bounds) {
+  async launchProfile(profile, bounds, options) {
     const type = this.resolveType(profile);
-    const state = await this.runtimeFor(type).launchProfile(profile, bounds);
+    const state = await this.runtimeFor(type).launchProfile(profile, bounds, options);
     await this.syncCursorTarget(state?.profileId || profile.profileId, type);
     await this.cursorSidecarService?.activateTarget?.(
       state?.profileId || profile.profileId,

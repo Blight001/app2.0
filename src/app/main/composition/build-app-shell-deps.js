@@ -12,6 +12,7 @@ const { injectZoomWheelListener } = require('../utils/zoom');
 const { checkDesktopShortcutAndPrompt } = require('../utils/shortcut');
 const { resolveAppIconPath } = require('../utils/app-icon');
 const { initializeAccountCleanup } = require('../utils/accountCleanup');
+const { createWorkspaceAppShellDeps } = require('./workspace-app-shell-deps');
 const {
   DREAM_TARGET_URL,
   setDreamTargetUrl,
@@ -32,6 +33,8 @@ function buildAppShellDeps({
   extIdBySession,
   late,
   getAppShell,
+  getWorkspaceShell,
+  getSoftwareWorkspace,
 }) {
   const {
     appRuntime,
@@ -55,6 +58,12 @@ function buildAppShellDeps({
     http,
     APP_DISPLAY_NAME,
   } = services;
+  const getShellWindow = appRuntime.getBrowserWindow;
+  const setShellWindow = appRuntime.setBrowserWindow;
+  const workspaceDeps = createWorkspaceAppShellDeps({
+    getWorkspaceShell,
+    getSoftwareWorkspace,
+  });
 
   return {
     app,
@@ -69,6 +78,9 @@ function buildAppShellDeps({
     Tray,
     screen,
     logger: console,
+    workspaceType: 'browser',
+    preloadPath: path.join(__dirname, '../preload/browser-preload.js'),
+    ...workspaceDeps,
     FIXED_ICON_RELATIVE_PATH,
     resolveAppIconPath,
     APP_DISPLAY_NAME,
@@ -111,6 +123,12 @@ function buildAppShellDeps({
     getRefreshActiveTab: late.getRefreshActiveTab,
     getRefreshTab: late.getRefreshTab,
     getAddExternalApp: late.getAddExternalApp,
+    applyClashMiniBrowserProxy: (...args) => (
+      late.getApplyClashMiniBrowserProxy?.()?.(...args)
+    ),
+    applyNetworkMagicToTab: (...args) => (
+      late.getApplyNetworkMagicToTab?.()?.(...args)
+    ),
     listAvailableSoftware: () => services.softwareCatalog.listAvailable(),
     updateTabs: tabHelpers.updateTabs,
     getActiveWC: tabHelpers.getActiveWC,
@@ -121,8 +139,8 @@ function buildAppShellDeps({
     cleanupUpdateStorageRoot: appUpdater.cleanupUpdateStorageRoot,
     getAppVersion: () => app.getVersion(),
     getTabs: () => tabs,
-    getMainWindow: appRuntime.getMainWindow,
-    setMainWindow: appRuntime.setMainWindow,
+    getMainWindow: getShellWindow,
+    setMainWindow: setShellWindow,
     getSideView: appRuntime.getSideView,
     setSideView: appRuntime.setSideView,
     getControlPanelWindow: appRuntime.getControlPanelWindow,

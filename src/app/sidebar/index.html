@@ -18,6 +18,15 @@
         }
       } catch (_) {}
     })();
+    document.addEventListener('DOMContentLoaded', () => {
+      const workspaceType = window.env?.WORKSPACE_TYPE;
+      const hiddenDomain = workspaceType === 'browser'
+        ? 'software'
+        : (workspaceType === 'software' ? 'browser' : '');
+      if (!hiddenDomain) return;
+      document.querySelectorAll(`[data-workspace-domain="${hiddenDomain}"]`)
+        .forEach((element) => element.remove());
+    });
   </script>
   <link rel="stylesheet" href="./client/styles/control-panel.css" />
   <link rel="stylesheet" href="./client/app/side/styles/side.css" />
@@ -33,18 +42,18 @@
         <span class="tab-button-icon" aria-hidden="true">◇</span>
         <span>自动化</span>
       </button>
-      <button class="tab-button" type="button" data-tab="ai-free-settings-panel" aria-controls="ai-free-settings-panel">
+      <button class="tab-button" type="button" data-tab="ai-free-settings-panel" aria-controls="ai-free-settings-panel" data-workspace-domain="browser">
         <span class="tab-button-icon" aria-hidden="true">⚙</span>
         <span>浏览器配置</span>
       </button>
-      <button class="tab-button" type="button" data-tab="software-settings-panel" aria-controls="software-settings-panel">
+      <button class="tab-button" type="button" data-tab="software-settings-panel" aria-controls="software-settings-panel" data-workspace-domain="software">
         <span class="tab-button-icon" aria-hidden="true">▦</span>
         <span>软件配置</span>
       </button>
     </nav>
 
     <div class="main-wrapper">
-      <section id="ai-free-settings-panel" class="ai-free-settings-panel panel" aria-label="AI-FREE 参数配置">
+      <section id="ai-free-settings-panel" class="ai-free-settings-panel panel" aria-label="AI-FREE 参数配置" data-workspace-domain="browser">
         <form id="ai-free-settings-form" class="settings-container vb-form" autocomplete="off">
           <section class="settings-network-tools" aria-label="浏览器记录与网络魔法">
 
@@ -179,7 +188,7 @@
         </form>
       </section>
 
-      <section id="software-settings-panel" class="software-settings-panel panel" aria-label="软件配置">
+      <section id="software-settings-panel" class="software-settings-panel panel" aria-label="软件配置" data-workspace-domain="software">
         <div class="software-settings-shell">
           <section class="software-picker" aria-labelledby="software-picker-title">
             <header class="software-picker-heading">
@@ -200,7 +209,7 @@
               <div id="automation-editor-empty" class="automation-editor-empty">
                 <span class="automation-empty-icon" aria-hidden="true">◇</span>
                 <strong>选择一张自动化卡片</strong>
-                <p>可查看完整流程、调整步骤并保存到软件卡片库。</p>
+                <p>可查看完整流程、调整步骤并保存到自动化卡片库。</p>
               </div>
 
               <form id="automation-card-form" class="automation-card-form" novalidate hidden>
@@ -677,75 +686,6 @@
   </div>
 
   <script src="./client/scripts/logo-assets.js"></script>
-  <script src="./client/scripts/control-panel.js"></script>
-
-  <script src="./client/app/side/controllers/pages/side-panel/tabs.js"></script>
-  <script src="./client/app/side/controllers/pages/software-settings.js"></script>
-  <script src="./client/app/side/controllers/pages/automation/automation-flow-canvas.js"></script>
-  <script src="./client/app/side/controllers/pages/automation/automation-step-fields.js"></script>
-  <script src="./client/app/side/controllers/pages/automation/automation-card-transfer.js"></script>
-  <script src="./client/app/side/controllers/pages/automation/automation-card-editor.js"></script>
-  <script src="./client/app/side/controllers/pages/automation/automation-dialogs.js"></script>
-  <script src="./client/app/side/controllers/pages/automation/automation-flow-window.js"></script>
-  <script src="./client/app/side/controllers/pages/automation.js"></script>
-  <script src="../shared/quota-display.js"></script>
-  <script src="./client/app/side/controllers/pages/ai-control.js"></script>
-  <script src="./client/app/side/controllers/pages/ai-control/ai-control-selection.js"></script>
-  <script src="./client/app/side/controllers/pages/ai-control/ai-control-server-device.js"></script>
-  <script src="./client/app/side/controllers/pages/ai-control/ai-control-prompt-diagnostics.js"></script>
-  <script src="./client/app/side/controllers/pages/ai-control/ai-control-selectors.js"></script>
-  <script src="./client/app/side/controllers/pages/ai-control/ai-control-card-selector.js"></script>
-  <script src="./client/app/side/controllers/pages/ai-control/ai-control-history-list.js"></script>
-  <script src="./client/app/side/controllers/pages/ai-control/ai-control-quick-launch.js"></script>
-  <script src="./client/app/side/controllers/pages/ai-control/ai-control-history-session.js"></script>
-  <script src="./client/app/side/controllers/pages/ai-control/ai-control-markdown.js"></script>
-  <script src="./client/app/side/controllers/pages/ai-control/ai-control-tool-display.js"></script>
-  <script src="./client/app/side/controllers/pages/ai-control/ai-control-messages.js"></script>
-  <script src="./client/app/side/controllers/pages/ai-control/ai-control-data-loaders.js"></script>
-  <script src="./client/app/side/controllers/pages/ai-control/ai-control-composer.js"></script>
-  <script src="./client/app/side/controllers/pages/ai-control/ai-control-bootstrap.js"></script>
-
-  <!-- 针对 key-input 的左/右键弹出粘贴菜单逻辑 -->
-  <script src="./client/app/side/controllers/pages/side-panel/context-menu.js"></script>
-
-  <!-- 共享控制器工具 -->
-  <script src="../renderer/controllers/shared/controller-utils.js"></script>
-  <script src="../shared/version-utils.js"></script>
-  <script src="../shared/message-utils.js"></script>
-  <script src="../shared/server-message-utils.js"></script>
-  <script src="../shared/text-preview-utils.js"></script>
-
-  <!-- 消息弹窗模块 -->
-  <script src="./client/app/side/controllers/shared/message-modal.js"></script>
-  <script src="./client/app/side/controllers/shared/message-modal-server.js"></script>
-  <script src="./client/app/side/controllers/shared/message-modal-dialogs.js"></script>
-
-  <script src="./client/app/side/controllers/pages/side-panel/modules/shared.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/connection-sync.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/account-auth.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/account-auth-vip-plans.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/account-auth-usage.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/account-auth-actions.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/account-auth-bindings.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/entry-links.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/region.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/vpn.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/vpn-config.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/vpn-selector.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/vpn-lifecycle.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/license.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/license-controls.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/announcements.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/browser-settings-history-view.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/browser-settings-validation.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/browser-settings-form.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/browser-settings-bindings.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/browser-settings.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/init-core.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/init-bindings.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/init-runtime.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/modules/bootstrap.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/index.js"></script>
-  <script src="./client/app/side/controllers/pages/side-panel/dream-opener.js"></script>
+  <script src="./client/scripts/workspace-script-loader.js"></script>
 </body>
 </html>

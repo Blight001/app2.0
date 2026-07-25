@@ -92,6 +92,36 @@ test('控制目标列表同时返回可绑定的软件窗口并标记当前栏�
   }]);
 });
 
+test('Browser Workspace 连接列表和选择事件不读取或发布软件目标', () => {
+  let softwareReads = 0;
+  const sent = [];
+  const service = createAiSupportService({
+    workspaceType: 'browser',
+    browserAutomationBridge: { listConnections: () => [] },
+    browserRuntimeManager: {
+      listStates: () => [],
+      externalApp: {
+        listAutomationTargets: () => {
+          softwareReads += 1;
+          return [{ profileId: 'software-1' }];
+        },
+      },
+    },
+    getMainWindow: () => ({
+      isDestroyed: () => false,
+      webContents: {
+        isDestroyed: () => false,
+        send: (...args) => sent.push(args),
+      },
+    }),
+  });
+
+  assert.deepEqual(service.getBrowserConnections().softwareTargets, []);
+  assert.equal(softwareReads, 0);
+  service.broadcastBrowserSelection({ softwareProfileId: 'software-1' });
+  assert.equal(sent[0][1].softwareProfileId, '');
+});
+
 test('自动化卡片读取和选择返回稳定摘要，不泄露完整卡片步骤', async () => {
   const bridge = {
     getCardCacheState: () => ({

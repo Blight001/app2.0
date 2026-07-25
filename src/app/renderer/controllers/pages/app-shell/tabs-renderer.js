@@ -100,14 +100,14 @@ function appendTabContent(tabElement, tab) {
   closeBtn.textContent = 'x';
   closeBtn.addEventListener('click', (event) => {
     event.stopPropagation();
-    ShellApi.closeTab(tab.id);
+    TabApi.closeTab(tab.id);
   });
   closeBtn.addEventListener('auxclick', (event) => event.stopPropagation());
   tabElement.appendChild(closeBtn);
 }
 
 function bindTabPointerEvents(tabElement, tab) {
-  tabElement.addEventListener('click', () => ShellApi.switchTab(tab.id));
+  tabElement.addEventListener('click', () => TabApi.switchTab(tab.id));
   tabElement.addEventListener('dblclick', (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -122,7 +122,7 @@ function bindTabPointerEvents(tabElement, tab) {
     if (event.button !== 1) return;
     event.preventDefault();
     event.stopPropagation();
-    ShellApi.closeTab(tab.id);
+    TabApi.closeTab(tab.id);
   });
 }
 
@@ -168,7 +168,7 @@ function dropTab(event, tabElement, tabId) {
   const sourceTabId = draggedTabId || event.dataTransfer?.getData('text/plain');
   if (!sourceTabId || sourceTabId === tabId) return clearDragIndicators();
   const position = getDropPosition(event, tabElement);
-  ShellApi.reorderTab({ tabId: sourceTabId, targetTabId: tabId, position });
+  TabApi.reorderTab({ tabId: sourceTabId, targetTabId: tabId, position });
   clearDragIndicators();
 }
 

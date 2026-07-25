@@ -12,20 +12,37 @@ const {
 } = require('../../utils/ai-control-settings');
 const { createVipRequiredResult, resolveVipAccess } = require('../../utils/vip-access');
 
-function mergeAiControlSettings(store, patch) {
+function mergeAiControlSettings(store, patch, settingsKey = 'aiControlSettings') {
   const current = store && typeof store === 'object' ? store : {};
   return {
     ...current,
-    aiControlSettings: {
-      ...(current.aiControlSettings && typeof current.aiControlSettings === 'object' ? current.aiControlSettings : {}),
+    [settingsKey]: {
+      ...(current[settingsKey] && typeof current[settingsKey] === 'object'
+        ? current[settingsKey]
+        : {}),
       ...patch,
     },
   };
 }
 
-function buildCustomApiConfig(currentStore, payload, clear) {
+function scopeAiControlStore(store, settingsKey = 'aiControlSettings') {
+  if (settingsKey === 'aiControlSettings') return store;
+  return {
+    ...(store && typeof store === 'object' ? store : {}),
+    aiControlSettings: store?.[settingsKey] || {},
+  };
+}
+
+function buildCustomApiConfig(
+  currentStore,
+  payload,
+  clear,
+  settingsKey = 'aiControlSettings',
+) {
   if (clear) return normalizeCustomAiApiConfig({});
-  const previous = getCustomAiApiConfig(currentStore);
+  const previous = getCustomAiApiConfig(
+    scopeAiControlStore(currentStore, settingsKey),
+  );
   return normalizeCustomAiApiConfig({
     enabled: payload.enabled !== false,
     name: payload.name,
@@ -44,10 +61,15 @@ function validateCustomApiConfig(config, clear) {
 }
 
 function createAiSettingsService(deps = {}) {
+  const settingsKey = deps.settingsKey || 'aiControlSettings';
   function getSettings() {
     return {
       ok: true,
-      settings: { mcpCallLimit: getAiControlMcpCallLimit(deps.readStore()) },
+      settings: {
+        mcpCallLimit: getAiControlMcpCallLimit(
+          scopeAiControlStore(deps.readStore(), settingsKey),
+        ),
+      },
       defaults: { mcpCallLimit: DEFAULT_AI_CONTROL_MCP_CALL_LIMIT },
       limits: { mcpCallLimit: { min: MIN_AI_CONTROL_MCP_CALL_LIMIT, max: MAX_AI_CONTROL_MCP_CALL_LIMIT } },
     };
@@ -57,7 +79,11 @@ function createAiSettingsService(deps = {}) {
     const rawLimit = payload.mcpCallLimit;
     if (!Number.isFinite(Number(rawLimit))) throw new Error('MCP 调用上限必须是有效数字');
     const mcpCallLimit = normalizeAiControlMcpCallLimit(rawLimit);
-    if (!deps.writeStore(mergeAiControlSettings(deps.readStore(), { mcpCallLimit }))) {
+    if (!deps.writeStore(mergeAiControlSettings(
+      deps.readStore(),
+      { mcpCallLimit },
+      settingsKey,
+    ))) {
       throw new Error('AI 控制设置未能写入本地配置');
     }
     return { ok: true, settings: { mcpCallLimit } };
@@ -67,7 +93,12 @@ function createAiSettingsService(deps = {}) {
     if (!resolveVipAccess(deps.licenseCache?.getSnapshot?.() || {}).isVip) {
       return createVipRequiredResult('自定义模型');
     }
-    return { ok: true, config: toPublicCustomAiApiConfig(getCustomAiApiConfig(deps.readStore())) };
+    return {
+      ok: true,
+      config: toPublicCustomAiApiConfig(getCustomAiApiConfig(
+        scopeAiControlStore(deps.readStore(), settingsKey),
+      )),
+    };
   }
 
   function setCustomApi(payload = {}) {
@@ -76,9 +107,18 @@ function createAiSettingsService(deps = {}) {
       return createVipRequiredResult('自定义模型');
     }
     const currentStore = deps.readStore();
-    const next = buildCustomApiConfig(currentStore, payload, clear);
+    const next = buildCustomApiConfig(
+      currentStore,
+      payload,
+      clear,
+      settingsKey,
+    );
     validateCustomApiConfig(next, clear);
-    if (!deps.writeStore(mergeAiControlSettings(currentStore, { customApi: next }))) {
+    if (!deps.writeStore(mergeAiControlSettings(
+      currentStore,
+      { customApi: next },
+      settingsKey,
+    ))) {
       throw new Error('自定义 API 未能写入本地配置');
     }
     return { ok: true, config: toPublicCustomAiApiConfig(next) };
@@ -87,4 +127,10 @@ function createAiSettingsService(deps = {}) {
   return { getCustomApi, getSettings, setCustomApi, setSettings };
 }
 
-module.exports = { buildCustomApiConfig, createAiSettingsService, mergeAiControlSettings, validateCustomApiConfig };
+module.exports = {
+  buildCustomApiConfig,
+  createAiSettingsService,
+  mergeAiControlSettings,
+  scopeAiControlStore,
+  validateCustomApiConfig,
+};

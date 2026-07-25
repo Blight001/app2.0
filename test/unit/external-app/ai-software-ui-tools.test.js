@@ -289,3 +289,57 @@ test('AI 对话按显式选择绑定软件窗口', () => {
   };
   assert.equal(provider().has('software_ui'), true);
 });
+
+test('Browser Workspace 的 AI 工具目录不会读取或发布 software_ui', () => {
+  let softwareReads = 0;
+  const provider = createWindowToolProvider({
+    workspaceType: 'browser',
+    aiSandboxDir: 'C:/AI-Workspace',
+    browserRuntimeManager: {
+      externalApp: {
+        getAutomationTarget: () => {
+          softwareReads += 1;
+          return { hwnd: '100', pid: 321 };
+        },
+      },
+    },
+  }, null, { warn() {} });
+
+  const tools = provider({ softwareTarget: { hwnd: '100', pid: 321 } });
+  assert.equal(tools.has('software_ui'), false);
+  assert.equal(softwareReads, 0);
+});
+
+test('Software Workspace 的 AI 工具目录只含软件 UI 与沙盒文件能力', () => {
+  const provider = createWindowToolProvider({
+    workspaceType: 'software',
+    aiSandboxDir: 'C:/AI-Workspace',
+    browserWindowUi: null,
+    softwareWindowUi: {
+      listAvailableSoftware: async () => [],
+      openExternalApp: async () => 'software-one',
+      switchTab: async () => {},
+      closeTab: async () => {},
+    },
+    cursorSidecarService: null,
+    browserRuntimeManager: {
+      windowBridge: {},
+      externalApp: { getAutomationTarget: () => null },
+    },
+  }, null, { warn() {} });
+
+  const tools = provider({
+    softwareTarget: {
+      hwnd: '100',
+      pid: 321,
+      profileId: 'software-one',
+      name: '记事本',
+    },
+  });
+  const names = tools.tools.map((tool) => tool.name);
+  assert.equal(names.includes('software_ui'), true);
+  assert.equal(names.includes('software_app'), true);
+  assert.equal(names.includes('sandbox_files'), true);
+  assert.equal(names.some((name) => name.startsWith('software_window')), false);
+  assert.equal(names.some((name) => name.startsWith('browser_')), false);
+});

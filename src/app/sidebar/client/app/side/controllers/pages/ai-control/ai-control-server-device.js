@@ -63,7 +63,7 @@ function renderAiServerDeviceStatus(status = {}) {
 }
 
 async function loadAiServerDeviceStatus() {
-  const getStatus = window.aiFree?.ai?.getServerDeviceStatus;
+  const getStatus = ServerDeviceAiApi.getServerDeviceStatus;
   if (!getStatus) return;
   try {
     const result = await getStatus();
@@ -92,7 +92,7 @@ function renderAiServerDeviceWarning(warning) {
 
 async function loginAiServerDevice(event) {
   event?.preventDefault?.();
-  const login = window.aiFree?.ai?.loginServerDevice;
+  const login = ServerDeviceAiApi.loginServerDevice;
   if (!login || aiServerDeviceBusy) return;
   setAiServerDeviceBusy(true);
   try {
@@ -114,7 +114,7 @@ async function loginAiServerDevice(event) {
 }
 
 async function logoutAiServerDevice() {
-  const logout = window.aiFree?.ai?.logoutServerDevice;
+  const logout = ServerDeviceAiApi.logoutServerDevice;
   if (!logout || aiServerDeviceBusy) return;
   setAiServerDeviceBusy(true);
   try {
@@ -135,5 +135,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   el('ai-server-device-form')?.addEventListener('submit', loginAiServerDevice);
   el('ai-server-device-logout')?.addEventListener('click', logoutAiServerDevice);
-  window.aiFree?.ai?.onServerDeviceStatus?.(renderAiServerDeviceStatus);
+  ServerDeviceAiApi.onServerDeviceStatus?.(renderAiServerDeviceStatus);
 });
+const ServerDeviceAiApi = window.AiControlApi || window.aiFree?.ai || {};

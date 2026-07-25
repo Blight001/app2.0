@@ -1,6 +1,10 @@
 const { createAiSupportService } = require('../features/ai-chat/ai-support-service');
+const { createAiChatService } = require('../features/ai-chat/ai-chat-service');
 const { registerAiHistoryIpc } = require('../features/ai-chat/register-history-ipc');
-const { createAiChatHistoryRepository } = require('../features/ai-chat/history-repository');
+const {
+  createAiChatHistoryRepository,
+  createDomainHistoryRepository,
+} = require('../features/ai-chat/history-repository');
 const { registerAiSupportIpc } = require('../features/ai-chat/register-support-ipc');
 const { registerAiChatIpc } = require('../features/ai-chat/register-chat-ipc');
 const { createAccountService } = require('../features/account/account-service');
@@ -9,6 +13,15 @@ const { createLicenseService } = require('../features/account/license-service');
 const { registerLicenseIpc } = require('../features/account/register-license-ipc');
 const { createMembershipService } = require('../features/account/membership-service');
 const { registerAiServerDeviceIpc } = require('../features/ai-chat/register-ai-server-device-ipc');
+const {
+  normalizeSoftwareCardData,
+} = require('../features/external-app/software-card-data');
+const {
+  createSoftwareHistoryRepository,
+} = require('../features/ai-chat/software-history-repository');
+const {
+  scopeAiControlStore,
+} = require('../features/ai-chat/ai-settings-service');
 
 function registerConsoleHistoryIpc(deps, ipc) {
   try {
@@ -106,39 +119,125 @@ function createAndRegisterAccountServices(deps, ipc) {
   return accountService;
 }
 
-function createAndRegisterAiServices(deps, ipc) {
-  const aiSupport = createAiSupportService({
-    readStoreConfigSafe: deps.readStoreConfigSafe,
+function createAiDomainDeps(deps) {
+  const software = deps.softwareWorkspace;
+  return {
+    browser: { ...deps, workspaceType: deps.workspaceType || '' },
+    software: software ? {
+    ...deps,
+    workspaceType: 'software',
+    browserAutomationBridge: software.automationBridge,
+    browserWindowUi: null,
+    cursorSidecarService: null,
+    getTabs: () => software.state.tabs,
+    getActiveTabId: software.state.getActiveTabId,
+    getMainWindow: software.state.getWindow,
+    normalizeAutomationCardData: normalizeSoftwareCardData,
+    sendToSide: software.sendToSide,
+    softwareWindowUi: software.softwareWindowUi,
+    readStoreConfigSafe: () => scopeAiControlStore(
+      deps.readStoreConfigSafe(),
+      'softwareAiControlSettings',
+    ),
+    } : null,
+  };
+}
+
+function createDomainSupport(deps, serviceDeps) {
+  return createAiSupportService({
+    ...serviceDeps,
+    readStoreConfigSafe: serviceDeps.readStoreConfigSafe,
     computeDeviceId: deps.computeDeviceId,
     licenseCache: deps.licenseCache,
     getGlobalHttpClient: deps.getGlobalHttpClient,
-    browserAutomationBridge: deps.browserAutomationBridge,
-    browserRuntimeManager: deps.browserRuntimeManager,
-    getTabs: deps.getTabs,
-    getMainWindow: deps.getMainWindow,
     logger: deps.logger,
-    onAutomationProgress: (payload) => deps.sendToSide?.('automation-card-progress', payload),
+    onAutomationProgress: (payload) => serviceDeps.sendToSide?.(
+      'automation-card-progress',
+      serviceDeps.workspaceType
+        ? { ...payload, domain: serviceDeps.workspaceType }
+        : payload,
+    ),
   });
-  registerAiSupportIpc({ ipc, service: aiSupport });
-  const aiChatService = registerAiChatIpc({
-    ...deps,
+}
+
+function createDomainResolver(deps, browserService, softwareService) {
+  const resolveDomain = (event) => deps.getWorkspaceType?.(event)
+    || deps.workspaceType
+    || 'browser';
+  return (event) => (
+    resolveDomain(event) === 'software' && softwareService
+      ? softwareService
+      : browserService
+  );
+}
+
+function registerDomainHistory(deps, ipc) {
+  const repository = createAiChatHistoryRepository();
+  const repositories = {
+    browser: createDomainHistoryRepository(repository, deps.workspaceType),
+    software: deps.softwareWorkspace
+      ? createSoftwareHistoryRepository({
+        directory: deps.softwareWorkspace.aiHistoryDirectory,
+        fs: deps.fs,
+        legacyRepository: repository,
+      })
+      : createDomainHistoryRepository(repository, 'software'),
+  };
+  registerAiHistoryIpc({
     ipc,
-    readStoreConfigSafe: deps.readStoreConfigSafe,
-    getGlobalHttpClient: deps.getGlobalHttpClient,
-    licenseCache: deps.licenseCache,
-    logger: deps.logger,
+    historyRepository: repositories.browser,
+    resolveRepository: (event) => (
+      deps.getWorkspaceType?.(event) === 'software'
+        ? repositories.software
+        : repositories.browser
+    ),
+    getCredentials: () => deps.readStoreConfigSafe()?.userCredentials || {},
+  });
+}
+
+function createAndRegisterAiServices(deps, ipc) {
+  const domainDeps = createAiDomainDeps(deps);
+  const browserSupport = createDomainSupport(deps, domainDeps.browser);
+  const softwareSupport = domainDeps.software
+    ? createDomainSupport(deps, domainDeps.software)
+    : null;
+  const resolveSupport = createDomainResolver(deps, browserSupport, softwareSupport);
+  registerAiSupportIpc({
+    ipc,
+    service: browserSupport,
+    resolveService: resolveSupport,
+  });
+  const browserChat = createAiChatService(domainDeps.browser);
+  const softwareChat = domainDeps.software
+    ? createAiChatService(domainDeps.software)
+    : null;
+  registerAiChatIpc({
+    ipc,
+    service: browserChat,
+    resolveService: createDomainResolver(deps, browserChat, softwareChat),
   });
   deps.browserAutomationBridge?.configureExternalMcp?.({
-    getConnections: () => aiSupport.getBrowserConnections().connections,
-    getWindowTools: aiChatService.getWindowTools,
+    getConnections: () => browserSupport.getBrowserConnections().connections,
+    getWindowTools: browserChat.getWindowTools,
   });
   if (deps.aiServerDeviceService) {
     registerAiServerDeviceIpc({ ipc, service: deps.aiServerDeviceService });
   }
-  registerAiHistoryIpc({
-    ipc,
-    historyRepository: createAiChatHistoryRepository(),
-    getCredentials: () => deps.readStoreConfigSafe()?.userCredentials || {},
+  registerDomainHistory(deps, ipc);
+  deps.setBrowserDomainDisposer?.(async () => {
+    browserChat.dispose?.();
+    try {
+      await browserSupport.stopAutomationCard();
+    } catch (error) {
+      deps.logger.warn?.(
+        '[BrowserWorkspace] 停止自动化任务失败:',
+        error?.message || error,
+      );
+    }
+  });
+  deps.softwareWorkspace?.setDomainDisposer?.(async () => {
+    softwareChat?.dispose?.();
+    await softwareSupport?.stopAutomationCard?.();
   });
 }
 

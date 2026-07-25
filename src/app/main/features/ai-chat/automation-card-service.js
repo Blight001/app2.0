@@ -42,8 +42,8 @@ function findCard(bridge, input = {}) {
   return { item, state };
 }
 
-function normalizeCardData(input = {}) {
-  return normalizeNativeCardData(input.cardData);
+function normalizeCardData(input = {}, normalizer = normalizeNativeCardData) {
+  return normalizer(input.cardData);
 }
 
 async function getAutomationCards({ bridge }) {
@@ -70,7 +70,7 @@ function getAutomationCard(bridge, input = {}) {
 function saveAutomationCard(bridge, input = {}, options = {}) {
   requireCardStore(bridge);
   const state = readCardState(bridge);
-  const cardData = normalizeCardData(input);
+  const cardData = normalizeCardData(input, options.normalizeCardData);
   const requestedId = firstText(input.id).trim();
   const existingIndex = state.items.findIndex((item) => firstText(item && item.id) === requestedId);
   const id = requestedId || options.createId();
@@ -153,11 +153,16 @@ function selectAutomationCard(bridge, input = {}) {
 }
 
 function createAutomationCardService({
-  bridge, now = Date.now, logger: _logger = console, onProgress,
+  bridge,
+  now = Date.now,
+  logger: _logger = console,
+  normalizeCardData: cardNormalizer = normalizeNativeCardData,
+  onProgress,
 }) {
   const context = { bridge };
   const options = {
     createId: () => crypto.randomUUID(),
+    normalizeCardData: cardNormalizer,
     nowIso: () => new Date(now()).toISOString(),
   };
   return {

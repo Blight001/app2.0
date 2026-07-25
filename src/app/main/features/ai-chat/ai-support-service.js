@@ -15,29 +15,37 @@ function normalizeControlSelection(input = {}) {
   };
 }
 
+function listSoftwareTargets(deps, activeProfileId) {
+  if (deps.workspaceType === 'browser') return [];
+  return (
+    deps.browserRuntimeManager?.externalApp?.listAutomationTargets?.() || []
+  ).map((target) => ({
+    profileId: String(target.profileId || ''),
+    name: String(target.name || '外部软件'),
+    pid: Number(target.pid || 0),
+    isActive: String(target.profileId || '') === activeProfileId,
+    toolCount: 1,
+  }));
+}
+
 function createAiSupportService(deps = {}) {
   const modelService = createAiModelService(deps);
   const cardService = createAutomationCardService({
     bridge: deps.browserAutomationBridge,
     now: deps.now,
     logger: deps.logger,
+    normalizeCardData: deps.normalizeAutomationCardData,
     onProgress: deps.onAutomationProgress,
   });
 
   function getBrowserConnections() {
-    const connections = deps.browserAutomationBridge?.listConnections?.() || [];
+    const connections = deps.workspaceType === 'software'
+      ? []
+      : (deps.browserAutomationBridge?.listConnections?.() || []);
     const tabs = deps.getTabs?.() || [];
     const runtimeStates = deps.browserRuntimeManager?.listStates?.() || [];
     const activeProfileId = String(deps.getActiveTabId?.() || '');
-    const softwareTargets = (
-      deps.browserRuntimeManager?.externalApp?.listAutomationTargets?.() || []
-    ).map((target) => ({
-      profileId: String(target.profileId || ''),
-      name: String(target.name || '外部软件'),
-      pid: Number(target.pid || 0),
-      isActive: String(target.profileId || '') === activeProfileId,
-      toolCount: 1,
-    }));
+    const softwareTargets = listSoftwareTargets(deps, activeProfileId);
     return {
       ok: true,
       connections: enrichBrowserConnectionNames(connections, tabs, runtimeStates),
@@ -61,6 +69,7 @@ function createAiSupportService(deps = {}) {
 
   function broadcastBrowserSelection(input = {}) {
     const selection = normalizeControlSelection(input);
+    if (deps.workspaceType === 'browser') selection.softwareProfileId = '';
     const mainWindow = deps.getMainWindow?.();
     if (!mainWindow || mainWindow.isDestroyed?.() || mainWindow.webContents?.isDestroyed?.()) return false;
     mainWindow.webContents.send('ai-control-browser-selection-changed', selection);

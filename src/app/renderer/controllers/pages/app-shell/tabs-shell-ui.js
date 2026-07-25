@@ -3,6 +3,11 @@ const AiApi = window.aiFree?.ai || {};
 const AccountApi = window.aiFree?.account || {};
 const BrowserApi = window.aiFree?.browser || {};
 const ShellApi = window.aiFree?.shell || {};
+const WorkspaceApi = window.aiFree?.workspace || {};
+const TabApi = typeof WorkspaceApi.closeTab === 'function' ? WorkspaceApi : ShellApi;
+const TabsUpdateApi = typeof WorkspaceApi.onTabsUpdated === 'function'
+  ? WorkspaceApi
+  : BrowserApi;
 const UiApi = window.aiFree?.ui || {};
 const UpdatesApi = window.aiFree?.updates || {};
 const showControllerError = AppShellUtils.showUserError
@@ -56,7 +61,7 @@ function applyAppShellTheme(theme, options = {}) {
 
 applyAppShellTheme(getSavedAppTheme());
 
-if (window.aiFree) {
+if (window.aiFree && window.env?.WORKSPACE_TYPE !== 'software') {
   UiApi.onAppThemeChanged( (theme) => {
     applyAppShellTheme(theme, { persist: true });
   });

@@ -35,6 +35,14 @@ function resolveAutomationCardCacheDir(app) {
   return path.join(app.getPath('userData'), 'extensions', 'browser_automation');
 }
 
+function resolveSoftwareAutomationCardCacheDir(app) {
+  return path.join(app.getPath('userData'), 'software', 'automation');
+}
+
+function resolveSoftwareAiHistoryDir(app) {
+  return path.join(app.getPath('userData'), 'software', 'ai-history');
+}
+
 function findSourceRoot(startDirectory, fileSystem = fs) {
   let current = path.resolve(startDirectory);
   for (let depth = 0; depth < 6; depth += 1) {
@@ -79,6 +87,8 @@ module.exports = {
   resolveAiSandboxDir,
   resolveCursorAssetPath,
   resolveAutomationCardCacheDir,
+  resolveSoftwareAutomationCardCacheDir,
+  resolveSoftwareAiHistoryDir,
   resolveChromiumResourcesPath,
   resolveInstallDirectory,
 };

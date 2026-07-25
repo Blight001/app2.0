@@ -384,6 +384,7 @@ function createAiChatHistoryRepository(options = {}) {
 }
 
 module.exports = {
+  accountScope,
   createAiChatHistoryRepository,
   listSessions,
   getSession,

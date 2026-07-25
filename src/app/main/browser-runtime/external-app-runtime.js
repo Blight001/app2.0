@@ -46,7 +46,12 @@ class ExternalAppRuntime extends EventEmitter {
     return targets;
   }
 
-  async launchProfile(profile = {}, rawBounds = {}) {
+  resolveParentWindow(options) {
+    if (options.parentWindow) return options.parentWindow;
+    return this.getParentWindow?.();
+  }
+
+  async launchProfile(profile = {}, rawBounds = {}, options = {}) {
     const profileId = String(profile.profileId || '').trim();
     if (!profileId) throw new Error('缺少软件栏目 ID');
     if (this.instances.has(profileId)) return this.show(profileId);
@@ -54,7 +59,7 @@ class ExternalAppRuntime extends EventEmitter {
     const existingWindowHwnd = String(profile.existingWindowHwnd || '').trim();
     if (!executablePath && !existingWindowHwnd) throw new Error('软件窗口或可执行文件不可用');
     const bounds = normalizeBounds(rawBounds);
-    const parentWindow = this.getParentWindow?.();
+    const parentWindow = this.resolveParentWindow(options);
     if (!parentWindow || parentWindow.isDestroyed?.()) throw new Error('Electron 主窗口不可用');
     const instance = this.createInstance(profileId, profile, bounds, parentWindow);
     try {

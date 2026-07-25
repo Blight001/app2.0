@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'"
+  >
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI-FREE</title>
+  <link rel="stylesheet" href="./home.css">
+</head>
+<body>
+  <main>
+    <div class="eyebrow">AI-FREE HOME</div>
+    <h1>选择你的工作空间</h1>
+    <p class="intro">浏览器控制与软件控制拥有独立窗口、生命周期和权限边界。</p>
+    <div id="account-status" class="account-status" aria-live="polite">正在读取账号状态…</div>
+    <section class="actions" aria-label="工作空间入口">
+      <button id="open-browser" type="button">
+        <strong>打开 AI-FREE 浏览器</strong>
+        <span>网页、浏览器 AI、自动化与浏览器配置</span>
+      </button>
+      <button id="open-software" type="button">
+        <strong>打开 AI-FREE 软件控制</strong>
+        <span>外部软件、软件 AI、自动化与软件配置</span>
+      </button>
+    </section>
+  </main>
+  <script src="./home.js"></script>
+</body>
+</html>

@@ -55,6 +55,28 @@ test('所选软件窗口按请求绑定，窗口关闭后立即返回可诊断�
   );
 });
 
+test('Browser Workspace 在读取外部软件 Runtime 前拒绝软件目标', () => {
+  let reads = 0;
+  const result = resolveSoftwareTarget({
+    workspaceType: 'browser',
+    browserRuntimeManager: {
+      externalApp: {
+        getAutomationTarget: () => {
+          reads += 1;
+          return {};
+        },
+      },
+    },
+  }, {
+    disableTools: false,
+    softwareProfileId: 'software-1',
+  });
+
+  assert.equal(result.error.ok, false);
+  assert.match(result.error.message, /Browser Workspace/);
+  assert.equal(reads, 0);
+});
+
 test('内置模型要求登录和服务可用，自定义模型同时要求 VIP 与完整配置', () => {
   const base = { readStoreConfigSafe: () => ({}), getGlobalHttpClient: () => null, licenseCache: { getSnapshot: () => ({}) } };
   assert.match(resolveChatAccess(base, { modelId: 'builtin' }).error.message, /登录/);

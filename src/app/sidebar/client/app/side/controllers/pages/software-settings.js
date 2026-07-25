@@ -1,5 +1,18 @@
 'use strict';
 
+function softwareErrorText(value, fallback = '软件操作失败') {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (value && typeof value === 'object') {
+    const message = String(value.message || '').trim();
+    if (message) return message;
+    const nested = softwareErrorText(value.error, '');
+    if (nested) return nested;
+    const code = String(value.code || '').trim();
+    if (code) return code;
+  }
+  return fallback;
+}
+
 function createSoftwareHeading(software) {
   const heading = document.createElement('span');
   heading.className = 'software-card-heading';
@@ -67,11 +80,11 @@ function initializeSoftwareSettings() {
     if (action) action.textContent = '启动中…';
     try {
       const result = await window.aiFree?.software.open({ softwareId: software.id });
-      if (!result?.ok) throw new Error(result?.error || '软件启动失败');
+      if (!result?.ok) throw new Error(softwareErrorText(result?.error, '软件启动失败'));
     } catch (error) {
       if (action) action.textContent = '重试';
       button.disabled = false;
-      window.alert?.(`无法嵌入 ${software.name}：${error?.message || error}`);
+      window.alert?.(`无法嵌入 ${software.name}：${softwareErrorText(error)}`);
     } finally {
       button.classList.remove('is-loading');
     }
@@ -82,7 +95,7 @@ function initializeSoftwareSettings() {
     renderMessage('正在检测桌面上已打开的窗口…');
     try {
       const result = await window.aiFree?.software.list();
-      if (!result?.ok) throw new Error(result?.error || '检测失败');
+      if (!result?.ok) throw new Error(softwareErrorText(result?.error, '检测失败'));
       const software = Array.isArray(result.data) ? result.data : [];
       if (!software.length) {
         renderMessage('暂未检测到可嵌入的桌面窗口。请先打开目标软件，再点击刷新。');
@@ -90,12 +103,13 @@ function initializeSoftwareSettings() {
       }
       list.replaceChildren(...software.map((item) => createSoftwareCard(item, openSoftware)));
     } catch (error) {
-      renderMessage(`软件检测失败：${error?.message || error}`, true);
+      renderMessage(`软件检测失败：${softwareErrorText(error, '检测失败')}`, true);
     }
   }
 
   refresh?.addEventListener('click', () => void loadCatalog());
-  window.aiFree?.browser.onTabsUpdated?.(() => {
+  const tabsApi = window.aiFree?.workspace || window.aiFree?.browser;
+  tabsApi?.onTabsUpdated?.(() => {
     if (loaded && document.getElementById('software-settings-panel')?.classList.contains('active')) {
       void loadCatalog();
     }

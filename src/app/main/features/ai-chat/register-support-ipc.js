@@ -1,58 +1,61 @@
 'use strict';
 
-function registerAiSupportIpc({ ipc, service }) {
-  ipc.handle('ai-control-get-models', async () => {
+function registerAiSupportIpc({ ipc, service, resolveService }) {
+  const resolve = typeof resolveService === 'function'
+    ? resolveService
+    : () => service;
+  ipc.handle('ai-control-get-models', async (event) => {
     try {
-      return await service.getModels();
+      return await resolve(event).getModels();
     } catch (error) {
       return { ok: false, message: error?.message || String(error) };
     }
   });
 
-  ipc.handle('ai-control-get-browser-connections', async () => {
+  ipc.handle('ai-control-get-browser-connections', async (event) => {
     try {
-      return service.getBrowserConnections();
+      return resolve(event).getBrowserConnections();
     } catch (error) {
       return { ok: false, message: error?.message || String(error), connections: [] };
     }
   });
 
-  ipc.handle('ai-control-redeem-gift-code', async (_event, input = {}) => {
+  ipc.handle('ai-control-redeem-gift-code', async (event, input = {}) => {
     try {
-      return await service.redeemGiftCode(input);
+      return await resolve(event).redeemGiftCode(input);
     } catch (error) {
       return { ok: false, message: error?.message || String(error) };
     }
   });
 
-  ipc.handle('ai-control-get-automation-cards', async () => {
+  ipc.handle('ai-control-get-automation-cards', async (event) => {
     try {
-      return await service.getAutomationCards();
+      return await resolve(event).getAutomationCards();
     } catch (error) {
       return { ok: false, message: error?.message || String(error), cards: [], selectedId: '' };
     }
   });
 
-  async function callCardService(method, input) {
+  async function callCardService(event, method, input) {
     try {
-      return await service[method](input || {});
+      return await resolve(event)[method](input || {});
     } catch (error) {
       return { ok: false, error: error?.message || String(error) };
     }
   }
-  ipc.handle('automation-card-get', (_event, input) => callCardService('getAutomationCard', input));
-  ipc.handle('automation-card-save', (_event, input) => callCardService('saveAutomationCard', input));
-  ipc.handle('automation-card-delete', (_event, input) => callCardService('deleteAutomationCard', input));
-  ipc.handle('automation-card-run', (_event, input) => callCardService('runAutomationCard', input));
-  ipc.handle('automation-card-stop', () => callCardService('stopAutomationCard'));
+  ipc.handle('automation-card-get', (event, input) => callCardService(event, 'getAutomationCard', input));
+  ipc.handle('automation-card-save', (event, input) => callCardService(event, 'saveAutomationCard', input));
+  ipc.handle('automation-card-delete', (event, input) => callCardService(event, 'deleteAutomationCard', input));
+  ipc.handle('automation-card-run', (event, input) => callCardService(event, 'runAutomationCard', input));
+  ipc.handle('automation-card-stop', (event) => callCardService(event, 'stopAutomationCard'));
 
-  ipc.on('ai-control-browser-selection-changed', (_event, input = {}) => {
-    service.broadcastBrowserSelection(input);
+  ipc.on('ai-control-browser-selection-changed', (event, input = {}) => {
+    resolve(event).broadcastBrowserSelection(input);
   });
 
-  ipc.handle('ai-control-select-automation-card', async (_event, input = {}) => {
+  ipc.handle('ai-control-select-automation-card', async (event, input = {}) => {
     try {
-      return service.selectAutomationCard(input);
+      return resolve(event).selectAutomationCard(input);
     } catch (error) {
       return { ok: false, message: error?.message || String(error) };
     }

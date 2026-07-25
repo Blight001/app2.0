@@ -75,6 +75,7 @@ function registerBootstrapIPC(deps) {
   try {
     const runtimeConfig = deps.licenseCache?.getRuntimeConfig?.() || {};
     deps.registerIPC({
+      authorizeIpc: deps.authorizeIpc,
       app: deps.app,
       dialog: deps.dialog,
       DREAM_TARGET_URL: runtimeConfig.targetUrl || deps.DREAM_TARGET_URL,
@@ -84,6 +85,7 @@ function registerBootstrapIPC(deps) {
       extensionManager: deps.extensionManager,
       loadTranslateExtension: deps.loadTranslateExtension,
       ui: createBootstrapUiDeps(deps),
+      softwareWorkspace: deps.getSoftwareWorkspace?.() || null,
       auth: deps.resolveAuth(),
       log: deps.log,
       state: deps.state,
@@ -103,6 +105,10 @@ function registerBootstrapIPC(deps) {
 }
 
 function createBootstrapWindows(deps) {
+  if (typeof deps.bootstrapWorkspaceShell === 'function') {
+    deps.bootstrapWorkspaceShell();
+    return;
+  }
   try {
     deps.createMainWindow();
     if (!deps.isControlPanelOnlyModeEnabled()) deps.revealMainWindow();
@@ -205,7 +211,7 @@ async function runBootstrapBackgroundTasks(deps, state) {
     await initializeBootstrapExtensions(deps);
     try { await refreshBootstrapRuntimeUrls(deps, state); }
     catch (error) { deps.logger.warn?.('[启动] 获取URL配置失败:', bootstrapError(error)); }
-    await openBootstrapTutorial(deps);
+    if (!deps.deferBrowserBootstrap) await openBootstrapTutorial(deps);
     await initializeBootstrapAccountCleanup(deps);
     await cleanupResidualTabPartitions(deps);
   } catch (error) {

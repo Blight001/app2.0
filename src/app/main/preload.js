@@ -1,6 +1,10 @@
 // preload：只向页面暴露按业务域拆分的具名能力。
 // 每个方法固定绑定单一 IPC 通道，页面无法提交任意 channel。
 const { contextBridge, ipcRenderer } = require('electron');
+const workspaceType = (Array.isArray(process.argv) ? process.argv : [])
+  .map((argument) => String(argument || ''))
+  .find((argument) => argument.startsWith('--ai-free-workspace='))
+  ?.slice('--ai-free-workspace='.length) || '';
 
 // 页面脚本异常不会自动到达主进程。这里直接走只写日志的内部通道，
 // 不向页面暴露任何额外权限，也不依赖业务 IPC 完成初始化。
@@ -158,9 +162,11 @@ contextBridge.exposeInMainWorld('aiFree', Object.freeze({
     onTutorialUrlUpdated: subscribeChannel('tutorial-url-updated'),
     onWoolPlatformsUpdated: subscribeChannel('wool-platforms-updated'),
   }),
-  software: Object.freeze({
-    list: invokeChannel('list-available-software'),
-    open: invokeChannel('open-external-software'),
+  ...(workspaceType === 'browser' ? {} : {
+    software: Object.freeze({
+      list: invokeChannel('list-available-software'),
+      open: invokeChannel('open-external-software'),
+    }),
   }),
   updates: Object.freeze({
     getAppVersion: invokeChannel('get-app-version'),
@@ -208,10 +214,16 @@ contextBridge.exposeInMainWorld('aiFree', Object.freeze({
     getConsoleHistory: invokeChannel('get-app-console-history'),
     onConsoleLine: subscribeChannel('app-console-line'),
   }),
+  ...(workspaceType ? {
+    workspace: Object.freeze({
+      getType: invokeChannel('workspace-get-type'),
+    }),
+  } : {}),
 }));
 
 contextBridge.exposeInMainWorld('env', {
-  NODE_ENV: process.env.NODE_ENV || ''
+  NODE_ENV: process.env.NODE_ENV || '',
+  WORKSPACE_TYPE: workspaceType,
 });
 
 // --- 监听缩放更新事件并转发到页面上下文 ---

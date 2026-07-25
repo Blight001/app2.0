@@ -1,6 +1,7 @@
   async function refreshModelAccessState() {
     try {
-      const session = await window.aiFree.account.getSession();
+      const getSession = window.aiFree?.account?.getSession || DataLoaderAiApi.getSession;
+      const session = await getSession?.();
       state.accountAuthenticated = session?.authenticated === true;
       state.vipActive = window.isSidebarVipActive?.(session) === true;
     } catch (_) {
@@ -368,17 +369,18 @@
   }
 
   function getAiModelsApi() {
-    return window.aiFree?.ai?.getModels;
+    return DataLoaderAiApi.getModels;
   }
 
   function getGiftCodeApi() {
-    return window.aiFree?.ai?.redeemGiftCode;
+    return DataLoaderAiApi.redeemGiftCode;
   }
 
   function getBrowserConnectionsApi() {
-    return window.aiFree?.ai?.getBrowserConnections;
+    return DataLoaderAiApi.getBrowserConnections;
   }
 
   function getAutomationCardsApi() {
-    return window.aiFree?.ai?.getAutomationCards;
+    return DataLoaderAiApi.getAutomationCards;
   }
+const DataLoaderAiApi = window.AiControlApi || window.aiFree?.ai || {};

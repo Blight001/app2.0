@@ -6,9 +6,16 @@ const {
   buildLifecycleDeps,
 } = require('../../../src/app/main/composition/build-lifecycle-deps');
 
-test('生命周期装配向动态软件 MCP 提供当前活动栏目', () => {
+test('生命周期装配固定使用 Home 入口和 Browser 活动栏目', () => {
   const activeTabId = 'software-notepad';
   const noop = () => {};
+  const workspaceShell = {
+    authorizeIpc: noop,
+    setBrowserDomainDisposer: noop,
+    identifySender: () => 'browser',
+    openHome: noop,
+    revealHome: noop,
+  };
   const services = {
     appRuntime: {
       getActiveTabId: () => activeTabId,
@@ -56,10 +63,9 @@ test('生命周期装配向动态软件 MCP 提供当前活动栏目', () => {
     appShell: {
       bootstrapMainApp: noop,
       refreshAnnouncements: noop,
-      createMainWindow: noop,
-      revealMainWindow: noop,
       createDevConsoleWindow: noop,
     },
+    workspaceShell,
     refreshAllowedPlatformsAndNotify: noop,
     late: {
       getAddTab: noop,
@@ -72,4 +78,6 @@ test('生命周期装配向动态软件 MCP 提供当前活动栏目', () => {
 
   assert.equal(deps.getActiveTabId(), activeTabId);
   assert.equal(deps.browserWindowUi.getActiveTabId(), activeTabId);
+  assert.equal(deps.createMainWindow, workspaceShell.openHome);
+  assert.equal(deps.workspaceType, 'browser');
 });

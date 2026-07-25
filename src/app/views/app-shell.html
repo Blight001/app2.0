@@ -4,6 +4,16 @@
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' http: https:; object-src 'none'; base-uri 'self'">
   <title>AI-FREE</title>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.env?.WORKSPACE_TYPE !== 'software') return;
+      document.documentElement.classList.add('software-workspace');
+      document.querySelectorAll('[data-workspace-domain="browser"]')
+        .forEach((element) => element.remove());
+      const emptyState = document.getElementById('browser-empty-state');
+      emptyState?.setAttribute('aria-label', '尚未打开软件实例');
+    });
+  </script>
   <link rel="stylesheet" href="../renderer/styles/app-shell.css" />
 </head>
 <body>
@@ -11,7 +21,7 @@
     <div id="tab-bar">
       <div class="tabs" id="tabs-container">
         <!-- Tabs will be dynamically inserted here -->
-        <button id="new-browser-window-btn" type="button" title="新建浏览器窗口" aria-label="新建浏览器窗口">
+        <button id="new-browser-window-btn" type="button" title="新建浏览器窗口" aria-label="新建浏览器窗口" data-workspace-domain="browser">
           <svg class="new-window-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 6.75v10.5M6.75 12h10.5"></path>
           </svg>

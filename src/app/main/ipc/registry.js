@@ -13,7 +13,7 @@ const {
   wrapLegacyIpcPayload,
 } = require('../../contracts/ipc-payloads');
 
-function createIpcRegistry(ipcMain, { source = 'unknown' } = {}) {
+function createIpcRegistry(ipcMain, { source = 'unknown', authorize = null } = {}) {
   const handles = new Map(); // channel -> registrar 描述
   const listeners = new Map(); // channel -> { registrar, listener }
   let disposed = false;
@@ -27,13 +27,30 @@ function createIpcRegistry(ipcMain, { source = 'unknown' } = {}) {
     }
   };
 
+  const guardInvoke = (channel, handler) => async (event, ...args) => {
+    const authorization = typeof authorize === 'function'
+      ? await authorize(channel, event, 'invoke', args)
+      : null;
+    if (authorization?.ok === false) return authorization;
+    return handler(event, ...args);
+  };
+
+  const guardEvent = (channel, listener) => (event, ...args) => {
+    const authorization = typeof authorize === 'function'
+      ? authorize(channel, event, 'event', args)
+      : null;
+    if (authorization?.ok === false) return;
+    listener(event, ...args);
+  };
+
   const api = {
     handle(channel, handler, { registrar = source } = {}) {
       if (!isRegisteredInvoke(channel)) {
         throw new Error(`[ipc-registry:${source}] invoke 通道 '${channel}' 未在 contracts/ipc-channels.js 登记`);
       }
       assertUsable(channel, handles, 'invoke');
-      ipcMain.handle(channel, wrapLegacyIpcPayload(channel, handler));
+      const validatedHandler = wrapLegacyIpcPayload(channel, handler);
+      ipcMain.handle(channel, guardInvoke(channel, validatedHandler));
       handles.set(channel, { registrar });
     },
     on(channel, listener, { registrar = source } = {}) {
@@ -41,7 +58,8 @@ function createIpcRegistry(ipcMain, { source = 'unknown' } = {}) {
         throw new Error(`[ipc-registry:${source}] event 通道 '${channel}' 未在 contracts/ipc-channels.js 登记`);
       }
       assertUsable(channel, listeners, 'event');
-      const wrappedListener = wrapLegacyIpcEventPayload(channel, listener);
+      const validatedListener = wrapLegacyIpcEventPayload(channel, listener);
+      const wrappedListener = guardEvent(channel, validatedListener);
       ipcMain.on(channel, wrappedListener);
       listeners.set(channel, { registrar, listener: wrappedListener });
     },

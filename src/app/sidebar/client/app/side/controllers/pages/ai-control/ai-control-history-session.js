@@ -66,7 +66,7 @@
   }
 
   async function loadRemoteHistorySession(sessionId) {
-    const historyGet = window.aiFree?.ai?.historyGet;
+    const historyGet = HistorySessionAiApi.historyGet;
     if (!historyGet) return null;
     const result = await historyGet({ id: sessionId });
     return result?.ok && result.session ? result.session : null;
@@ -93,7 +93,7 @@
   }
 
   async function deleteRemoteHistorySession(sessionId) {
-    const historyDelete = window.aiFree?.ai?.historyDelete;
+    const historyDelete = HistorySessionAiApi.historyDelete;
     if (!historyDelete) return { nextCurrentId: '', sessions: null };
     const result = await historyDelete({ id: sessionId });
     if (!result?.ok && result?.message && result.message !== '对话不存在') throw new Error(result.message);
@@ -137,7 +137,7 @@
   }
 
   async function renameRemoteHistorySession(sessionId, title) {
-    const historyRename = window.aiFree?.ai?.historyRename;
+    const historyRename = HistorySessionAiApi.historyRename;
     if (!historyRename) return null;
     const result = await historyRename({ id: sessionId, title });
     if (!result?.ok && result?.message && result.message !== '对话不存在') throw new Error(result.message);
@@ -168,7 +168,7 @@
   function canGenerateSessionTitle(session, modelId) {
     if (!session || session.titleGenerated || state.generatingTitle) return false;
     if (!selectedModelIsCustom() && isQuotaExhausted()) return false;
-    return Boolean(modelId && window.aiFree?.ai?.chat);
+    return Boolean(modelId && HistorySessionAiApi.chat);
   }
 
   function findTitleMessages() {
@@ -186,7 +186,7 @@
   }
 
   async function requestGeneratedSessionTitle(modelId, messages) {
-    return window.aiFree.ai.chat({
+    return HistorySessionAiApi.chat({
       modelId,
       quota: state.quota,
       disableTools: true,
@@ -313,3 +313,4 @@
       state.generatingTitle = false;
     }
   }
+const HistorySessionAiApi = window.AiControlApi || window.aiFree?.ai || {};

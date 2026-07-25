@@ -51,6 +51,10 @@ const state = {
   historySaveChains: new Map(),
   historySaveLatestPayloads: new Map(),
 };
+Object.defineProperty(window, 'AiControlApi', {
+  configurable: true,
+  get: () => window.aiFree?.softwareAi || window.aiFree?.ai || {},
+});
 
 const HISTORY_LS_PREFIX = 'ai-free.ai-chat-history.v1.';
 const SEND_BUTTON_ICONS = {

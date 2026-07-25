@@ -5,7 +5,7 @@
 //   create-refresh-platforms —— 平台/目标地址/教程地址运行时刷新
 //   build-app-shell-deps     —— createAppShell 依赖装配
 //   build-lifecycle-deps     —— registerAppLifecycle 依赖装配
-const { app, BrowserWindow, WebContentsView, dialog, Menu, Tray, powerSaveBlocker, safeStorage, screen } = require('electron');
+const { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, Tray, powerSaveBlocker, safeStorage, screen } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { acquireSingleInstance, applyWindowsAppUserModelId } = require('./composition/startup-guards');
@@ -14,21 +14,32 @@ const { createCoreServices } = require('./composition/create-core-services');
 const { createRefreshAllowedPlatformsAndNotify } = require('./composition/create-refresh-platforms');
 const { buildAppShellDeps } = require('./composition/build-app-shell-deps');
 const { buildLifecycleDeps } = require('./composition/build-lifecycle-deps');
+const {
+  createSoftwareWorkspaceComposition,
+} = require('./composition/build-software-workspace');
 const { createAppShell } = require('./services/app-shell');
 const { createTabManager } = require('./services/tab-manager');
 const { registerAppLifecycle } = require('./services/app-lifecycle');
+const { createWorkspaceShell } = require('./workspace/workspace-shell');
 const { setDreamTargetUrl, getStorePath } = require('./config');
 const { resolveTabBrowserProfile } = require('./utils/browser-profile');
 const { httpGetUniversal } = require('./lib/http');
+const {
+  resolveSoftwareAutomationCardCacheDir,
+  resolveSoftwareAiHistoryDir,
+} = require('./config/paths');
 
 // 启动/打开/显示：startMainApp的具体业务逻辑。
 function startMainApp() {
   applyWindowsAppUserModelId();
   tuneElectronRuntime({ app, fs, powerSaveBlocker, getStorePath });
+  let workspaceShell = null;
+  let softwareWorkspace = null;
 
   // ---- 单例应用 ----
   const isPrimaryInstance = acquireSingleInstance({
     onSecondInstance: () => {
+      if (workspaceShell?.revealHome?.()) return;
       if (appShell?.revealMainWindow?.()) return;
       const targetWin = services.appRuntime.getMainWindow() || services.appRuntime.getLicenseWindow();
       if (targetWin) {
@@ -42,7 +53,14 @@ function startMainApp() {
 
   // ---- 核心服务 ----
   let tabManager;
-  const services = createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabManager: () => tabManager });
+  const services = createCoreServices({
+    app,
+    fs,
+    path,
+    BrowserWindow,
+    safeStorage,
+    getTabManager: () => tabManager,
+  });
   const { appRuntime, tabs, sendToSide, licenseCache } = services;
 
   // ---- 晚绑定（tabManager/auth/appShell 创建后回填）----
@@ -81,6 +99,8 @@ function startMainApp() {
     getRefreshActiveTab: () => refreshActiveTab,
     getRefreshTab: () => refreshTab,
     getAddExternalApp: () => addExternalApp,
+    getApplyClashMiniBrowserProxy: () => applyClashMiniBrowserProxy,
+    getApplyNetworkMagicToTab: () => applyNetworkMagicToTab,
   };
 
   // 每个会话(session) -> 扩展ID 映射，用于后续打开 popup/options
@@ -110,6 +130,8 @@ function startMainApp() {
     extIdBySession,
     late,
     getAppShell: () => appShell,
+    getWorkspaceShell: () => workspaceShell,
+    getSoftwareWorkspace: () => softwareWorkspace,
   });
   appShell = createAppShell(appShellDeps);
 
@@ -117,15 +139,14 @@ function startMainApp() {
   tabManager = createTabManager({
     browserRuntimeManager: services.browserRuntimeManager,
     cursorSidecarService: services.cursorSidecarService,
-    softwareCatalog: services.softwareCatalog,
     fs,
     logger: console,
     extensionManager: services.extensionManager,
     cleanupBrowserSessionData: services.browserPartitionCleaner.cleanupBrowserSessionData,
     getStorePath,
     getTabs: () => tabs,
-    getMainWindow: appRuntime.getMainWindow,
-    setMainWindow: appRuntime.setMainWindow,
+    getMainWindow: appRuntime.getBrowserWindow,
+    setMainWindow: appRuntime.setBrowserWindow,
     getSideView: appRuntime.getSideView,
     setSideView: appRuntime.setSideView,
     getActiveTabId: appRuntime.getActiveTabId,
@@ -158,22 +179,78 @@ function startMainApp() {
     refreshActiveTabToUrl,
     refreshActiveTab,
     refreshTab,
-    addExternalApp,
   } = tabManager);
 
-  appShellDeps.applyClashMiniBrowserProxy = applyClashMiniBrowserProxy;
-  appShellDeps.applyNetworkMagicToTab = applyNetworkMagicToTab;
-
+  softwareWorkspace = createSoftwareWorkspaceComposition({
+    fs,
+    logger: console,
+    getStorePath,
+    browserRuntimeManager: services.browserRuntimeManager,
+    softwareCatalog: services.softwareCatalog,
+    licenseCache,
+    automationCardCacheDir: resolveSoftwareAutomationCardCacheDir(app),
+    aiHistoryDirectory: resolveSoftwareAiHistoryDir(app),
+  });
+  addExternalApp = softwareWorkspace.openExternalApp;
+  workspaceShell = createWorkspaceShell({
+    app,
+    BrowserWindow,
+    ipcMain,
+    path,
+    setMainWindow: services.appRuntime.setMainWindow,
+    createBrowserWindow: appShell.createMainWindow,
+    revealBrowserWindow: appShell.revealMainWindow,
+    getBrowserWindow: services.appRuntime.getBrowserWindow,
+    getBrowserSideView: services.appRuntime.getSideView,
+    clearBrowserWindow: () => {
+      services.appRuntime.setBrowserWindow(null);
+      services.appRuntime.setSideView(null);
+    },
+    initializeBrowserWorkspace: async () => {
+      if (tabs.size > 0) {
+        services.tabHelpers.updateTabs(true);
+        return;
+      }
+      const openTutorial = late.getOpenTutorialTab();
+      if (typeof openTutorial !== 'function') return;
+      await openTutorial('', {
+        auto: true,
+        focusBrowser: false,
+        restoreSideFocus: true,
+      });
+    },
+    softwareShellDeps: {
+      BrowserWindow,
+      WebContentsView,
+      state: softwareWorkspace.state,
+      browserRuntimeManager: services.browserRuntimeManager,
+      updateTabs: softwareWorkspace.updateTabs,
+      startDomain: softwareWorkspace.start,
+      disposeDomain: softwareWorkspace.dispose,
+      path,
+      icon: appShellDeps.resolveAppIconPath(),
+      preloadPath: path.join(__dirname, 'preload/software-preload.js'),
+      mainHtmlPath: path.join(__dirname, 'views/app-shell.html'),
+      sidebarHtmlPath: path.join(__dirname, '../sidebar/index.html'),
+      logger: console,
+    },
+    logger: console,
+  });
   // ---- 生命周期 ----
   const lifecycleRegistration = registerAppLifecycle(buildLifecycleDeps({
     app,
     fs,
     services,
     appShell,
+    workspaceShell,
+    softwareWorkspace,
     refreshAllowedPlatformsAndNotify,
     late,
   }));
-  app.once('will-quit', () => lifecycleRegistration.dispose());
+  app.once('will-quit', () => {
+    lifecycleRegistration.dispose();
+    void workspaceShell?.dispose?.();
+  });
 }
 
 module.exports = {

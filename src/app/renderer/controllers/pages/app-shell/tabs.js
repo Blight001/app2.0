@@ -103,7 +103,7 @@ function bindAddTabBtnOnce() {
     e.stopPropagation();
     if (toggleSidebarClickLock) return;
     toggleSidebarClickLock = true;
-    ShellApi.toggleSidebar();
+    TabApi.toggleSidebar();
     setTimeout(() => { toggleSidebarClickLock = false; }, 300);
   });
   addTabBtn.addEventListener('dblclick', async (e) => {
@@ -229,7 +229,7 @@ function finishPendingTabRename() {
 }
 
 // 从主进程接收标签数据
-BrowserApi.onTabsUpdated( (tabs) => {
+TabsUpdateApi.onTabsUpdated?.((tabs) => {
   setBrowserEmptyStateVisible(tabs);
   if (!tabsContainer) tabsContainer = document.getElementById('tabs-container');
   if (!tabsContainer) return;

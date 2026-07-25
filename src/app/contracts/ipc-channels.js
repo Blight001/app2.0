@@ -8,6 +8,9 @@
 'use strict';
 
 const INVOKE_CHANNELS = [
+  { channel: 'workspace-get-type', kind: 'invoke', domain: 'workspace', registrar: 'src/app/main/workspace/workspace-shell.js' },
+  { channel: 'workspace-open-browser', kind: 'invoke', domain: 'workspace', registrar: 'src/app/main/workspace/workspace-shell.js' },
+  { channel: 'workspace-open-software', kind: 'invoke', domain: 'workspace', registrar: 'src/app/main/workspace/workspace-shell.js' },
   { channel: 'account-authenticate', kind: 'invoke', domain: 'account', registrar: 'src/app/main/features/account/register-account-ipc.js', requestSchema: 'account.authenticate' },
   { channel: 'account-get-session', kind: 'invoke', domain: 'account', registrar: 'src/app/main/features/account/register-account-ipc.js' },
   { channel: 'account-logout', kind: 'invoke', domain: 'account', registrar: 'src/app/main/features/account/register-account-ipc.js' },
@@ -143,6 +146,10 @@ const EVENT_CHANNELS = [
   { channel: 'server-account-cookie-received', kind: 'event', domain: 'account', registrar: 'src/app/main/ipc/register/settings.js' },
   { channel: 'set-zoom', kind: 'event', domain: 'browser', registrar: 'src/app/main/ipc/register/ui.js' },
   { channel: 'smart-refresh-active-tab', kind: 'event', domain: 'browser', registrar: 'src/app/main/ipc/register/ui.js' },
+  { channel: 'software-close-tab', kind: 'event', domain: 'software', registrar: 'src/app/main/features/external-app/register-software-workspace-ipc.js' },
+  { channel: 'software-reorder-tab', kind: 'event', domain: 'software', registrar: 'src/app/main/features/external-app/register-software-workspace-ipc.js' },
+  { channel: 'software-switch-tab', kind: 'event', domain: 'software', registrar: 'src/app/main/features/external-app/register-software-workspace-ipc.js' },
+  { channel: 'software-toggle-sidebar', kind: 'event', domain: 'software', registrar: 'src/app/main/features/external-app/register-software-workspace-ipc.js' },
   { channel: 'switch-tab', kind: 'event', domain: 'browser', registrar: 'src/app/main/ipc/register/ui.js' },
   { channel: 'sync-app-shell-account', kind: 'event', domain: 'account', registrar: 'src/app/main/ipc/register/ui.js' },
   { channel: 'toggle-account-center-popup', kind: 'event', domain: 'account', registrar: 'src/app/main/ipc/register/ui.js' },
@@ -202,6 +209,7 @@ const PUSH_CHANNELS = [
   { channel: 'target-url-updated', kind: 'push', domain: 'updates' },
   { channel: 'tutorial-url-updated', kind: 'push', domain: 'updates' },
   { channel: 'update-device-id', kind: 'push', domain: 'updates' },
+  { channel: 'software-tabs-updated', kind: 'push', domain: 'software' },
   { channel: 'update-tabs', kind: 'push', domain: 'browser' },
   { channel: 'wool-platforms-updated', kind: 'push', domain: 'license' },
 ];
@@ -214,6 +222,10 @@ const requestSchemaByChannel = new Map(
     .filter((entry) => entry.requestSchema)
     .map((entry) => [entry.channel, entry.requestSchema]),
 );
+const domainByChannelAndKind = new Map(
+  [...INVOKE_CHANNELS, ...EVENT_CHANNELS, ...PUSH_CHANNELS]
+    .map((entry) => [`${entry.kind}:${entry.channel}`, entry.domain]),
+);
 
 module.exports = {
   INVOKE_CHANNELS,
@@ -223,4 +235,7 @@ module.exports = {
   isRegisteredEvent: (channel) => eventSet.has(channel),
   isRegisteredPush: (channel) => pushSet.has(channel),
   getRequestSchema: (channel) => requestSchemaByChannel.get(channel) || '',
+  getChannelDomain: (channel, kind = 'invoke') => (
+    domainByChannelAndKind.get(`${kind}:${channel}`) || ''
+  ),
 };

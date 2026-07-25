@@ -13,6 +13,17 @@ const { RUNTIME_STATUS } = require('./runtime-types');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function isProcessAlive(pid, processApi = process) {
+  const processId = Number(pid || 0);
+  if (!Number.isInteger(processId) || processId <= 0) return false;
+  try {
+    processApi.kill(processId, 0);
+    return true;
+  } catch (error) {
+    return error?.code !== 'ESRCH';
+  }
+}
+
 function sessionSnapshotDigest(snapshot) {
   if (!snapshot?.files?.length) return '';
   const hash = crypto.createHash('sha256');
@@ -57,7 +68,10 @@ function waitForChildExit(child, timeoutMs) {
       resolve(exited);
     };
     const onExit = () => finish(true);
-    const timer = setTimeout(() => finish(child.exitCode !== null), Math.max(100, timeoutMs));
+    const timer = setTimeout(
+      () => finish(child.exitCode !== null || !isProcessAlive(child.pid)),
+      Math.max(100, timeoutMs),
+    );
     child.once('exit', onExit);
   });
 }
@@ -198,7 +212,10 @@ async function shutdownChromiumInstance(runtime, id, instance, options) {
   try { await instance.commandClient.send('close-browser', {}, { timeoutMs: 3000 }); } catch (_) {}
   await waitForGracefulChromiumExit(instance, options);
   if (instance.child.exitCode === null) await forceChromiumExit(instance, options);
-  if (instance.child.exitCode === null) throwChromiumExitTimeout(id);
+  if (
+    instance.child.exitCode === null
+    && isProcessAlive(instance.child.pid)
+  ) throwChromiumExitTimeout(id);
   if (preserveSession) await preserveChromiumSession(runtime, id, instance, preCloseSnapshot, stableSnapshot);
   try { await instance.commandClient.close(); } catch (_) {}
 }
@@ -213,6 +230,12 @@ async function forceChromiumExit(instance, options) {
     try { instance.child.kill(); } catch (_) {}
   } else {
     await terminateProcessTree(instance.child.pid);
+    if (
+      instance.child.exitCode === null
+      && isProcessAlive(instance.child.pid)
+    ) {
+      try { instance.child.kill('SIGKILL'); } catch (_) {}
+    }
   }
   await waitForChildExit(instance.child, 5000);
 }
@@ -247,6 +270,7 @@ function destroyEmbeddedWindow(runtime, state) {
 
 module.exports = {
   cleanupFailedChromiumLaunch,
+  isProcessAlive,
   stopChromiumProfile,
   terminateProcessTree,
   waitForChildExit,

@@ -75,7 +75,7 @@
   }
 
   function getAiSettingsMethod(method) {
-    const aiApi = window.aiFree && window.aiFree.ai;
+    const aiApi = SelectorsAiApi;
     return aiApi && typeof aiApi[method] === 'function' ? aiApi[method].bind(aiApi) : null;
   }
 
@@ -209,3 +209,4 @@
     menu.appendChild(item);
     updateBrowserMcpSettingUi();
   }
+const SelectorsAiApi = window.AiControlApi || window.aiFree?.ai || {};

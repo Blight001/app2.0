@@ -69,7 +69,8 @@
 
   async function ensureAuthenticatedForChat() {
     try {
-      const session = await window.aiFree?.account?.getSession?.();
+      const getSession = window.aiFree?.account?.getSession || ComposerAiApi.getSession;
+      const session = await getSession?.();
       state.accountAuthenticated = session?.authenticated === true;
       syncSendState();
       if (state.accountAuthenticated) return true;
@@ -94,7 +95,7 @@
     // 用户输入先同步写入 localStorage，再通知正在运行的服务端会话。
     void persistCurrentSession();
     try {
-      const result = await window.aiFree.ai.chatInsert({
+      const result = await ComposerAiApi.chatInsert({
         requestId: state.activeRequestId,
         content,
       });
@@ -114,7 +115,7 @@
     state.stopping = true;
     syncSendState();
     try {
-      await window.aiFree.ai.chatStop({
+      await ComposerAiApi.chatStop({
         requestId: state.activeRequestId,
       });
     } catch (error) {
@@ -127,7 +128,7 @@
   async function refreshQuotaBeforeSend(useCustomApi) {
     if (useCustomApi) return;
     try {
-      const result = await window.aiFree?.ai?.getModels?.();
+      const result = await ComposerAiApi.getModels?.();
       if (result?.quota) renderQuota(result.quota);
     } catch (_) {}
   }
@@ -190,7 +191,7 @@
   function subscribeChatStream(run) {
     run.streamView = createAssistantView({ pending: true });
     run.insertedDuringRun = false;
-    return window.aiFree?.ai?.onChatEvent?.((event) => handleChatStreamEvent(run, event));
+    return ComposerAiApi.onChatEvent?.((event) => handleChatStreamEvent(run, event));
   }
 
   function buildChatRequest(run) {
@@ -286,7 +287,7 @@
     if (!run.useCustomApi && isQuotaExhausted()) {
       throw new Error('AI 对话额度已用尽，请联系管理员');
     }
-    const result = await window.aiFree.ai.chat(buildChatRequest(run));
+    const result = await ComposerAiApi.chat(buildChatRequest(run));
     if (result?.ok) return result;
     handleChatBusinessFailure(result);
     throw new Error(String(result?.message || result?.error || '对话请求失败'));
@@ -327,3 +328,4 @@
       finishChatSend(run);
     }
   }
+const ComposerAiApi = window.AiControlApi || window.aiFree?.ai || {};

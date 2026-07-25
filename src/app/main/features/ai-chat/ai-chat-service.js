@@ -3,6 +3,9 @@
 const { createAiBrowserWindowTools } = require('../../services/ai-browser-window-tools');
 const { createAiSandboxFileTools } = require('../../services/ai-sandbox-file-tools');
 const { createAiSoftwareUiTools } = require('../../services/ai-software-ui-tools');
+const {
+  createAiSoftwareWindowTools,
+} = require('../external-app/ai-software-window-tools');
 const { createChatRunRegistry } = require('./chat-run-registry');
 const { prepareChatRequest } = require('./chat-request-context');
 const { runChatConversation } = require('./chat-conversation-runner');
@@ -85,8 +88,34 @@ function activeSoftwareTools(deps, cache, target) {
   return cache.activeSoftware.tools;
 }
 
+function createBrowserWindowToolProvider(deps, licenseCache, logger) {
+  const cache = { browser: null, files: null };
+  return () => combineWindowTools(
+    createBaseWindowTools(deps, cache, licenseCache, logger),
+  );
+}
+
+function createSoftwareBaseTools(deps, cache) {
+  if (!cache.softwareWindow && deps.softwareWindowUi) {
+    cache.softwareWindow = createAiSoftwareWindowTools({
+      ui: deps.softwareWindowUi,
+    });
+  }
+  if (!cache.files) {
+    cache.files = createAiSandboxFileTools({ sandboxDir: deps.aiSandboxDir });
+  }
+  return [cache.softwareWindow, cache.files].filter(Boolean);
+}
+
 function createWindowToolProvider(deps, licenseCache, logger) {
-  const cache = { browser: null, files: null, activeSoftware: null };
+  if (deps.workspaceType === 'browser') {
+    return createBrowserWindowToolProvider(deps, licenseCache, logger);
+  }
+  const cache = {
+    files: null,
+    softwareWindow: null,
+    activeSoftware: null,
+  };
   return (selection = null) => {
     try {
       const profileId = deps.getActiveTabId?.();
@@ -101,7 +130,7 @@ function createWindowToolProvider(deps, licenseCache, logger) {
           target,
         })
         : activeSoftwareTools(deps, cache, target);
-      const sources = [...createBaseWindowTools(deps, cache, licenseCache, logger), software]
+      const sources = [...createSoftwareBaseTools(deps, cache), software]
         .filter((source) => source?.tools?.length);
       return combineWindowTools(sources);
     } catch (error) {
@@ -117,7 +146,7 @@ function createAiChatService(deps = {}) {
     licenseCache,
     logger = console,
   } = deps;
-    const chatRuns = createChatRunRegistry();
+    const chatRuns = createChatRunRegistry({ domain: deps.workspaceType });
     let lastPromptRequest = null;
     const getAiBrowserWindowTools = createWindowToolProvider(deps, licenseCache, logger);
 
@@ -161,7 +190,14 @@ function createAiChatService(deps = {}) {
       );
     }
 
-    return { chat, getPromptDiagnostics, getWindowTools: getAiBrowserWindowTools, insert, stop };
+    return {
+      chat,
+      dispose: () => chatRuns.cancelAll(),
+      getPromptDiagnostics,
+      getWindowTools: getAiBrowserWindowTools,
+      insert,
+      stop,
+    };
 }
 
 module.exports = {

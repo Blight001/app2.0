@@ -61,3 +61,17 @@ test('无效地址和写入失败返回明确错误，清除配置不要求 VIP'
   const nonVip = fixture({ licenseCache: { getSnapshot: () => ({}) } });
   assert.equal(createAiSettingsService(nonVip.context).setCustomApi({ clear: true }).ok, true);
 });
+
+test('Software AI 设置写入独立键且不改变 Browser AI 设置', () => {
+  const data = fixture();
+  const service = createAiSettingsService({
+    ...data.context,
+    settingsKey: 'softwareAiControlSettings',
+  });
+
+  service.setSettings({ mcpCallLimit: 25 });
+
+  assert.equal(data.writes[0].softwareAiControlSettings.mcpCallLimit, 25);
+  assert.equal(data.writes[0].aiControlSettings.mcpCallLimit, 50);
+  assert.equal(service.getSettings().settings.mcpCallLimit, 25);
+});

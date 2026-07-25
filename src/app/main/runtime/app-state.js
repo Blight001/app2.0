@@ -4,6 +4,7 @@ function createAppState() {
 
   const state = {
     mainWindow: null,
+    browserWindow: null,
     licenseWindow: null,
     controlPanelWindow: null,
     activeTabId: null,
@@ -45,6 +46,8 @@ function createAppState() {
     applyPluginSettings,
     getMainWindow: () => state.mainWindow,
     setMainWindow: (next) => { state.mainWindow = next; },
+    getBrowserWindow: () => state.browserWindow,
+    setBrowserWindow: (next) => { state.browserWindow = next; },
     getLicenseWindow: () => state.licenseWindow,
     setLicenseWindow: (next) => { state.licenseWindow = next; },
     getControlPanelWindow: () => state.controlPanelWindow,

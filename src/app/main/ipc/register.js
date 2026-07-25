@@ -10,6 +10,9 @@ const { registerMiscIPC } = require('./register/misc');
 const { registerSettingsIPC } = require('./register/settings');
 const { registerUiIPC } = require('./register/ui');
 const { registerExternalAppIPC } = require('../features/external-app/register-external-app-ipc');
+const {
+  registerSoftwareWorkspaceIPC,
+} = require('../features/external-app/register-software-workspace-ipc');
 
 // 上一轮 registerIPC 创建的注册器。重登录/重引导会整体重跑 registerIPC，
 // 此时先显式释放旧注册，替代原先 monkeypatch ipcMain 的静默去重补丁；
@@ -22,12 +25,16 @@ function registerIPC(ctx) {
     slog.warn('reregister', { operationDetail: '重跑 registerIPC，先释放旧注册', ...activeRegistry.stats() });
     activeRegistry.dispose();
   }
-  activeRegistry = createIpcRegistry(ipcMain, { source: 'registerIPC' });
+  activeRegistry = createIpcRegistry(ipcMain, {
+    source: 'registerIPC',
+    authorize: ctx.authorizeIpc,
+  });
   ctx.ipc = activeRegistry;
 
   registerLicenseIPC(ctx);
   registerUiIPC(ctx);
   registerExternalAppIPC(ctx);
+  registerSoftwareWorkspaceIPC(ctx);
   registerMiscIPC(ctx);
   registerSettingsIPC(ctx);
   registerClashIPC(ctx);

@@ -25,7 +25,10 @@ function registerAppLifecycle(deps = {}) {
     getMainWindow,
     logger = console,
   } = deps;
-  const ipcRegistry = createIpcRegistry(ipcMain, { source: 'app-lifecycle' });
+  const ipcRegistry = createIpcRegistry(ipcMain, {
+    source: 'app-lifecycle',
+    authorize: deps.authorizeIpc,
+  });
   const ipc = ipcRegistry.scope('services/app-lifecycle');
   const {
     cleanupClashMiniRuntimeConfig,
@@ -65,6 +68,10 @@ function registerAppLifecycle(deps = {}) {
     const mainWindow = getMainWindow?.();
     if (mainWindow && !mainWindow.isDestroyed?.()) {
       revealMainWindow?.();
+      return;
+    }
+    if (deps.restoreHomeOnActivate) {
+      createMainWindow();
       return;
     }
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

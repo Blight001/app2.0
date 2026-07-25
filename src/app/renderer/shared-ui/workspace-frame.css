@@ -1,0 +1,98 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: #11151c;
+  color: #edf2f7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(59, 130, 246, 0.14), transparent 32%),
+    #11151c;
+}
+
+.workspace-frame {
+  display: grid;
+  grid-template-rows: 46px 1fr;
+  width: 100%;
+  height: 100%;
+}
+
+.workspace-tabs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-bottom: 1px solid #2a3341;
+  background: #171d26;
+}
+
+.workspace-tab {
+  min-width: 180px;
+  padding: 8px 14px;
+  border-radius: 7px;
+  background: #252e3b;
+  font-size: 13px;
+}
+
+.workspace-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  min-height: 0;
+}
+
+.workspace-content {
+  display: grid;
+  place-items: center;
+  color: #9aa8ba;
+}
+
+.workspace-sidebar {
+  padding: 14px;
+  border-left: 1px solid #2a3341;
+  background: #171d26;
+}
+
+.workspace-sidebar nav {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.workspace-sidebar span {
+  padding: 9px 6px;
+  border-radius: 6px;
+  background: #252e3b;
+  color: #cbd5e1;
+  text-align: center;
+  font-size: 12px;
+}
+
+.workspace-placeholder {
+  max-width: 480px;
+  padding: 32px;
+  text-align: center;
+}
+
+.workspace-placeholder h1 {
+  margin: 0 0 12px;
+  color: #f8fafc;
+  font-size: 24px;
+}
+
+.workspace-placeholder p {
+  margin: 0;
+  line-height: 1.7;
+}

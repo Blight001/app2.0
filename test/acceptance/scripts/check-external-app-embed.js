@@ -32,6 +32,17 @@ async function waitForValue(read, timeoutMs = 15000) {
   return null;
 }
 
+async function executeFocusedAction(profileId, tools, input) {
+  try {
+    return await tools.execute('software_ui', input);
+  } catch (error) {
+    if (!String(error?.message || error).includes('0x80070102')) throw error;
+    await manager.focus(profileId, 'external-app');
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return tools.execute('software_ui', input);
+  }
+}
+
 async function cleanup(exitCode) {
   try { await cursorSidecarService?.shutdown?.(); } catch (_) {}
   try { await manager?.stopAll(); } catch (_) {}
@@ -55,7 +66,20 @@ async function verifyOwnedPopupAutomation() {
     '$timer.Interval = 1500',
     '$timer.Add_Tick({',
     '  $timer.Stop()',
-    "  [System.Windows.Forms.MessageBox]::Show($form, 'Choose an action', 'AI-FREE Modal', 'OKCancel') | Out-Null",
+    '  $dialog = New-Object System.Windows.Forms.Form',
+    "  $dialog.Text = 'AI-FREE Modal'",
+    '  $dialog.Width = 420',
+    '  $dialog.Height = 260',
+    '  $dialog.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent',
+    '  $button = New-Object System.Windows.Forms.Button',
+    "  $button.Text = 'Confirm'",
+    '  $button.Width = 220',
+    '  $button.Height = 72',
+    '  $button.Left = 92',
+    '  $button.Top = 130',
+    '  $button.Add_Click({ $dialog.Close() })',
+    '  $dialog.Controls.Add($button)',
+    '  $dialog.ShowDialog($form) | Out-Null',
     '  $form.Close()',
     '})',
     '$form.Add_Shown({ $timer.Start() })',
@@ -93,12 +117,12 @@ async function verifyOwnedPopupAutomation() {
   }, 5000);
   assert.ok(observed?.observation_id, '模态弹窗应可截图观察');
   assert.match(observed.dataUrl, /^data:image\/png;base64,/);
-  // Win32 MessageBox 的确认按钮位于下方、水平中线左侧。
+  // Fixture 使用自有的大尺寸确认按钮，避免依赖不同 Windows 版本的 MessageBox 排版。
   const clicked = await tools.execute('software_ui', {
     action: 'mouse_click',
     observation_id: observed.observation_id,
-    x: Math.floor(observed.width * 0.42),
-    y: Math.floor(observed.height * 0.78),
+    x: Math.floor(observed.width * 0.5),
+    y: Math.floor(observed.height * 0.64),
     refresh: false,
   });
   assert.equal(clicked.method, 'mouse');
@@ -149,13 +173,13 @@ app.whenReady().then(async () => {
       () => manager.windowBridge.findMainWindowByProcessId(launchedPid),
     );
     assert.ok(desktopHwnd, '应检测到刚打开的记事本窗口');
-    const originalPlacement = manager.windowBridge.getWindowPlacementSnapshot(desktopHwnd);
-    assert.ok(originalPlacement, '应记录记事本停靠前的窗口状态');
     const discovered = await waitForValue(() => (
       manager.windowBridge.listVisibleTopLevelWindows()
         .find((entry) => entry.hwnd === desktopHwnd && entry.pid === launchedPid)
     ));
     assert.ok(discovered, '记事本应出现在桌面可见窗口列表');
+    const originalPlacement = manager.windowBridge.getWindowPlacementSnapshot(desktopHwnd);
+    assert.ok(originalPlacement, '应记录记事本可见后的停靠前窗口状态');
     assert.equal(
       path.normalize(discovered.executablePath).toLowerCase(),
       path.normalize(executablePath).toLowerCase(),
@@ -204,22 +228,34 @@ app.whenReady().then(async () => {
     await new Promise((resolve) => setTimeout(resolve, 120));
     const clickX = Math.floor(observed.width / 2);
     const clickY = Math.floor(observed.height / 2);
-    const clickedVisual = await uiTools.execute('software_ui', {
-      action: 'click',
-      observation_id: observed.observation_id,
-      x: clickX,
-      y: clickY,
-    });
-    window.setAlwaysOnTop(false);
+    let clickedVisual;
+    try {
+      clickedVisual = await executeFocusedAction(
+        'external-app-acceptance',
+        uiTools,
+        {
+          action: 'click',
+          observation_id: observed.observation_id,
+          x: clickX,
+          y: clickY,
+        },
+      );
+    } finally {
+      window.setAlwaysOnTop(false);
+    }
     assert.equal(clickedVisual.action_result.method, 'mouse');
-    assert.equal(sidecarArrivals, 1, '软件点击必须等待统一 Sidecar ARRIVED');
+    assert.ok(sidecarArrivals >= 1, '软件点击必须等待统一 Sidecar ARRIVED');
     console.log('[external-app-embed] Sidecar click passed');
-    const typedVisual = await uiTools.execute('software_ui', {
-      action: 'type',
-      observation_id: clickedVisual.observation_id,
-      text: 'AI-FREE visual input',
-      refresh: false,
-    });
+    const typedVisual = await executeFocusedAction(
+      'external-app-acceptance',
+      uiTools,
+      {
+        action: 'type',
+        observation_id: clickedVisual.observation_id,
+        text: 'AI-FREE visual input',
+        refresh: false,
+      },
+    );
     assert.equal(typedVisual.method, 'keyboard');
     console.log('[external-app-embed] keyboard input passed');
     const observedAgain = await uiTools.execute('software_ui', { action: 'observe' });

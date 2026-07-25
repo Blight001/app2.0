@@ -1,5 +1,9 @@
 'use strict';
 
+const AutomationApi = window.aiFree?.softwareAutomation
+  || window.aiFree?.automation
+  || {};
+
 {
   const automationState = {
     cards: [],
@@ -129,7 +133,7 @@
   }
 
   async function readAndSelectAutomationCard(cardId) {
-    const api = window.aiFree && window.aiFree.automation;
+    const api = AutomationApi;
     if (!api) throw new Error('软件自动化能力不可用');
     const result = await api.getCard({ id: cardId });
     if (!result || !result.ok || !result.data || !result.data.cardData) {

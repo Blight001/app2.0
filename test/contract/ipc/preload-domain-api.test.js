@@ -9,7 +9,7 @@ const vm = require('node:vm');
 
 const projectRoot = path.resolve(__dirname, '..', '..', '..');
 
-function loadPreloadApi() {
+function loadPreloadApi(argv = []) {
   const exposed = {};
   const calls = [];
   const ipcRenderer = new EventEmitter();
@@ -17,7 +17,7 @@ function loadPreloadApi() {
   ipcRenderer.send = (channel, data) => { calls.push(['send', channel, data]); };
   const context = vm.createContext({
     console,
-    process: { env: {} },
+    process: { env: {}, argv },
     window: { addEventListener() {}, postMessage() {} },
     require(request) {
       if (request === 'electron') {
@@ -33,6 +33,17 @@ function loadPreloadApi() {
   vm.runInContext(fs.readFileSync(preloadPath, 'utf8'), context, { filename: preloadPath });
   return { calls, exposed, ipcRenderer };
 }
+
+test('Browser Workspace preload 保留浏览器壳能力但不暴露 Software', async () => {
+  const { calls, exposed } = loadPreloadApi(['--ai-free-workspace=browser']);
+  assert.equal(exposed.env.WORKSPACE_TYPE, 'browser');
+  assert.equal(exposed.aiFree.software, undefined);
+  assert.equal(typeof exposed.aiFree.browser.getHistory, 'function');
+  assert.equal(typeof exposed.aiFree.automation.runCard, 'function');
+  assert.equal(typeof exposed.aiFree.workspace.getType, 'function');
+  await exposed.aiFree.workspace.getType();
+  assert.deepEqual(calls, [['invoke', 'workspace-get-type', undefined]]);
+});
 
 test('window.aiFree AI methods bind fixed channels and subscriptions return disposers', async () => {
   const { calls, exposed, ipcRenderer } = loadPreloadApi();

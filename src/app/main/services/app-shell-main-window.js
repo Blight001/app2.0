@@ -19,7 +19,11 @@ function createWindowInstance(deps, windowStateController) {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: deps.path.join(__dirname, '../preload.js'),
+      ...(deps.preloadPath ? { sandbox: false } : {}),
+      preload: deps.preloadPath || deps.path.join(__dirname, '../preload.js'),
+      additionalArguments: deps.workspaceType
+        ? [`--ai-free-workspace=${deps.workspaceType}`]
+        : [],
     },
   });
   if (windowStateController.shouldMaximize()) mainWindow.maximize();
@@ -45,7 +49,10 @@ function createSidebarView(deps, mainWindow) {
       contextIsolation: true,
       sandbox: false,
       backgroundThrottling: false,
-      preload: deps.path.join(__dirname, '../preload.js'),
+      preload: deps.preloadPath || deps.path.join(__dirname, '../preload.js'),
+      additionalArguments: deps.workspaceType
+        ? [`--ai-free-workspace=${deps.workspaceType}`]
+        : [],
     },
   });
   deps.setSideView?.(sideView);

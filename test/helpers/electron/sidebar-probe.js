@@ -14,7 +14,8 @@ const os = require('os');
 const fs = require('fs');
 const { app, BrowserWindow } = require('electron');
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-it-'));
+const userData = String(process.env.AI_FREE_TEST_USER_DATA || '').trim()
+  || fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-it-'));
 app.setPath('userData', userData);
 
 const consoleErrors = [];
@@ -53,6 +54,5 @@ app.whenReady().then(async () => {
     result = { loaded: false, error: String((error && error.message) || error), consoleErrors: consoleErrors.slice(0, 5) };
   }
   console.log('PROBE_RESULT ' + JSON.stringify(result));
-  try { fs.rmSync(userData, { recursive: true, force: true }); } catch (_) {}
   app.exit(result.loaded ? 0 : 1);
 });

@@ -126,6 +126,14 @@ function resolveAutomationCard(deps, options) {
 
 function resolveSoftwareTarget(deps, options) {
   if (options.disableTools || !options.softwareProfileId) return { softwareTarget: null };
+  if (deps.workspaceType === 'browser') {
+    return {
+      error: {
+        ok: false,
+        message: 'Browser Workspace 不支持软件控制目标',
+      },
+    };
+  }
   const target = deps.browserRuntimeManager?.externalApp?.getAutomationTarget?.(
     options.softwareProfileId,
   );

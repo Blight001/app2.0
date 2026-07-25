@@ -228,7 +228,28 @@ function registerSettingsIPC(ctx) {
     writeStore: writeStoreConfigSafe,
     licenseCache,
   });
-  registerAiSettingsIpc({ ipc, service: aiSettingsService });
+  const softwareAiSettingsService = createAiSettingsService({
+    readStore: readStoreConfigSafe,
+    writeStore: writeStoreConfigSafe,
+    licenseCache,
+    settingsKey: 'softwareAiControlSettings',
+  });
+  const isSoftwareSender = (event) => {
+    const state = ctx.softwareWorkspace?.state;
+    return [
+      state?.getWindow?.()?.webContents,
+      state?.getSideView?.()?.webContents,
+    ].includes(event?.sender);
+  };
+  registerAiSettingsIpc({
+    ipc,
+    service: aiSettingsService,
+    resolveService: (event) => (
+      isSoftwareSender(event)
+        ? softwareAiSettingsService
+        : aiSettingsService
+    ),
+  });
   registerPluginSettingsIpc(ipc, ui, extensionManager);
   registerCredentialSettingsIpc(ipc, { computeDeviceId, licenseCache });
   registerNetworkSettingsIpc(ipc, licenseCache);

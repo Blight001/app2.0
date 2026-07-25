@@ -28,3 +28,16 @@ test('相同 requestId 的新运行会中止旧运行，旧运行迟到清理不
   assert.equal(registry.get(event, 'same'), currentRun.run);
   assert.deepEqual(registry.insert(event, 'same', '继续'), { ok: true, queued: 1 });
 });
+
+test('工作域 dispose 只批量取消本 registry 的运行', () => {
+  const browser = createChatRunRegistry({ domain: 'browser' });
+  const software = createChatRunRegistry({ domain: 'software' });
+  const event = { sender: { id: 7 } };
+  const browserRun = browser.begin(event, 'same');
+  const softwareRun = software.begin(event, 'same');
+
+  assert.equal(browser.cancelAll(), 1);
+  assert.equal(browserRun.run.controller.signal.aborted, true);
+  assert.equal(softwareRun.run.controller.signal.aborted, false);
+  assert.equal(browser.get(event, 'same'), undefined);
+});

@@ -17,6 +17,7 @@ function createTabHelpers(deps = {}) {
     sendToSide,
     browserRuntimeManager,
   } = deps;
+  const tabsUpdatedChannel = deps.tabsUpdatedChannel || 'update-tabs';
 
 // 获取/读取/解析：resolveTabs的具体业务逻辑。
   const resolveTabs = () => (typeof getTabs === 'function' ? getTabs() : new Map());
@@ -54,10 +55,10 @@ function createTabHelpers(deps = {}) {
         const signature = getTabsSignature(tabData);
         if (!force && signature && signature === lastTabsSignature) return;
         lastTabsSignature = signature;
-        win.webContents.send('update-tabs', tabData);
+        win.webContents.send(tabsUpdatedChannel, tabData);
         const sideView = resolveSideView();
         if (sideView && sideView.webContents && !sideView.webContents.isDestroyed()) {
-          sideView.webContents.send('update-tabs', tabData);
+          sideView.webContents.send(tabsUpdatedChannel, tabData);
         }
       };
 

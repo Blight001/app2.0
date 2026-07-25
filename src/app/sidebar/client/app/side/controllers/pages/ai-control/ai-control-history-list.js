@@ -246,9 +246,9 @@
       .map(sessionSummaryLocal);
 
     let remote = [];
-    if (window.aiFree?.ai?.historyList) {
+    if (HistoryListAiApi.historyList) {
       try {
-        const result = await window.aiFree.ai.historyList();
+        const result = await HistoryListAiApi.historyList();
         if (result?.ok) remote = Array.isArray(result.sessions) ? result.sessions : [];
       } catch (error) {
         console.warn('[AI 控制] 读取历史失败:', error?.message || error);
@@ -313,12 +313,15 @@
   }
 
   async function saveSessionToMain(payload) {
-    if (!window.aiFree?.ai?.historySave) return null;
+    if (!HistoryListAiApi.historySave) return null;
     const sessionId = String(payload.id || '');
     const previous = state.historySaveChains.get(sessionId);
     const runSave = async () => {
       try {
-        const result = await window.aiFree.ai.historySave({ session: payload, setCurrent: true });
+        const result = await HistoryListAiApi.historySave({
+          session: payload,
+          setCurrent: true,
+        });
         if (result?.ok && result.session) return result.session;
         if (result?.ok === false) console.warn('[AI 控制] 主进程保存历史失败:', result.message || result);
       } catch (error) {
@@ -359,3 +362,4 @@
     await refreshHistoryList();
     return payload;
   }
+const HistoryListAiApi = window.AiControlApi || window.aiFree?.ai || {};

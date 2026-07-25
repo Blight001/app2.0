@@ -26,9 +26,9 @@
 
   async function selectAutomationCard(cardId, options = {}) {
     const id = cardText(cardId);
-    if (!id || !window.aiFree?.ai?.selectAutomationCard) return false;
+    if (!id || !CardSelectorAiApi.selectAutomationCard) return false;
     try {
-      const result = await window.aiFree.ai.selectAutomationCard({ id });
+      const result = await CardSelectorAiApi.selectAutomationCard({ id });
       if (!result?.ok) throw new Error(result?.message || '选择自动化卡片失败');
       applyAutomationCardSelection(id, result, options);
       return true;
@@ -339,3 +339,4 @@
   }
 
   /* ---------------- 额度圆环 ---------------- */
+const CardSelectorAiApi = window.AiControlApi || window.aiFree?.ai || {};

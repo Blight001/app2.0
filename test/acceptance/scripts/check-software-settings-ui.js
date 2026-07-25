@@ -25,6 +25,16 @@ ipcMain.handle('list-available-software', () => {
 });
 ipcMain.handle('open-external-software', (_event, payload) => {
   openedSoftwareId = String(payload?.softwareId || '');
+  if (openedSoftwareId === 'window-long-name') {
+    return {
+      ok: false,
+      error: {
+        code: 'SOFTWARE_LAUNCH_FAILED',
+        message: '测试软件无法启动',
+        retryable: true,
+      },
+    };
+  }
   return { ok: true, data: { tabId: 'software-notepad-test' } };
 });
 
@@ -48,6 +58,10 @@ app.whenReady().then(async () => {
     const initialAction = card?.querySelector('.software-card-action')?.textContent || '';
     card?.click();
     await new Promise((resolve) => setTimeout(resolve, 30));
+    let structuredError = '';
+    window.alert = (message) => { structuredError = String(message || ''); };
+    longCard?.click();
+    await new Promise((resolve) => setTimeout(resolve, 30));
     return {
       active: document.getElementById('software-settings-panel').classList.contains('active'),
       pickerTitle: document.getElementById('software-picker-title')?.textContent || '',
@@ -60,6 +74,7 @@ app.whenReady().then(async () => {
         ? longCard.scrollWidth <= longCard.clientWidth
         : false,
       initialAction,
+      structuredError,
     };
   })()`);
   window.webContents.send('update-tabs', [{ id: 'browser-after-software-close' }]);
@@ -74,7 +89,8 @@ app.whenReady().then(async () => {
     || result.longNameTitle !== 'v-start.bat - AI-FREE-app - Visual Studio Code'
     || result.longCardContained !== true
     || result.initialAction !== '嵌入'
-    || openedSoftwareId !== 'window-test'
+    || result.structuredError !== '无法嵌入 v-start.bat - AI-FREE-app - Visual Studio Code：测试软件无法启动'
+    || openedSoftwareId !== 'window-long-name'
     || catalogLoads < 2
   ) {
     throw new Error(`软件配置栏目校验失败: ${JSON.stringify({ ...result, openedSoftwareId, catalogLoads })}`);

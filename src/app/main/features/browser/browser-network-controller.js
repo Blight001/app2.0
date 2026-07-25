@@ -65,6 +65,7 @@ async function refreshTabBrowserProfile(deps, tab, instance, options) {
   const previousProfile = tab.browserProfile && typeof tab.browserProfile === 'object' ? tab.browserProfile : {};
   const resolvedProfile = await deps.resolveTabBrowserProfile({
     browserSettings: tab.browserSettings || {},
+    geoProxyServer: firstText(options.nextProxyServer),
     logger: deps.logger || console,
   });
   if (!resolvedProfile) return false;

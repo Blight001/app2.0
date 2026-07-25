@@ -97,3 +97,45 @@ test('声明 requestSchema 的 invoke 在进入业务 handler 前自动校验', 
   });
   assert.equal(called, 1, '非法输入不得触发业务 handler');
 });
+
+test('可选 authorizer 在 payload 校验和业务 handler 前拒绝 invoke', async () => {
+  const ipcMain = fakeIpcMain();
+  let calls = 0;
+  const registry = createIpcRegistry(ipcMain, {
+    source: 'guarded',
+    authorize: () => ({
+      ok: false,
+      error: { code: 'WORKSPACE_ACCESS_DENIED', message: 'denied', retryable: false },
+    }),
+  });
+  registry.handle('ai-control-chat-stop', async () => {
+    calls += 1;
+    return { ok: true };
+  });
+
+  const result = await ipcMain.handlers.get('ai-control-chat-stop')(
+    { sender: {} },
+    { requestId: 42 },
+  );
+  assert.deepEqual(result, {
+    ok: false,
+    error: { code: 'WORKSPACE_ACCESS_DENIED', message: 'denied', retryable: false },
+  });
+  assert.equal(calls, 0);
+});
+
+test('可选 authorizer 拒绝 event 时不触发 listener', () => {
+  const ipcMain = fakeIpcMain();
+  let calls = 0;
+  const registry = createIpcRegistry(ipcMain, {
+    source: 'guarded',
+    authorize: () => ({
+      ok: false,
+      error: { code: 'WORKSPACE_ACCESS_DENIED', message: 'denied', retryable: false },
+    }),
+  });
+  registry.on(KNOWN_EVENT, () => { calls += 1; });
+
+  ipcMain.listeners.get(KNOWN_EVENT)({ sender: {} });
+  assert.equal(calls, 0);
+});

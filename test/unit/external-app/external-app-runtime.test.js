@@ -96,6 +96,30 @@ test('外部软件运行时直接停靠已打开窗口并跟随主窗口移动',
   assert.ok(calls.some(([name, hwnd]) => name === 'restore' && hwnd === '200'));
 });
 
+test('外部软件运行时优先停靠到调用方显式提供的 Software Window', async () => {
+  const calls = [];
+  const browserWindow = createParentWindow();
+  const softwareWindow = createParentWindow();
+  softwareWindow.getNativeWindowHandle = () => Buffer.from([2]);
+  const runtime = new ExternalAppRuntime({
+    windowBridge: createBridge(calls),
+    getParentWindow: () => browserWindow,
+  });
+
+  await runtime.launchProfile({
+    profileId: 'software-explicit-parent',
+    runtimeType: 'external-app',
+    existingWindowHwnd: '200',
+    existingWindowPid: 321,
+  }, { x: 0, y: 41, width: 800, height: 600 }, {
+    parentWindow: softwareWindow,
+  });
+
+  const dock = calls.find(([name]) => name === 'dock');
+  assert.deepEqual(dock[1].parentHwnd, Buffer.from([2]));
+  await runtime.stop('software-explicit-parent');
+});
+
 test('外部软件运行时拒绝已被复用的窗口句柄', async () => {
   const bridge = createBridge([]);
   bridge.getWindowProcessId = () => 999;

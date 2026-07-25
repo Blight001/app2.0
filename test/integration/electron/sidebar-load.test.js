@@ -4,16 +4,30 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 const root = path.join(__dirname, '..', '..', '..');
 
 test('侧边栏页面在真实 Electron 中加载并应用主题', { timeout: 60000 }, () => {
-  const out = execFileSync(process.execPath, [
-    path.join(root, 'scripts', 'run-electron.js'),
-    path.join(root, 'test', 'helpers', 'electron', 'sidebar-probe.js'),
-  ], { cwd: root, encoding: 'utf8', timeout: 55000 });
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-it-'));
+  let out;
+  try {
+    out = execFileSync(process.execPath, [
+      path.join(root, 'scripts', 'run-electron.js'),
+      path.join(root, 'test', 'helpers', 'electron', 'sidebar-probe.js'),
+    ], {
+      cwd: root,
+      encoding: 'utf8',
+      timeout: 55000,
+      env: { ...process.env, AI_FREE_TEST_USER_DATA: userData },
+    });
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+  assert.equal(fs.existsSync(userData), false, 'Electron 探针 userData 必须在子进程退出后清理');
 
   const line = out.split(/\r?\n/).find((l) => l.startsWith('PROBE_RESULT '));
   assert.ok(line, `探针未输出结果。输出片段: ${out.slice(-500)}`);

@@ -8,7 +8,6 @@ const { createLicenseCache } = require('../runtime/license-cache');
 const { createUiBridge } = require('./create-ui-bridge');
 const { createAppUpdater } = require('../services/app-updater');
 const { createBrowserRuntimeManager } = require('../browser-runtime');
-const { createCursorSidecarService } = require('../features/cursor-sidecar/cursor-sidecar-service');
 const { createLogger } = require('../utils/logger');
 const { createBrowserPartitionCleaner } = require('../services/browser-partitions');
 const { createBrowserAutomationBridge } = require('../services/browser-automation-bridge');
@@ -42,11 +41,17 @@ const {
 
 const APP_DISPLAY_NAME = 'AI-FREE';
 
-function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabManager }) {
+function createCoreServices({
+  app,
+  fs,
+  path,
+  BrowserWindow,
+  safeStorage,
+  getTabManager,
+}) {
   // ---- 全局状态 ----
   const appRuntime = createAppState();
   const tabs = appRuntime.tabs;
-
   const aiSandboxDir = resolveAiSandboxDir(app);
   try {
     fs.mkdirSync(aiSandboxDir, { recursive: true });
@@ -58,19 +63,10 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
     userDataDir: app.getPath('userData'),
     resourcesPath: runtimeResourcesPath,
     sandboxDir: aiSandboxDir,
-    getParentWindow: appRuntime.getMainWindow,
+    getParentWindow: appRuntime.getBrowserWindow,
     logger: console,
   });
-  const cursorSidecarService = createCursorSidecarService({
-    resourcesPath: runtimeResourcesPath,
-    logger: console,
-    isTargetForeground: (target) => (
-      browserRuntimeManager.windowBridge.isWindowForegroundFamily(
-        target.targetHwnd,
-      )
-    ),
-  });
-  browserRuntimeManager.setCursorSidecarService(cursorSidecarService);
+  const cursorSidecarService = null;
   const softwareCatalog = createSoftwareCatalog({
     listVisibleWindows: () => browserRuntimeManager.windowBridge.listVisibleTopLevelWindows(),
     resolveIconDataUrl: async (executablePath) => {
@@ -97,7 +93,7 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
     path,
     BrowserWindow,
     getTabs: () => tabs,
-    getMainWindow: appRuntime.getMainWindow,
+    getMainWindow: appRuntime.getBrowserWindow,
     getSideView: appRuntime.getSideView,
     getLicenseWindow: appRuntime.getLicenseWindow,
     getActiveTabId: appRuntime.getActiveTabId,
@@ -174,7 +170,7 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
     fs,
     path,
     logger: console,
-    getMainWindow: appRuntime.getMainWindow,
+    getMainWindow: appRuntime.getBrowserWindow,
     sendToSide: sendUpdateUiEvent,
     appName: APP_DISPLAY_NAME,
     isDevMode,
@@ -208,7 +204,7 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
   const tabHelpers = createTabHelpers({
     logger: console,
     getTabs: () => tabs,
-    getMainWindow: appRuntime.getMainWindow,
+    getMainWindow: appRuntime.getBrowserWindow,
     getSideView: appRuntime.getSideView,
     getActiveTabId: appRuntime.getActiveTabId,
     getIsSidebarVisible: appRuntime.getIsSidebarVisible,

@@ -82,7 +82,7 @@
     const profileIds = normalizeBrowserIds(
       connectionIds.map((id) => String(state.browserConnectionProfileById[id] || '')),
     );
-    window.aiFree?.ai?.emitBrowserSelectionChanged?.({
+    SelectionAiApi.emitBrowserSelectionChanged?.({
       connectionId: connectionIds[0] || '',
       connectionIds,
       profileId: profileIds[0] || '',
@@ -315,7 +315,7 @@
     if (!customApiAccessAllowed()) return;
     const dialog = el('ai-custom-api-dialog');
     const status = el('ai-custom-api-status');
-    const getCustomApi = window.aiFree?.ai?.getCustomApi;
+    const getCustomApi = SelectionAiApi.getCustomApi;
     if (!dialog || !getCustomApi) return;
     if (status) status.textContent = '';
     dialog.hidden = false;
@@ -349,7 +349,7 @@
 
   async function saveCustomApi(event) {
     event?.preventDefault?.();
-    const setCustomApi = window.aiFree?.ai?.setCustomApi;
+    const setCustomApi = SelectionAiApi.setCustomApi;
     if (state.customApiSaving || !setCustomApi) return;
     const status = el('ai-custom-api-status');
     if (status) status.textContent = '';
@@ -369,10 +369,10 @@
   }
 
   async function clearCustomApi() {
-    if (state.customApiSaving || !window.aiFree?.ai?.setCustomApi) return;
+    if (state.customApiSaving || !SelectionAiApi.setCustomApi) return;
     updateCustomApiDialogBusy(true);
     try {
-      const result = await window.aiFree.ai.setCustomApi({ clear: true });
+      const result = await SelectionAiApi.setCustomApi({ clear: true });
       if (!result?.ok) throw new Error(result?.error || result?.message || '移除自定义 API 失败');
       closeCustomApiDialog();
       await loadModels();
@@ -477,3 +477,4 @@
   }
 
   /* ---------------- 自定义下拉 ---------------- */
+const SelectionAiApi = window.AiControlApi || window.aiFree?.ai || {};

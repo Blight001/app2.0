@@ -46,17 +46,21 @@ class ExternalAppTabLauncher {
     this.deps.updateTabs(true);
     this.deps.switchTab(id);
     try {
-      const state = await this.deps.browserRuntimeManager.launchProfile({
-        profileId: id,
-        runtimeType: 'external-app',
-        softwareId: definition.id,
-        displayName: definition.name,
-        executablePath: definition.executablePath,
-        args: definition.args,
-        launchTimeoutMs: definition.launchTimeoutMs,
-        existingWindowHwnd: definition.existingWindowHwnd,
-        existingWindowPid: definition.existingWindowPid,
-      }, this.resolveBounds(mainWindow));
+      const state = await this.deps.browserRuntimeManager.launchProfile(
+        {
+          profileId: id,
+          runtimeType: 'external-app',
+          softwareId: definition.id,
+          displayName: definition.name,
+          executablePath: definition.executablePath,
+          args: definition.args,
+          launchTimeoutMs: definition.launchTimeoutMs,
+          existingWindowHwnd: definition.existingWindowHwnd,
+          existingWindowPid: definition.existingWindowPid,
+        },
+        this.resolveBounds(mainWindow),
+        { parentWindow: mainWindow },
+      );
       tab.runtimeStatus = state.status;
       this.deps.switchTab(id, { focusBrowser: true });
       return id;
