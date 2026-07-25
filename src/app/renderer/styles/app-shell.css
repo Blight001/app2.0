@@ -353,31 +353,6 @@ html.theme-light #new-browser-window-btn:hover:not(:disabled) {
   background: var(--shell-bg);
 }
 
-#browser-empty-state {
-  position: absolute;
-  inset: 0 30% 0 0;
-  display: grid;
-  place-items: center;
-  pointer-events: none;
-  transition: right 0.18s ease;
-}
-
-#browser-empty-state[hidden] {
-  display: none;
-}
-
-#browser-empty-state img {
-  display: block;
-  width: clamp(96px, 12vw, 148px);
-  height: clamp(96px, 12vw, 148px);
-  object-fit: contain;
-  filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.3));
-}
-
-html.sidebar-collapsed #browser-empty-state {
-  right: 0;
-}
-
 .tabs {
   display: flex;
   flex-grow: 1;

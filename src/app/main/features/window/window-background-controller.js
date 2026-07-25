@@ -1,5 +1,10 @@
 'use strict';
 
+const {
+  readWindowCloseBehavior,
+  writeWindowCloseBehavior,
+} = require('./window-close-preference');
+
 const HIDE_RESPONSE = 0;
 const QUIT_RESPONSE = 1;
 
@@ -74,20 +79,38 @@ class WindowBackgroundController {
       buttons: ['隐藏窗口', '退出软件'],
       defaultId: HIDE_RESPONSE,
       cancelId: HIDE_RESPONSE,
+      checkboxLabel: '记住当前选择，下次不再提示',
+      checkboxChecked: false,
       noLink: true,
     });
-    return result?.response === QUIT_RESPONSE ? 'quit' : 'hide';
+    const choice = result?.response === QUIT_RESPONSE ? 'quit' : 'hide';
+    if (result?.checkboxChecked === true) {
+      const saved = writeWindowCloseBehavior(
+        this.deps.readStoreConfigSafe,
+        this.deps.writeStoreConfigSafe,
+        choice,
+      );
+      if (!saved.ok) {
+        this.deps.logger?.warn?.('[Tray] 保存窗口关闭方式失败:', saved.error?.message);
+      }
+    }
+    return choice;
+  }
+
+  applyCloseChoice(window, choice) {
+    if (choice === 'quit') {
+      this.requestQuit();
+    } else if (this.createTray()) {
+      window.hide?.();
+    }
   }
 
   async handleCloseChoice(window) {
     try {
-      const choice = await this.promptClose(window);
+      const savedChoice = readWindowCloseBehavior(this.deps.readStoreConfigSafe);
+      const choice = savedChoice === 'ask' ? await this.promptClose(window) : savedChoice;
       if (this.quitting || !isUsableWindow(window)) return;
-      if (choice === 'quit') {
-        this.requestQuit();
-      } else if (this.createTray()) {
-        window.hide?.();
-      }
+      this.applyCloseChoice(window, choice);
     } catch (error) {
       this.deps.logger?.warn?.('[Tray] 显示关闭选项失败:', error?.message || error);
     }

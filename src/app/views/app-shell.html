@@ -5,6 +5,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' http: https:; object-src 'none'; base-uri 'self'">
   <title>AI-FREE</title>
   <link rel="stylesheet" href="../renderer/styles/app-shell.css" />
+  <link rel="stylesheet" href="../renderer/styles/app-shell-home.css" />
 </head>
 <body>
   <div id="app-container">
@@ -41,13 +42,32 @@
       </div>
     </div>
     <div id="content-area">
-      <div id="browser-empty-state" role="img" aria-label="AI-FREE 浏览器尚未打开">
-        <img data-app-logo alt="">
-      </div>
+      <main id="browser-empty-state" aria-label="AI-FREE 首页">
+        <div class="shell-home-card">
+          <img class="shell-home-logo" data-app-logo alt="AI-FREE">
+          <h1>AI-FREE</h1>
+          <p class="shell-home-summary">选择最近使用的浏览器窗口，或点击下方按钮新建窗口。</p>
+          <button id="shell-home-create-browser" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 5v14M5 12h14"></path>
+            </svg>
+            <span>新建浏览器</span>
+          </button>
+          <section class="shell-home-recent" aria-labelledby="shell-home-recent-title">
+            <div class="shell-home-section-heading">
+              <h2 id="shell-home-recent-title">最近打开的浏览器窗口</h2>
+              <button id="shell-home-refresh" type="button">刷新</button>
+            </div>
+            <div id="shell-home-recent-list" class="shell-home-recent-list"></div>
+            <p id="shell-home-status" class="shell-home-status" aria-live="polite">正在读取浏览器记录…</p>
+          </section>
+        </div>
+      </main>
     </div>
   </div>
   <script src="../sidebar/client/scripts/logo-assets.js"></script>
   <script src="../renderer/controllers/shared/controller-utils.js"></script>
+  <script src="../renderer/controllers/pages/app-shell/shell-home.js"></script>
   <script src="../renderer/controllers/pages/app-shell/tabs-shell-ui.js"></script>
   <script src="../renderer/controllers/pages/app-shell/tabs-tooltip.js"></script>
   <script src="../renderer/controllers/pages/app-shell/tabs-renderer.js"></script>

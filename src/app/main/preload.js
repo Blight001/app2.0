@@ -177,6 +177,8 @@ contextBridge.exposeInMainWorld('aiFree', Object.freeze({
     emitAppThemeChanged: sendChannel('app-theme-changed'),
     emitServerAccountCookieReceived: sendChannel('server-account-cookie-received'),
     focusSidebarInput: invokeChannel('focus-sidebar-input'),
+    getWindowCloseBehavior: invokeChannel('get-window-close-behavior'),
+    setWindowCloseBehavior: invokeChannel('set-window-close-behavior'),
     setZoom: sendChannel('set-zoom'),
     onAppThemeChanged: subscribeChannel('app-theme-changed'),
     onAppVersion: subscribeChannel('app-version'),

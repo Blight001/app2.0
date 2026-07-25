@@ -88,6 +88,10 @@ function logSuccessReport({ account, cookies, currentAccountTypeInfo, fallback, 
 
 function buildResult({ source, cookies, account, platform, requestedTargetUrl }) {
   const currentAccountTypeInfo = extractCurrentAccountTypeInfo(source);
+  const rawSubUrls = source.subUrls || source.sub_urls;
+  const subUrls = Array.isArray(rawSubUrls)
+    ? rawSubUrls.map((url) => String(url || '').trim()).filter(Boolean)
+    : [];
   return {
     cookies,
     browserStorage: extractBrowserStorageFromResponse(source),
@@ -95,6 +99,7 @@ function buildResult({ source, cookies, account, platform, requestedTargetUrl })
     platform,
     currentPlatform: String(source.currentPlatform || source.current_platform || source.platform || platform).trim(),
     currentUrl: String(source.targetUrl || source.target_url || source.currentUrl || requestedTargetUrl).trim(),
+    subUrls,
     ...extractServerRecycleTimeInfo(source),
     ...currentAccountTypeInfo,
     current_account_type: currentAccountTypeInfo.currentAccountType,

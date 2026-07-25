@@ -1,0 +1,187 @@
+#browser-empty-state {
+  position: absolute;
+  inset: 0 30% 0 0;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 32px;
+  box-sizing: border-box;
+  pointer-events: auto;
+  transition: right 0.18s ease;
+}
+
+#browser-empty-state[hidden] {
+  display: none;
+}
+
+.shell-home-card {
+  width: min(620px, 100%);
+  color: var(--shell-text);
+  text-align: center;
+}
+
+.shell-home-logo {
+  display: block;
+  width: clamp(88px, 11vw, 132px);
+  height: clamp(88px, 11vw, 132px);
+  margin: 0 auto 14px;
+  object-fit: contain;
+  filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.3));
+}
+
+.shell-home-card h1 {
+  margin: 0;
+  font-size: clamp(26px, 3vw, 38px);
+  letter-spacing: 0.04em;
+}
+
+.shell-home-summary {
+  margin: 10px 0 18px;
+  color: var(--shell-muted);
+  font-size: 14px;
+}
+
+#shell-home-create-browser {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-width: 190px;
+  margin: 0 0 28px;
+  padding: 12px 22px;
+  border: 1px solid color-mix(in srgb, var(--shell-accent) 72%, white);
+  border-radius: 11px;
+  color: white;
+  background: linear-gradient(135deg, var(--shell-accent), var(--shell-accent-hover));
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--shell-accent) 28%, transparent);
+  cursor: pointer;
+  font: 700 15px/1 Arial, sans-serif;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+}
+
+#shell-home-create-browser:hover:not(:disabled),
+#shell-home-create-browser:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 34px color-mix(in srgb, var(--shell-accent) 38%, transparent);
+  outline: none;
+}
+
+#shell-home-create-browser:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+#shell-home-create-browser svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2.2;
+}
+
+.shell-home-recent {
+  padding: 20px;
+  border: 1px solid var(--shell-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--shell-panel) 88%, transparent);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.14);
+  text-align: left;
+}
+
+.shell-home-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.shell-home-section-heading h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+#shell-home-refresh {
+  padding: 5px 10px;
+  border: 1px solid var(--shell-border);
+  border-radius: 7px;
+  color: var(--shell-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+#shell-home-refresh:hover,
+#shell-home-refresh:focus-visible {
+  color: var(--shell-text);
+  border-color: var(--shell-accent);
+  outline: none;
+}
+
+.shell-home-recent-list {
+  display: grid;
+  gap: 8px;
+}
+
+.shell-home-recent-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--shell-border);
+  border-radius: 9px;
+  color: var(--shell-text);
+  background: var(--shell-bg);
+  cursor: pointer;
+  text-align: left;
+}
+
+.shell-home-recent-item:hover,
+.shell-home-recent-item:focus-visible {
+  border-color: var(--shell-accent);
+  background: var(--shell-tab-bg);
+  outline: none;
+}
+
+.shell-home-recent-name {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-home-recent-time,
+.shell-home-status {
+  color: var(--shell-muted);
+  font-size: 12px;
+}
+
+.shell-home-recent-time {
+  flex: 0 0 auto;
+}
+
+.shell-home-status {
+  margin: 12px 0 0;
+  text-align: center;
+}
+
+.shell-home-status:empty {
+  display: none;
+}
+
+html.sidebar-collapsed #browser-empty-state {
+  right: 0;
+}
+
+@media (max-width: 760px) {
+  #browser-empty-state {
+    padding: 20px;
+  }
+
+  .shell-home-summary {
+    margin-bottom: 20px;
+  }
+}

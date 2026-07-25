@@ -51,11 +51,8 @@ function handleNewBrowserPointerCancel(event) {
     finishBrowserHistoryPointer({ suppressClick: browserHistoryGestureState.active });
 }
 
-async function handleNewBrowserClick(event) {
-    event.preventDefault();
-    event.stopPropagation();
-    if (suppressNewBrowserWindowClick) return;
-    if (newBrowserWindowBtn.disabled || independentBrowserCreationPending) return;
+async function createIndependentBrowserFromShell() {
+    if (independentBrowserCreationPending) return;
     let acceptedForBackgroundCreation = false;
     setIndependentBrowserCreationPending(true);
     try {
@@ -79,11 +76,22 @@ async function handleNewBrowserClick(event) {
     }
 }
 
+function handleNewBrowserClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (suppressNewBrowserWindowClick || newBrowserWindowBtn.disabled) return;
+    ShellApi.switchTab(null);
+}
+
+window.AppShellBrowserActions = Object.freeze({
+  createIndependentBrowser: createIndependentBrowserFromShell,
+});
+
 function bindNewBrowserWindowBtnOnce() {
   newBrowserWindowBtn = document.getElementById('new-browser-window-btn');
   if (!newBrowserWindowBtn || newBrowserWindowBtn.dataset.bound === '1') return;
-  newBrowserWindowBtn.title = '单击新建浏览器；按住向下拖动可选择浏览器历史';
-  newBrowserWindowBtn.setAttribute('aria-label', '新建浏览器窗口；按住向下拖动可选择浏览器历史');
+  newBrowserWindowBtn.title = '单击打开空白首页；按住向下拖动可选择浏览器历史';
+  newBrowserWindowBtn.setAttribute('aria-label', '打开空白首页；按住向下拖动可选择浏览器历史');
   newBrowserWindowBtn.addEventListener('pointerdown', handleNewBrowserPointerDown);
   newBrowserWindowBtn.addEventListener('pointermove', handleNewBrowserPointerMove);
   newBrowserWindowBtn.addEventListener('pointerup', handleNewBrowserPointerUp);
@@ -127,6 +135,7 @@ function bindAddTabBtnOnce() {
 
 onReady(() => {
   tabsContainer = document.getElementById('tabs-container');
+  window.AppShellHome?.bind();
   bindAddTabBtnOnce();
   bindThemeToggleBtnOnce();
   bindNewBrowserWindowBtnOnce();

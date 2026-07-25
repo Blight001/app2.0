@@ -218,6 +218,14 @@ const IPC_PAYLOAD_SCHEMAS = Object.freeze({
     stringField(channel, input, 'id');
     return input;
   },
+  'ui.window-close-behavior': (channel, payload) => {
+    const input = objectPayload(channel, payload);
+    stringField(channel, input, 'behavior', { required: true, maxLength: 8 });
+    if (!['ask', 'hide', 'quit'].includes(input.behavior)) {
+      fail(channel, 'behavior', '必须是 ask、hide 或 quit');
+    }
+    return input;
+  },
 });
 
 function hasIpcPayloadSchema(schemaName) {

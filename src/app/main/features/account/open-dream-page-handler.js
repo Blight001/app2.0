@@ -29,6 +29,7 @@ function normalizeRequest(deps, payload) {
     fetchedAccountId: '',
     fetchedCookies: [],
     fetchedBrowserStorage: [],
+    subUrls: [],
     launchAccountId: text(input.accountId),
     launchAccount: null,
     launchCookies: [],
@@ -60,12 +61,24 @@ async function fetchServerAccount(deps, state) {
   state.targetUrl = text(result.currentUrl, result.targetUrl, state.targetUrl);
   state.fetchedCookies = Array.isArray(result.cookies) ? result.cookies : [];
   state.fetchedBrowserStorage = Array.isArray(result.browserStorage) ? result.browserStorage : [];
+  state.subUrls = Array.isArray(result.subUrls) ? result.subUrls : [];
   state.fetchedAccountId = fetchedAccountId(result);
   if (!state.fetchedAccountId) throw new Error('服务器未返回账号ID，无法判断历史账号');
 }
 
 function accountBusinessError(message, code) {
   return Object.assign(new Error(message), { businessError: true, errorCode: code });
+}
+
+async function openSubUrls(deps, tabId, urls) {
+  if (!Array.isArray(urls) || !urls.length) return;
+  const manager = deps.ui && deps.ui.browserRuntimeManager;
+  if (!manager || typeof manager.openTabs !== 'function') return;
+  try {
+    await manager.openTabs(tabId, 'chromium', urls);
+  } catch (error) {
+    console.warn('[open-dream-page] 子网址打开失败，主站保持可用:', text(error && error.message));
+  }
 }
 
 function useHistoricalAccountAfterExhaustion(deps, state) {
@@ -135,6 +148,7 @@ async function reuseOpenTab(deps, state) {
     try { deps.ui.switchTab(activeTab.id); } catch (_) {}
   }
   await deps.support.navigateDreamTab(activeTab.id, state.targetUrl);
+  await openSubUrls(deps, activeTab.id, state.subUrls);
   if (state.launchAccountId) {
     deps.accountStorage.updateLastUsedTime(state.launchAccountId);
     notify(deps, 'account-list-updated', {});
@@ -211,6 +225,7 @@ async function createDreamTab(deps, state, restoreProfile) {
   });
   if (restoreProfile) {
     await deps.support.navigateDreamTab(tabId, state.targetUrl);
+    await openSubUrls(deps, tabId, state.subUrls);
     deps.accountStorage.updateLastUsedTime(state.launchAccountId);
     notify(deps, 'browser-history-changed');
     return { ok: true, tabId, accountId: state.launchAccountId, restored: true };
@@ -223,6 +238,7 @@ async function createDreamTab(deps, state, restoreProfile) {
     navigateAfterImport: false,
   });
   await deps.ui.browserRuntimeManager.reload(tabId, 'chromium');
+  await openSubUrls(deps, tabId, state.subUrls);
   notify(deps, 'browser-history-changed');
   return { ok: true, tabId };
 }

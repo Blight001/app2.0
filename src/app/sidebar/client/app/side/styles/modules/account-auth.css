@@ -101,6 +101,40 @@
   padding: 12px 0 14px;
 }
 
+.account-app-preferences {
+  display: grid;
+  gap: 10px;
+  margin: 14px 16px 0;
+  padding: 13px;
+  border: 1px solid rgba(99, 137, 188, .22);
+  border-radius: 12px;
+  background: rgba(12, 22, 35, .46);
+}
+
+.account-app-preferences > div,
+.account-app-preferences label {
+  display: grid;
+  gap: 4px;
+}
+
+.account-app-preferences strong { color: #edf5ff; font-size: 12px; }
+.account-app-preferences small,
+.account-app-preferences label span { color: rgba(220, 233, 250, .6); font-size: 10px; }
+.account-app-preferences select {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 9px;
+  border: 1px solid rgba(99, 137, 188, .34);
+  border-radius: 8px;
+  color: #edf5ff;
+  background: #111b29;
+  font: inherit;
+  font-size: 11px;
+}
+.account-app-preferences-status { min-height: 14px; margin: 0; color: rgba(220, 233, 250, .62); font-size: 10px; }
+.account-app-preferences-status[data-state="success"] { color: #74d9aa; }
+.account-app-preferences-status[data-state="error"] { color: #ff9a9a; }
+
 .account-profile-shell {
   overflow: hidden;
   padding: 0;

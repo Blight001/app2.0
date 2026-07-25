@@ -94,11 +94,7 @@ let addTabBtn = document.getElementById('add-tab-btn');
 let newBrowserWindowBtn = document.getElementById('new-browser-window-btn');
 
 function setBrowserEmptyStateVisible(tabs = []) {
-  const emptyState = document.getElementById('browser-empty-state');
-  if (!emptyState) return;
-  const activeTab = Array.isArray(tabs) ? tabs.find((tab) => tab?.isActive) : null;
-  const runtimeStatus = String(activeTab?.runtimeStatus || '').trim().toLowerCase();
-  emptyState.hidden = runtimeStatus === 'ready' || runtimeStatus === 'hidden';
+  window.AppShellHome?.setVisible(tabs);
 }
 
 function setBrowserEmptyStateSidebarVisible(visible) {
@@ -217,12 +213,18 @@ let suppressNewBrowserWindowClick = false;
 function setIndependentBrowserCreationPending(pending) {
   independentBrowserCreationPending = pending === true;
   newBrowserWindowBtn = document.getElementById('new-browser-window-btn');
-  if (!newBrowserWindowBtn) return;
-  newBrowserWindowBtn.disabled = independentBrowserCreationPending;
-  newBrowserWindowBtn.setAttribute('aria-busy', String(independentBrowserCreationPending));
-  newBrowserWindowBtn.title = independentBrowserCreationPending
-    ? '浏览器窗口正在后台创建…'
-    : '单击新建浏览器；按住向下拖动可选择浏览器历史';
+  if (newBrowserWindowBtn) {
+    newBrowserWindowBtn.disabled = independentBrowserCreationPending;
+    newBrowserWindowBtn.setAttribute('aria-busy', String(independentBrowserCreationPending));
+  }
+  const homeCreateButton = document.getElementById('shell-home-create-browser');
+  if (homeCreateButton) {
+    homeCreateButton.disabled = independentBrowserCreationPending;
+    homeCreateButton.setAttribute('aria-busy', String(independentBrowserCreationPending));
+    homeCreateButton.querySelector('span').textContent = independentBrowserCreationPending
+      ? '正在创建浏览器…'
+      : '新建浏览器';
+  }
 }
 
 function finishIndependentBrowserCreation(payload = {}) {

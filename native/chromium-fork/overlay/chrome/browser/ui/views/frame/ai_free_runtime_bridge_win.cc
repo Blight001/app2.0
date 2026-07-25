@@ -36,6 +36,7 @@
 #include "chrome/browser/lifetime/application_lifetime_desktop.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_isolated_world_ids.h"
@@ -792,6 +793,45 @@ void HandleCommandOnUi(scoped_refptr<BridgeConnection> connection,
                                    command_name);
     web_contents->GetController().LoadURL(
         url, content::Referrer(), ui::PAGE_TRANSITION_TYPED, std::string());
+    return;
+  }
+  if (command_name == "open-tabs") {
+    const base::ListValue* urls = command.FindList("urls");
+    if (!urls || urls->empty() || urls->size() > 20u) {
+      return connection->SendErrorAsync(request, command_name,
+                                        "URL_LIST_INVALID",
+                                        "open-tabs 需要 1 到 20 个有效网址");
+    }
+    int opened = 0;
+    int skipped = 0;
+    for (const base::Value& value : *urls) {
+      const std::string* text = value.GetIfString();
+      const GURL url(text ? *text : std::string());
+      if (!text || !url.SchemeIsHTTPOrHTTPS()) {
+        ++skipped;
+        continue;
+      }
+      bool already_open = false;
+      for (int index = 0; index < browser->tab_strip_model()->count(); ++index) {
+        content::WebContents* existing =
+            browser->tab_strip_model()->GetWebContentsAt(index);
+        if (existing && existing->GetVisibleURL() == url) {
+          already_open = true;
+          break;
+        }
+      }
+      if (already_open) {
+        ++skipped;
+        continue;
+      }
+      chrome::AddTabAt(browser, url, -1, false);
+      ++opened;
+    }
+    base::DictValue result;
+    result.Set("opened", opened);
+    result.Set("skipped", skipped);
+    result.Set("totalTabs", browser->tab_strip_model()->count());
+    connection->SendSuccessAsync(request, command_name, std::move(result));
     return;
   }
   if (command_name == "reload") {

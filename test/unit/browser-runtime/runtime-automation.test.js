@@ -50,6 +50,7 @@ test('routes native automation only to a live managed Chromium process', async (
 });
 
 test('fork automation commands are allowlisted and the extension no longer injects on every page', () => {
+  assert.equal(ALLOWED_COMMANDS.has('open-tabs'), true);
   for (const command of ['observe-page', 'capture-screenshot', 'perform-action', 'get-session-data']) {
     assert.equal(ALLOWED_COMMANDS.has(command), true);
   }

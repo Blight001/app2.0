@@ -744,14 +744,9 @@ try {
     minimumTabManager.closeTab('last-browser'),
   ]);
   assert.deepEqual(minimumStops, ['last-browser']);
-  assert.equal(minimumTabs.size, 1, '关闭最后一个浏览器后必须自动补齐');
-  assert.equal(minimumTabs.has('1'), true, '自动补齐的浏览器 ID 必须是 1');
-  assert.equal(minimumActiveTabId, '1');
-  assert.equal(minimumLaunches.at(-1).profileId, '1');
-  await minimumTabManager.closeTab('1');
-  assert.equal(minimumTabs.size, 1, 'ID 1 浏览器被关闭后仍必须自动重建');
-  assert.equal(minimumTabs.has('1'), true);
-  assert.equal(minimumLaunches.filter((profile) => profile.profileId === '1').length, 2);
+  assert.equal(minimumTabs.size, 0, '关闭最后一个浏览器后必须显示内置首页');
+  assert.equal(minimumActiveTabId, null);
+  assert.equal(minimumLaunches.length, 0, '显示内置首页不得启动 Chromium');
 
   const browserClickHandlers = new Map();
   const browserClickTabs = new Map([['active-browser', {

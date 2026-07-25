@@ -144,17 +144,6 @@ async function initializeBootstrapExtensions(deps) {
   }
 }
 
-async function openBootstrapTutorial(deps) {
-  try {
-    const openTutorial = deps.resolveOpenTutorialTab();
-    if (deps.resolveTabs().size === 0 && typeof openTutorial === 'function') {
-      await openTutorial('', { auto: true, focusBrowser: false, restoreSideFocus: true });
-    }
-  } catch (error) {
-    deps.logger.warn?.('[启动] 默认教程页打开失败:', bootstrapError(error));
-  }
-}
-
 async function initializeBootstrapAccountCleanup(deps) {
   if (typeof deps.initializeAccountCleanup !== 'function') return;
   try {
@@ -201,7 +190,6 @@ async function runBootstrapBackgroundTasks(deps, state) {
     await initializeBootstrapExtensions(deps);
     try { await refreshBootstrapRuntimeUrls(deps, state); }
     catch (error) { deps.logger.warn?.('[启动] 获取URL配置失败:', bootstrapError(error)); }
-    await openBootstrapTutorial(deps);
     await initializeBootstrapAccountCleanup(deps);
     await cleanupResidualTabPartitions(deps);
   } catch (error) {

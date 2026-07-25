@@ -12,6 +12,7 @@ const { attachChildWindowWithRetry } = require('./chromium-window-attachment');
 const { groupCookiesByOrigin } = require('./chromium-cookie-groups');
 const { dispatchRuntimeInput, dispatchRuntimeInputByProcessId } = require('./runtime-input');
 const { dispatchRuntimeAutomationByProcessId } = require('./runtime-automation');
+const { openChromiumTabs } = require('./chromium-tab-actions');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -23,8 +24,7 @@ class ChromiumRuntime extends BrowserRuntime {
     this.getParentWindow = options.getParentWindow;
     this.resourcesPath = options.resourcesPath;
     this.instances = new Map();
-    // 代理切换会重启 Chromium；账号打开流程同时会导航、注入会话并刷新。
-    // 同一个 Profile 的这些操作必须排队，否则重启到一半会被误判为“尚未就绪”。
+    // 同一 Profile 的重启、导航、会话注入和刷新必须排队，避免误判运行状态。
     this.profileOperationQueues = new Map();
   }
 
@@ -356,9 +356,9 @@ class ChromiumRuntime extends BrowserRuntime {
     ));
   }
 
-  async dispatchInput(profileId, source) {
-    return dispatchRuntimeInput(this, profileId, source);
-  }
+  async openTabs(profileId, urls = []) { return openChromiumTabs(this, profileId, urls); }
+
+  async dispatchInput(profileId, source) { return dispatchRuntimeInput(this, profileId, source); }
 
   async dispatchInputByProcessId(processId, source) {
     return dispatchRuntimeInputByProcessId(this, processId, source);

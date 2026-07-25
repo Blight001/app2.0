@@ -22,11 +22,11 @@
 <body>
   <div class="control-shell">
     <nav class="tab-nav" aria-label="侧边栏栏目">
-      <button class="tab-button active" type="button" data-tab="ai-control-panel" aria-controls="ai-control-panel">
+      <button class="tab-button" type="button" data-tab="ai-control-panel" aria-controls="ai-control-panel">
         <span class="tab-button-icon" aria-hidden="true">✦</span>
         <span>AI 控制</span>
       </button>
-      <button class="tab-button" type="button" data-tab="ai-free-settings-panel" aria-controls="ai-free-settings-panel">
+      <button class="tab-button active" type="button" data-tab="ai-free-settings-panel" aria-controls="ai-free-settings-panel">
         <span class="tab-button-icon" aria-hidden="true">⚙</span>
         <span>浏览器配置</span>
       </button>
@@ -37,7 +37,7 @@
     </nav>
 
     <div class="main-wrapper">
-      <section id="ai-free-settings-panel" class="ai-free-settings-panel panel" aria-label="AI-FREE 参数配置">
+      <section id="ai-free-settings-panel" class="ai-free-settings-panel panel active" aria-label="AI-FREE 参数配置">
         <form id="ai-free-settings-form" class="settings-container vb-form" autocomplete="off">
           <section class="settings-network-tools" aria-label="浏览器记录、网络魔法与插件">
 
@@ -328,6 +328,22 @@
                 </div>
               </div>
 
+              <section class="account-app-preferences" aria-labelledby="account-app-preferences-title">
+                <div>
+                  <strong id="account-app-preferences-title">软件关闭方式</strong>
+                  <small>可随时恢复关闭窗口时询问</small>
+                </div>
+                <label for="window-close-behavior">
+                  <span>关闭主窗口时</span>
+                  <select id="window-close-behavior">
+                    <option value="ask">每次询问</option>
+                    <option value="hide">隐藏到托盘并继续后台运行</option>
+                    <option value="quit">直接退出软件</option>
+                  </select>
+                </label>
+                <p id="window-close-behavior-status" class="account-app-preferences-status" role="status" aria-live="polite"></p>
+              </section>
+
               <!-- 公告、教程与版本统一归入账号资料卡，紧随兑换码之后。 -->
               <div class="announcement-bar" id="announcement-bar">
                 <div class="announcement-header">
@@ -398,7 +414,7 @@
         </div>
       </section>
 
-      <section id="ai-control-panel" class="ai-control-panel panel active" aria-label="AI 控制">
+      <section id="ai-control-panel" class="ai-control-panel panel" aria-label="AI 控制">
         <header class="ai-chat-header">
           <div class="ai-chat-select-field ai-chat-history-field">
             <label for="ai-chat-history-trigger">对话</label>
@@ -590,6 +606,7 @@
   <script src="./client/app/side/controllers/pages/side-panel/modules/account-auth-usage.js"></script>
   <script src="./client/app/side/controllers/pages/side-panel/modules/account-auth-actions.js"></script>
   <script src="./client/app/side/controllers/pages/side-panel/modules/account-auth-bindings.js"></script>
+  <script src="./client/app/side/controllers/pages/side-panel/modules/window-close-preference.js"></script>
   <script src="./client/app/side/controllers/pages/side-panel/modules/entry-links.js"></script>
   <script src="./client/app/side/controllers/pages/side-panel/modules/region.js"></script>
   <script src="./client/app/side/controllers/pages/side-panel/modules/vpn.js"></script>

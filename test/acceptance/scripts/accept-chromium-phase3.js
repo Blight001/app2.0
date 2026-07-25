@@ -241,6 +241,20 @@ app.whenReady().then(async () => {
   assert.equal(cookieHeaderHas(aRequest.cookie, 'visible', 'B'), false);
   assert.equal(cookieHeaderHas(bRequest.cookie, 'visible', 'A'), false);
 
+  const subUrls = [
+    `${origin}/sub?profile=b&site=video`,
+    `${origin}/sub?profile=b&site=image`,
+  ];
+  const openedTabs = await manager.openTabs('phase3_b', 'chromium', subUrls);
+  assert.equal(openedTabs.result.opened, 2);
+  await waitForRequest((item) => item.path === '/sub' && item.query.includes('site=video'));
+  await waitForRequest((item) => item.path === '/sub' && item.query.includes('site=image'));
+  const subRequests = requests.filter((item) => item.path === '/sub');
+  assert(subRequests.every((item) => cookieHeaderHas(item.cookie, 'visible', 'B')));
+  const duplicateTabs = await manager.openTabs('phase3_b', 'chromium', subUrls);
+  assert.equal(duplicateTabs.result.opened, 0);
+  assert.equal(duplicateTabs.result.skipped, 2);
+
   await manager.hide('phase3_b', 'chromium');
   await manager.show('phase3_a', 'chromium');
   const aReloadAfterB = await manager.reload('phase3_a', 'chromium');

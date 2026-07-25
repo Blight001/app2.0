@@ -5,9 +5,24 @@ const { attachContextMenu } = require('../../../src/app/main/utils/removeWaterma
 const performanceProbeStartedAt = process.hrtime.bigint();
 
 let browserHistoryOpenRequests = 0;
+let homeSwitchRequests = 0;
+let independentBrowserCreateRequests = 0;
+let windowCloseBehavior = 'ask';
 ipcMain.handle('open-browser-history', (_event, payload = {}) => {
   browserHistoryOpenRequests += 1;
   return { ok: true, historyId: payload.historyId, name: '平台 A' };
+});
+ipcMain.on('switch-tab', (_event, tabId) => {
+  if (tabId === null) homeSwitchRequests += 1;
+});
+ipcMain.handle('create-independent-browser', () => {
+  independentBrowserCreateRequests += 1;
+  return { ok: true, pending: false, tabId: 'acceptance-browser', historyId: 'acceptance-history' };
+});
+ipcMain.handle('get-window-close-behavior', () => ({ ok: true, data: { behavior: windowCloseBehavior } }));
+ipcMain.handle('set-window-close-behavior', (_event, payload = {}) => {
+  windowCloseBehavior = String(payload.behavior || '');
+  return { ok: true, data: { behavior: windowCloseBehavior } };
 });
 
 ipcMain.handle('get-ai-free-browser-settings', () => ({
@@ -47,6 +62,7 @@ for (const [channel, response] of /** @type {Array<[string, any]>} */ ([
       autoDeleteAt: 2_000_000_000_000,
       isOpen: false,
       isActive: false,
+      lastOpenedAt: 1_900_000_000_000,
     }],
   }],
   ['account-get-session', { authenticated: false }],
@@ -79,6 +95,13 @@ app.whenReady().then(async () => {
   await new Promise((resolve) => setTimeout(resolve, 120));
   const firstSidebarReadyMs = Number(process.hrtime.bigint() - performanceProbeStartedAt) / 1e6;
   const result = await win.webContents.executeJavaScript(`(async () => {
+    const initialDefault = {
+      settingsActive: document.getElementById('ai-free-settings-panel')?.classList.contains('active') === true,
+      settingsTabActive: document.querySelector('[data-tab="ai-free-settings-panel"]')?.classList.contains('active') === true,
+      aiInactive: document.getElementById('ai-control-panel')?.classList.contains('active') === false,
+    };
+    const navButtons = Array.from(document.querySelectorAll('.tab-nav .tab-button'));
+    const navTops = navButtons.map((button) => Math.round(button.getBoundingClientRect().top));
     const gear = document.getElementById('ai-chat-browser-trigger');
     gear.click();
     await new Promise((resolve) => setTimeout(resolve, 80));
@@ -107,6 +130,8 @@ app.whenReady().then(async () => {
     const labels = Array.from(panel.querySelectorAll('.vb-label')).map((item) => item.textContent.trim());
     return {
       active: panel.classList.contains('active'),
+      initialDefault,
+      navSingleRow: navTops.length === 3 && navTops.every((top) => top === navTops[0]),
       controlInactive: !document.getElementById('account-center-panel').classList.contains('active'),
       rows: panel.querySelectorAll('.vb-row').length,
       labels,
@@ -128,6 +153,8 @@ app.whenReady().then(async () => {
   const required = ['操作系统', '代理设置', 'User Agent', 'WebRTC', 'Canvas', 'WebGL 图像', 'AudioContext', 'CPU', 'MAC 地址', '端口扫描保护', '启动参数'];
   if (
     !result.active
+    || Object.values(result.initialDefault).some((value) => value !== true)
+    || !result.navSingleRow
     || !result.controlInactive
     || !result.browserHistoryVisible
     || result.browserHistoryMaxHeight <= 238
@@ -251,7 +278,7 @@ app.whenReady().then(async () => {
   const accountCenterResult = await win.webContents.executeJavaScript(`new Promise((resolve) => {
     const panel = document.getElementById('account-center-panel');
     document.querySelector('[data-tab="account-center-panel"]')?.click();
-    setTimeout(() => {
+    setTimeout(async () => {
       const active = panel.classList.contains('active')
         && document.querySelector('[data-tab="account-center-panel"]')?.classList.contains('active');
       const profileVisible = !!panel.querySelector('#sidebar-account-session')
@@ -283,6 +310,13 @@ app.whenReady().then(async () => {
         && panel.querySelector('#sidebar-auth-submit')?.textContent === '登录'
         && modeLabel?.textContent === '去注册'
         && panel.querySelector('.sidebar-auth-mode-arrow')?.textContent === '→';
+      const closeBehaviorSelect = panel.querySelector('#window-close-behavior');
+      const closeBehaviorLoaded = closeBehaviorSelect?.value === 'ask';
+      closeBehaviorSelect.value = 'hide';
+      closeBehaviorSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((done) => setTimeout(done, 30));
+      const closeBehaviorSaved = closeBehaviorSelect.value === 'hide'
+        && panel.querySelector('#window-close-behavior-status')?.textContent === '已保存';
       resolve({
         active,
         profileVisible,
@@ -292,6 +326,8 @@ app.whenReady().then(async () => {
         emptyStatusSpaceCollapsed,
         registerModeWorks,
         loginModeWorks,
+        closeBehaviorLoaded,
+        closeBehaviorSaved,
       });
     }, 30);
   })`);
@@ -312,24 +348,34 @@ app.whenReady().then(async () => {
   }
   await win.loadFile(path.join(__dirname, '../../../src/app/views/app-shell.html'));
   await new Promise((resolve) => setTimeout(resolve, 100));
-  const shellAccountResult = await win.webContents.executeJavaScript(`(() => {
+  const shellAccountResult = await win.webContents.executeJavaScript(`(async () => {
     const updateWidget = document.getElementById('update-widget');
     const theme = document.getElementById('theme-toggle-btn');
     const gear = document.getElementById('add-tab-btn');
     const createButton = document.getElementById('new-browser-window-btn');
+    const homeCreateButton = document.getElementById('shell-home-create-browser');
     const wasLight = document.documentElement.classList.contains('theme-light');
     theme?.click();
+    createButton?.click();
+    homeCreateButton?.click();
+    await new Promise((resolve) => setTimeout(resolve, 20));
     return {
       controlsOrdered: updateWidget?.nextElementSibling === theme && theme?.nextElementSibling === gear,
       avatarRemoved: !document.getElementById('account-center-btn'),
       themeToggled: document.documentElement.classList.contains('theme-light') !== wasLight,
       modernGearIcon: !!gear?.querySelector('svg.settings-icon') && !gear.textContent.includes('⚙'),
       modernCreateIcon: !!createButton?.querySelector('svg.new-window-icon') && createButton.textContent.trim() === '',
+      homeVisible: document.getElementById('browser-empty-state')?.hidden === false,
+      homeLogoVisible: !!document.querySelector('#browser-empty-state img[data-app-logo]'),
+      recentBrowserVisible: document.getElementById('shell-home-recent-list')?.textContent.includes('平台 A') === true,
+      prominentHomeCreateButton: getComputedStyle(homeCreateButton).display === 'inline-flex',
     };
   })()`);
+  shellAccountResult.topPlusOpenedHome = homeSwitchRequests === 1;
+  shellAccountResult.homeCreateRequestedBrowser = independentBrowserCreateRequests === 1;
   await new Promise((resolve) => setTimeout(resolve, 30));
   if (Object.values(shellAccountResult).some((value) => value !== true)) {
-    throw new Error(`主窗口头像入口移除校验失败: ${JSON.stringify(shellAccountResult)}`);
+    throw new Error(`主窗口内置首页与控件校验失败: ${JSON.stringify(shellAccountResult)}`);
   }
   win.webContents.send('app-update-activated', { version: '9.9.9', percent: 0 });
   win.webContents.send('app-update-progress', { version: '9.9.9', phase: 'downloading', percent: 64 });

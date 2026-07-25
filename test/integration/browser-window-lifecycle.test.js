@@ -359,7 +359,7 @@ test('同步教程地址不会重新打开用户已经关闭的教程页', async
   assert.equal(tabs.size, 0);
 });
 
-test('关闭最后一个栏目后重建普通新标签页而不是教程栏目', async () => {
+test('关闭最后一个浏览器后回到内置首页且不再启动 Chromium', async () => {
   const chromium = new EventEmitter();
   const tabs = new Map([['old-browser', {
     id: 'old-browser',
@@ -367,11 +367,12 @@ test('关闭最后一个栏目后重建普通新标签页而不是教程栏目',
     runtimeStatus: 'ready',
   }]]);
   let activeTabId = 'old-browser';
+  let launchCount = 0;
   const manager = createTabManager({
     browserRuntimeManager: {
       chromium,
       async stop() {},
-      async launchProfile() { return { status: 'ready' }; },
+      async launchProfile() { launchCount += 1; return { status: 'ready' }; },
       async hide() {},
       async show() {},
       async focus() {},
@@ -388,9 +389,43 @@ test('关闭最后一个栏目后重建普通新标签页而不是教程栏目',
 
   await manager.closeTab('old-browser');
 
-  assert.deepEqual([...tabs.keys()], ['1']);
-  assert.equal(tabs.get('1')?.requestedUrl, 'chrome://newtab/');
-  assert.equal(tabs.get('1')?.isTutorialTab, false);
+  assert.equal(tabs.size, 0);
+  assert.equal(activeTabId, null);
+  assert.equal(launchCount, 0);
+});
+
+test('切换到内置首页会隐藏当前 Chromium 并保留浏览器标签', async () => {
+  const chromium = new EventEmitter();
+  const tabs = new Map([['active-browser', {
+    id: 'active-browser',
+    runtimeType: 'chromium',
+    runtimeStatus: 'ready',
+  }]]);
+  const hidden = [];
+  let activeTabId = 'active-browser';
+  let updateCount = 0;
+  const manager = createTabManager({
+    browserRuntimeManager: {
+      chromium,
+      async hide(profileId) { hidden.push(profileId); },
+    },
+    getTabs: () => tabs,
+    getMainWindow: () => ({ isDestroyed: () => false, emit() {} }),
+    getActiveTabId: () => activeTabId,
+    setActiveTabId: (tabId) => { activeTabId = tabId; },
+    getIsSidebarVisible: () => false,
+    updateTabs() { updateCount += 1; },
+    sendToSide() {},
+    logger: { warn() {}, error() {} },
+  });
+
+  manager.switchTab(null);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(hidden, ['active-browser']);
+  assert.equal(activeTabId, null);
+  assert.equal(tabs.size, 1);
+  assert.equal(updateCount, 1);
 });
 
 test('Chromium 意外关闭时同步关闭对应栏目', async () => {

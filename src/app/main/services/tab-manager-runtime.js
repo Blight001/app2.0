@@ -305,7 +305,12 @@ class TabManagerRuntime {
   switchTab(tabId, options = {}) {
     const tabs = this.resolveTabs();
     const mainWindow = this.resolveMainWindow();
-    if (!mainWindow || !tabs.has(tabId)) return;
+    if (!mainWindow) return;
+    if (!tabId) {
+      this.showHomePage(tabs);
+      return;
+    }
+    if (!tabs.has(tabId)) return;
     const activeTabId = this.resolveActiveTabId();
     if (activeTabId && tabs.has(activeTabId)) {
       void this.deps.browserRuntimeManager?.hide(tabs.get(activeTabId).id, 'chromium');
@@ -320,6 +325,15 @@ class TabManagerRuntime {
       this.logger.warn?.('[ChromiumRuntime] 显示环境失败:', error?.message || error);
     });
     mainWindow.emit('resize');
+    this.deps.updateTabs(true);
+  }
+
+  showHomePage(tabs = this.resolveTabs()) {
+    const activeTabId = this.resolveActiveTabId();
+    if (activeTabId && tabs.has(activeTabId)) {
+      void this.deps.browserRuntimeManager?.hide(tabs.get(activeTabId).id, 'chromium');
+    }
+    this.deps.setActiveTabId?.(null);
     this.deps.updateTabs(true);
   }
 
@@ -357,7 +371,7 @@ class TabManagerRuntime {
   async activateAfterClose(tabId, orderedTabIds, tabs) {
     const remaining = Array.from(tabs.keys());
     if (!remaining.length) {
-      await this.ensureMinimumBrowserTab();
+      this.deps.setActiveTabId?.(null);
       return;
     }
     if (this.resolveActiveTabId() !== tabId) return;

@@ -13,6 +13,7 @@ const {
 function fixture(overrides = {}) {
   const events = [];
   const importedSessions = [];
+  const openedSubTabs = [];
   const addedTabs = [];
   const account = {
     id: 'Dream::alice',
@@ -46,6 +47,7 @@ function fixture(overrides = {}) {
         account: 'alice',
         platform: 'Dream',
         currentUrl: 'https://dream.example',
+        subUrls: ['https://dream.example/video', 'https://dream.example/image'],
         cookies: [{ name: 'sid', value: 'redacted' }],
         browserStorage: [],
       }),
@@ -57,6 +59,7 @@ function fixture(overrides = {}) {
       addTab: async (url, options) => { addedTabs.push({ url, options }); return 'tab-1'; },
       browserRuntimeManager: {
         importSession: async (tabId, session) => importedSessions.push({ tabId, session }),
+        openTabs: async (tabId, type, urls) => openedSubTabs.push({ tabId, type, urls }),
         reload: async () => {},
       },
       sendToSide: (channel, payload) => events.push({ channel, payload }),
@@ -71,6 +74,7 @@ function fixture(overrides = {}) {
     events,
     handler: createOpenDreamPageHandler(deps),
     importedSessions,
+    openedSubTabs,
     support,
   };
 }
@@ -84,6 +88,11 @@ test('新服务器账号先持久化再创建 Profile、导航并注入会话', 
   assert.equal(data.addedTabs[0].options.restoreLastSession, false);
   assert.equal(data.importedSessions.length, 1);
   assert.equal(data.importedSessions[0].session.navigateAfterImport, false);
+  assert.deepEqual(data.openedSubTabs, [{
+    tabId: 'tab-1',
+    type: 'chromium',
+    urls: ['https://dream.example/video', 'https://dream.example/image'],
+  }]);
   assert.equal(data.events.some((event) => event.channel === 'account-list-updated'), true);
   assert.equal(data.events.some((event) => event.channel === 'browser-history-changed'), true);
 });

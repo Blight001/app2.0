@@ -20,9 +20,10 @@ class FakeTray extends EventEmitter {
   destroy() { this.destroyed = true; }
 }
 
-function createHarness(response = 0) {
+function createHarness(response = 0, options = {}) {
   const app = new EventEmitter();
   const window = new EventEmitter();
+  let store = { ...(options.store || {}) };
   const state = {
     dialogCalls: 0,
     focusCalls: 0,
@@ -43,10 +44,10 @@ function createHarness(response = 0) {
     app,
     APP_DISPLAY_NAME: 'AI-FREE',
     dialog: {
-      showMessageBox: async (_owner, options) => {
+      showMessageBox: async (_owner, dialogOptions) => {
         state.dialogCalls += 1;
-        state.dialogOptions = options;
-        return { response };
+        state.dialogOptions = dialogOptions;
+        return { response, checkboxChecked: options.checkboxChecked === true };
       },
     },
     logger: { warn() {} },
@@ -58,7 +59,13 @@ function createHarness(response = 0) {
     },
     resolveAppIconPath: () => 'logo.ico',
     resolveMainWindow: () => window,
+    readStoreConfigSafe: () => ({ ...store }),
     Tray: FakeTray,
+    writeStoreConfigSafe: (nextStore) => {
+      store = { ...nextStore };
+      state.savedStore = { ...store };
+      return true;
+    },
   });
   controller.bindWindow(window);
   return { app, controller, state, window };
@@ -78,6 +85,7 @@ test('关闭主窗口选择隐藏时保留应用并隐藏到托盘', async () =>
   assert.equal(harness.state.hideCalls, 1);
   assert.equal(harness.state.quitCalls, 0);
   assert.deepEqual(harness.state.dialogOptions.buttons, ['隐藏窗口', '退出软件']);
+  assert.equal(harness.state.dialogOptions.checkboxLabel, '记住当前选择，下次不再提示');
   assert.equal(harness.controller.tray.iconPath, 'logo.ico');
 });
 
@@ -100,4 +108,22 @@ test('托盘可以恢复窗口和退出，应用退出期间不再弹关闭提�
   assert.equal(harness.state.quitCalls, 1);
   assert.equal(await emitClose(harness), false);
   assert.equal(harness.state.dialogCalls, 0);
+});
+
+test('勾选记住后保存关闭方式，后续关闭不再提示', async () => {
+  const harness = createHarness(0, { checkboxChecked: true });
+  assert.equal(await emitClose(harness), true);
+  assert.equal(harness.state.savedStore.windowCloseBehavior, 'hide');
+  assert.equal(harness.state.dialogCalls, 1);
+
+  assert.equal(await emitClose(harness), true);
+  assert.equal(harness.state.dialogCalls, 1);
+  assert.equal(harness.state.hideCalls, 2);
+});
+
+test('个人中心保存的退出方式会跳过提示并直接退出', async () => {
+  const harness = createHarness(0, { store: { windowCloseBehavior: 'quit' } });
+  assert.equal(await emitClose(harness), true);
+  assert.equal(harness.state.dialogCalls, 0);
+  assert.equal(harness.state.quitCalls, 1);
 });

@@ -2,6 +2,10 @@ const { BrowserWindow, nativeTheme } = require('electron');
 const { resolveTabTitle } = require('../../services/tab-common');
 const { createTabContextMenuController } = require('../../features/browser/tab-context-menu-controller');
 const { createSidebarFocusHandler } = require('../../features/browser/sidebar-focus-controller');
+const {
+  readWindowCloseBehavior,
+  writeWindowCloseBehavior,
+} = require('../../features/window/window-close-preference');
 
 function uiIpcError(error) {
   return error?.message || String(error);
@@ -267,6 +271,17 @@ function registerTabIPC(ipc, ui, contextMenu) {
 
 function registerUiUtilityIPC(ipc, ctx) {
   const { ui } = ctx;
+  ipc.handle('get-window-close-behavior', async () => ({
+    ok: true,
+    data: { behavior: readWindowCloseBehavior(ctx.readStoreConfigSafe) },
+  }));
+  ipc.handle('set-window-close-behavior', async (_event, payload = {}) => (
+    writeWindowCloseBehavior(
+      ctx.readStoreConfigSafe,
+      ctx.writeStoreConfigSafe,
+      String(payload?.behavior || ''),
+    )
+  ));
   ipc.on('toggle-sidebar', () => ui.toggleSidebar());
   ipc.on('ensure-sidebar-visible', () => ui.ensureSidebarVisible?.());
   ipc.handle('open-active-web-console', async () => {
