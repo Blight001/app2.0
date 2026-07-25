@@ -162,7 +162,7 @@ function buildAppliedBrowserSettings(settings = {}) {
       mode: copyMode(secChUa.mode, 'default'),
       brands: normalizeBrands(secChUa.brands),
     },
-    language: { mode: copyMode(language.mode, 'ip'), value: copyMode(language.value) },
+    language: { mode: 'custom', value: copyMode(language.value) },
     timezone: { mode: copyMode(timezone.mode, 'ip'), value: copyMode(timezone.value) },
     webrtc: { mode: copyMode(webrtc.mode, 'replace') },
     geolocation: {

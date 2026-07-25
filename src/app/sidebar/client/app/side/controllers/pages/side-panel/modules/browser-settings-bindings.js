@@ -25,7 +25,7 @@
       const button = event.target.closest('button[data-value]');
       if (button) deps.setSegment(group.dataset.field, button.dataset.value);
     }));
-    ['language-by-ip','timezone-by-ip','geolocation-by-ip']
+    ['timezone-by-ip','geolocation-by-ip']
       .forEach((id) => bindElement(deps, id, 'change', deps.syncConditionalFields));
     bindElement(deps, 'ai-free-settings-form', 'submit', deps.saveSettings);
     bindElement(deps, 'randomize-ai-free-settings', 'click', deps.randomIdentity);

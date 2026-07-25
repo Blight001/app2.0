@@ -116,6 +116,35 @@ test('proxy changes preserve BrowserProfile without any exit IP lookup', async (
   assert.equal(fixture.loggerMessages.length, 0);
 });
 
+test('proxy restart failures remain diagnostic without starting a profile lookup', async () => {
+  const fixture = createFixture({
+    browserRuntimeManager: {
+      chromium: { instances: new Map() },
+      restart: async () => { throw new Error('restart failed'); },
+    },
+  });
+  const tab = { id: 'broken', browserSettings: { proxy: { mode: 'default' } } };
+  fixture.tabs.set(tab.id, tab);
+  fixture.controller = createBrowserNetworkController({
+    browserRuntimeManager: {
+      chromium: { instances: fixture.instances },
+      restart: async () => { throw new Error('restart failed'); },
+    },
+    logger: { warn: (...args) => fixture.loggerMessages.push(args.join(' ')) },
+    resolveTabs: () => fixture.tabs,
+    updateTabs() {},
+  });
+  fixture.instances.set(tab.id, { profile: { proxyServer: '', proxyBypassList: '' } });
+
+  const result = await fixture.controller.applyClashMiniBrowserProxy(true);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.updated, 0);
+  assert.deepEqual(result.failures, [{ tabId: 'broken', message: 'restart failed' }]);
+  assert.equal(tab.networkMagicApplied, false);
+  assert.match(fixture.loggerMessages[0], /restart failed/);
+});
+
 test('shutdown and missing runtime instances are safe no-op paths', async () => {
   const fixture = createFixture();
   const tab = { id: 'one', browserSettings: { proxy: { mode: 'default' } } };

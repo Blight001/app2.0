@@ -9,7 +9,7 @@ const DEFAULT_AI_FREE_BROWSER_SETTINGS = Object.freeze({
   homepage: { mode: 'default', url: '' },
   ua: { mode: 'default', value: '' },
   secChUa: { mode: 'default', brands: [] },
-  language: { mode: 'ip', value: '' },
+  language: { mode: 'custom', value: '' },
   timezone: { mode: 'ip', value: '' },
   webrtc: { mode: 'replace' },
   geolocation: { permission: 'ask', mode: 'ip', longitude: 0, latitude: 0, accuracy: 100 },
@@ -90,7 +90,7 @@ function normalizeAutomationSettings(source) {
 
 function applyFlatBrowserSettingAliases(normalized, width, height) {
   normalized.userAgent = normalized.ua.mode === 'custom' ? normalized.ua.value : '';
-  normalized.locale = normalized.language.mode === 'custom' ? normalized.language.value : '';
+  normalized.locale = normalized.language.value;
   normalized.timezoneId = normalized.timezone.mode === 'custom' ? normalized.timezone.value : '';
   normalized.acceptLanguage = normalized.locale ? `${normalized.locale},${normalized.locale.split('-')[0]};q=0.9,en;q=0.8` : '';
   normalized.hardwareConcurrency = normalized.cpu;
@@ -145,7 +145,8 @@ function normalizeAiFreeBrowserSettings(input = {}) {
     homepage: { mode: pick(homepage.mode, ['default', 'custom'], defaults.homepage.mode), url: text(homepage.url, '', 2048) },
     ua: { mode: pick(ua.mode, ['default', 'custom'], defaults.ua.mode), value: text(ua.value ?? source.userAgent, '', 2048) },
     secChUa: { mode: pick(secChUa.mode, ['default', 'custom'], defaults.secChUa.mode), brands: normalizeBrands(secChUa.brands) },
-    language: { mode: pick(language.mode, ['ip', 'custom'], defaults.language.mode), value: text(language.value ?? source.locale, '', 80) },
+    // 旧版 ip 模式只保留用户输入值；语言不再与地区或出口 IP 绑定。
+    language: { mode: 'custom', value: text(language.value ?? source.locale, '', 80) },
     timezone: { mode: pick(timezone.mode, ['ip', 'custom'], defaults.timezone.mode), value: text(timezone.value ?? source.timezoneId, '', 100) },
     webrtc: { mode: pick(webrtc.mode, ['replace', 'allow', 'block'], defaults.webrtc.mode) },
     geolocation: {

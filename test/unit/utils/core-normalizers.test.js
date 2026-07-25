@@ -34,13 +34,13 @@ test('locale inference covers language, territory, aliases and unsupported input
   for (const [locale, expected] of cases) assert.equal(browserRegion.inferBrowserRegionKeyFromLocale(locale), expected, locale);
 });
 
-test('browser settings normalize legacy automatic modes without performing detection', () => {
+test('browser settings migrate legacy automatic language without performing detection', () => {
   const normalized = normalizeAiFreeBrowserSettings({
     language: { mode: 'ip' },
     timezone: { mode: 'ip' },
     geolocation: { mode: 'ip' },
   });
-  assert.equal(normalized.language.mode, 'ip');
+  assert.deepEqual(normalized.language, { mode: 'custom', value: '' });
   assert.equal(normalized.timezone.mode, 'ip');
   assert.equal(normalized.geolocation.mode, 'ip');
   assert.deepEqual(parseCookieJson({ cookies: '{invalid' }), []);

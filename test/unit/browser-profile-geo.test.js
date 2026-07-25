@@ -52,6 +52,22 @@ test('explicit BrowserProfile identity remains authoritative without IP detectio
   assert.equal(profile.fingerprintSettings.geolocation.latitude, 31.23);
 });
 
+test('legacy regions cannot change browser or request language after IP language removal', async () => {
+  const profiles = await Promise.all(['jp', 'gb'].map((region) => resolveTabBrowserProfile({
+    browserSettings: {
+      region,
+      locale: '',
+      acceptLanguage: '',
+      language: { mode: 'custom', value: '' },
+    },
+  })));
+
+  assert.equal(profiles[0].locale, profiles[1].locale);
+  assert.equal(profiles[0].acceptLanguage, profiles[1].acceptLanguage);
+  assert.equal(profiles[0].acceptLanguage.startsWith(`${profiles[0].locale},`), true);
+  assert.equal(profiles[0].languages[0], profiles[0].locale);
+});
+
 test('unsupported locale falls back without starting a network request', async () => {
   let requested = false;
   const profile = await resolveTabBrowserProfile({
@@ -62,4 +78,16 @@ test('unsupported locale falls back without starting a network request', async (
   assert.equal(requested, false);
   assert.equal(profile.region, 'us');
   assert.equal(profile.locale, 'es-ES');
+});
+
+test('invalid explicit timezone uses the local offset without network recovery', async () => {
+  const profile = await resolveTabBrowserProfile({
+    browserSettings: {
+      region: 'us',
+      timezoneId: 'Invalid/Timezone',
+    },
+  });
+
+  assert.equal(profile.timezoneId, 'Invalid/Timezone');
+  assert.equal(profile.timezoneOffset, new Date().getTimezoneOffset());
 });

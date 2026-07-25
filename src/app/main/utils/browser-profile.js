@@ -103,11 +103,10 @@ function resolveBrowserUaBrands(settings, major) {
 }
 
 function resolveBrowserIdentity(settings, preset) {
-  const locale = normalizeLocale(firstNonNull(
+  const locale = normalizeLocale(text(
     settings.locale,
     settings.browser_locale,
     settings.browserLocale,
-    preset && preset.locale,
     getDefaultLocale(),
   ));
   const timezoneId = text(
@@ -121,7 +120,7 @@ function resolveBrowserIdentity(settings, preset) {
   const os = text(settings.os, 'win11').toLowerCase();
   const userAgent = resolveBrowserUserAgent(settings, os, major);
   const brands = resolveBrowserUaBrands(settings, major);
-  return { acceptLanguage: text(settings.accept_language, settings.acceptLanguage, preset && preset.acceptLanguage, getAcceptLanguage(locale)), brands, locale, major, os, timezoneId, userAgent };
+  return { acceptLanguage: text(settings.accept_language, settings.acceptLanguage, getAcceptLanguage(locale)), brands, locale, major, os, timezoneId, userAgent };
 }
 
 function resolvePlatformVersion(settings, os) {

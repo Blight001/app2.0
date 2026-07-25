@@ -103,9 +103,7 @@ class TabManagerRuntime {
   initializeNetworkController() {
     const controller = createBrowserNetworkController({
       browserRuntimeManager: this.deps.browserRuntimeManager,
-      httpGetUniversal: this.deps.httpGetUniversal,
       logger: this.logger,
-      resolveTabBrowserProfile: this.deps.resolveTabBrowserProfile,
       resolveTabs: () => this.resolveTabs(),
       updateTabs: this.deps.updateTabs,
     });

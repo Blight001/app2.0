@@ -62,7 +62,7 @@ const BROWSER_SETTINGS_PATCH_SCHEMA = {
         },
       },
     },
-    language: customValueObject(['ip', 'custom'], '语言模式', 80),
+    language: customValueObject(['custom'], '语言模式；值为空时跟随系统', 80),
     timezone: customValueObject(['ip', 'custom'], '时区模式', 100),
     webrtc: modeObject(['replace', 'allow', 'block'], 'WebRTC 模式'),
     geolocation: {

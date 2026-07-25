@@ -42,7 +42,7 @@
     deps.setValue('proxy-username', proxy.username); deps.setValue('proxy-password', proxy.password); deps.setValue('proxy-api-url', proxy.apiUrl);
     deps.setValue('browser-cookies', current.cookies || '[]'); deps.setValue('homepage-url', homepage.url);
     deps.setValue('browser-user-agent', ua.value); deps.setValue('sec-ch-ua-brands', JSON.stringify(Array.isArray(secChUa.brands) ? secChUa.brands : [], null, 2));
-    deps.setChecked('language-by-ip', language.mode === 'ip'); deps.setValue('browser-locale', language.value);
+    deps.setValue('browser-locale', language.value);
     deps.setChecked('timezone-by-ip', timezone.mode === 'ip'); deps.setValue('browser-timezone', timezone.value);
     deps.setChecked('geolocation-by-ip', geolocation.mode === 'ip'); deps.setValue('geo-longitude', geolocation.longitude); deps.setValue('geo-latitude', geolocation.latitude); deps.setValue('geo-accuracy', geolocation.accuracy);
     deps.setValue('resolution-width', resolution.width); deps.setValue('resolution-height', resolution.height);

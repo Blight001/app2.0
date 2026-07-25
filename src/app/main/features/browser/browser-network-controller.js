@@ -9,7 +9,7 @@ const { appContext } = require('../../runtime/app-context');
 const {
   resolveConfiguredBrowserProxy,
 } = require('./browser-environment');
-const { firstText } = require('../../../shared/safe-values');
+const { callOptional, firstText } = require('../../../shared/safe-values');
 
 function getBrowserProxyEndpoint() {
   const clashMiniStatus = typeof getClashMiniStatus === 'function' ? getClashMiniStatus() : null;
@@ -75,7 +75,7 @@ async function applyProxyToTab(deps, tab, context) {
   }
 }
 
-async function applyClashMiniBrowserProxy(deps, enabled = true, options = {}) {
+async function applyClashMiniBrowserProxy(deps, enabled = true, _options = {}) {
   const entries = Array.from(deps.resolveTabs().values());
   const failures = [];
   if (appContext.isShuttingDown()) {

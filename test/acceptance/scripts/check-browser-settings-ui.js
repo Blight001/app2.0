@@ -140,6 +140,9 @@ app.whenReady().then(async () => {
         getComputedStyle(document.getElementById('browser-history-list')).maxHeight,
       ),
       browserConfigLabel: document.querySelector('[data-tab="ai-free-settings-panel"] span:last-child')?.textContent.trim() || '',
+      languageIpControlRemoved: !document.getElementById('language-by-ip'),
+      localeInputVisible: document.getElementById('browser-locale')?.hidden === false,
+      localePlaceholder: document.getElementById('browser-locale')?.placeholder || '',
       mcpDefault,
       mcpSaved,
       mcpStatus,
@@ -158,6 +161,9 @@ app.whenReady().then(async () => {
     || !result.browserHistoryVisible
     || result.browserHistoryMaxHeight <= 238
     || result.browserConfigLabel !== '浏览器配置'
+    || !result.languageIpControlRemoved
+    || !result.localeInputVisible
+    || !result.localePlaceholder.includes('留空跟随系统')
     || result.mcpDefault !== '100'
     || result.mcpSaved !== '125'
     || result.mcpStatus !== '已保存'

@@ -241,7 +241,7 @@ function buildAdvancedIdentityTooltip(settings, profile) {
   if (userAgent) lines.push(`用户代理（UA）：${userAgent}`);
   lines.push(
     `Sec-CH-UA：${settingLabel(secChUa.mode, { default: '默认生成', custom: '自定义' })}${brands ? `（${brands}）` : ''}`,
-    `语言：${language.mode === 'custom' ? '自定义' : '基于 IP 自动匹配'}${locale ? `（当前 ${formatBrowserLocale(locale)}）` : ''}`,
+    `语言：${language.value ? '自定义' : '跟随系统'}${locale ? `（当前 ${formatBrowserLocale(locale)}）` : ''}`,
     `网页请求语言：${acceptLanguage ? formatRequestLanguages(acceptLanguage) : '自动'}`,
     `时区：${timezoneSetting.mode === 'custom' ? '自定义' : '基于 IP 自动匹配'}${timezone ? `（当前 ${formatBrowserTimezone(timezone)}）` : ''}`,
     `WebRTC：${settingLabel(webrtc.mode, { replace: '替换', allow: '允许', block: '禁止' })}`,
