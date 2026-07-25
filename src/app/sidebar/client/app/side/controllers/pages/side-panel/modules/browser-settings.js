@@ -94,7 +94,6 @@
     getBrowserProfileAudit: () => browserProfileAudit,
     getSelectedHistoryIds: () => selectedHistoryIds,
     setSelectedHistoryIds: (next) => { selectedHistoryIds = next; },
-    applyNetworkMagicToBrowserHistory,
     openBrowserHistory,
     selectBrowserHistory,
     openSelectedBrowserHistory,
@@ -195,40 +194,6 @@
       triggerButton?.classList.remove('is-processing');
       if (triggerButton) triggerButton.disabled = false;
     }
-  }
-
-  // 切换该浏览器记录的网络魔法代理：持久化魔法端口选择；浏览器已打开时
-  // 由主进程自动重启使其立即生效。
-  async function applyNetworkMagicToBrowserHistory(item, triggerButton = null, enabled = true) {
-    const name = text(item && item.name, '浏览器');
-    triggerButton?.classList.add('is-processing');
-    if (triggerButton) triggerButton.disabled = true;
-    setStatus(enabled ? `正在为“${name}”应用魔法代理…` : `正在关闭“${name}”的魔法代理…`);
-    try {
-      const response = await window.aiFree.network.applyToBrowser( { historyId: item.id, enabled });
-      requireOk(response, enabled ? '应用魔法代理失败' : '关闭魔法代理失败');
-      await refreshBrowserHistory({ keepSelection: true, silent: true, animate: false });
-      const message = networkMagicResultMessage(name, enabled, response);
-      setStatus(message, 'success');
-    } catch (error) {
-      setStatus(errorText(error), 'error');
-    } finally {
-      triggerButton?.classList.remove('is-processing');
-      if (triggerButton) triggerButton.disabled = false;
-    }
-  }
-
-  function networkMagicResultMessage(name, enabled, response) {
-    if (!enabled) {
-      return response.restarted
-        ? `已关闭“${name}”的魔法代理，浏览器正在自动重启`
-        : `已关闭“${name}”的魔法代理`;
-    }
-    if (response.restarted) return `已为“${name}”应用魔法代理，浏览器正在自动重启`;
-    if (!response.isOpen) return `已保存“${name}”的魔法代理，打开该浏览器时自动生效`;
-    return response.magicRunning === false
-      ? `已记住“${name}”的魔法代理选择，开启网络魔法后自动生效`
-      : `已为“${name}”应用魔法代理`;
   }
 
   async function deleteBrowserHistory(item, options = {}) {

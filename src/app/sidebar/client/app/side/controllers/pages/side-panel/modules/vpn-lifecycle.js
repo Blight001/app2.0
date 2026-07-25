@@ -94,10 +94,6 @@ async function startClashMiniFlowOnce({ startBtn, vpnBtn, fetchConfig = true, ke
   await persistNetworkMagicAutoStartEnabled(true).catch(() => {});
   scheduleBestRouteSelection();
   applyClashMiniStatus(result, { startBtn, vpnBtn, loadProxyOptions: false });
-  // 魔法不再强制接管所有浏览器：检测当前浏览器是否选择了魔法端口代理，
-  // 未选择时询问是否应用（不阻塞启动流程返回）。
-  void promptApplyNetworkMagicToActiveBrowser();
-
   return '关闭网络魔法';
 }
 
@@ -122,30 +118,6 @@ function assertClashStarted(result) {
     error.cancelled = true;
   }
   throw error;
-}
-
-// 开启魔法后检测当前激活浏览器：未选择魔法端口代理时弹窗询问是否应用。
-async function promptApplyNetworkMagicToActiveBrowser() {
-  try {
-    if (typeof window.aiFree?.network?.getActiveBrowser !== 'function') return;
-    const response = await window.aiFree.network.getActiveBrowser();
-    const tab = response?.ok ? response.tab : null;
-    if (!tab || tab.magicSelected === true) return;
-    if (!window.MessageModal || typeof window.MessageModal.showConfirmDialog !== 'function') return;
-    window.MessageModal.showConfirmDialog(`是否将魔法应用到当前的“${tab.name}”浏览器？`, async () => {
-      try {
-        const result = await window.aiFree.network.applyToBrowser( {
-          tabId: tab.id,
-          historyId: tab.historyId,
-        });
-        if (!result?.ok) throw new Error(result?.error || '应用魔法代理失败');
-      } catch (error) {
-        showNetworkMagicOperationError(error);
-      }
-    });
-  } catch (error) {
-    console.warn('[侧边栏][Clash] 检测当前浏览器魔法代理失败:', error?.message || error);
-  }
 }
 
 // 启动流程的统一入口。恢复状态、验证后自动开启和手动点击可能在相邻时刻

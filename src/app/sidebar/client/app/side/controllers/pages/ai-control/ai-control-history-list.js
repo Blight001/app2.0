@@ -209,7 +209,6 @@
       .filter((session) => String(session?.id || '') !== currentId)
       .slice(0, 5);
     if (!sessions.length) {
-      if (typeof renderQuickLaunch === 'function') renderQuickLaunch();
       return;
     }
 
@@ -224,7 +223,6 @@
     sessions.forEach((session) => list.appendChild(createRecentHistoryButton(session)));
     recent.append(heading, list);
     welcome.appendChild(recent);
-    if (typeof renderQuickLaunch === 'function') renderQuickLaunch();
   }
 
   function mergeSessionLists(primary, secondary) {

@@ -28,8 +28,6 @@ function registerBrowserHistoryIpc({ ipc, ui, licenseCache }) {
   ipc.handle('cleanup-orphan-browser-profiles', handlers.cleanupOrphanProfiles);
   ipc.handle('create-independent-browser', handlers.createIndependentBrowser);
   ipc.handle('open-browser-history', handlers.openBrowserHistory);
-  ipc.handle('get-network-magic-active-browser', handlers.getNetworkMagicActiveBrowser);
-  ipc.handle('apply-network-magic-to-browser', handlers.applyNetworkMagicToBrowser);
   ipc.handle('rename-browser-history', handlers.renameBrowserHistory);
   ipc.handle('rename-browser-history-batch', handlers.renameBrowserHistoryBatch);
   ipc.handle('delete-browser-history', handlers.deleteBrowserHistory);

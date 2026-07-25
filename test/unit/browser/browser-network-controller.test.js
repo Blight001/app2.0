@@ -19,6 +19,15 @@ require.cache[runtimePath] = { exports: {
 require.cache[contextPath] = { exports: { appContext: { isShuttingDown: () => shuttingDown } } };
 require.cache[environmentPath] = { exports: {
   buildAppliedBrowserEnvironment: (profile) => ({ locale: profile.locale, timezoneId: profile.timezoneId }),
+  resolveConfiguredBrowserProxy: (settings) => {
+    const proxy = settings?.proxy || {};
+    if (proxy.mode !== 'custom') return { enabled: false };
+    return {
+      enabled: true,
+      server: `${proxy.protocol || 'http'}://${proxy.host}:${proxy.port}`,
+      bypassRules: '<local>',
+    };
+  },
 } };
 delete require.cache[targetPath];
 const { createBrowserNetworkController } = require(targetPath);
@@ -29,21 +38,27 @@ function createFixture(overrides = {}) {
   const restarts = [];
   let updates = 0;
   const loggerMessages = [];
+  let profileLookups = 0;
   const controller = createBrowserNetworkController({
     browserRuntimeManager: {
       chromium: { instances },
       restart: async (id) => { restarts.push(id); return { status: 'running' }; },
     },
     logger: { warn: (...args) => loggerMessages.push(args.join(' ')) },
-    resolveTabBrowserProfile: async () => ({
-      region: 'US', locale: 'en-US', acceptLanguage: 'en-US', timezoneId: 'America/New_York',
-      userAgent: 'fixture-agent', proxyExitVerified: true,
-    }),
+    resolveTabBrowserProfile: async () => { profileLookups += 1; throw new Error('unexpected profile lookup'); },
     resolveTabs: () => tabs,
     updateTabs: () => { updates += 1; },
     ...overrides,
   });
-  return { controller, instances, loggerMessages, restarts, tabs, updates: () => updates };
+  return {
+    controller,
+    instances,
+    loggerMessages,
+    profileLookups: () => profileLookups,
+    restarts,
+    tabs,
+    updates: () => updates,
+  };
 }
 
 test.beforeEach(() => {
@@ -67,42 +82,43 @@ test('proxy endpoint is normalized and rejects unavailable control data', () => 
   assert.equal(controller.getBrowserProxyEndpoint(), null);
 });
 
-test('proxy application updates only selected profiles and avoids redundant restarts', async () => {
+test('global magic updates every browser and avoids redundant restarts', async () => {
   const fixture = createFixture();
-  const magic = { id: 'magic', browserSettings: { proxy: { mode: 'magic' } }, browserProfile: { region: 'CN' } };
+  const magic = { id: 'magic', browserSettings: { proxy: { mode: 'default' } }, browserProfile: { region: 'CN' } };
   const direct = { id: 'direct', browserSettings: { proxy: { mode: 'default' } } };
   fixture.tabs.set(magic.id, magic);
   fixture.tabs.set(direct.id, direct);
   fixture.instances.set(magic.id, { profile: { proxyServer: '', proxyBypassList: '' } });
+  fixture.instances.set(direct.id, { profile: { proxyServer: '', proxyBypassList: '' } });
 
   const first = await fixture.controller.applyClashMiniBrowserProxy(true);
-  assert.deepEqual({ ok: first.ok, updated: first.updated, total: first.total }, { ok: true, updated: 1, total: 1 });
-  assert.deepEqual(fixture.restarts, ['magic']);
+  assert.deepEqual({ ok: first.ok, updated: first.updated, total: first.total }, { ok: true, updated: 2, total: 2 });
+  assert.deepEqual(fixture.restarts, ['magic', 'direct']);
   assert.equal(magic.networkMagicApplied, true);
-  assert.equal(fixture.instances.get('magic').profile.locale, 'en-US');
+  assert.equal(direct.networkMagicApplied, true);
+  assert.equal(fixture.profileLookups(), 0);
 
   const second = await fixture.controller.applyClashMiniBrowserProxy(true);
   assert.equal(second.updated, 0);
-  assert.deepEqual(fixture.restarts, ['magic']);
+  assert.deepEqual(fixture.restarts, ['magic', 'direct']);
   assert.equal(fixture.updates(), 2);
 });
 
-test('profile lookup failure preserves environment while proxy changes', async () => {
-  const fixture = createFixture({
-    resolveTabBrowserProfile: async () => ({ region: 'CN', proxyExitVerified: false }),
-  });
-  const tab = { id: 'one', browserSettings: { proxy: { mode: 'magic' } }, browserProfile: { region: 'US' } };
+test('proxy changes preserve BrowserProfile without any exit IP lookup', async () => {
+  const fixture = createFixture();
+  const tab = { id: 'one', browserSettings: { proxy: { mode: 'default' } }, browserProfile: { region: 'US' } };
   fixture.tabs.set(tab.id, tab);
   fixture.instances.set(tab.id, { profile: { proxyServer: '', proxyBypassList: '', locale: 'en-US' } });
   const result = await fixture.controller.applyClashMiniBrowserProxy(true, { forceProfileRefresh: true });
   assert.equal(result.updated, 1);
   assert.equal(tab.browserProfile.region, 'US');
-  assert.match(fixture.loggerMessages[0], /探测失败/);
+  assert.equal(fixture.profileLookups(), 0);
+  assert.equal(fixture.loggerMessages.length, 0);
 });
 
 test('shutdown and missing runtime instances are safe no-op paths', async () => {
   const fixture = createFixture();
-  const tab = { id: 'one', browserSettings: { proxy: { mode: 'magic' } } };
+  const tab = { id: 'one', browserSettings: { proxy: { mode: 'default' } } };
   fixture.tabs.set(tab.id, tab);
   shuttingDown = true;
   const shutdown = await fixture.controller.applyClashMiniBrowserProxy(true);
@@ -113,23 +129,21 @@ test('shutdown and missing runtime instances are safe no-op paths', async () => 
   assert.equal(tab.networkMagicApplied, false);
 });
 
-test('per-tab magic selection persists choices and reports restart failures', async () => {
+test('disabling global magic restores each browser configured proxy', async () => {
   const fixture = createFixture();
-  assert.deepEqual(
-    await fixture.controller.applyNetworkMagicToTab('missing', true),
-    { ok: false, error: '浏览器窗口不存在' },
-  );
-  const tab = { id: 'one', browserSettings: {}, networkMagicApplied: false };
+  const tab = {
+    id: 'one',
+    browserSettings: { proxy: { mode: 'custom', protocol: 'http', host: '10.0.0.2', port: 8888 } },
+    networkMagicApplied: true,
+  };
   fixture.tabs.set(tab.id, tab);
-  fixture.instances.set(tab.id, { profile: { proxyServer: '', proxyBypassList: '' } });
-  clashStatus = { running: false, enabled: false };
-  const remembered = await fixture.controller.applyNetworkMagicToTab(tab.id, true);
-  assert.deepEqual(remembered, { ok: true, magicRunning: false, restarted: false });
-  assert.equal(tab.browserSettings.proxy.mode, 'magic');
-
-  clashStatus = { running: true, enabled: true, coreDir: 'fixture-core' };
-  fixture.controller.applyClashMiniBrowserProxy = async () => ({ ok: false });
-  const disabled = await fixture.controller.applyNetworkMagicToTab(tab.id, false);
+  fixture.instances.set(tab.id, { profile: {
+    proxyServer: 'http://127.0.0.2:17890',
+    proxyBypassList: '<local>;127.0.0.1;localhost;::1',
+  } });
+  const disabled = await fixture.controller.applyClashMiniBrowserProxy(false);
   assert.equal(disabled.ok, true);
-  assert.equal(tab.browserSettings.proxy.mode, 'default');
+  assert.equal(fixture.instances.get(tab.id).profile.proxyServer, 'http://10.0.0.2:8888');
+  assert.equal(tab.networkMagicApplied, false);
+  assert.deepEqual(fixture.restarts, ['one']);
 });

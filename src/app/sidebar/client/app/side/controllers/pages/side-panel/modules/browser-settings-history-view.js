@@ -7,7 +7,6 @@ constructor({
   getBrowserProfileAudit,
   getSelectedHistoryIds,
   setSelectedHistoryIds,
-  applyNetworkMagicToBrowserHistory,
   openBrowserHistory,
   selectBrowserHistory,
   openSelectedBrowserHistory,
@@ -16,7 +15,7 @@ constructor({
 }) {
     Object.assign(this, {
       el, getBrowserHistory, getBrowserProfileAudit, getSelectedHistoryIds, setSelectedHistoryIds,
-      applyNetworkMagicToBrowserHistory, openBrowserHistory, selectBrowserHistory,
+      openBrowserHistory, selectBrowserHistory,
       openSelectedBrowserHistory, renameSelectedBrowserHistory, deleteSelectedBrowserHistory,
     });
     this.contextHistoryIds = new Set();
@@ -45,7 +44,7 @@ constructor({
     }
   }
 
-  renderBrowserHistory(options = {}) {
+  renderBrowserHistory() {
     const list = this.el('browser-history-list');
     if (!list) return;
     list.replaceChildren();
@@ -63,7 +62,6 @@ constructor({
       row.classList.toggle('is-open', item.isOpen === true);
       row.classList.toggle('is-active', item.isActive === true);
       row.classList.toggle('has-error', !!item.lastError);
-      row.classList.toggle('is-selection-changing', options.selectionChangedId === item.id);
       row.dataset.historyId = item.id;
   
       const main = document.createElement('button');
@@ -88,15 +86,6 @@ constructor({
   
       const actions = document.createElement('div');
       actions.className = 'browser-history-actions';
-      const magic = document.createElement('button');
-      magic.type = 'button';
-      magic.className = 'browser-history-action browser-history-magic';
-      magic.classList.toggle('is-applied', item.networkMagicSelected === true);
-      magic.textContent = '魔法';
-      magic.title = item.networkMagicSelected === true
-        ? '该浏览器已选择魔法端口代理，点击关闭魔法'
-        : '将网络魔法代理应用到该浏览器（已打开时自动重启）';
-      magic.addEventListener('click', () => void this.applyNetworkMagicToBrowserHistory(item, magic, item.networkMagicSelected !== true));
       const open = document.createElement('button');
       open.type = 'button';
       open.className = 'browser-history-action browser-history-open';
@@ -109,7 +98,7 @@ constructor({
       edit.textContent = '编辑';
       edit.title = '编辑名称、参数或删除浏览器';
       edit.addEventListener('click', () => void this.selectBrowserHistory(item.id, { openDialog: true }));
-      actions.append(magic, open, edit);
+      actions.append(open, edit);
       row.append(main, actions);
       row.addEventListener('contextmenu', (event) => {
         event.preventDefault();
@@ -146,7 +135,7 @@ constructor({
     if (next.has(id)) next.delete(id); else next.add(id);
     this.setSelectedHistoryIds(next);
     this.hideBrowserHistoryContextMenu();
-    this.renderBrowserHistory({ selectionChangedId: id });
+    this.renderBrowserHistory();
   }
 
   ensureBrowserHistoryContextMenu() {

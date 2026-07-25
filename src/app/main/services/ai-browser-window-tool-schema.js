@@ -34,7 +34,7 @@ const BROWSER_SETTINGS_PATCH_SCHEMA = {
     proxy: {
       type: 'object', additionalProperties: false,
       properties: {
-        mode: modeValue(['default', 'none', 'custom', 'magic'], '代理模式'),
+        mode: modeValue(['default', 'none', 'custom'], '代理模式'),
         protocol: modeValue(['http', 'https', 'socks4', 'socks5'], '自定义代理协议'),
         host: { type: 'string' }, port: { type: 'integer', minimum: 1, maximum: 65535 },
         username: { type: 'string' }, password: { type: 'string' },

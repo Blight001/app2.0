@@ -182,12 +182,12 @@ test('edit updates name and per-browser settings while close preserves records',
   }), /不支持的环境配置字段/);
   const edited = await tools.execute('software_window', {
     action: 'edit', history_id: 'history-1', new_name: 'Renamed',
-    settings: { proxy: { mode: 'magic' }, timezone: { mode: 'custom', value: 'Asia/Shanghai' } },
+    settings: { proxy: { mode: 'none' }, timezone: { mode: 'custom', value: 'Asia/Shanghai' } },
   });
   assert.equal(edited.previous_name, 'Primary');
   assert.equal(edited.name, 'Renamed');
   assert.deepEqual(edited.changed_settings, ['proxy', 'timezone']);
-  assert.equal(history[0].settings.proxy.mode, 'magic');
+  assert.equal(history[0].settings.proxy.mode, 'none');
   assert.equal(history[0].settings.proxy.host, 'proxy.test');
   assert.equal(applied[0][0], 'tab-1');
   assert.equal(applied[0][2].restartChromium, true);

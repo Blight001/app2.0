@@ -5,9 +5,6 @@ const { createBrowserNetworkController } = require('../features/browser/browser-
 const { createBrowserTabLauncher } = require('../features/browser/browser-tab-launcher');
 const { createBrowserRuntimeSettingsController } = require('../features/browser/browser-runtime-settings-controller');
 
-const MAX_PROFILE_REFRESH_ATTEMPTS = 3;
-const PROFILE_REFRESH_RETRY_DELAY_MS = 4000;
-
 function isUsableWebContents(webContents) {
   return Boolean(webContents) && !webContents.isDestroyed?.();
 }
@@ -113,7 +110,6 @@ class TabManagerRuntime {
       updateTabs: this.deps.updateTabs,
     });
     this.applyClashMiniBrowserProxy = controller.applyClashMiniBrowserProxy;
-    this.applyNetworkMagicToTab = controller.applyNetworkMagicToTab;
     this.getBrowserProxyEndpoint = controller.getBrowserProxyEndpoint;
   }
 
@@ -123,12 +119,10 @@ class TabManagerRuntime {
       extensionManager: this.deps.extensionManager,
       getBrowserProxyEndpoint: this.getBrowserProxyEndpoint,
       hasPersistedChromiumProfile: (id) => this.hasPersistedChromiumProfile(id),
-      httpGetUniversal: this.deps.httpGetUniversal,
       isSideViewFocused: () => this.isSideViewFocused(),
       licenseCache: this.deps.licenseCache,
       logger: this.logger,
       readPersistedBrowserSettings: () => this.readPersistedBrowserSettings(),
-      refreshBrowserProfileInBackground: (...args) => this.refreshBrowserProfileInBackground(...args),
       resolveActiveTabId: () => this.resolveActiveTabId(),
       resolveDefaultTabUrl: this.resolveDefaultTabUrl,
       resolveIsSidebarVisible: () => this.resolveIsSidebarVisible(),
@@ -150,7 +144,6 @@ class TabManagerRuntime {
       browserRuntimeManager: this.deps.browserRuntimeManager,
       extensionManager: this.deps.extensionManager,
       getBrowserProxyEndpoint: this.getBrowserProxyEndpoint,
-      httpGetUniversal: this.deps.httpGetUniversal,
       logger: this.logger,
       resolveTabBrowserProfile: this.deps.resolveTabBrowserProfile,
       resolveTabs: () => this.resolveTabs(),
@@ -201,69 +194,6 @@ class TabManagerRuntime {
     if (event.type === 'title-changed') tab.runtimeTitle = String(event.title || '').trim();
     if (event.type === 'url-changed') tab.runtimeUrl = String(event.url || '').trim();
     this.deps.updateTabs();
-  }
-
-  refreshBrowserProfileInBackground(tabId, browserSettings, proxyServer = '', cacheKey = '', attempt = 0) {
-    if (typeof this.deps.resolveTabBrowserProfile !== 'function') return;
-    void this.deps.resolveTabBrowserProfile({
-      browserSettings,
-      httpGetUniversal: this.deps.httpGetUniversal,
-      logger: this.logger,
-      geoProxyServer: proxyServer,
-      forceGeoLookup: true,
-    }).then((profile) => this.applyBackgroundProfile(
-      tabId, browserSettings, proxyServer, cacheKey, attempt, profile,
-    )).catch((error) => this.handleProfileRefreshFailure(
-      tabId, browserSettings, proxyServer, cacheKey, attempt, error,
-    ));
-  }
-
-  applyBackgroundProfile(tabId, browserSettings, proxyServer, cacheKey, attempt, profile) {
-    const tab = this.resolveTabs().get(String(tabId || ''));
-    if (!tab || !profile) return;
-    tab.browserProfile = profile;
-    if (cacheKey) this.deps.browserRuntimeManager?.cacheBrowserProfile?.(tab.id, cacheKey, profile);
-    this.resolveTabs().set(tab.id, tab);
-    if (String(tab.runtimeType || '') === 'chromium') this.updateChromiumInstanceProfile(tab.id, profile);
-    this.deps.updateTabs(true);
-    if (!String(profile.sourceIp || '').trim()) {
-      this.scheduleProfileRefresh(tabId, browserSettings, proxyServer, cacheKey, attempt);
-    }
-  }
-
-  updateChromiumInstanceProfile(tabId, profile) {
-    const instance = this.deps.browserRuntimeManager?.chromium?.instances?.get?.(String(tabId));
-    if (instance?.profile) {
-      for (const key of ['locale', 'acceptLanguage', 'timezoneId', 'userAgent']) {
-        instance.profile[key] = profile[key] || instance.profile[key];
-      }
-    }
-    if (!instance?.appliedProfile) return;
-    instance.appliedProfile.browserEnvironment = {
-      ...(instance.appliedProfile.browserEnvironment || {}),
-      ...this.pickBrowserLocation(profile),
-    };
-  }
-
-  pickBrowserLocation(profile) {
-    return Object.fromEntries([
-      'region', 'regionLabel', 'sourceIp', 'sourceCountryCode',
-      'sourceCountry', 'sourceRegion', 'sourceCity',
-    ].map((key) => [key, String(profile[key] || '').trim()]));
-  }
-
-  handleProfileRefreshFailure(tabId, settings, proxyServer, cacheKey, attempt, error) {
-    this.logger.warn?.('[BrowserMask] 后台更新浏览器地区参数失败:', error?.message || error);
-    this.scheduleProfileRefresh(tabId, settings, proxyServer, cacheKey, attempt);
-  }
-
-  scheduleProfileRefresh(tabId, settings, proxyServer, cacheKey, attempt) {
-    const followsIp = ['language', 'timezone', 'geolocation'].some((key) => settings?.[key]?.mode === 'ip');
-    if (!followsIp || attempt + 1 >= MAX_PROFILE_REFRESH_ATTEMPTS) return;
-    setTimeout(
-      () => this.refreshBrowserProfileInBackground(tabId, settings, proxyServer, cacheKey, attempt + 1),
-      PROFILE_REFRESH_RETRY_DELAY_MS,
-    );
   }
 
   readPersistedBrowserSettings() {
@@ -471,7 +401,6 @@ class TabManagerRuntime {
       openTutorialTab: (...args) => this.openTutorialTab(...args),
       syncTutorialTabUrl: (...args) => this.syncTutorialTabUrl(...args),
       applyClashMiniBrowserProxy: (...args) => this.applyClashMiniBrowserProxy(...args),
-      applyNetworkMagicToTab: (...args) => this.applyNetworkMagicToTab(...args),
       setTabBrowserSettings: (...args) => this.setTabBrowserSettings(...args),
       refreshBrowsersAfterExtensionChange: (...args) => this.refreshBrowsersAfterExtensionChange(...args),
       switchTab: (...args) => this.switchTab(...args),

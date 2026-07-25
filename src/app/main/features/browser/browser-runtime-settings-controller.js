@@ -23,16 +23,15 @@ function getChromiumInstance(browserRuntimeManager, tabId) {
 function resolveEffectiveBrowserProxy(deps, normalized) {
   const clashStatus = typeof getClashMiniStatus === 'function' ? getClashMiniStatus() : null;
   const globalMagicEnabled = Boolean(clashStatus && clashStatus.running === true && clashStatus.enabled === true);
-  const magicSelected = Boolean(normalized.proxy && normalized.proxy.mode === 'magic');
   const configuredProxy = resolveConfiguredBrowserProxy(normalized);
   const magicProxy = callOptional(deps, 'getBrowserProxyEndpoint');
-  const effectiveProxy = globalMagicEnabled && magicSelected ? magicProxy : configuredProxy;
-  return { effectiveProxy: effectiveProxy || { enabled: false }, globalMagicEnabled, magicSelected };
+  const effectiveProxy = globalMagicEnabled ? magicProxy : configuredProxy;
+  return { effectiveProxy: effectiveProxy || { enabled: false }, globalMagicEnabled };
 }
 
 function applyProfileToRuntime(instance, tab, browserProfile, normalized, proxyState) {
   if (!instance || !instance.profile) return;
-  const { effectiveProxy, globalMagicEnabled, magicSelected } = proxyState;
+  const { effectiveProxy, globalMagicEnabled } = proxyState;
   instance.profile.locale = firstText(browserProfile && browserProfile.locale);
   instance.profile.acceptLanguage = firstText(browserProfile && browserProfile.acceptLanguage);
   instance.profile.timezoneId = firstText(browserProfile && browserProfile.timezoneId);
@@ -42,7 +41,7 @@ function applyProfileToRuntime(instance, tab, browserProfile, normalized, proxyS
   instance.profile.proxyServer = effectiveProxy.enabled ? firstText(effectiveProxy.server) : '';
   instance.profile.proxyBypassList = effectiveProxy.enabled ? firstText(effectiveProxy.bypassRules) : '';
   instance.profile.extraArgs = resolveChromiumExtraArgs(normalized);
-  tab.networkMagicApplied = globalMagicEnabled && magicSelected && effectiveProxy.enabled === true;
+  tab.networkMagicApplied = globalMagicEnabled && effectiveProxy.enabled === true;
 }
 
 async function applyConfiguredCookies(deps, tabId, normalized) {
@@ -57,7 +56,7 @@ async function applyConfiguredCookies(deps, tabId, normalized) {
 }
 
 async function setTabBrowserSettings(deps, tabId, settings, options = {}) {
-    const { browserRuntimeManager, httpGetUniversal, resolveTabBrowserProfile, resolveTabs, updateTabs } = deps;
+    const { browserRuntimeManager, resolveTabBrowserProfile, resolveTabs, updateTabs } = deps;
     const logger = deps.logger || console;
     try {
       const tabs = resolveTabs();
@@ -67,10 +66,7 @@ async function setTabBrowserSettings(deps, tabId, settings, options = {}) {
       const proxyState = resolveEffectiveBrowserProxy(deps, normalized);
       const browserProfile = await resolveTabBrowserProfile({
         browserSettings: normalized,
-        httpGetUniversal: httpGetUniversal,
         logger,
-        geoProxyServer: proxyState.effectiveProxy.enabled ? proxyState.effectiveProxy.server : '',
-        forceGeoLookup: true,
       });
       tab.browserSettings = { ...((tab.browserSettings && typeof tab.browserSettings === 'object') ? tab.browserSettings : {}), ...normalized };
       tab.browserProfile = browserProfile;

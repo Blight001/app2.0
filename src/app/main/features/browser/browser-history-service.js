@@ -249,7 +249,6 @@ function serializeBrowserHistory(history, ui) {
         tabId: openTab ? String(openTab.id || '') : '',
         isOpen: !!openTab,
         isActive: !!openTab && String(openTab.id || '') === activeTabId,
-        networkMagicSelected: record?.settings?.proxy?.mode === 'magic',
         networkMagicActive: !!openTab && openTab.networkMagicApplied === true,
       };
     })

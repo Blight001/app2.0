@@ -117,7 +117,7 @@
             <div class="vb-row"><span class="vb-label">操作系统</span><div class="segmented" data-field="os"><button type="button" data-value="win7">Win 7</button><button type="button" data-value="win8">Win 8</button><button type="button" data-value="win10">Win 10</button><button type="button" data-value="win11">Win 11</button></div></div>
             <div class="vb-row"><label class="vb-label" for="browser-version">浏览器版本</label><select id="browser-version"><option value="">自动匹配</option></select></div>
             <div class="vb-row"><label class="vb-label" for="kernel-version">内核版本</label><select id="kernel-version"><option value="auto">自动匹配</option></select></div>
-            <div class="vb-row vb-row-top"><span class="vb-label">代理设置</span><div class="vb-grow"><div class="segmented" data-field="proxy.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="magic">魔法端口</button><button type="button" data-value="none">不使用代理</button><button type="button" data-value="custom">自定义</button></div><div id="custom-proxy-fields" class="vb-subform">
+            <div class="vb-row vb-row-top"><span class="vb-label">代理设置</span><div class="vb-grow"><div class="segmented" data-field="proxy.mode"><button type="button" data-value="default">默认</button><button type="button" data-value="none">不使用代理</button><button type="button" data-value="custom">自定义</button></div><div id="custom-proxy-fields" class="vb-subform">
               <div class="vb-inline"><select id="proxy-protocol"><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks4">SOCKS4</option><option value="socks5">SOCKS5</option></select><input id="proxy-host" type="text" placeholder="代理主机"><input id="proxy-port" class="short-input" type="number" min="1" max="65535" placeholder="端口"></div>
               <div class="vb-inline"><input id="proxy-username" type="text" placeholder="代理账号"><input id="proxy-password" type="password" placeholder="代理密码"><button id="test-ai-free-proxy" class="mini-action" type="button">检测</button></div>
               <div class="vb-inline"><input id="proxy-api-url" type="url" placeholder="API 链接"><button id="extract-ai-free-proxy" class="mini-action" type="button">提取代理</button></div>
@@ -333,14 +333,21 @@
                   <strong id="account-app-preferences-title">软件关闭方式</strong>
                   <small>可随时恢复关闭窗口时询问</small>
                 </div>
-                <label for="window-close-behavior">
-                  <span>关闭主窗口时</span>
-                  <select id="window-close-behavior">
-                    <option value="ask">每次询问</option>
-                    <option value="hide">隐藏到托盘并继续后台运行</option>
-                    <option value="quit">直接退出软件</option>
-                  </select>
-                </label>
+                <fieldset id="window-close-behavior" class="account-close-behavior-options">
+                  <legend>关闭主窗口时</legend>
+                  <label>
+                    <input type="radio" name="window-close-behavior" value="ask">
+                    <span><strong>每次询问</strong><small>关闭时让我选择后台运行或退出</small></span>
+                  </label>
+                  <label>
+                    <input type="radio" name="window-close-behavior" value="hide">
+                    <span><strong>后台运行</strong><small>隐藏到系统托盘，任务继续运行</small></span>
+                  </label>
+                  <label>
+                    <input type="radio" name="window-close-behavior" value="quit">
+                    <span><strong>直接退出</strong><small>关闭软件并结束浏览器和自动化任务</small></span>
+                  </label>
+                </fieldset>
                 <p id="window-close-behavior-status" class="account-app-preferences-status" role="status" aria-live="polite"></p>
               </section>
 
@@ -574,7 +581,6 @@
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-selectors.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-card-selector.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-history-list.js"></script>
-  <script src="./client/app/side/controllers/pages/ai-control/ai-control-quick-launch.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-history-session.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-markdown.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-tool-display.js"></script>

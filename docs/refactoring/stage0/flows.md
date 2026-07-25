@@ -27,7 +27,7 @@
 
 ## 4. 网络魔法（Clash）
 
-- opt-in：`proxy.mode === 'magic'` 的浏览器才走 Clash。
+- 应用级开关：开启后所有软件内置浏览器统一走 Clash 本地混合端口；关闭后移除全局覆盖并恢复各浏览器原有代理设置。
 - IPC：`start/stop-clash-mini`、`get-clash-mini-status`、`switch-clash-mini-proxy`、`get-clash-mini-proxy-options`、`save/get-clash-config`、`test-min-latency`、`update-system-proxy-enabled`（clash.js 注册，clash-mini-core.js 2150 行实现进程管理）。
 - 已知风险：config 运行时从 jsdelivr 拉 geo/规则，国内失败退化 MATCH,DIRECT（见 docs/clash-mini-geo-localization-spec.md 的本地化方案）。
 - 流量配额：`get-proxy-traffic-quota`、`redeem-proxy-traffic-gift-code` + proxy-traffic-monitor.js。

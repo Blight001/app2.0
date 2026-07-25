@@ -80,8 +80,6 @@ function resolveChromiumExtensionPaths(browserSettings = {}, extensionManager = 
 function resolveConfiguredBrowserProxy(browserSettings = {}) {
   const proxy = asRecord(browserSettings.proxy);
   if (proxy.mode === 'default') return null;
-  // 魔法端口代理由 Clash Mini 状态决定，不在这里解析；魔法未开启时直连。
-  if (proxy.mode === 'magic') return null;
   if (proxy.mode === 'none') return { enabled: false };
   const host = firstText(proxy.host).trim();
   const port = Number(proxy.port);

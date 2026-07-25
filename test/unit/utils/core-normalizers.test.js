@@ -6,6 +6,10 @@ const os = require('node:os');
 const test = require('node:test');
 
 const browserRegion = require('../../../src/app/main/utils/browser-region');
+const {
+  normalizeAiFreeBrowserSettings,
+  parseCookieJson,
+} = require('../../../src/app/main/utils/ai-free-browser-settings');
 const { getHardwareFingerprint } = require('../../../src/app/main/utils/hardware-js');
 const storeUtils = require('../../../src/app/main/ipc/register/store-utils');
 
@@ -28,6 +32,22 @@ test('locale inference covers language, territory, aliases and unsupported input
     ['es-ES', null],
   ]);
   for (const [locale, expected] of cases) assert.equal(browserRegion.inferBrowserRegionKeyFromLocale(locale), expected, locale);
+});
+
+test('browser settings normalize legacy automatic modes without performing detection', () => {
+  const normalized = normalizeAiFreeBrowserSettings({
+    language: { mode: 'ip' },
+    timezone: { mode: 'ip' },
+    geolocation: { mode: 'ip' },
+  });
+  assert.equal(normalized.language.mode, 'ip');
+  assert.equal(normalized.timezone.mode, 'ip');
+  assert.equal(normalized.geolocation.mode, 'ip');
+  assert.deepEqual(parseCookieJson({ cookies: '{invalid' }), []);
+  assert.equal(
+    normalizeAiFreeBrowserSettings({ proxy: { mode: 'magic' } }).proxy.mode,
+    'default',
+  );
 });
 
 test('boolean and license binding normalizers cover wire aliases and fallbacks', () => {

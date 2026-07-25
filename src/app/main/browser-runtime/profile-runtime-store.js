@@ -119,32 +119,6 @@ class ProfileRuntimeStore {
     }
   }
 
-  readBrowserProfileCache(profileId, cacheKey) {
-    const filePath = this.getProfilePaths(profileId).fingerprint;
-    try {
-      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-      const cache = data && data.browserProfileCache;
-      if (!cache || cache.cacheKey !== cacheKey || !cache.profile) return null;
-      return { ...cache.profile };
-    } catch (_) {
-      return null;
-    }
-  }
-
-  writeBrowserProfileCache(profileId, cacheKey, profile) {
-    const paths = this.getProfilePaths(profileId);
-    fs.mkdirSync(paths.root, { recursive: true });
-    /** @type {Record<string, any>} */
-    let data = {};
-    try { data = JSON.parse(fs.readFileSync(paths.fingerprint, 'utf8')); } catch (_) {}
-    if (!data || typeof data !== 'object' || Array.isArray(data)) data = {};
-    data.browserProfileCache = { cacheKey, resolvedAt: Date.now(), profile: { ...profile } };
-    const temporary = `${paths.fingerprint}.${process.pid}.tmp`;
-    fs.writeFileSync(temporary, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
-    fs.renameSync(temporary, paths.fingerprint);
-    return true;
-  }
-
   acquireLock(profileId, metadata = {}) {
     const paths = this.ensureProfile({ profileId });
     if (this.locks.has(paths.id)) return this.locks.get(paths.id);

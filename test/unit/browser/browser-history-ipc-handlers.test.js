@@ -36,7 +36,6 @@ function fixture(overrides = {}) {
     syncOpenTabsToBrowserHistory: () => history,
     ui: {
       addTab: async () => 'tab-1',
-      applyNetworkMagicToTab: async () => ({ ok: true, restarted: true, magicRunning: true }),
       browserRuntimeManager: { deleteProfile: () => true },
       closeTab: async () => {},
       getActiveTabId: () => '',
@@ -80,20 +79,6 @@ test('独立浏览器并发创建复用同一挂起响应且完成后允许再�
   const third = await data.handlers.createIndependentBrowser(null, { name: '窗口 B' });
   assert.equal(third.pending, true);
   assert.equal(calls, 2);
-});
-
-test('网络魔法选择同时持久化记录并应用到已打开标签', async () => {
-  const data = fixture();
-  data.setHistory([{ id: 'history-1', name: '窗口', settings: { proxy: { mode: 'default' } } }]);
-  data.tabs.set('tab-1', { id: 'tab-1', browserHistoryId: 'history-1' });
-  const result = await data.handlers.applyNetworkMagicToBrowser(null, {
-    historyId: 'history-1', enabled: true,
-  });
-
-  assert.equal(result.ok, true);
-  assert.equal(result.restarted, true);
-  assert.equal(data.getHistory()[0].settings.proxy.mode, 'magic');
-  assert.equal(data.events.at(-1).channel, 'browser-history-changed');
 });
 
 test('批量重命名预先拒绝与未选记录冲突且不产生部分写入', async () => {

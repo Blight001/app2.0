@@ -87,8 +87,6 @@ contextBridge.exposeInMainWorld('aiFree', Object.freeze({
     onVipAccessRequired: subscribeChannel('vip-access-required'),
   }),
   network: Object.freeze({
-    applyToBrowser: invokeChannel('apply-network-magic-to-browser'),
-    getActiveBrowser: invokeChannel('get-network-magic-active-browser'),
     getAutoStartEnabled: invokeChannel('get-network-magic-auto-start-enabled'),
     getClashConfig: invokeChannel('get-clash-config'),
     getClashProxyOptions: invokeChannel('get-clash-mini-proxy-options'),

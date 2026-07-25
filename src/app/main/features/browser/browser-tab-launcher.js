@@ -20,7 +20,6 @@ const {
   resolveConfiguredBrowserProxy,
   resolveConfiguredHomepage,
 } = require('./browser-environment');
-const { buildBrowserProfileCacheKey } = require('./browser-profile-cache');
 
 class BrowserTabLauncher {
   constructor(deps = {}) {
@@ -98,7 +97,6 @@ class BrowserTabLauncher {
       restoreLastSession,
       browserSettings,
       proxy,
-      profileCacheKey: buildBrowserProfileCacheKey(browserSettings, proxy.value?.server),
       urls,
       bounds: this.resolveBounds(mainWindow),
       tab: this.createStartingTab(id, url, options, identity, browserSettings, proxy, urls),
@@ -125,9 +123,7 @@ class BrowserTabLauncher {
 
   resolveEffectiveProxy(browserSettings) {
     const status = getClashMiniStatus();
-    const useMagic = browserSettings?.proxy?.mode === 'magic'
-      && status?.running === true
-      && status?.enabled === true;
+    const useMagic = status?.running === true && status?.enabled === true;
     const magicProxy = useMagic ? this.resolveMagicProxy(status) : null;
     const configured = resolveConfiguredBrowserProxy(browserSettings);
     return {
@@ -222,9 +218,6 @@ class BrowserTabLauncher {
     this.deps.switchTab(context.id, { focusBrowser: context.options.focusBrowser === true });
     this.navigateFromLoadingPage(context);
     this.restoreSideFocusAfterLaunch(context);
-    this.deps.refreshBrowserProfileInBackground(
-      context.id, context.browserSettings, context.proxy.value?.server || '', context.profileCacheKey,
-    );
   }
 
   restoreSideFocusAfterLaunch(context) {
@@ -238,15 +231,9 @@ class BrowserTabLauncher {
 
   async resolveBrowserProfile(context) {
     if (typeof this.deps.resolveTabBrowserProfile !== 'function') return null;
-    const cached = this.deps.browserRuntimeManager.getCachedBrowserProfile?.(
-      context.id, context.profileCacheKey,
-    );
-    if (cached) return cached;
     return this.deps.resolveTabBrowserProfile({
       browserSettings: context.browserSettings,
-      httpGetUniversal: this.deps.httpGetUniversal,
       logger: this.logger,
-      skipGeoLookup: true,
     });
   }
 

@@ -64,7 +64,6 @@
 - (event) `close-browser-history-gesture-popup`
 - (event) `server-account-cookie-received`
 - (event) `update-browser-history-gesture-popup-selection`
-- `apply-network-magic-to-browser`
 - `cleanup-orphan-browser-profiles`
 - `consume-auto-validate-flag`
 - `create-independent-browser`
@@ -74,7 +73,6 @@
 - `get-ai-control-settings`
 - `get-ai-free-browser-settings`
 - `get-browser-history`
-- `get-network-magic-active-browser`
 - `get-network-magic-auto-start-enabled`
 - `get-plugin-settings`
 - `get-user-credentials`

@@ -133,7 +133,6 @@
       loadBrowserConnections();
       loadAutomationCards(state.currentSession?.automationCardId || '');
       void refreshHistoryList();
-      void refreshQuickLaunchHistory();
       window.setTimeout(() => reclaimAiInputFocus(el('ai-chat-input')), 50);
     });
     window.aiFree?.account?.onSessionUpdated?.(() => {
@@ -153,8 +152,6 @@
     loadBrowserConnections();
     loadAutomationCards();
     void bootstrapHistory();
-    bindQuickLaunchHistory();
-    void refreshQuickLaunchHistory();
     // 保留连接离线和外部卡片修改的发现速度；两个加载函数内部先比对快照，
     // 数据未变化时不会重建菜单、欢迎页或重复广播主窗口状态。
     window.setInterval(loadBrowserConnections, 750);
@@ -164,7 +161,6 @@
   // 正常关闭/刷新时再做一次同步本地检查点；即使 IPC 来不及完成，消息也不会丢失。
   window.addEventListener('pagehide', () => {
     if (currentMessages().length) checkpointCurrentSession();
-    unbindQuickLaunchHistory();
   });
 
   document.addEventListener('DOMContentLoaded', () => {

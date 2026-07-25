@@ -24,7 +24,6 @@ ipcMain.handle('set-window-close-behavior', (_event, payload = {}) => {
   windowCloseBehavior = String(payload.behavior || '');
   return { ok: true, data: { behavior: windowCloseBehavior } };
 });
-
 ipcMain.handle('get-ai-free-browser-settings', () => ({
   ok: true,
   settings: require('../../../src/app/main/utils/ai-free-browser-settings').normalizeAiFreeBrowserSettings({}),
@@ -182,6 +181,9 @@ app.whenReady().then(async () => {
     initialMain.click();
     const selectedRow = document.querySelector('[data-history-id="shared-browser"]');
     const selectedBorderColor = getComputedStyle(selectedRow).borderColor;
+    const selectedAnimationName = getComputedStyle(selectedRow).animationName;
+    const selectedName = selectedRow.querySelector('.browser-history-name');
+    const selectedNameTransitionProperty = getComputedStyle(selectedName).transitionProperty;
     getMain().click();
     const rightClickTarget = getMain();
     const rightClickBounds = rightClickTarget.getBoundingClientRect();
@@ -215,6 +217,8 @@ app.whenReady().then(async () => {
       refreshAnimationName: getComputedStyle(
         document.querySelector('[data-history-id="shared-browser"]'),
       ).animationName,
+      selectedAnimationName,
+      selectedNameTransitionProperty,
       selectedBorderColor,
     };
   })()`);
@@ -228,6 +232,9 @@ app.whenReady().then(async () => {
     || browserHistoryInteractionResult.contextMenuVisibleAfterMainRouting !== true
     || browserHistoryInteractionResult.contextTargetSelected !== false
     || browserHistoryInteractionResult.refreshAnimationName !== 'none'
+    || browserHistoryInteractionResult.selectedAnimationName !== 'none'
+    || browserHistoryInteractionResult.selectedNameTransitionProperty.split(', ')
+      .includes('transform')
     || browserHistoryInteractionResult.selectedBorderColor === 'rgb(240, 68, 68)'
     || browserHistoryOpenRequests !== 1
   ) {
@@ -310,13 +317,17 @@ app.whenReady().then(async () => {
         && panel.querySelector('#sidebar-auth-submit')?.textContent === '登录'
         && modeLabel?.textContent === '去注册'
         && panel.querySelector('.sidebar-auth-mode-arrow')?.textContent === '→';
-      const closeBehaviorSelect = panel.querySelector('#window-close-behavior');
-      const closeBehaviorLoaded = closeBehaviorSelect?.value === 'ask';
-      closeBehaviorSelect.value = 'hide';
-      closeBehaviorSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      const closeBehaviorAsk = panel.querySelector('input[name="window-close-behavior"][value="ask"]');
+      const closeBehaviorHide = panel.querySelector('input[name="window-close-behavior"][value="hide"]');
+      const closeBehaviorLoaded = closeBehaviorAsk?.checked === true;
+      const nativeSelectRemoved = !panel.querySelector('select#window-close-behavior');
+      closeBehaviorHide.click();
       await new Promise((done) => setTimeout(done, 30));
-      const closeBehaviorSaved = closeBehaviorSelect.value === 'hide'
+      const persistedCloseBehavior = await window.aiFree?.ui?.getWindowCloseBehavior?.();
+      const closeBehaviorSaved = closeBehaviorHide.checked === true
         && panel.querySelector('#window-close-behavior-status')?.textContent === '已保存';
+      const closeBehaviorPersisted = persistedCloseBehavior?.ok === true
+        && persistedCloseBehavior.data?.behavior === 'hide';
       resolve({
         active,
         profileVisible,
@@ -327,7 +338,9 @@ app.whenReady().then(async () => {
         registerModeWorks,
         loginModeWorks,
         closeBehaviorLoaded,
+        nativeSelectRemoved,
         closeBehaviorSaved,
+        closeBehaviorPersisted,
       });
     }, 30);
   })`);

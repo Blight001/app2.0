@@ -67,7 +67,7 @@ test('counter rollback is treated as a new counter epoch', () => {
 
 test('idle snapshots with null connections are valid and count nothing', () => {
   const tracker = createBillableTrafficTracker();
-  // 没有浏览器走魔法端口时，Mihomo 的 Go nil slice 会把 connections
+  // 没有活动代理请求时，Mihomo 的 Go nil slice 会把 connections
   // 序列化成 null；这是合法空闲响应，不能触发“格式无效”并停掉 Clash。
   assert.deepEqual(
     tracker.sample({ uploadTotal: 0, downloadTotal: 0, connections: null }),

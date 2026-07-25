@@ -62,7 +62,7 @@ test('settings application updates Chromium profile, cookies and restart state',
   fixture.tabs.set(tab.id, tab);
   fixture.instances.set(tab.id, { profile: {} });
   const result = await fixture.controller.setTabBrowserSettings(tab.id, {
-    proxy: { mode: 'magic' }, cookies: [{ name: 'sid', value: 'fixture' }], extraArgs: ['--fixture'],
+    proxy: { mode: 'default' }, cookies: [{ name: 'sid', value: 'fixture' }], extraArgs: ['--fixture'],
   }, { restartChromium: true });
   assert.deepEqual(result, { ok: true, applied: true, restarted: true, runtimeType: 'chromium' });
   assert.equal(tab.networkMagicApplied, true);

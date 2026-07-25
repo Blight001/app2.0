@@ -132,8 +132,8 @@ function normalizeAiFreeBrowserSettings(input = {}) {
     browserVersion: text(source.browserVersion, '', 30).replace(/[^0-9.]/g, ''),
     kernelVersion: text(source.kernelVersion, 'auto', 60),
     proxy: {
-      // magic = 使用软件网络魔法的本地混合端口；仅当网络魔法开启时生效。
-      mode: pick(proxy.mode, ['default', 'none', 'custom', 'magic'], defaults.proxy.mode),
+      // 旧版本持久化的 magic 模式会回落为 default；网络魔法现为应用级独立开关。
+      mode: pick(proxy.mode, ['default', 'none', 'custom'], defaults.proxy.mode),
       protocol: pick(proxy.protocol, ['http', 'https', 'socks4', 'socks5'], defaults.proxy.protocol),
       host: text(proxy.host, '', 255),
       port: normalizeProxyPort(proxy.port),
@@ -199,4 +199,9 @@ function parseLaunchArgs(settings = {}) {
   return String(settings.launchArgs.value || '').split(/\r?\n|\s+(?=--)/).map((item) => item.trim()).filter((item) => item.startsWith('--')).slice(0, 100);
 }
 
-module.exports = { DEFAULT_AI_FREE_BROWSER_SETTINGS, normalizeAiFreeBrowserSettings, parseCookieJson, parseLaunchArgs };
+module.exports = {
+  DEFAULT_AI_FREE_BROWSER_SETTINGS,
+  normalizeAiFreeBrowserSettings,
+  parseCookieJson,
+  parseLaunchArgs,
+};

@@ -206,85 +206,6 @@ async function createIndependentBrowser(deps, state, payload) {
   }
 }
 
-async function getNetworkMagicActiveBrowser(deps) {
-  try {
-    const activeTabId = deps.ui && typeof deps.ui.getActiveTabId === 'function'
-      ? text(deps.ui.getActiveTabId())
-      : '';
-    const tab = tabValues(deps.ui).find((item) => text(item.id) === activeTabId) || null;
-    if (!tab) return { ok: true, tab: null };
-    const settings = tab.browserSettings && typeof tab.browserSettings === 'object' ? tab.browserSettings : {};
-    const proxy = settings.proxy && typeof settings.proxy === 'object' ? settings.proxy : {};
-    return { ok: true, tab: {
-      id: text(tab.id),
-      name: text(tab.fixedTitle, tab.runtimeTitle, '新建窗口'),
-      historyId: text(tab.browserHistoryId),
-      magicSelected: proxy.mode === 'magic',
-    } };
-  } catch (error) {
-    return { ok: false, error: errorMessage(error), tab: null };
-  }
-}
-
-function resolveMagicTarget(history, tabs, payload) {
-  const historyId = text(payload && payload.historyId);
-  let tabId = text(payload && payload.tabId);
-  let record = historyId ? history.find((item) => item.id === historyId) || null : null;
-  if (!record && tabId) {
-    const tab = tabs.find((item) => text(item && item.id) === tabId);
-    record = history.find((item) => item.id === text(tab && tab.browserHistoryId)) || null;
-  }
-  if (record && !tabId) {
-    const tab = tabs.find((item) => text(item && item.browserHistoryId) === record.id);
-    tabId = text(tab && tab.id);
-  }
-  return { record, tabId };
-}
-
-function persistMagicSelection(deps, history, record, enabled) {
-  if (!record) return;
-  const settings = record.settings && typeof record.settings === 'object' ? record.settings : {};
-  const proxy = settings.proxy && typeof settings.proxy === 'object' ? settings.proxy : {};
-  record.settings = deps.normalizeAiFreeBrowserSettings({
-    ...settings,
-    proxy: { ...proxy, mode: enabled ? 'magic' : 'default' },
-  });
-  if (!deps.writeBrowserHistorySafe(history)) throw new Error('魔法代理选择未能写入本地配置');
-}
-
-async function applyMagicToOpenTab(deps, tabId, enabled) {
-  if (!tabId || !deps.ui || typeof deps.ui.applyNetworkMagicToTab !== 'function') return null;
-  const result = await deps.ui.applyNetworkMagicToTab(tabId, enabled);
-  if (result && result.ok !== true) {
-    throw new Error(result.error || (enabled ? '应用魔法代理失败' : '关闭魔法代理失败'));
-  }
-  return result;
-}
-
-async function applyNetworkMagicToBrowser(deps, payload) {
-  try {
-    const enabled = !payload || payload.enabled !== false;
-    const history = deps.syncOpenTabsToBrowserHistory(deps.ui);
-    const target = resolveMagicTarget(history, tabValues(deps.ui), payload);
-    if (!target.record && !target.tabId) throw new Error('浏览器记录不存在');
-    persistMagicSelection(deps, history, target.record, enabled);
-    const applyResult = await applyMagicToOpenTab(deps, target.tabId, enabled);
-    callOptional(deps.ui, 'sendToSide', 'browser-history-changed');
-    return {
-      ok: true,
-      enabled,
-      historyId: target.record ? target.record.id : '',
-      tabId: target.tabId,
-      name: target.record ? target.record.name : '',
-      isOpen: Boolean(target.tabId),
-      magicRunning: applyResult ? applyResult.magicRunning === true : null,
-      restarted: Boolean(applyResult && applyResult.restarted === true),
-    };
-  } catch (error) {
-    return { ok: false, error: errorMessage(error) };
-  }
-}
-
 function selectedRenameRecords(history, payload) {
   const source = payload && Array.isArray(payload.historyIds) ? payload.historyIds : [];
   const historyIds = [...new Set(source.map((id) => text(id)).filter(Boolean))];
@@ -392,8 +313,6 @@ function createBrowserHistoryIpcHandlers(deps) {
       try { return await deps.openBrowserHistoryRecord(deps.ui, payload.historyId); }
       catch (error) { return { ok: false, error: errorMessage(error) }; }
     },
-    getNetworkMagicActiveBrowser: () => getNetworkMagicActiveBrowser(deps),
-    applyNetworkMagicToBrowser: (_event, payload = {}) => applyNetworkMagicToBrowser(deps, payload),
     async renameBrowserHistory(_event, payload = {}) {
       try { return deps.renameBrowserHistoryRecord(deps.ui, payload.historyId, payload.name); }
       catch (error) { return { ok: false, error: errorMessage(error) }; }

@@ -63,12 +63,6 @@ class BrowserRuntimeManager {
   async stopAll(options) { return this.chromium.stopAll(options); }
   getState(profileId) { return this.store.getState(profileId); }
   listStates() { return this.store.listStates(); }
-  getCachedBrowserProfile(profileId, cacheKey) {
-    return this.store.readBrowserProfileCache?.(profileId, cacheKey) || null;
-  }
-  cacheBrowserProfile(profileId, cacheKey, profile) {
-    return this.store.writeBrowserProfileCache?.(profileId, cacheKey, profile) || false;
-  }
   isManagedBrowserProcess(processId) {
     const pid = Number(processId || 0) || 0;
     if (!pid) return false;

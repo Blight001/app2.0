@@ -74,7 +74,7 @@ test('open tabs create and update durable history records', () => {
     id: 'profile-new',
     fixedTitle: 'New Browser',
     requestedUrl: 'https://new.test',
-    browserSettings: { proxy: { mode: 'magic' } },
+    browserSettings: { proxy: { mode: 'default' } },
     isTutorialTab: true,
   };
   const existingTab = {
@@ -97,7 +97,7 @@ test('open tabs create and update durable history records', () => {
 
 test('serialization adds account and live tab state then sorts recent records', () => {
   const history = [
-    { id: 'old', accountId: 'account-1', url: 'https://old.test', settings: { proxy: { mode: 'magic' } }, lastOpenedAt: 1 },
+    { id: 'old', accountId: 'account-1', url: 'https://old.test', settings: { proxy: { mode: 'default' } }, lastOpenedAt: 1 },
     { id: 'new', url: 'https://new.test', settings: {}, lastOpenedAt: 5 },
   ];
   const ui = {
@@ -115,7 +115,7 @@ test('serialization adds account and live tab state then sorts recent records', 
   assert.equal(old.url, 'https://live.test');
   assert.equal(old.isOpen, true);
   assert.equal(old.isActive, true);
-  assert.equal(old.networkMagicSelected, true);
+  assert.equal('networkMagicSelected' in old, false);
   assert.equal(old.networkMagicActive, true);
   assert.equal(historyService.buildBrowserHistoryAccountMeta({}), null);
 });
@@ -149,9 +149,9 @@ test('open and edit reuse active tabs, persist settings, or restore closed profi
   assert.equal(rename.name, 'Renamed');
   assert.deepEqual(renamed, [['profile-open', 'Renamed']]);
   const edited = historyService.editBrowserHistoryRecord(ui, 'open', {
-    settings: { proxy: { mode: 'magic' }, timezone: { mode: 'custom', value: 'UTC' } },
+    settings: { proxy: { mode: 'none' }, timezone: { mode: 'custom', value: 'UTC' } },
   });
-  assert.equal(edited.settings.proxy.mode, 'magic');
+  assert.equal(edited.settings.proxy.mode, 'none');
   assert.equal(store.browserHistory.find((item) => item.id === 'open').settings.timezone.value, 'UTC');
   assert.equal(events.length, 4);
   assert.throws(() => historyService.renameBrowserHistoryRecord(ui, 'missing', 'x'), /不存在/);

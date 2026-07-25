@@ -62,7 +62,6 @@ function createBootstrapUiDeps(deps) {
     purgeBrowserSessionData: typeof deps.purgeBrowserSessionData === 'function' ? deps.purgeBrowserSessionData : null,
     buildManagedTabPartitionName: typeof deps.buildManagedTabPartitionName === 'function' ? deps.buildManagedTabPartitionName : null,
     applyClashMiniBrowserProxy: typeof deps.applyClashMiniBrowserProxy === 'function' ? deps.applyClashMiniBrowserProxy : null,
-    applyNetworkMagicToTab: typeof deps.applyNetworkMagicToTab === 'function' ? deps.applyNetworkMagicToTab : null,
     browserRuntimeManager: deps.browserRuntimeManager || null,
   };
 }
@@ -91,6 +90,8 @@ function registerBootstrapIPC(deps) {
         : null,
       refreshAnnouncements: (options = {}) => deps.ensureAnnouncementPoller().refreshNow(options),
       getCurrentPlatformLabel: deps.getCurrentPlatformLabel,
+      readStoreConfigSafe: deps.readStoreConfigSafe,
+      writeStoreConfigSafe: deps.writeStoreConfigSafe,
     });
     deps.logger.log?.('[启动] IPC handlers 已注册');
   } catch (error) {

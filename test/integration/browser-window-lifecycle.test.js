@@ -83,22 +83,17 @@ test('主窗口最大化后 Chromium 区域保留最大化前的侧栏宽度', a
   assert.deepEqual(launchedBounds, { x: 0, y: 41, width: 1560, height: 999 });
 });
 
-test('代理出口探测不阻塞 Chromium 启动并在后台写入 Profile 缓存', async () => {
+test('浏览器启动解析 Profile 时不再传入出口 IP 探测参数', async () => {
   const chromium = new EventEmitter();
   const tabs = new Map();
   let finishProfileLookup;
   let launchCount = 0;
   const lookups = [];
-  const cachedProfiles = [];
   const profileLookup = new Promise((resolve) => { finishProfileLookup = resolve; });
   let activeTabId = null;
   const manager = createTabManager({
     browserRuntimeManager: {
       chromium,
-      getCachedBrowserProfile() { return null; },
-      cacheBrowserProfile(profileId, cacheKey, profile) {
-        cachedProfiles.push({ profileId, cacheKey, profile });
-      },
       async launchProfile() {
         launchCount += 1;
         return { status: 'ready' };
@@ -109,7 +104,7 @@ test('代理出口探测不阻塞 Chromium 启动并在后台写入 Profile 缓�
     },
     resolveTabBrowserProfile: (options) => {
       lookups.push(options);
-      return options.skipGeoLookup ? Promise.resolve({ locale: 'zh-CN' }) : profileLookup;
+      return profileLookup;
     },
     getTabs: () => tabs,
     getMainWindow: () => ({ isDestroyed: () => false, getContentSize: () => [1200, 800], emit() {} }),
@@ -131,16 +126,76 @@ test('代理出口探测不阻塞 Chromium 启动并在后台写入 Profile 缓�
 
   assert.equal(tabs.get('async-browser')?.runtimeStatus, 'starting');
   assert.equal(activeTabId, 'async-browser');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(launchCount, 0);
+  assert.equal(lookups.length, 1);
+  assert.equal(lookups[0].geoProxyServer, undefined);
+  assert.equal(lookups[0].forceGeoLookup, undefined);
+  assert.equal(lookups[0].skipGeoLookup, undefined);
+  assert.equal(lookups[0].httpGetUniversal, undefined);
+
+  finishProfileLookup({
+    locale: 'ja-JP',
+    timezoneId: 'Asia/Tokyo',
+    region: 'jp',
+  });
   assert.equal(await creation, 'async-browser');
   assert.equal(launchCount, 1);
   assert.equal(tabs.get('async-browser')?.runtimeStatus, 'ready');
-  assert.equal(lookups[0].skipGeoLookup, true);
-  assert.equal(lookups[1].geoProxyServer, 'http://127.0.0.1:7897');
+  assert.equal(tabs.get('async-browser')?.browserProfile?.timezoneId, 'Asia/Tokyo');
+});
 
-  finishProfileLookup({ locale: 'ja-JP', sourceIp: '203.0.113.8' });
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(cachedProfiles.length, 1);
-  assert.equal(cachedProfiles[0].profileId, 'async-browser');
+test('自定义语言时区和位置直接生成 Chromium 启动参数', async () => {
+  const chromium = new EventEmitter();
+  const tabs = new Map();
+  const lookups = [];
+  let launchedProfile = null;
+  const manager = createTabManager({
+    browserRuntimeManager: {
+      chromium,
+      async launchProfile(profile) {
+        launchedProfile = profile;
+        return { status: 'ready' };
+      },
+      async hide() {},
+      async show() {},
+      async focus() {},
+    },
+    resolveTabBrowserProfile: async (options) => {
+      lookups.push(options);
+      return { locale: 'fr-FR', timezoneId: 'Europe/Paris' };
+    },
+    getTabs: () => tabs,
+    getMainWindow: () => ({ isDestroyed: () => false, getContentSize: () => [1200, 800], emit() {} }),
+    getActiveTabId: () => null,
+    setActiveTabId() {},
+    getIsSidebarVisible: () => true,
+    updateTabs() {},
+    sendToSide() {},
+    logger: { warn() {}, error() {} },
+  });
+
+  await manager.addTab('chrome://newtab/', {
+    tabId: 'custom-region-browser',
+    browserSettings: {
+      language: { mode: 'custom', value: 'fr-FR' },
+      timezone: { mode: 'custom', value: 'Europe/Paris' },
+      geolocation: {
+        permission: 'allow',
+        mode: 'custom',
+        longitude: 2.3522,
+        latitude: 48.8566,
+        accuracy: 20,
+      },
+    },
+  });
+
+  assert.equal(lookups.length, 1);
+  assert.equal(lookups[0].skipGeoLookup, undefined);
+  assert.equal(lookups[0].forceGeoLookup, undefined);
+  assert.equal(lookups[0].httpGetUniversal, undefined);
+  assert.equal(launchedProfile.locale, 'fr-FR');
+  assert.equal(launchedProfile.timezoneId, 'Europe/Paris');
 });
 
 test('侧栏输入中创建浏览器会在 HWND 附着完成后恢复侧栏原生焦点', async () => {

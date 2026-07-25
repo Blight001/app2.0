@@ -38,7 +38,7 @@ function createBillableTrafficTracker() {
   };
 
   const sample = (snapshot) => {
-    // Mihomo 没有活动连接时（例如没有任何浏览器选择魔法端口），Go 的
+    // Mihomo 没有活动连接时（例如浏览器当前没有网络请求），Go 的
     // nil slice 会把 connections 序列化成 null，这仍是合法的空闲响应，
     // 不能当成格式错误——连续误判会触发“控制端口不可用”而停掉 Clash。
     assertValidTrafficSnapshot(snapshot);

@@ -1,7 +1,6 @@
 const state = {
   messages: [],
   sessionList: [],
-  quickLaunchHistory: [],
   currentSession: null,
   currentBrowserIds: [],
   availableBrowserIds: [],

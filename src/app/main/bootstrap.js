@@ -51,7 +51,6 @@ function startMainApp() {
   let openTutorialTab;
   let syncTutorialTabUrl;
   let applyClashMiniBrowserProxy;
-  let applyNetworkMagicToTab;
   let switchTab;
   let closeTab;
   let reorderTab;
@@ -109,6 +108,13 @@ function startMainApp() {
     late,
     getAppShell: () => appShell,
   });
+  // appShell 会在构造时复制依赖，而 tabManager 要到下一步才创建。使用稳定包装器
+  // 晚绑定真实动作，避免后续写回原 deps 对象却无法进入 IPC 的 ui context。
+  appShellDeps.applyClashMiniBrowserProxy = (...args) => (
+    typeof applyClashMiniBrowserProxy === 'function'
+      ? applyClashMiniBrowserProxy(...args)
+      : null
+  );
   appShell = createAppShell(appShellDeps);
 
   // ---- 标签管理 ----
@@ -143,7 +149,6 @@ function startMainApp() {
     openTutorialTab,
     syncTutorialTabUrl,
     applyClashMiniBrowserProxy,
-    applyNetworkMagicToTab,
     switchTab,
     closeTab,
     reorderTab,
@@ -155,9 +160,6 @@ function startMainApp() {
     refreshActiveTab,
     refreshTab,
   } = tabManager);
-
-  appShellDeps.applyClashMiniBrowserProxy = applyClashMiniBrowserProxy;
-  appShellDeps.applyNetworkMagicToTab = applyNetworkMagicToTab;
 
   // ---- 生命周期 ----
   const lifecycleRegistration = registerAppLifecycle(buildLifecycleDeps({
