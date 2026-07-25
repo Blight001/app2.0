@@ -94,7 +94,7 @@
 | `node --test test/contract/ipc/channels-registry.test.js test/contract/ipc/preload-domain-api.test.js` | 通过 |
 | `npm run guardrails` | 通过；零 ESLint/typecheck/结构债务 |
 | `npm run check:workspace-shell` | 通过；Browser/Software 真实标签壳、独立 preload、三栏目 side view |
-| `npm run verify` | 通过；532 项测试、覆盖率、架构门禁和源码生成通过 |
+| `npm run verify` | 通过；533 项测试、覆盖率、架构门禁和源码生成通过 |
 | `npm run check:software-settings-ui` | 通过 |
 | `npm run check:external-app-embed` | 通过；截图、Sidecar 协议、真实鼠标/键盘、弹窗、跟随和恢复 |
 | `npm run check:browser-runtime` | 通过；修复 Profile 刷新丢失 `geoProxyServer` |
@@ -121,7 +121,7 @@
   根进程；现增加精确 PID 的 `ChildProcess.kill('SIGKILL')` 兜底，并以 OS PID 存活
   状态确认退出，phase 3 的 Profile 锁和进程释放恢复稳定。
 - 连续 Electron 验收可能遇到 Windows 前台切换超时 `0x80070102`；外部软件输入 fixture
-  仅对该明确超时重新聚焦并重试一次，重复失败仍使验收失败。
+  仅对该明确超时重新聚焦宿主、同步 Sidecar 目标并作有界重试，重复失败仍使验收失败。
 - 自有模态 fixture 的确认按钮使用固定大尺寸与基于截图的中心坐标，避免依赖
   Windows `MessageBox` 的版本差异；真实系统鼠标点击仍必须关闭弹窗和测试进程。
 - AppShell 构造时会复制依赖，构造后再写入 Workspace bootstrap、sender authorizer 和
@@ -130,3 +130,9 @@
   启动、Software IPC 装配和结构化错误文案回归测试。
 - 外部软件恢复 fixture 只在确认测试窗口已可见后记录原始 placement，避免把应用刚
   启动时的瞬时隐藏状态误当成恢复目标；位置、尺寸、最小化、最大化和可见性断言均保留。
+- Software 与 Browser 共用 Runtime Manager 时，外部软件曾沿默认 getter 取到 Browser
+  HWND；现由 Software TabManager 显式传入当前 Software Window，真实验收使用隐藏的
+  Browser 诱饵窗口证明软件只停靠到 Software，且截图、输入、跟随和恢复行为保持不变。
+- Software 壳的工作域切换曾写在被 CSP 禁止的内联脚本中，导致专属模式从未执行；
+  现迁到受 CSP 允许的独立 renderer，并在无实例时显示“尚未嵌入软件”及右侧操作引导，
+  同时验收 Browser 专属控件已从 Software 主壳移除。

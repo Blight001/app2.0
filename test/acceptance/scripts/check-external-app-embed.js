@@ -19,6 +19,7 @@ const executablePath = path.join(process.env.SystemRoot || 'C:\\Windows', 'Syste
 let manager = null;
 let cursorSidecarService = null;
 let window = null;
+let fallbackParentWindow = null;
 let launchedPid = 0;
 const launchedPids = new Set();
 
@@ -33,14 +34,31 @@ async function waitForValue(read, timeoutMs = 15000) {
 }
 
 async function executeFocusedAction(profileId, tools, input) {
-  try {
-    return await tools.execute('software_ui', input);
-  } catch (error) {
-    if (!String(error?.message || error).includes('0x80070102')) throw error;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      return await tools.execute('software_ui', input);
+    } catch (error) {
+      const retryable = String(error?.message || error).includes('0x80070102');
+      if (!retryable || attempt === 4) throw error;
+    }
+    window.show();
+    window.focus();
     await manager.focus(profileId, 'external-app');
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    return tools.execute('software_ui', input);
+    await manager.syncCursorTarget(profileId, 'external-app');
+    await new Promise((resolve) => setTimeout(resolve, 600));
   }
+  throw new Error('软件输入重试未返回结果');
+}
+
+async function waitForVisualObservation(tools, timeoutMs = 5000) {
+  return waitForValue(async () => {
+    try {
+      const result = await tools.execute('software_ui', { action: 'observe' });
+      return result?.dataUrl ? result : null;
+    } catch (_) {
+      return null;
+    }
+  }, timeoutMs);
 }
 
 async function cleanup(exitCode) {
@@ -50,6 +68,11 @@ async function cleanup(exitCode) {
     try { process.kill(pid); } catch (_) {}
   }
   try { if (window && !window.isDestroyed()) window.destroy(); } catch (_) {}
+  try {
+    if (fallbackParentWindow && !fallbackParentWindow.isDestroyed()) {
+      fallbackParentWindow.destroy();
+    }
+  } catch (_) {}
   try { fs.rmSync(testRoot, { recursive: true, force: true }); } catch (_) {}
   app.exit(exitCode);
 }
@@ -93,38 +116,39 @@ async function verifyOwnedPopupAutomation() {
     () => manager.windowBridge.findMainWindowByProcessId(popupProcess.pid),
   );
   assert.ok(ownerHwnd, '应发现弹窗测试程序的主窗口');
-  const state = await manager.launchProfile({
-    profileId: 'external-popup-acceptance',
-    runtimeType: 'external-app',
-    softwareId: 'running-window',
-    displayName: 'AI-FREE Popup Owner',
-    existingWindowHwnd: ownerHwnd,
-    existingWindowPid: popupProcess.pid,
-  }, { x: 0, y: 0, width: 800, height: 560 });
+  const state = await manager.launchProfile(
+    {
+      profileId: 'external-popup-acceptance',
+      runtimeType: 'external-app',
+      softwareId: 'running-window',
+      displayName: 'AI-FREE Popup Owner',
+      existingWindowHwnd: ownerHwnd,
+      existingWindowPid: popupProcess.pid,
+    },
+    { x: 0, y: 0, width: 800, height: 560 },
+    { parentWindow: window },
+  );
   const tools = createAiSoftwareUiTools({
     windowBridge: manager.windowBridge,
     cursorSidecarService,
     target: manager.externalApp.getAutomationTarget(state.profileId),
   });
   await new Promise((resolve) => setTimeout(resolve, 1700));
-  const observed = await waitForValue(async () => {
-    try {
-      const result = await tools.execute('software_ui', { action: 'observe' });
-      return result?.dataUrl ? result : null;
-    } catch (_) {
-      return null;
-    }
-  }, 5000);
+  const observed = await waitForVisualObservation(tools);
   assert.ok(observed?.observation_id, '模态弹窗应可截图观察');
   assert.match(observed.dataUrl, /^data:image\/png;base64,/);
   // Fixture 使用自有的大尺寸确认按钮，避免依赖不同 Windows 版本的 MessageBox 排版。
-  const clicked = await tools.execute('software_ui', {
-    action: 'mouse_click',
-    observation_id: observed.observation_id,
-    x: Math.floor(observed.width * 0.5),
-    y: Math.floor(observed.height * 0.64),
-    refresh: false,
-  });
+  const clicked = await executeFocusedAction(
+    state.profileId,
+    tools,
+    {
+      action: 'mouse_click',
+      observation_id: observed.observation_id,
+      x: Math.floor(observed.width * 0.5),
+      y: Math.floor(observed.height * 0.64),
+      refresh: false,
+    },
+  );
   assert.equal(clicked.method, 'mouse');
   assert.ok(
     await waitForValue(() => !manager.windowBridge.isWindowAlive(ownerHwnd)),
@@ -138,6 +162,12 @@ app.whenReady().then(async () => {
     width: 900,
     height: 650,
     show: true,
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
+  });
+  fallbackParentWindow = new BrowserWindow({
+    width: 320,
+    height: 240,
+    show: false,
     webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
   });
   await window.loadURL('data:text/html,<title>External App Embed Acceptance</title>');
@@ -156,7 +186,7 @@ app.whenReady().then(async () => {
   manager = createBrowserRuntimeManager({
     userDataDir: testRoot,
     resourcesPath: process.resourcesPath,
-    getParentWindow: () => window,
+    getParentWindow: () => fallbackParentWindow,
     logger: console,
     windowBridge,
     cursorSidecarService,
@@ -193,14 +223,18 @@ app.whenReady().then(async () => {
     });
     const [software] = await catalog.listAvailable();
     assert.match(software.iconDataUrl, /^data:image\/png;base64,/);
-    const state = await manager.launchProfile({
-      profileId: 'external-app-acceptance',
-      runtimeType: 'external-app',
-      softwareId: 'running-window',
-      displayName: discovered.title,
-      existingWindowHwnd: discovered.hwnd,
-      existingWindowPid: discovered.pid,
-    }, { x: 0, y: 0, width: 800, height: 560 });
+    const state = await manager.launchProfile(
+      {
+        profileId: 'external-app-acceptance',
+        runtimeType: 'external-app',
+        softwareId: 'running-window',
+        displayName: discovered.title,
+        existingWindowHwnd: discovered.hwnd,
+        existingWindowPid: discovered.pid,
+      },
+      { x: 0, y: 0, width: 800, height: 560 },
+      { parentWindow: window },
+    );
     assert.equal(state.status, 'ready');
     assert.equal(state.embedded, true);
     assert.equal(state.docked, true);
@@ -211,12 +245,25 @@ app.whenReady().then(async () => {
       ),
       true,
     );
+    assert.equal(
+      manager.windowBridge.isExternalWindowDocked(
+        fallbackParentWindow.getNativeWindowHandle(),
+        state.browserHwnd,
+      ),
+      false,
+      'Software 外部窗口不得停靠到 Browser 默认 parent',
+    );
+    fallbackParentWindow.destroy();
+    fallbackParentWindow = null;
+    window.show();
+    window.focus();
     const uiTools = createAiSoftwareUiTools({
       windowBridge: manager.windowBridge,
       cursorSidecarService,
       target: manager.externalApp.getAutomationTarget('external-app-acceptance'),
     });
-    const observed = await uiTools.execute('software_ui', { action: 'observe' });
+    const observed = await waitForVisualObservation(uiTools);
+    assert.ok(observed, '停靠后的软件窗口应可截图观察');
     assert.equal(observed.success, true);
     assert.equal(observed.observation_mode, 'visual');
     assert.match(observed.dataUrl, /^data:image\/png;base64,/);
@@ -258,7 +305,8 @@ app.whenReady().then(async () => {
     );
     assert.equal(typedVisual.method, 'keyboard');
     console.log('[external-app-embed] keyboard input passed');
-    const observedAgain = await uiTools.execute('software_ui', { action: 'observe' });
+    const observedAgain = await waitForVisualObservation(uiTools);
+    assert.ok(observedAgain, '输入后的软件窗口应可再次截图观察');
     assert.equal(observedAgain.observation_mode, 'visual');
     assert.match(observedAgain.dataUrl, /^data:image\/png;base64,/);
     const dockedPlacement = manager.windowBridge.getWindowPlacementSnapshot(state.browserHwnd);

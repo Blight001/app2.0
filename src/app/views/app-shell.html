@@ -4,16 +4,6 @@
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' http: https:; object-src 'none'; base-uri 'self'">
   <title>AI-FREE</title>
-  <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      if (window.env?.WORKSPACE_TYPE !== 'software') return;
-      document.documentElement.classList.add('software-workspace');
-      document.querySelectorAll('[data-workspace-domain="browser"]')
-        .forEach((element) => element.remove());
-      const emptyState = document.getElementById('browser-empty-state');
-      emptyState?.setAttribute('aria-label', '尚未打开软件实例');
-    });
-  </script>
   <link rel="stylesheet" href="../renderer/styles/app-shell.css" />
 </head>
 <body>
@@ -57,9 +47,14 @@
     <div id="content-area">
       <div id="browser-empty-state" role="img" aria-label="AI-FREE 浏览器尚未打开">
         <img data-app-logo alt="">
+        <div class="workspace-empty-copy">
+          <strong id="workspace-empty-title">尚未打开浏览器标签</strong>
+          <span id="workspace-empty-hint">请新建或选择一个浏览器标签</span>
+        </div>
       </div>
     </div>
   </div>
+  <script src="../renderer/controllers/pages/app-shell/workspace-shell-mode.js"></script>
   <script src="../sidebar/client/scripts/logo-assets.js"></script>
   <script src="../renderer/controllers/shared/controller-utils.js"></script>
   <script src="../renderer/controllers/pages/app-shell/tabs-shell-ui.js"></script>

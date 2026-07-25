@@ -177,6 +177,26 @@ async function checkBrowserWorkspaceShell() {
     domains: ['software', 'softwareAi', 'softwareAutomation', 'workspace'],
     frozen: true,
   });
+  assert.deepEqual(
+    await software.webContents.executeJavaScript(`({
+      hidden: document.getElementById('browser-empty-state').hidden,
+      title: document.getElementById('workspace-empty-title').textContent,
+      hint: document.getElementById('workspace-empty-hint').textContent,
+    })`),
+    {
+      hidden: false,
+      title: '尚未嵌入软件',
+      hint: '请从右侧“软件配置”中选择软件并点击“嵌入”',
+    },
+    'Software 尚无实例时应显示明确的嵌入引导，不能呈现无说明白屏',
+  );
+  assert.equal(
+    await software.webContents.executeJavaScript(
+      'document.querySelector("[data-workspace-domain=\\"browser\\"]") === null',
+    ),
+    true,
+    'Software 主壳不得保留 Browser 专属控件',
+  );
   const softwareLabels = await softwareState.getSideView().webContents.executeJavaScript(
     '[...document.querySelectorAll(".tab-button span:last-child")].map((node) => node.textContent)',
   );
