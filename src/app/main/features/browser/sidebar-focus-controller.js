@@ -42,14 +42,10 @@ function createSidebarFocusAction(mainWindow, sideContents, event) {
   };
 }
 
-function createSidebarFocusHandler(ui, isPopupOpen) {
+function createSidebarFocusHandler(ui) {
   return async (event, request = {}) => {
     try {
-      const passive = request?.interaction === 'passive';
       const textInput = request?.interaction === 'text-input';
-      if (passive && isPopupOpen()) {
-        return { ok: true, skipped: true, reason: 'account-center-popup-open' };
-      }
       const mainWindow = ui?.getMainWindow?.();
       const sideContents = resolveSidebarFocusTarget(ui, event);
       releaseActiveBrowserFocus(ui);

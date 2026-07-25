@@ -74,12 +74,12 @@ test('account domain methods bind fixed channels and migrated account modules st
   const { calls, exposed } = loadPreloadApi();
   await exposed.aiFree.account.authenticate({ mode: 'password' });
   await exposed.aiFree.license.redeemVipGiftCode({ code: 'fixture-code' });
-  exposed.aiFree.account.resizeCenterPopup({ height: 420 });
   assert.deepEqual(calls, [
     ['invoke', 'account-authenticate', { mode: 'password' }],
     ['invoke', 'redeem-vip-gift-code', { code: 'fixture-code' }],
-    ['send', 'resize-account-center-popup', { height: 420 }],
   ]);
+  assert.equal('openCenterPopup' in exposed.aiFree.account, false);
+  assert.equal('resizeCenterPopup' in exposed.aiFree.account, false);
 
   // Capability-boundary inspection: these modules must not regain an API that
   // accepts caller-provided channel names.

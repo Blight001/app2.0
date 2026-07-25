@@ -31,30 +31,25 @@ document.addEventListener('DOMContentLoaded', () => {
     return woolPlatformRefreshInFlight;
   };
 
-  tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      // 伪禁用状态只阻止单击切页，双击逻辑仍然可用
-      if (tab.getAttribute('aria-disabled') === 'true') {
-        return;
-      }
+  const activateTab = (tab) => {
+    if (!tab || tab.getAttribute('aria-disabled') === 'true') return false;
+    const previousPanelId = document.querySelector('.tab-button.active')?.getAttribute('data-tab') || '';
+    const panelId = tab.getAttribute('data-tab');
+    const panel = document.getElementById(panelId);
+    if (!panel) return false;
+    tabs.forEach((item) => item.classList.remove('active'));
+    panels.forEach((item) => item.classList.remove('active'));
+    tab.classList.add('active');
+    panel.classList.add('active');
+    if (previousPanelId === 'ai-control-panel' && panelId === 'ai-free-settings-panel') {
+      void refreshWoolPlatformsFromServer();
+    }
+    return true;
+  };
 
-      const previousPanelId = document.querySelector('.tab-button.active')?.getAttribute('data-tab') || '';
-
-      // 取消所有激活态
-      tabs.forEach(t => t.classList.remove('active'));
-      panels.forEach(p => p.classList.remove('active'));
-
-      // 激活当前
-      tab.classList.add('active');
-      const panelId = tab.getAttribute('data-tab');
-      const panel = document.getElementById(panelId);
-      if (panel) panel.classList.add('active');
-
-      if (previousPanelId === 'ai-control-panel' && panelId === 'ai-free-settings-panel') {
-        void refreshWoolPlatformsFromServer();
-      }
-    });
-  });
-
+  tabs.forEach((tab) => tab.addEventListener('click', () => activateTab(tab)));
+  window.activateSidebarPanel = (panelId) => activateTab(
+    document.querySelector(`.tab-button[data-tab="${String(panelId || '')}"]`),
+  );
 });
 

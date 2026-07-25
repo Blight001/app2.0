@@ -1,6 +1,5 @@
 const AppShellUtils = window.RendererControllerUtils || {};
 const AiApi = window.aiFree?.ai || {};
-const AccountApi = window.aiFree?.account || {};
 const BrowserApi = window.aiFree?.browser || {};
 const ShellApi = window.aiFree?.shell || {};
 const UiApi = window.aiFree?.ui || {};
@@ -68,9 +67,6 @@ if (window.aiFree) {
   ShellApi.onIndependentBrowserCreateComplete( (payload = {}) => {
     finishIndependentBrowserCreation(payload);
   });
-  ShellApi.onAccountUpdated( (session = {}) => {
-    renderAppShellAccount(session);
-  });
   UpdatesApi.onActivated( (payload = {}) => {
     appShellUpdateState.activated = true;
     renderAppShellUpdateProgress({ ...payload, phase: 'confirmed' });
@@ -96,7 +92,6 @@ if (window.aiFree) {
 let tabsContainer = document.getElementById('tabs-container');
 let addTabBtn = document.getElementById('add-tab-btn');
 let newBrowserWindowBtn = document.getElementById('new-browser-window-btn');
-let accountCenterBtn = document.getElementById('account-center-btn');
 
 function setBrowserEmptyStateVisible(tabs = []) {
   const emptyState = document.getElementById('browser-empty-state');
@@ -347,52 +342,6 @@ async function openBrowserHistoryFromGesture(historyId) {
   } catch (error) {
     showControllerError('打开浏览器历史失败', error);
   }
-}
-
-function renderAppShellAccount(session = {}) {
-  accountCenterBtn = document.getElementById('account-center-btn');
-  if (!accountCenterBtn) return;
-  const authenticated = session.authenticated === true;
-  const username = authenticated ? String(session.username || '').trim() : '';
-  accountCenterBtn.dataset.authenticated = authenticated ? 'true' : 'false';
-  accountCenterBtn.title = authenticated ? (username || '个人中心') : '个人中心（未登录）';
-  accountCenterBtn.setAttribute('aria-label', authenticated
-    ? `打开 ${username || '当前账号'} 的个人中心`
-    : '打开个人中心（未登录）');
-}
-
-function bindAccountCenterBtnOnce() {
-  accountCenterBtn = document.getElementById('account-center-btn');
-  if (!accountCenterBtn || accountCenterBtn.dataset.bound === '1') return;
-  accountCenterBtn.addEventListener('click', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const rect = accountCenterBtn.getBoundingClientRect();
-    ShellApi.toggleAccountCenterPopup( {
-      anchor: {
-        left: rect.left,
-        top: rect.top,
-        right: rect.right,
-        bottom: rect.bottom,
-      },
-    });
-  });
-  accountCenterBtn.dataset.bound = '1';
-  if (typeof AccountApi.getSession === 'function') {
-    AccountApi.getSession()
-      .then((session) => renderAppShellAccount(session || {}))
-      .catch(() => renderAppShellAccount({ authenticated: false }));
-  }
-}
-
-function bindAccountCenterOutsideDismissOnce() {
-  if (document.documentElement.dataset.accountCenterOutsideDismissBound === '1') return;
-  document.documentElement.dataset.accountCenterOutsideDismissBound = '1';
-  document.addEventListener('pointerdown', (event) => {
-    const target = event.target;
-    if (target?.closest?.('#account-center-btn')) return;
-    AccountApi.dismissCenterPopup();
-  }, true);
 }
 
 function beginTabRename(tabElement, options = {}) {

@@ -162,10 +162,12 @@ function verifyAsarIntegrity(projectDir, appOutDir) {
       || !logoResolver.includes("const PACKAGED_LOGO_PATH = '../../../../resource/logo.ico';")) {
       throw new Error('侧边栏 Logo 未通过运行时解析器指向打包后的外置资源');
     }
-    if (!/id="account-center-btn"[\s\S]*?id="add-tab-btn"/.test(appShell)
+    if (appShell.includes('id="account-center-btn"')
       || !appShell.includes('../sidebar/client/scripts/logo-assets.js')
-      || (appShell.match(/<img[^>]*data-app-logo/g) || []).length !== 2) {
-      throw new Error('主窗口个人中心头像未放置在侧栏齿轮左侧');
+      || (appShell.match(/<img[^>]*data-app-logo/g) || []).length !== 1
+      || !sidebar.includes('data-tab="account-center-panel"')
+      || !sidebar.includes('id="account-center-panel"')) {
+      throw new Error('个人中心未内嵌到侧边栏栏目，或主窗口头像入口仍然存在');
     }
   } finally {
     fs.rmSync(extractDir, { recursive: true, force: true });

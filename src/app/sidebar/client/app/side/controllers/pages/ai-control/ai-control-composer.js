@@ -64,7 +64,7 @@
   }
 
   function openPersonalLogin() {
-    window.aiFree?.account?.openCenterPopup?.();
+    window.openAccountCenterPanel?.();
   }
 
   async function ensureAuthenticatedForChat() {

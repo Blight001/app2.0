@@ -4,11 +4,7 @@ const path = require('path');
 const { attachContextMenu } = require('../../../src/app/main/utils/removeWatermark');
 const performanceProbeStartedAt = process.hrtime.bigint();
 
-let accountCenterOpenRequests = 0;
-let accountLoginOpenRequests = 0;
 let browserHistoryOpenRequests = 0;
-ipcMain.on('toggle-account-center-popup', () => { accountCenterOpenRequests += 1; });
-ipcMain.on('open-account-center-popup', () => { accountLoginOpenRequests += 1; });
 ipcMain.handle('open-browser-history', (_event, payload = {}) => {
   browserHistoryOpenRequests += 1;
   return { ok: true, historyId: payload.historyId, name: '平台 A' };
@@ -111,7 +107,7 @@ app.whenReady().then(async () => {
     const labels = Array.from(panel.querySelectorAll('.vb-label')).map((item) => item.textContent.trim());
     return {
       active: panel.classList.contains('active'),
-      controlInactive: document.getElementById('account-center-dialog').hidden,
+      controlInactive: !document.getElementById('account-center-panel').classList.contains('active'),
       rows: panel.querySelectorAll('.vb-row').length,
       labels,
       browserHistoryVisible: !!document.getElementById('browser-history-list'),
@@ -237,103 +233,75 @@ app.whenReady().then(async () => {
     input.value = '测试未登录发送';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     document.getElementById('ai-chat-form').requestSubmit();
+    window.openAccountCenterPanel();
     setTimeout(() => resolve({
-      accountDialogHidden: document.getElementById('account-center-dialog').hidden,
+      accountPanelActive: document.getElementById('account-center-panel').classList.contains('active'),
       authFormVisible: document.getElementById('sidebar-account-auth').hidden === false,
       authFormEmbedded: document.getElementById('sidebar-account-auth').parentElement
         === document.getElementById('sidebar-account-session'),
     }), 80);
   })`);
   if (
-    accountLoginOpenRequests !== 1
-    || aiLoginTriggerResult.accountDialogHidden !== true
+    aiLoginTriggerResult.accountPanelActive !== true
     || aiLoginTriggerResult.authFormVisible !== true
     || aiLoginTriggerResult.authFormEmbedded !== true
   ) {
-    throw new Error(`AI 未登录独立浮窗触发校验失败: ${JSON.stringify({
-      accountLoginOpenRequests,
-      ...aiLoginTriggerResult,
-    })}`);
+    throw new Error(`AI 未登录切换个人中心栏目校验失败: ${JSON.stringify(aiLoginTriggerResult)}`);
   }
   const accountCenterResult = await win.webContents.executeJavaScript(`new Promise((resolve) => {
-    const dialog = document.getElementById('account-center-dialog');
-    const oldTabRemoved = !document.querySelector('[data-tab="personal-center-panel"]')
-      && !document.getElementById('personal-center-panel');
-    window.openAccountCenterDialog();
+    const panel = document.getElementById('account-center-panel');
+    document.querySelector('[data-tab="account-center-panel"]')?.click();
     setTimeout(() => {
-      const opened = !dialog.hidden
-        && dialog.getAttribute('aria-hidden') === 'false';
-      const profileVisible = !!dialog.querySelector('#sidebar-account-session')
-        && !!dialog.querySelector('#announcement-bar')
-        && !!dialog.querySelector('.personal-footer');
-      const accountCard = dialog.querySelector('#sidebar-account-session');
-      const sameColumn = dialog.querySelector('#announcement-bar')?.parentElement === accountCard
-        && dialog.querySelector('.personal-footer')?.parentElement === accountCard;
-      const titleAndBackgroundRemoved = !dialog.querySelector('#account-center-dialog-title')
-        && getComputedStyle(dialog.querySelector('.account-center-dialog-backdrop')).backgroundColor === 'rgba(0, 0, 0, 0)'
-        && getComputedStyle(dialog.querySelector('.account-center-dialog-panel')).backgroundColor === 'rgba(0, 0, 0, 0)';
-      const authForm = dialog.querySelector('#sidebar-account-auth');
+      const active = panel.classList.contains('active')
+        && document.querySelector('[data-tab="account-center-panel"]')?.classList.contains('active');
+      const profileVisible = !!panel.querySelector('#sidebar-account-session')
+        && !!panel.querySelector('#announcement-bar')
+        && !!panel.querySelector('.personal-footer');
+      const accountCard = panel.querySelector('#sidebar-account-session');
+      const sameColumn = panel.querySelector('#announcement-bar')?.parentElement === accountCard
+        && panel.querySelector('.personal-footer')?.parentElement === accountCard;
+      const dialogShellRemoved = !document.getElementById('account-center-dialog')
+        && !document.querySelector('.account-center-dialog-backdrop')
+        && !document.querySelector('.account-center-dialog-panel');
+      const authForm = panel.querySelector('#sidebar-account-auth');
       const inlineAuthVisible = authForm?.hidden === false
         && authForm.parentElement === accountCard
         && !authForm.hasAttribute('aria-modal')
         && authForm.getAttribute('role') !== 'dialog'
-        && dialog.querySelector('#sidebar-auth-username')?.spellcheck === false;
+        && panel.querySelector('#sidebar-auth-username')?.spellcheck === false;
       const emptyStatusSpaceCollapsed = getComputedStyle(
-        dialog.querySelector('#sidebar-auth-status'),
+        panel.querySelector('#sidebar-auth-status'),
       ).display === 'none';
-      const modeSwitch = dialog.querySelector('#sidebar-auth-mode-switch');
-      const modeLabel = dialog.querySelector('#sidebar-auth-mode-label');
+      const modeSwitch = panel.querySelector('#sidebar-auth-mode-switch');
+      const modeLabel = panel.querySelector('#sidebar-auth-mode-label');
       modeSwitch?.click();
-      const registerModeWorks = dialog.querySelector('#sidebar-auth-confirm-group')?.hidden === false
-        && dialog.querySelector('#sidebar-auth-submit')?.textContent === '注册并登录'
+      const registerModeWorks = panel.querySelector('#sidebar-auth-confirm-group')?.hidden === false
+        && panel.querySelector('#sidebar-auth-submit')?.textContent === '注册并登录'
         && modeLabel?.textContent === '去登录';
       modeSwitch?.click();
-      const loginModeWorks = dialog.querySelector('#sidebar-auth-confirm-group')?.hidden === true
-        && dialog.querySelector('#sidebar-auth-submit')?.textContent === '登录'
+      const loginModeWorks = panel.querySelector('#sidebar-auth-confirm-group')?.hidden === true
+        && panel.querySelector('#sidebar-auth-submit')?.textContent === '登录'
         && modeLabel?.textContent === '去注册'
-        && dialog.querySelector('.sidebar-auth-mode-arrow')?.textContent === '→';
-      document.getElementById('account-center-dialog-close').click();
-      setTimeout(() => resolve({
-        oldTabRemoved,
-        opened,
+        && panel.querySelector('.sidebar-auth-mode-arrow')?.textContent === '→';
+      resolve({
+        active,
         profileVisible,
         sameColumn,
-        titleAndBackgroundRemoved,
+        dialogShellRemoved,
         inlineAuthVisible,
         emptyStatusSpaceCollapsed,
         registerModeWorks,
         loginModeWorks,
-        closed: dialog.hidden,
-      }), 30);
+      });
     }, 30);
   })`);
   if (Object.values(accountCenterResult).some((value) => value !== true)) {
-    throw new Error(`个人中心头像弹窗校验失败: ${JSON.stringify(accountCenterResult)}`);
+    throw new Error(`个人中心侧边栏栏目校验失败: ${JSON.stringify(accountCenterResult)}`);
   }
   if (process.env.AI_FREE_UI_CAPTURE) {
     await new Promise((resolve) => setTimeout(resolve, 150));
     const image = await win.webContents.capturePage();
     fs.writeFileSync(process.env.AI_FREE_UI_CAPTURE, image.toPNG());
-  }
-  await win.loadFile(path.join(__dirname, '../../../src/app/sidebar/index.html'), {
-    query: { accountCenterPopup: '1' },
-  });
-  await new Promise((resolve) => setTimeout(resolve, 120));
-  const standalonePopupResult = await win.webContents.executeJavaScript(`(() => {
-    const panelStyle = getComputedStyle(document.querySelector('.account-center-dialog-panel'));
-    const bodyStyle = getComputedStyle(document.querySelector('.account-center-dialog-body'));
-    return {
-      popupMode: document.documentElement.classList.contains('account-center-popup'),
-      dialogOpened: !document.getElementById('account-center-dialog').hidden,
-      sidebarNavRemoved: getComputedStyle(document.querySelector('.tab-nav')).display === 'none',
-      pageTransparent: getComputedStyle(document.body).backgroundColor === 'rgba(0, 0, 0, 0)'
-        && getComputedStyle(document.querySelector('.control-shell')).backgroundColor === 'rgba(0, 0, 0, 0)',
-      heightUnbounded: panelStyle.maxHeight === 'none',
-      verticalScrollRemoved: bodyStyle.overflowY === 'visible',
-    };
-  })()`);
-  if (Object.values(standalonePopupResult).some((value) => value !== true)) {
-    throw new Error(`个人中心独立浮窗模式校验失败: ${JSON.stringify(standalonePopupResult)}`);
   }
   if (process.env.AI_FREE_ACCOUNT_UI_CAPTURE) {
     win.setSize(430, 720);
@@ -347,27 +315,21 @@ app.whenReady().then(async () => {
   const shellAccountResult = await win.webContents.executeJavaScript(`(() => {
     const updateWidget = document.getElementById('update-widget');
     const theme = document.getElementById('theme-toggle-btn');
-    const avatar = document.getElementById('account-center-btn');
     const gear = document.getElementById('add-tab-btn');
     const createButton = document.getElementById('new-browser-window-btn');
-    const logo = avatar?.querySelector('img');
     const wasLight = document.documentElement.classList.contains('theme-light');
     theme?.click();
-    const avatarBeforeGear = avatar?.nextElementSibling === gear;
-    avatar?.click();
     return {
-      controlsOrdered: updateWidget?.nextElementSibling === theme && theme?.nextElementSibling === avatar,
-      avatarBeforeGear,
-      logoLoaded: !!logo?.complete && logo.naturalWidth > 0 && logo.naturalHeight > 0,
-      unauthenticated: avatar?.dataset.authenticated === 'false',
+      controlsOrdered: updateWidget?.nextElementSibling === theme && theme?.nextElementSibling === gear,
+      avatarRemoved: !document.getElementById('account-center-btn'),
       themeToggled: document.documentElement.classList.contains('theme-light') !== wasLight,
       modernGearIcon: !!gear?.querySelector('svg.settings-icon') && !gear.textContent.includes('⚙'),
       modernCreateIcon: !!createButton?.querySelector('svg.new-window-icon') && createButton.textContent.trim() === '',
     };
   })()`);
   await new Promise((resolve) => setTimeout(resolve, 30));
-  if (Object.values(shellAccountResult).some((value) => value !== true) || accountCenterOpenRequests !== 1) {
-    throw new Error(`主窗口个人中心独立浮窗入口校验失败: ${JSON.stringify({ ...shellAccountResult, accountCenterOpenRequests })}`);
+  if (Object.values(shellAccountResult).some((value) => value !== true)) {
+    throw new Error(`主窗口头像入口移除校验失败: ${JSON.stringify(shellAccountResult)}`);
   }
   win.webContents.send('app-update-activated', { version: '9.9.9', percent: 0 });
   win.webContents.send('app-update-progress', { version: '9.9.9', phase: 'downloading', percent: 64 });
@@ -402,7 +364,7 @@ app.whenReady().then(async () => {
   const destroyStartedAt = process.hrtime.bigint();
   win.destroy();
   const destroyMs = Number(process.hrtime.bigint() - destroyStartedAt) / 1e6;
-  console.log(`browser settings, standalone account popup and app-shell avatar UI checks passed (${result.rows} rows)`);
+  console.log(`browser settings, sidebar account center and app-shell controls UI checks passed (${result.rows} rows)`);
   console.log(`[performance-baseline] first-sidebar-ready=${firstSidebarReadyMs.toFixed(1)}ms working-set=${workingSetMb.toFixed(1)}MB window-destroy=${destroyMs.toFixed(1)}ms`);
   app.quit();
 }).catch((error) => {

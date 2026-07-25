@@ -7,9 +7,6 @@
   <script>
     (function initThemeClass() {
       try {
-        if (new URLSearchParams(window.location.search).get('accountCenterPopup') === '1') {
-          document.documentElement.classList.add('account-center-popup');
-        }
         const savedTheme = localStorage.getItem('ai-free.control-panel.theme');
         if (savedTheme === 'light') {
           document.documentElement.classList.add('theme-light');
@@ -32,6 +29,10 @@
       <button class="tab-button" type="button" data-tab="ai-free-settings-panel" aria-controls="ai-free-settings-panel">
         <span class="tab-button-icon" aria-hidden="true">⚙</span>
         <span>浏览器配置</span>
+      </button>
+      <button class="tab-button" type="button" data-tab="account-center-panel" aria-controls="account-center-panel">
+        <span class="tab-button-icon" aria-hidden="true">●</span>
+        <span>个人中心</span>
       </button>
     </nav>
 
@@ -176,12 +177,8 @@
         </form>
       </section>
 
-      <section id="account-center-dialog" class="account-center-dialog" role="dialog" aria-modal="true" aria-label="账号信息" aria-hidden="true" hidden>
-        <button class="account-center-dialog-backdrop" type="button" data-account-center-close aria-label="关闭个人中心"></button>
-        <div class="account-center-dialog-panel">
-          <button id="account-center-dialog-close" class="account-center-dialog-close" type="button" data-account-center-close aria-label="关闭">&times;</button>
-          <div class="account-center-dialog-body">
-            <div class="container">
+      <section id="account-center-panel" class="account-center-panel panel" aria-label="个人中心">
+        <div class="container">
           <div class="info-group account-profile-shell">
             <section id="sidebar-account-session" class="account-profile-card" aria-label="账号资料卡" data-authenticated="false">
               <div class="account-profile-cover" aria-hidden="true">
@@ -361,8 +358,6 @@
             </div>
           </div>
 
-            </div>
-          </div>
         </div>
       </section>
 

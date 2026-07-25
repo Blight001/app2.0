@@ -228,8 +228,6 @@ function observeNetworkMagicTask(task) {
 // 满足以下条件才会启动：卡密已验证、用户开启了“自动启动”记忆、核心未在运行、
 // 且用户没有正在手动操作开关。key/deviceId 缺省时由预热流程自行解析。
 async function autoStartNetworkMagicIfEligible({ startBtn, vpnBtn, key = '', deviceId = '' } = {}) {
-  // 个人中心浮窗复用侧边栏页面，但它不是网络魔法入口。即使记住了自动
-  // 启动偏好，也不能因为点击头像而启动核心或刷新 Clash 配置。
   if (!canAutoStartNetworkMagic(vpnBtn)) return;
 
   // 从条件评估阶段就置位“进行中”：预热启动（warmup）等并行流程推送的
@@ -251,10 +249,9 @@ async function autoStartNetworkMagicIfEligible({ startBtn, vpnBtn, key = '', dev
 }
 
 function canAutoStartNetworkMagic(vpnBtn) {
-  const isAccountPopup = new URLSearchParams(window.location.search).get('accountCenterPopup') === '1';
   const isValidated = hasValidatedInSession || isLicenseValidated();
   const buttonBusy = vpnBtn?.dataset?.busy === '1';
-  return !isAccountPopup && Boolean(window.aiFree?.network) && isValidated
+  return Boolean(window.aiFree?.network) && isValidated
     && !autoStartClashMiniInFlight && !buttonBusy;
 }
 

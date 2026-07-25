@@ -129,8 +129,6 @@ onReady(() => {
   tabsContainer = document.getElementById('tabs-container');
   bindAddTabBtnOnce();
   bindThemeToggleBtnOnce();
-  bindAccountCenterBtnOnce();
-  bindAccountCenterOutsideDismissOnce();
   bindNewBrowserWindowBtnOnce();
 
   // 初始化设置按钮动画监听器

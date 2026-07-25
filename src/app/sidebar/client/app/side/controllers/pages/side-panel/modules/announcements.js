@@ -555,11 +555,6 @@ function requestSidebarInputFocus(force = false, textInput = false) {
 }
 
 function initSidebarInputRouting() {
-  // The account center reuses the sidebar document in its own BrowserWindow.
-  // It already owns native keyboard focus and must never redirect that focus
-  // back to the underlying sidebar when the pointer moves inside the popup.
-  if (new URLSearchParams(window.location.search).get('accountCenterPopup') === '1') return;
-
   // document.hasFocus() and WebContents.isFocused() can both remain true after
   // the separately hosted Chromium HWND receives native SetFocus. Pointer entry
   // and real sidebar clicks therefore reclaim input without consulting either

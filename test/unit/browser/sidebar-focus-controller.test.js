@@ -29,7 +29,7 @@ function createHarness() {
 
 test('sidebar text input releases native browser focus before focusing Electron contents', async () => {
   const { calls, ui } = createHarness();
-  const handler = createSidebarFocusHandler(ui, () => false);
+  const handler = createSidebarFocusHandler(ui);
 
   const result = await handler({ sender: {} }, { interaction: 'text-input' });
 
@@ -37,12 +37,17 @@ test('sidebar text input releases native browser focus before focusing Electron 
   assert.deepEqual(result, { ok: true, stableTextInput: true });
 });
 
-test('passive focus does not disturb an open account popup', async () => {
+test('passive focus follows the regular sidebar focus path', async () => {
   const { calls, ui } = createHarness();
-  const handler = createSidebarFocusHandler(ui, () => true);
+  const handler = createSidebarFocusHandler(ui);
 
   const result = await handler({ sender: {} }, { interaction: 'passive' });
 
-  assert.deepEqual(calls, []);
-  assert.deepEqual(result, { ok: true, skipped: true, reason: 'account-center-popup-open' });
+  assert.deepEqual(calls, [
+    'release:active-profile:chromium',
+    'shell-focus', 'sidebar-focus',
+    'shell-focus', 'sidebar-focus',
+    'shell-focus', 'sidebar-focus',
+  ]);
+  assert.deepEqual(result, { ok: true, sideFocused: true });
 });

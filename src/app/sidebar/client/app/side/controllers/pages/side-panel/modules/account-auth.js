@@ -2,14 +2,11 @@
 
 let sidebarAccountAuthMode = 'login';
 let sidebarAuthPreviousFocus = null;
-let accountCenterPreviousFocus = null;
-const isStandaloneAccountCenterPopup = new URLSearchParams(window.location.search).get('accountCenterPopup') === '1';
-const shouldAutoOpenVipPlans = new URLSearchParams(window.location.search).get('showVipPlans') === '1';
 let selectedVipPlanCode = 'vip_quarterly';
 let selectedVipTier = 'vip';
 let vipPlanCatalog = [];
 let vipTierCatalog = [];
-let vipPlansOpenRequested = shouldAutoOpenVipPlans;
+let vipPlansOpenRequested = false;
 
 function invokeSidebarAccountAuth(payload, timeoutMs = 20000) {
   let timer = null;
@@ -61,7 +58,7 @@ function openSidebarAccountAuth(mode = 'login') {
   setSidebarAuthMode(mode);
   panel.hidden = false;
   panel.setAttribute('aria-hidden', 'false');
-  if (safeGetEl('account-center-dialog')?.hidden === false) {
+  if (safeGetEl('account-center-panel')?.classList.contains('active')) {
     setTimeout(() => safeGetEl('sidebar-auth-username')?.focus(), 0);
   }
 }
@@ -80,49 +77,24 @@ function closeSidebarAccountAuth() {
   sidebarAuthPreviousFocus = null;
 }
 
-function openAccountCenterDialog() {
-  const dialog = safeGetEl('account-center-dialog');
-  if (!dialog || !dialog.hidden) return;
-  accountCenterPreviousFocus = document.activeElement;
-  dialog.hidden = false;
-  dialog.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('account-center-open');
-  setTimeout(() => {
-    const profile = safeGetEl('sidebar-account-session');
-    if (profile?.dataset.authenticated === 'true') safeGetEl('account-center-dialog-close')?.focus();
-    else safeGetEl('sidebar-auth-username')?.focus();
-  }, 0);
+function openAccountCenterPanel() {
+  window.activateSidebarPanel?.('account-center-panel');
+  if (!isSidebarAccountAuthenticated()) openSidebarAccountAuth('login');
 }
 
 function isSidebarAccountAuthenticated() {
   return safeGetEl('sidebar-account-session')?.dataset.authenticated === 'true';
 }
 
-// 返回 true 表示本次操作已被登录门禁接管。复用顶部头像的独立个人中心
-// 浮窗，只通知主进程打开窗口，不发起任何业务服务器请求。
+// 返回 true 表示本次操作已被登录门禁接管，只切换侧边栏栏目，
+// 不发起任何业务服务器请求。
 function redirectToSidebarAccountLogin() {
   if (isSidebarAccountAuthenticated()) return false;
-  window.aiFree?.account?.openCenterPopup?.();
+  openAccountCenterPanel();
   return true;
 }
 
-function closeAccountCenterDialog() {
-  const dialog = safeGetEl('account-center-dialog');
-  if (!dialog || dialog.hidden) return;
-  closeAccountProfileMenu();
-  if (isStandaloneAccountCenterPopup) {
-    window.aiFree?.account?.closeCenterPopup?.();
-    return;
-  }
-  dialog.hidden = true;
-  dialog.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('account-center-open');
-  accountCenterPreviousFocus?.focus?.();
-  accountCenterPreviousFocus = null;
-}
-
-window.openAccountCenterDialog = openAccountCenterDialog;
-window.closeAccountCenterDialog = closeAccountCenterDialog;
+window.openAccountCenterPanel = openAccountCenterPanel;
 window.isSidebarAccountAuthenticated = isSidebarAccountAuthenticated;
 window.redirectToSidebarAccountLogin = redirectToSidebarAccountLogin;
 

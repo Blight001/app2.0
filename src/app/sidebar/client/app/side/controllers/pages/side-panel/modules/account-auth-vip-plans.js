@@ -168,6 +168,7 @@ function openVipBenefitsDialog() {
     openSidebarAccountAuth('login');
     return;
   }
+  vipPlansOpenRequested = false;
   dialog.hidden = false;
   dialog.setAttribute('aria-hidden', 'false');
   selectVipPlan(selectedVipPlanCode);
@@ -176,13 +177,9 @@ function openVipBenefitsDialog() {
 }
 
 function openVipAccountCenter() {
-  if (isStandaloneAccountCenterPopup) {
-    openVipBenefitsDialog();
-    return;
-  }
-  // Chromium 原生窗口会在鼠标悬停时抢回焦点。VIP 门禁弹窗不能因此被
-  // 当作“点击外部”关闭；显式点击其它区域和关闭按钮仍会发送关闭事件。
-  window.aiFree?.account?.openCenterPopup?.({ dismissOnBlur: false, showVipPlans: true });
+  vipPlansOpenRequested = true;
+  openAccountCenterPanel();
+  if (isSidebarAccountAuthenticated()) openVipBenefitsDialog();
 }
 
 function renderVipCardCopy(vip, title, description, action) {

@@ -160,7 +160,6 @@ function renderSidebarAccountSession(session = {}) {
   if (typeof syncLoggedOutProtectedEntryAvailability === 'function') {
     syncLoggedOutProtectedEntryAvailability();
   }
-  window.aiFree?.account?.syncShell?.({ authenticated, username });
   closeAccountProfileMenu();
   if (authenticated) renderAuthenticatedSidebarSession(session);
   else renderLoggedOutSidebarSession();

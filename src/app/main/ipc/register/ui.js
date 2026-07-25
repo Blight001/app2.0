@@ -1,6 +1,5 @@
 const { BrowserWindow, nativeTheme } = require('electron');
 const { resolveTabTitle } = require('../../services/tab-common');
-const { createAccountCenterPopupController } = require('../../features/account/account-center-popup-controller');
 const { createTabContextMenuController } = require('../../features/browser/tab-context-menu-controller');
 const { createSidebarFocusHandler } = require('../../features/browser/sidebar-focus-controller');
 
@@ -266,27 +265,7 @@ function registerTabIPC(ipc, ui, contextMenu) {
   });
 }
 
-function registerAccountPopupIPC(ipc, ui, popup) {
-  ipc.on('toggle-account-center-popup', (_event, payload = {}) => { void popup.toggleAccountCenterPopupWindow(payload); });
-  ipc.on('open-account-center-popup', (_event, payload = {}) => { void popup.openAccountCenterPopupWindow(payload); });
-  ipc.on('dismiss-account-center-popup', () => popup.dismissAccountCenterPopupWindow());
-  ipc.on('close-account-center-popup', () => popup.dismissAccountCenterPopupWindow());
-  ipc.on('resize-account-center-popup', (event, payload = {}) => {
-    if (popup.isAccountCenterPopupSender(event.sender)) popup.resizeAccountCenterPopupWindow(payload.height);
-  });
-  ipc.on('sync-app-shell-account', (_event, session = {}) => {
-    try {
-      const mainWindow = ui.getMainWindow?.();
-      if (!mainWindow || mainWindow.isDestroyed?.()) return;
-      mainWindow.webContents.send('app-shell-account-updated', {
-        authenticated: session.authenticated === true,
-        username: session.authenticated === true ? String(session.username || '').trim() : '',
-      });
-    } catch (_) {}
-  });
-}
-
-function registerUiUtilityIPC(ipc, ctx, popup) {
+function registerUiUtilityIPC(ipc, ctx) {
   const { ui } = ctx;
   ipc.on('toggle-sidebar', () => ui.toggleSidebar());
   ipc.on('ensure-sidebar-visible', () => ui.ensureSidebarVisible?.());
@@ -319,13 +298,12 @@ function registerUiUtilityIPC(ipc, ctx, popup) {
       } else ui.refreshActiveTab();
     } catch (_) {}
   });
-  ipc.handle('focus-sidebar-input', createSidebarFocusHandler(ui, popup.isAccountCenterPopupOpen));
+  ipc.handle('focus-sidebar-input', createSidebarFocusHandler(ui));
   ipc.on('open-tutorial', (_event, url) => { void ui?.openTutorialTab?.(url); });
 }
 
 function registerUiIPC(ctx) {
   const ipc = ctx.ipc.scope('register/ui');
-  const popup = createAccountCenterPopupController({ app: ctx.app, ui: ctx.ui });
   const contextMenu = createTabContextMenuController();
   const theme = createThemeController(ctx.ui);
   const clearController = createBrowserDataClearController(ctx.ui, contextMenu.closeTabContextMenuWindow);
@@ -333,8 +311,7 @@ function registerUiIPC(ctx) {
   ipc.on('app-theme-changed', (_event, nextTheme) => theme.broadcast(nextTheme));
   ipc.handle('get-app-theme', async () => ({ ok: true, theme: theme.current() }));
   registerTabIPC(ipc, ctx.ui, contextMenu);
-  registerAccountPopupIPC(ipc, ctx.ui, popup);
-  registerUiUtilityIPC(ipc, ctx, popup);
+  registerUiUtilityIPC(ipc, ctx);
 }
 
 module.exports = { registerUiIPC };
