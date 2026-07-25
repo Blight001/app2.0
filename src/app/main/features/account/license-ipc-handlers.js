@@ -48,20 +48,25 @@ async function refreshWoolPlatformsTask(deps) {
     const credentials = credentialsFrom(deps);
     const key = text(credentials.key);
     const deviceId = text(credentials.deviceId);
-    if (!key || !deviceId) return { ok: false, authenticated: false, message: '请先登录账号' };
+    if (!key || !deviceId) {
+      cacheRuntimeConfig(deps, { woolPlatforms: [] });
+      return { ok: false, authenticated: false, woolPlatforms: [], message: '请先登录账号' };
+    }
     if (!deps.httpClient || typeof deps.httpClient.validateKey !== 'function') {
       return { ok: false, message: '羊毛平台服务尚未就绪' };
     }
     const validation = await deps.httpClient.validateKey(key, deviceId);
     if (!isValidationSuccess(validation)) {
-      return { ok: false, message: getValidationFailureMessage(validation, '刷新羊毛平台失败') };
+      cacheRuntimeConfig(deps, { woolPlatforms: [] });
+      return { ok: false, woolPlatforms: [], message: getValidationFailureMessage(validation, '刷新羊毛平台失败') };
     }
     const normalized = normalizeValidationRuntimeConfig(validation);
     const woolPlatforms = Array.isArray(normalized.woolPlatforms) ? normalized.woolPlatforms : [];
     cacheRuntimeConfig(deps, { woolPlatforms });
     return { ok: true, woolPlatforms };
   } catch (error) {
-    return { ok: false, message: errorMessage(error) };
+    cacheRuntimeConfig(deps, { woolPlatforms: [] });
+    return { ok: false, woolPlatforms: [], message: errorMessage(error) };
   }
 }
 

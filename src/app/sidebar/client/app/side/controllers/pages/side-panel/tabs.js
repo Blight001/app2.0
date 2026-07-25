@@ -17,7 +17,9 @@ document.addEventListener('DOMContentLoaded', () => {
           renderWoolPlatformButtons(
             Array.isArray(response.woolPlatforms) ? response.woolPlatforms : [],
           );
-        } else if (response?.authenticated !== false && response?.message) {
+        } else if (response?.authenticated === false && typeof renderWoolPlatformButtons === 'function') {
+          renderWoolPlatformButtons([]);
+        } else if (response?.message) {
           console.warn('[侧边栏] 刷新羊毛平台失败:', response.message);
         }
         return response;
@@ -33,7 +35,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const activateTab = (tab) => {
     if (!tab || tab.getAttribute('aria-disabled') === 'true') return false;
-    const previousPanelId = document.querySelector('.tab-button.active')?.getAttribute('data-tab') || '';
     const panelId = tab.getAttribute('data-tab');
     const panel = document.getElementById(panelId);
     if (!panel) return false;
@@ -41,13 +42,18 @@ document.addEventListener('DOMContentLoaded', () => {
     panels.forEach((item) => item.classList.remove('active'));
     tab.classList.add('active');
     panel.classList.add('active');
-    if (previousPanelId === 'ai-control-panel' && panelId === 'ai-free-settings-panel') {
+    // 每次进入（包括重复点击）浏览器配置栏目都向服务器重新取一次用户的平台权限，
+    // 不依赖进入前所在栏目，避免管理端授权变化后仍显示旧缓存。
+    if (panelId === 'ai-free-settings-panel') {
       void refreshWoolPlatformsFromServer();
     }
     return true;
   };
 
   tabs.forEach((tab) => tab.addEventListener('click', () => activateTab(tab)));
+  if (document.getElementById('ai-free-settings-panel')?.classList.contains('active')) {
+    void refreshWoolPlatformsFromServer();
+  }
   window.activateSidebarPanel = (panelId) => activateTab(
     document.querySelector(`.tab-button[data-tab="${String(panelId || '')}"]`),
   );

@@ -9,10 +9,18 @@ function normalizeStringList(value) {
 
 function normalizeWoolPlatform(item) {
   const source = item && typeof item === 'object' ? item : {};
+  const rawSubUrls = firstNonNull(source.subUrls, source.sub_urls, []);
+  const subUrls = Array.isArray(rawSubUrls)
+    ? rawSubUrls.map((url) => firstText(url).trim()).filter(Boolean)
+    : [];
+  const targetUrl = firstText(firstNonNull(source.targetUrl, source.target_url)).trim() || subUrls[0] || '';
   return {
     name: firstText(firstNonNull(source.name, source.platform, source.platform_name)).trim(),
     platform: firstText(firstNonNull(source.platform, source.name, source.platform_name)).trim(),
-    targetUrl: firstText(firstNonNull(source.targetUrl, source.target_url)).trim(),
+    targetUrl,
+    subUrls,
+    launchOnly: source.launchOnly === true || source.launch_only === true,
+    permissionGranted: source.permissionGranted === true || source.permission_granted === true,
     quota: source.quota && typeof source.quota === 'object' ? { ...source.quota } : null,
   };
 }

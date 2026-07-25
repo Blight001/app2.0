@@ -83,10 +83,18 @@ function normalizeStringList(value) {
 }
 
 function normalizeWoolPlatform(item = {}) {
+  const rawSubUrls = firstDefined(item.subUrls, item.sub_urls, []);
+  const subUrls = Array.isArray(rawSubUrls)
+    ? rawSubUrls.map(normalizeLicenseKeyValue).filter(Boolean)
+    : [];
+  const targetUrl = normalizeLicenseKeyValue(item.targetUrl || item.target_url) || subUrls[0] || '';
   return {
     name: normalizeLicenseKeyValue(item.name || item.platform || item.platform_name),
     platform: normalizeLicenseKeyValue(item.platform || item.name || item.platform_name),
-    targetUrl: normalizeLicenseKeyValue(item.targetUrl || item.target_url),
+    targetUrl,
+    subUrls,
+    launchOnly: item.launchOnly === true || item.launch_only === true,
+    permissionGranted: item.permissionGranted === true || item.permission_granted === true,
     quota: item.quota && typeof item.quota === 'object' ? clone(item.quota) : null,
   };
 }

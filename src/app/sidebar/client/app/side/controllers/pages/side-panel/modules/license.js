@@ -180,6 +180,9 @@ function resetLicenseStateToValidate() {
     deviceBindingSummary: '',
   };
   resetLicenseSummaryDisplay();
+  if (typeof renderWoolPlatformButtons === 'function') {
+    renderWoolPlatformButtons([]);
+  }
   applyValidateButtonState({ bound: false });
 }
 

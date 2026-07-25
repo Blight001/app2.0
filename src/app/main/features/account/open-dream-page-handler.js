@@ -29,13 +29,40 @@ function normalizeRequest(deps, payload) {
     fetchedAccountId: '',
     fetchedCookies: [],
     fetchedBrowserStorage: [],
-    subUrls: [],
+    subUrls: Array.isArray(input.subUrls) ? input.subUrls : [],
+    launchOnly: input.launchOnly === true,
     launchAccountId: text(input.accountId),
     launchAccount: null,
     launchCookies: [],
     launchBrowserStorage: [],
     restoreProfileOnly: false,
     importedNewAccount: false,
+  };
+}
+
+async function openUrlOnlyPlatform(deps, state) {
+  const urls = [state.targetUrl, ...(Array.isArray(state.subUrls) ? state.subUrls : [])]
+    .map((url) => text(url))
+    .filter((url, index, items) => /^https?:\/\//i.test(url) && items.indexOf(url) === index);
+  if (!urls.length) throw new Error('平台没有可用的启动网址');
+  const tabId = await deps.ui.addTab(urls[0], {
+    fixedTitle: state.platformName,
+    tabTitle: state.platformName,
+    deferChromiumNavigation: false,
+    restoreLastSession: false,
+  });
+  if (!tabId) throw new Error('浏览器窗口创建失败');
+  // 主链接已作为 Chromium 的 initialUrl 启动。浏览器桥接一就绪便立即
+  // 批量创建其余标签，不再等待主链接加载、重定向或导航完成。
+  const subTabsResult = await openSubUrls(deps, tabId, urls.slice(1), { required: true });
+  notify(deps, 'browser-history-changed');
+  return {
+    ok: true,
+    tabId,
+    launchOnly: true,
+    openedUrls: urls,
+    openedWindowCount: 1,
+    subTabsResult,
   };
 }
 
@@ -70,14 +97,23 @@ function accountBusinessError(message, code) {
   return Object.assign(new Error(message), { businessError: true, errorCode: code });
 }
 
-async function openSubUrls(deps, tabId, urls) {
-  if (!Array.isArray(urls) || !urls.length) return;
+async function openSubUrls(deps, tabId, urls, options = {}) {
+  if (!Array.isArray(urls) || !urls.length) return null;
   const manager = deps.ui && deps.ui.browserRuntimeManager;
-  if (!manager || typeof manager.openTabs !== 'function') return;
+  if (!manager || typeof manager.openTabs !== 'function') {
+    if (options.required) throw new Error('当前浏览器运行时不支持打开多个网址');
+    return null;
+  }
   try {
-    await manager.openTabs(tabId, 'chromium', urls);
+    const result = await manager.openTabs(tabId, 'chromium', urls);
+    console.log('[open-dream-page] Chromium 多标签打开结果:', JSON.stringify({ tabId, urls, result }));
+    return result;
   } catch (error) {
+    if (options.required) {
+      throw new Error(`子网址打开失败：${text(error && error.message, error)}`);
+    }
     console.warn('[open-dream-page] 子网址打开失败，主站保持可用:', text(error && error.message));
+    return null;
   }
 }
 
@@ -247,6 +283,7 @@ async function openDreamPage(deps, payload) {
   try {
     const state = normalizeRequest(deps, payload);
     if (!state.key) throw new Error('缺少卡密');
+    if (state.launchOnly) return await openUrlOnlyPlatform(deps, state);
     const sourceIsPermanent = deps.support.isPermanentDreamAccount(
       state.requestedAccountId,
       state.key,

@@ -178,3 +178,70 @@ test('入口拒绝缺少卡密，运行连接配置兼容 HTTP 与 TCP 字段别
     tcp: { host: '127.0.0.1', port: 9443 },
   });
 });
+
+test('仅链接平台跳过账号与 Cookie 获取并打开全部配置网址', async () => {
+  let fetchCount = 0;
+  const navigated = [];
+  const data = fixture({
+    support: {
+      navigateDreamTab: async (tabId, url) => navigated.push({ tabId, url }),
+    },
+    deps: {
+      auth: { fetchCookieFromServerForDream: async () => { fetchCount += 1; } },
+    },
+  });
+  const result = await data.handler(null, {
+    key: 'key',
+    deviceId: 'device',
+    platform: '工具导航',
+    targetUrl: 'https://one.example',
+    subUrls: ['https://two.example', 'https://three.example'],
+    launchOnly: true,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.launchOnly, true);
+  assert.equal(fetchCount, 0);
+  assert.equal(data.importedSessions.length, 0);
+  assert.equal(data.addedTabs[0].url, 'https://one.example');
+  assert.equal(data.addedTabs.length, 1);
+  assert.deepEqual(navigated, []);
+  assert.deepEqual(data.openedSubTabs[0].urls, [
+    'https://two.example',
+    'https://three.example',
+  ]);
+  assert.deepEqual(result.openedUrls, [
+    'https://one.example',
+    'https://two.example',
+    'https://three.example',
+  ]);
+  assert.equal(result.openedWindowCount, 1);
+});
+
+test('仅链接平台批量创建标签失败时返回明确错误', async () => {
+  const data = fixture({
+    deps: {
+      ui: {
+        addTab: async () => 'tab-1',
+        browserRuntimeManager: {
+          openTabs: async () => {
+            throw new Error('open-tabs unavailable');
+          },
+        },
+        sendToSide() {},
+      },
+    },
+  });
+  const result = await data.handler(null, {
+    key: 'key',
+    platform: '工具导航',
+    targetUrl: 'https://one.example',
+    subUrls: ['https://two.example'],
+    launchOnly: true,
+  });
+
+  assert.deepEqual(result, {
+    ok: false,
+    message: '子网址打开失败：open-tabs unavailable',
+  });
+});

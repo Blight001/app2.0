@@ -53,7 +53,28 @@
     const platform = String(clickedButton.dataset.platform || '').trim();
     const buttonCount = container.querySelectorAll('.open-wool-platform-btn').length;
     const legacyTargetUrl = buttonCount === 1 ? String(window.DREAM_URL || '').trim() : '';
-    return { platform, targetUrl: String(clickedButton.dataset.targetUrl || legacyTargetUrl).trim() };
+    let subUrls = [];
+    try {
+      const parsed = JSON.parse(clickedButton.dataset.subUrls || '[]');
+      if (Array.isArray(parsed)) subUrls = parsed.map((url) => String(url || '').trim()).filter(Boolean);
+    } catch (_) {}
+    return {
+      platform,
+      targetUrl: String(clickedButton.dataset.targetUrl || legacyTargetUrl).trim(),
+      subUrls,
+      launchOnly: clickedButton.dataset.launchOnly === 'true',
+    };
+  }
+
+  function logDreamOpenResult(result) {
+    const data = result || {};
+    console.log('[前端] 网页打开请求成功:', JSON.stringify({
+      tabId: data.tabId,
+      tabIds: data.tabIds || [],
+      openedUrls: data.openedUrls || [],
+      openedWindowCount: data.openedWindowCount || 0,
+      subTabsResult: data.subTabsResult || null,
+    }));
   }
 
   async function openDreamPlatform(clickedButton, container) {
@@ -63,17 +84,18 @@
     if (!contentApi || typeof contentApi.openDreamPage !== 'function') {
       throw new Error('Electron 桥接未就绪（缺少 openDreamPage），请在 preload/main 中实现后再试');
     }
-    const { platform, targetUrl } = resolveDreamLaunchTarget(clickedButton, container);
+    const { platform, targetUrl, subUrls, launchOnly } = resolveDreamLaunchTarget(clickedButton, container);
     if (!platform || !targetUrl) throw new Error('羊毛平台配置不完整，请联系管理员');
     console.log(`[前端] 用户点击"一键启动 ${platform}"按钮`);
+    console.log('[前端] 平台启动网址:', JSON.stringify({ targetUrl, subUrls, launchOnly }));
     console.log('[前端] 发送账号授权请求，设备ID:', deviceId);
-    const result = await contentApi.openDreamPage({ key, deviceId, platform, targetUrl });
+    const result = await contentApi.openDreamPage({ key, deviceId, platform, targetUrl, subUrls, launchOnly });
     if (!result || result.ok !== true) {
       const message = result && (result.message || result.error) || '打开失败';
       console.error('[前端] 打开网页失败:', message);
       throw new Error(message);
     }
-    console.log('[前端] 网页打开请求成功，标签页ID:', result.tabId);
+    logDreamOpenResult(result);
   }
 
 // 监听/绑定：attachOpenDreamPage的具体业务逻辑。

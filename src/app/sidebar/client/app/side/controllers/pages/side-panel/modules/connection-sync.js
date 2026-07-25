@@ -173,17 +173,38 @@ function setDreamButtonPlatformName(platformName) {
   }
 }
 
+function firstWoolPlatformText(source, fields) {
+  for (const field of fields) {
+    const value = String(source[field] || '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+function normalizeWoolPlatformButtonInput(item) {
+  const source = item && typeof item === 'object' ? item : {};
+  const rawSubUrls = Array.isArray(source.subUrls) ? source.subUrls : source.sub_urls;
+  const subUrls = Array.isArray(rawSubUrls)
+    ? rawSubUrls.map(url => String(url || '').trim()).filter(Boolean)
+    : [];
+  const targetUrl = firstWoolPlatformText(source, ['targetUrl', 'target_url']) || subUrls[0] || '';
+  return {
+    name: firstWoolPlatformText(source, ['name', 'platform', 'platform_name']),
+    targetUrl,
+    subUrls,
+    launchOnly: source.launchOnly === true || source.launch_only === true,
+    permissionGranted: source.permissionGranted === true || source.permission_granted === true,
+    quota: source.quota && typeof source.quota === 'object' ? source.quota : null,
+  };
+}
+
 // 渲染/刷新：按当前用户获准的羊毛平台生成独立启动按钮。
 function renderWoolPlatformButtons(platforms) {
   const container = safeGetEl('wool-platform-buttons');
   if (!container) return;
   const items = (Array.isArray(platforms) ? platforms : [])
-    .map((item) => ({
-      name: String(item?.name || item?.platform || item?.platform_name || '').trim(),
-      targetUrl: String(item?.targetUrl || item?.target_url || '').trim(),
-      quota: item?.quota && typeof item.quota === 'object' ? item.quota : null,
-    }))
-    .filter((item) => item.name && item.targetUrl);
+    .map(normalizeWoolPlatformButtonInput)
+    .filter((item) => item.name && item.targetUrl && item.permissionGranted);
 
   const sectionTitle = safeGetEl('wool-resource-title');
   if (sectionTitle) sectionTitle.hidden = items.length === 0;
@@ -206,9 +227,11 @@ function renderWoolPlatformButtons(platforms) {
     button.className = 'main-button btn-large-blue requires-license open-wool-platform-btn';
     button.dataset.platform = item.name;
     button.dataset.targetUrl = item.targetUrl;
+    button.dataset.subUrls = JSON.stringify(item.subUrls);
+    button.dataset.launchOnly = item.launchOnly ? 'true' : 'false';
     button.dataset.baseLabel = `一键启动 ${item.name}`;
     applyWoolPlatformButtonLabel(button);
-    const quotaUnavailable = item.quota?.expired === true || item.quota?.exhausted === true;
+    const quotaUnavailable = !item.launchOnly && (item.quota?.expired === true || item.quota?.exhausted === true);
     button.dataset.quotaUnavailable = quotaUnavailable ? 'true' : 'false';
     button.disabled = quotaUnavailable;
     if (item.quota?.account_type) button.title = `账号类型：${item.quota.account_type}`;

@@ -62,12 +62,31 @@ function getPlatformName(licenseCache) {
   }
 }
 
+function woolPlatformSubUrls(item) {
+  const rawSubUrls = Array.isArray(item?.subUrls) ? item.subUrls : item?.sub_urls;
+  if (!Array.isArray(rawSubUrls)) return [];
+  return rawSubUrls.map((url) => String(url || '').trim()).filter(Boolean);
+}
+
+function woolPlatformFlag(item, camelField, snakeField) {
+  return item?.[camelField] === true || item?.[snakeField] === true;
+}
+
+function woolPlatformQuota(item) {
+  return item?.quota && typeof item.quota === 'object' ? { ...item.quota } : null;
+}
+
 function normalizeWoolPlatform(item) {
+  const subUrls = woolPlatformSubUrls(item);
+  const targetUrl = firstWoolPlatformText(item, ['targetUrl', 'target_url']) || subUrls[0] || '';
   return {
     name: firstWoolPlatformText(item, ['name', 'platform', 'platform_name']),
     platform: firstWoolPlatformText(item, ['platform', 'name', 'platform_name']),
-    targetUrl: String(item?.targetUrl || item?.target_url || '').trim(),
-    quota: item?.quota && typeof item.quota === 'object' ? { ...item.quota } : null,
+    targetUrl,
+    subUrls,
+    launchOnly: woolPlatformFlag(item, 'launchOnly', 'launch_only'),
+    permissionGranted: woolPlatformFlag(item, 'permissionGranted', 'permission_granted'),
+    quota: woolPlatformQuota(item),
   };
 }
 
