@@ -27,6 +27,13 @@ const pinnedActionsPatch = fs.readFileSync(path.join(
   'patches',
   '0011-ai-free-embedded-extension-actions-pinned.patch',
 ), 'utf8');
+const toolbarPatch = fs.readFileSync(path.join(
+  root,
+  'native',
+  'chromium-fork',
+  'patches',
+  '0010-ai-free-embedded-toolbar-simplification.patch',
+), 'utf8');
 const timezonePatch = fs.readFileSync(path.join(
   root,
   'native',
@@ -46,17 +53,17 @@ const nativeFocus = fs.readFileSync(
   path.join(root, 'native', 'browser-host', 'src', 'focus_manager.cc'),
   'utf8',
 );
-const tabManager = fs.readFileSync(
-  path.join(root, 'src', 'app', 'main', 'services', 'tab-manager.js'),
+const tabManagerRuntime = fs.readFileSync(
+  path.join(root, 'src', 'app', 'main', 'services', 'tab-manager-runtime.js'),
   'utf8',
 );
 
 assert(series.includes('0007-ai-free-embedded-window-lockdown.patch'));
 assert(series.includes('0008-ai-free-extension-popup-auto-dismiss.patch'));
+assert(series.includes('0010-ai-free-embedded-toolbar-simplification.patch'));
 assert(series.includes('0011-ai-free-embedded-extension-actions-pinned.patch'));
 assert(series.includes('0012-ai-free-profile-timezone.patch'));
 assert(!series.includes('0009-ai-free-embedded-omnibox-read-only.patch'));
-assert(!series.includes('0010-ai-free-embedded-toolbar-simplification.patch'));
 for (const marker of [
   'switches::kHsEmbedMode) == "child-window"',
   'return HTCLIENT;',
@@ -95,6 +102,33 @@ assert(!patchedFiles.some((file) =>
   file.startsWith('chrome/browser/extensions/api/tabs/') ||
   file.startsWith('extensions/browser/api/tabs/')),
 'the embedded policy must not patch the chrome.tabs extension API');
+
+for (const marker of [
+  'bool BrowserView::IsToolbarVisible() const',
+  'switches::kHsHideToolbar',
+  'GetSwitchValueASCII(switches::kHsEmbedMode)',
+  'HasSwitch(switches::kHsHideToolbar)',
+  'bool ShouldShowNewTabButton',
+  'return false;',
+]) {
+  assert(toolbarPatch.includes(marker),
+    `one-click browser UI patch is missing: ${marker}`);
+}
+const toolbarPatchedFiles = [
+  ...toolbarPatch.matchAll(/^diff --git a\/(\S+) /gm),
+].map((match) => match[1]);
+assert.deepEqual(toolbarPatchedFiles, [
+  'chrome/browser/ui/views/frame/browser_view.cc',
+  'chrome/browser/ui/views/frame/horizontal_tab_strip_region_view.cc',
+]);
+for (const forbiddenMarker of [
+  'ToolbarActionsModel::SetActionVisibility',
+  'HideAiFreeEmbeddedLocationBarContents',
+  'IsWebUILocationBarEnabled',
+]) {
+  assert(!toolbarPatch.includes(forbiddenMarker),
+    `one-click browser UI patch must hide rows without mutating normal toolbar state: ${forbiddenMarker}`);
+}
 
 assert(popupPatch.includes('chrome/browser/ui/views/extensions/extension_popup.cc'));
 assert(popupPatch.includes('set_close_on_deactivate(false)'));
@@ -159,7 +193,7 @@ assert(nativeFocus.includes('if (foreground != root) return false;'),
   'embedded browser focus must be rejected while the Electron owner is in the background');
 assert(!nativeFocus.includes('SetForegroundWindow(root)'),
   'embedded browser focus must not force the Electron owner to the foreground');
-assert(tabManager.includes('const focusBrowser = options.focusBrowser === true;'),
+assert(tabManagerRuntime.includes('options.focusBrowser === true'),
   'showing or switching an embedded browser must require explicit focus opt-in');
 
 const automationManifest = JSON.parse(fs.readFileSync(

@@ -177,6 +177,7 @@ test('自定义语言时区和位置直接生成 Chromium 启动参数', async (
 
   await manager.addTab('chrome://newtab/', {
     tabId: 'custom-region-browser',
+    hideBrowserToolbar: true,
     browserSettings: {
       language: { mode: 'custom', value: 'fr-FR' },
       timezone: { mode: 'custom', value: 'Europe/Paris' },
@@ -196,6 +197,7 @@ test('自定义语言时区和位置直接生成 Chromium 启动参数', async (
   assert.equal(lookups[0].httpGetUniversal, undefined);
   assert.equal(launchedProfile.locale, 'fr-FR');
   assert.equal(launchedProfile.timezoneId, 'Europe/Paris');
+  assert.equal(launchedProfile.hideToolbar, true);
 });
 
 test('侧栏输入中创建浏览器会在 HWND 附着完成后恢复侧栏原生焦点', async () => {

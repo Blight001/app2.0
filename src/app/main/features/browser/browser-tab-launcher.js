@@ -245,6 +245,7 @@ class BrowserTabLauncher {
       displayName: identity.fixedTitle,
       initialUrl: urls.initial,
       restoreLastSession,
+      hideToolbar: context.options.hideBrowserToolbar === true,
       restoreFallbackUrl: String(url || '').trim(),
       locale: profile?.locale,
       acceptLanguage: profile?.acceptLanguage,

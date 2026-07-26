@@ -156,12 +156,13 @@ async function waitForRequest(predicate, timeoutMs = 5000) {
   throw new Error('等待输入事件结果超时');
 }
 
-async function launchProfile(profileId, targetUrl) {
+async function launchProfile(profileId, targetUrl, options = {}) {
   const state = await manager.launchProfile({
     profileId,
     runtimeType: 'chromium',
     initialUrl: 'about:blank',
     launchTimeoutMs: 30000,
+    hideToolbar: options.hideToolbar === true,
     extraArgs: ['--enable-logging=stderr'],
   }, { x: 0, y: 41, width: 1180, height: 719 });
   assert.equal(state.status, 'ready');
@@ -230,7 +231,11 @@ app.whenReady().then(async () => {
 
   const a = await launchProfile('phase3_a', `${origin}/page?profile=a`);
   await manager.hide('phase3_a', 'chromium');
-  const b = await launchProfile('phase3_b', `${origin}/page?profile=b`);
+  const b = await launchProfile(
+    'phase3_b',
+    `${origin}/page?profile=b`,
+    { hideToolbar: true },
+  );
 
   const aRequest = requests.find((item) => item.path === '/page' && item.profile === 'a');
   const bRequest = requests.find((item) => item.path === '/page' && item.profile === 'b');
@@ -388,6 +393,7 @@ app.whenReady().then(async () => {
     restoreLastSession: true,
     restoreFallbackUrl: `${origin}/page?profile=b`,
     launchTimeoutMs: 30000,
+    hideToolbar: true,
   }, { x: 0, y: 41, width: 1180, height: 719 });
   const restoredReload = await manager.reload('phase3_b', 'chromium');
   assert.equal(restoredReload.result.url, `${origin}/navigate?profile=b`);

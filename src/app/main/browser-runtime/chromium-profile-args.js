@@ -28,6 +28,7 @@ function buildChromiumProfileArgs(options, profile, bounds) {
   pushArg(args, extensions.length > 0, `--load-extension=${extensions.join(',')}`);
   pushArg(args, profile.remoteDebuggingPipe === true, '--remote-debugging-pipe');
   pushArg(args, profile.restoreLastSession === true, '--restore-last-session');
+  pushArg(args, profile.hideToolbar === true, '--hs-hide-toolbar');
   const origins = normalizePermissionOrigins(profile.autoGrantPermissionOrigins);
   pushArg(args, origins.length > 0, '--auto-grant-permissions');
   pushArg(args, origins.length > 0, `--auto-grant-permissions-origins=${origins.join(',')}`);

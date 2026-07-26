@@ -86,6 +86,7 @@ test('新服务器账号先持久化再创建 Profile、导航并注入会话', 
   assert.deepEqual(result, { ok: true, tabId: 'tab-1' });
   assert.equal(data.addedTabs[0].options.accountId, 'Dream::alice');
   assert.equal(data.addedTabs[0].options.restoreLastSession, false);
+  assert.equal(data.addedTabs[0].options.hideBrowserToolbar, true);
   assert.equal(data.importedSessions.length, 1);
   assert.equal(data.importedSessions[0].session.navigateAfterImport, false);
   assert.deepEqual(data.openedSubTabs, [{
@@ -205,6 +206,7 @@ test('仅链接平台跳过账号与 Cookie 获取并打开全部配置网址', 
   assert.equal(data.importedSessions.length, 0);
   assert.equal(data.addedTabs[0].url, 'https://one.example');
   assert.equal(data.addedTabs.length, 1);
+  assert.equal(data.addedTabs[0].options.hideBrowserToolbar, true);
   assert.deepEqual(navigated, []);
   assert.deepEqual(data.openedSubTabs[0].urls, [
     'https://two.example',

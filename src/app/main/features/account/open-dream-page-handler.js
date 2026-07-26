@@ -50,6 +50,7 @@ async function openUrlOnlyPlatform(deps, state) {
     tabTitle: state.platformName,
     deferChromiumNavigation: false,
     restoreLastSession: false,
+    hideBrowserToolbar: true,
   });
   if (!tabId) throw new Error('浏览器窗口创建失败');
   // 主链接已作为 Chromium 的 initialUrl 启动。浏览器桥接一就绪便立即
@@ -258,6 +259,7 @@ async function createDreamTab(deps, state, restoreProfile) {
     tabTitle: browserName(state),
     deferChromiumNavigation: false,
     restoreLastSession: restoreProfile,
+    hideBrowserToolbar: true,
   });
   if (restoreProfile) {
     await deps.support.navigateDreamTab(tabId, state.targetUrl);

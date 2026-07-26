@@ -38,6 +38,7 @@ test('buildChromiumArgs adds permission switches only with a valid allowlist', (
   };
   const disabled = buildChromiumArgs({ ...base, profile: {} });
   assert.equal(disabled.some((arg) => arg === '--auto-grant-permissions'), false);
+  assert.equal(disabled.includes('--hs-hide-toolbar'), false);
 
   const enabled = buildChromiumArgs({
     ...base,
@@ -47,6 +48,12 @@ test('buildChromiumArgs adds permission switches only with a valid allowlist', (
   assert.equal(enabled.includes(
     '--auto-grant-permissions-origins=https://studio.example.com',
   ), true);
+
+  const oneClickLaunch = buildChromiumArgs({
+    ...base,
+    profile: { hideToolbar: true },
+  });
+  assert.equal(oneClickLaunch.includes('--hs-hide-toolbar'), true);
 });
 
 test('browser settings preserve a bounded permission origin configuration', () => {
