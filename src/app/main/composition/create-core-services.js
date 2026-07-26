@@ -54,6 +54,7 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
     userDataDir: app.getPath('userData'),
     resourcesPath: resolveChromiumResourcesPath(app),
     sandboxDir: aiSandboxDir,
+    appVersion: app.getVersion(),
     getParentWindow: appRuntime.getMainWindow,
     logger: console,
   });

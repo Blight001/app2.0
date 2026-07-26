@@ -27,6 +27,10 @@ class BrowserRuntimeManager {
       windowBridge: this.windowBridge,
       getParentWindow: options.getParentWindow,
       resourcesPath: options.resourcesPath,
+      chromiumLogPath: options.chromiumLogPath || path.join(userDataDir, 'logs', 'chromium-runtime.log'),
+      chromiumDiagnosticDir: options.chromiumDiagnosticDir || path.join(userDataDir, 'diagnostics'),
+      chromiumUserDataDir: userDataDir,
+      appVersion: options.appVersion,
     });
   }
 

@@ -475,5 +475,6 @@
       scheduleBrowserHistoryRefresh, setSegment, setValue, syncConditionalFields,
       testProxy,
     });
+    void refreshBrowserHistory({ silent: true });
   });
 }());

@@ -68,4 +68,7 @@ foreach ($required in @(
     throw "Staged runtime is incomplete (missing $required)"
   }
 }
+
+& node.exe (Join-Path $script:RepoRoot 'scripts\chromium-runtime-manifest.js') $destination
+if ($LASTEXITCODE -ne 0) { throw 'Failed to generate Chromium runtime integrity manifest' }
 Write-Host "Complete Chromium runtime staged at $destination"

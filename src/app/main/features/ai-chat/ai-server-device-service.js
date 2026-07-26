@@ -1,6 +1,10 @@
 'use strict';
 
 const os = require('os');
+const {
+  normalizeToolError,
+  normalizeToolSchema,
+} = require('../../services/automation-tool-contract');
 
 const DEFAULT_HEYSURE_SERVER = 'http://49.234.181.190:3000';
 const REGISTER_INTERVAL_MS = 3000;
@@ -43,16 +47,6 @@ function protocolToolName(sourceName) {
   return action ? `aifree.${action}` : '';
 }
 
-function normalizeSchema(tool = {}) {
-  const source = tool.input_schema || tool.inputSchema || { type: 'object', properties: {} };
-  return {
-    ...source,
-    type: 'object',
-    properties: { ...(source.properties || {}) },
-    required: Array.isArray(source.required) ? [...source.required] : [],
-  };
-}
-
 function normalizeToolCatalog(listed = {}) {
   const tools = [];
   const routes = new Map();
@@ -64,7 +58,7 @@ function normalizeToolCatalog(listed = {}) {
     tools.push({
       name,
       description: String(source.description || `调用 AI-FREE 的 ${sourceName} MCP 工具`).trim(),
-      input_schema: normalizeSchema(source),
+      input_schema: normalizeToolSchema(source),
       destructive: source.destructive === true,
     });
   }
@@ -361,7 +355,19 @@ class AiServerDeviceService {
       this.rememberCompletedTask(taskId, { event: 'task:result', payload });
       socket.emit('task:result', payload);
     } catch (error) {
-      const payload = { taskId, deviceId: this.serviceId, error: publicMessage(error, 'MCP 工具执行失败') };
+      const normalized = normalizeToolError(error, {
+        code: 'MCP_TOOL_FAILED',
+        message: publicMessage(error, 'MCP 工具执行失败'),
+        phase: 'heysure_task',
+      });
+      const payload = {
+        taskId,
+        deviceId: this.serviceId,
+        error: normalized.message,
+        errorCode: normalized.code,
+        phase: normalized.phase,
+        retryable: normalized.retryable,
+      };
       this.rememberCompletedTask(taskId, { event: 'task:error', payload });
       socket.emit('task:error', payload);
     } finally {

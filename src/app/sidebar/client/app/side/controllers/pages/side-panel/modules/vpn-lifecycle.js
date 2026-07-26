@@ -206,11 +206,25 @@ async function autoStartNetworkMagicIfEligible({ startBtn, vpnBtn, key = '', dev
   // 状态事件即使在评估期间到达，选路按钮也不会被放开一瞬。
   autoStartClashMiniInFlight = true;
   try {
-    if (!await getNetworkMagicAutoStartEnabled()) return;
-    if (await isNetworkMagicRunning()) return;
+    const runAutoStart = async () => {
+      if (!await getNetworkMagicAutoStartEnabled()) return;
+      if (await isNetworkMagicRunning()) return;
 
-    console.log('[侧边栏][Clash] 满足自动启动条件，开始启用网络魔法');
-    await startClashMiniFlow({ startBtn, vpnBtn, fetchConfig: true, key, deviceId });
+      console.log('[侧边栏][Clash] 满足自动启动条件，开始启用网络魔法');
+      await startClashMiniFlow({ startBtn, vpnBtn, fetchConfig: true, key, deviceId });
+    };
+    if (vpnBtn) {
+      await withBusyButton(vpnBtn, [startBtn], runAutoStart, {
+        loadingText: '正在开启魔法请稍等',
+        preserveTextAfterResolve: true,
+        onRestore: (button) => updateClashVpnButton(button, {
+          enabled: isVpnEnabled,
+          isBusy: false,
+        }),
+      });
+    } else {
+      await runAutoStart();
+    }
   } catch (error) {
     console.warn('[侧边栏] 自动开启网络魔法失败:', error?.message || error);
   } finally {

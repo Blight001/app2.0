@@ -1,10 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { prepareChromiumPreflight } = require('./chromium-launch-preflight');
 const { ensureChromiumSandboxAccess } = require('./chromium-sandbox-access');
 const { enforceLocalModelDisabled } = require('./chromium-local-model-policy');
 const { buildChromiumProfileArgs } = require('./chromium-profile-args');
-const { createChromiumLaunchDiagnostics } = require('./chromium-process-diagnostics');
+const { attachChromiumLaunchLogging } = require('./chromium-launch-log');
 const { callOptional, firstText } = require('../../shared/safe-values');
 
 const SESSION_FILE_PATTERN = /^(Session|Tabs)_(\d+)$/;
@@ -433,6 +434,7 @@ function buildChromiumArgs(options = {}) {
   args.push(...buildChromiumProfileArgs(options, profile, bounds));
   args.push(...(Array.isArray(profile.extraArgs) ? profile.extraArgs : []));
   const modelSafeArgs = enforceLocalModelDisabled(args);
+  modelSafeArgs.push('--enable-logging=stderr');
   // Chromium 在握手完成前还是独立顶层窗口。强制放到虚拟屏幕外，且放在
   // 自定义参数之后，避免用户参数覆盖；嵌入后 native host 会重新定位。
   modelSafeArgs.push('--window-position=-32000,-32000');
@@ -461,34 +463,14 @@ function chromiumSpawnEnvironment(options) {
   return buildChromiumEnvironment(process.env, overrides);
 }
 
-function attachChromiumLogging(child, executablePath, options) {
-  const logger = options.logger;
-  const profile = options.profile && typeof options.profile === 'object' ? options.profile : {};
-  const diagnostics = createChromiumLaunchDiagnostics();
-  callOptional(logger, 'info', `[AI-FREE] 已启动外部浏览器内核: ${executablePath}`);
-  callOptional(logger, 'info', `[ChromiumRuntime] PID=${child.pid} Profile=${profile.profileId || ''}`);
-  forwardChromiumOutput(child.stdout, (line) => {
-    diagnostics.record('stdout', line);
-    callOptional(logger, 'log', `[Chromium:${child.pid}] ${line}`);
-  });
-  forwardChromiumOutput(
-    child.stderr,
-    (line) => {
-      diagnostics.record('stderr', line);
-      callOptional(logger, 'warn', `[Chromium:${child.pid}] ${line}`);
-    },
-    shouldIgnoreChromiumDiagnostic,
-  );
-  return diagnostics;
-}
-
 function launchChromium(options = {}) {
   const executablePath = resolveChromiumExecutable(options);
   const profileRoot = String(options.paths?.root || '').trim();
   const cacheFile = profileRoot
     ? path.join(path.dirname(profileRoot), '.chromium-sandbox-access.json')
     : '';
-  ensureChromiumSandboxAccess(executablePath, options.logger, { cacheFile });
+  const sandboxAccess = ensureChromiumSandboxAccess(executablePath, options.logger, { cacheFile });
+  const preflight = prepareChromiumPreflight(options, executablePath, sandboxAccess);
   const launchOptions = resolveChromiumLaunchOptions(options);
   applyChromiumSessionStartupPolicy(launchOptions.paths, launchOptions.logger, launchOptions.profile);
   const args = buildChromiumArgs(launchOptions);
@@ -501,7 +483,17 @@ function launchChromium(options = {}) {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: chromiumSpawnEnvironment(options),
   });
-  const diagnostics = attachChromiumLogging(child, executablePath, options);
+  const diagnostics = attachChromiumLaunchLogging({
+    child, executablePath, args, logger: options.logger,
+    logFilePath: options.chromiumLogPath,
+    diagnosticDir: options.chromiumDiagnosticDir,
+    userDataDir: options.chromiumUserDataDir,
+    appVersion: options.appVersion,
+    sandboxAccess,
+    preflight,
+    forwardOutput: forwardChromiumOutput,
+    shouldIgnore: shouldIgnoreChromiumDiagnostic,
+  });
   return { child, executablePath, args, diagnostics };
 }
 

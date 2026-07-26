@@ -3,6 +3,14 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const {
+  addBrowserRouteToSchema,
+  normalizeToolError,
+  normalizeToolSchema,
+  resolveBrowserConnection,
+  resolveDispatchTimeout,
+  sanitizeBrowserRoutingArgs,
+} = require('./automation-tool-contract');
 
 const EXTERNAL_MCP_PREFIX = '/mcp/v1/';
 const EXTERNAL_MCP_TOKEN_HEADER = 'x-ai-free-mcp-token';
@@ -37,25 +45,17 @@ async function readJson(req) {
 }
 
 function normalizeSchema(tool = {}) {
-  const source = tool.input_schema || tool.inputSchema || { type: 'object', properties: {} };
-  return {
-    ...source,
-    type: 'object',
-    properties: { ...(source.properties || {}) },
-    required: Array.isArray(source.required) ? [...source.required] : [],
-  };
+  return normalizeToolSchema(tool);
 }
 
 function addBrowserRouting(tool = {}) {
-  const inputSchema = normalizeSchema(tool);
-  inputSchema.properties.change_browser = inputSchema.properties.change_browser || {
-    type: 'string',
-    description: '可选。切换唯一的当前控制浏览器，填写 connections 中的连接 ID 或唯一窗口名称；省略则沿用当前目标。',
-  };
   return {
     name: String(tool.name || '').trim(),
     description: String(tool.description || '').trim(),
-    inputSchema,
+    inputSchema: addBrowserRouteToSchema(
+      tool,
+      '可选。切换唯一的当前控制浏览器，填写 connections 中的连接 ID 或唯一窗口名称；省略则沿用当前目标。',
+    ),
     destructive: tool.destructive === true,
     scope: 'browser-window',
   };
@@ -92,17 +92,10 @@ function publicConnection(connection = {}) {
   };
 }
 
-function resolveDispatchTimeout(toolName, args) {
-  const requestedSeconds = Number(args.timeout_seconds || 0);
-  if (requestedSeconds > 0) return Math.min(1800, Math.max(1, requestedSeconds)) * 1000;
-  const isCardRun = toolName === 'manage_card' && String(args.action || '').trim().toLowerCase() === 'run';
-  return isCardRun ? 900000 : 180000;
-}
-
 function sanitizeDispatchArgs(source = {}) {
-  const args = { ...source };
+  const args = sanitizeBrowserRoutingArgs(source);
   for (const key of [
-    'change_browser', 'browser_id', 'browser_name', 'browser', 'save_to_server', 'saveToServer',
+    'save_to_server', 'saveToServer',
     'server_url', 'serverUrl',
   ]) delete args[key];
   return args;
@@ -196,23 +189,13 @@ class BrowserAutomationExternalGateway {
 
   resolveConnection(args = {}) {
     const items = this.connections();
-    const reference = String(args.change_browser || args.browser_id || args.browser_name || args.browser || '').trim();
-    if (!reference) {
-      const controlled = items.find((item) => String(item.id || '') === this.controlledConnectionId);
-      return controlled || this.resolveImplicitConnection(items);
+    const resolved = resolveBrowserConnection(items, args, this.controlledConnectionId);
+    if (resolved.kind === 'found') return resolved.connection;
+    if (resolved.kind === 'ambiguous') {
+      throw new Error(`存在多个名为「${resolved.reference}」的窗口，请在 change_browser 中使用连接 ID`);
     }
-    const exactId = items.find((item) => String(item.id || '') === reference);
-    if (exactId) return exactId;
-    const lowered = reference.toLocaleLowerCase();
-    const matches = items.filter((item) => String(item.browserName || item.name || '').trim().toLocaleLowerCase() === lowered);
-    if (matches.length === 1) return matches[0];
-    if (matches.length > 1) throw new Error(`存在多个名为「${reference}」的窗口，请在 change_browser 中使用连接 ID`);
-    throw new Error(`未找到 AI-FREE 浏览器窗口: ${reference}`);
-  }
-
-  resolveImplicitConnection(items) {
-    if (items.length === 1) return items[0];
-    if (!items.length) throw new Error('当前没有已连接内部 MCP 的 AI-FREE 浏览器窗口');
+    if (resolved.kind === 'not_found') throw new Error(`未找到 AI-FREE 浏览器窗口: ${resolved.reference}`);
+    if (resolved.kind === 'unavailable') throw new Error('当前没有已连接内部 MCP 的 AI-FREE 浏览器窗口');
     throw new Error(`当前有 ${items.length} 个浏览器窗口，请通过 change_browser 选择唯一的控制窗口`);
   }
 
@@ -276,10 +259,16 @@ class BrowserAutomationExternalGateway {
     try {
       await this.handleAuthorized(req, res, url);
     } catch (error) {
+      const normalized = normalizeToolError(error, {
+        code: 'AI_FREE_MCP_CALL_FAILED',
+        phase: 'external_gateway',
+      });
       jsonResponse(res, 400, {
         ok: false,
-        error: String(error?.errorCode || error?.code || 'AI_FREE_MCP_CALL_FAILED'),
-        message: error?.message || String(error),
+        error: normalized.code,
+        message: normalized.message,
+        phase: normalized.phase,
+        retryable: normalized.retryable,
       });
     }
     return true;

@@ -22,7 +22,7 @@ class ChromiumRuntime extends BrowserRuntime {
     this.store = options.store;
     this.windowBridge = options.windowBridge;
     this.getParentWindow = options.getParentWindow;
-    this.resourcesPath = options.resourcesPath;
+    this.launchOptions = { resourcesPath: options.resourcesPath, chromiumLogPath: options.chromiumLogPath, chromiumDiagnosticDir: options.chromiumDiagnosticDir, chromiumUserDataDir: options.chromiumUserDataDir, appVersion: options.appVersion };
     this.instances = new Map();
     // 同一 Profile 的重启、导航、会话注入和刷新必须排队，避免误判运行状态。
     this.profileOperationQueues = new Map();
@@ -120,7 +120,7 @@ class ChromiumRuntime extends BrowserRuntime {
       hostHwnd,
       pipeName,
       launchToken,
-      resourcesPath: this.resourcesPath,
+      ...this.launchOptions,
       executablePath: context.profile.executablePath,
       logger: this.logger,
     });

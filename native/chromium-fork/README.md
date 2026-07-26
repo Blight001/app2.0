@@ -37,6 +37,23 @@ depot_tools Python/CIPD bootstrap，再启动并行 gclient 任务，避免首�
 正式运行目录是 `resources/chromium/`。stage 脚本复制完整 Chromium 运行时，
 包括 DLL、PAK、locales、resources、Vulkan/SwiftShader 文件和版本目录。
 
+## 启动自检与故障诊断
+
+`stage-runtime.ps1` 和 `build:win` 都会生成 `runtime-manifest.json`，记录
+`ai-free-browser.exe`、`chrome.dll`、`chrome_elf.dll`、`icudtl.dat` 与
+`resources.pak` 的大小和 SHA-256。启动 Chromium 前，主进程自动检查 Windows
+版本/架构、安装盘 NTFS、Code Integrity/AppLocker 最近事件、关键文件哈希和
+AppContainer 读取权限；确定失败的检查会阻止启动，避免继续运行损坏内核。
+
+运行日志位于 Electron `userData/logs/chromium-runtime.log`。启动或握手失败时，
+系统还会在 `userData/diagnostics/` 自动生成单文件 JSON 诊断包，包含脱敏后的
+启动参数、预检结果、日志尾部以及最近的 Code Integrity、AppLocker 和 Defender
+事件。Token、Cookie、授权头、代理凭据与用户目录会在写入前清理。
+
+补丁 `0025-ai-free-sandbox-launch-diagnostics.patch` 会在 Windows 沙箱子进程
+启动失败时记录 `process-type`、`sandbox-result`、`win32-last-error` 和
+`sandbox-tag`，用于区分 Renderer、GPU、Network Service 等不同失败阶段。
+
 ## Google 登录与 API 凭据
 
 登录 Gmail、YouTube 等普通网站不需要 Chromium API 凭据。浏览器自身的

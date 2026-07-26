@@ -128,6 +128,23 @@ test('external gateway publishes a protected descriptor and authenticates HTTP c
     assert.equal(payload.ok, true);
     assert.equal(payload.tools.some((tool) => tool.name === 'software_window'), true);
 
+    const failed = await fetch(`${descriptor.endpoint}/mcp/v1/call`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-ai-free-mcp-token': descriptor.token,
+      },
+      body: JSON.stringify({ name: 'missing_tool', arguments: {} }),
+    });
+    assert.equal(failed.status, 400);
+    assert.deepEqual(await failed.json(), {
+      ok: false,
+      error: 'AI_FREE_MCP_CALL_FAILED',
+      message: '窗口「工作窗口」不支持 MCP 工具: missing_tool',
+      phase: 'external_gateway',
+      retryable: false,
+    });
+
     gateway.unpublish();
     assert.equal(fs.existsSync(descriptorPath), false);
   } finally {

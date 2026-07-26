@@ -1,42 +1,22 @@
 'use strict';
 
 const { limitAiControlMessages } = require('../../lib/ai-control-message-window');
+const {
+  findConnectionByReference,
+  withBrowserRouteParam,
+} = require('../../services/automation-tool-contract');
 
 function createConnectionResolver(connections) {
   const findConnectionByRef = (ref) => {
-    const wanted = String(ref || '').trim();
-    if (!wanted) return null;
-    const byId = connections.find((item) => String(item.id) === wanted);
-    if (byId) return byId;
-    const lower = wanted.toLowerCase();
-    const byName = connections.filter((item) => String(item.name || '').trim().toLowerCase() === lower
-      || String(item.pluginName || '').trim().toLowerCase() === lower);
-    if (byName.length > 1) return { ambiguous: true, ref: wanted };
-    return byName[0] || null;
+    const resolved = findConnectionByReference(connections, ref);
+    if (resolved.kind === 'found') return resolved.connection;
+    if (resolved.kind === 'ambiguous') return { ambiguous: true, ref: resolved.reference };
+    return null;
   };
   const describeConnections = () => connections
     .map((item) => `“${String(item.name || 'AI自动化浏览器')}”（change_browser: ${item.id}）`)
     .join('、');
   return { findConnectionByRef, describeConnections };
-}
-
-function withBrowserRouteParam(tool) {
-  const schema = tool?.input_schema && typeof tool.input_schema === 'object'
-    ? tool.input_schema
-    : { type: 'object', properties: {} };
-  return {
-    ...tool,
-    input_schema: {
-      ...schema,
-      properties: {
-        ...(schema.properties && typeof schema.properties === 'object' ? schema.properties : {}),
-        change_browser: {
-          type: 'string',
-          description: '可选。切换唯一的当前控制浏览器，填写连接 ID 或唯一名称；省略则继续控制当前浏览器。',
-        },
-      },
-    },
-  };
 }
 
 function collectConnectionTools(connections, windowTools) {

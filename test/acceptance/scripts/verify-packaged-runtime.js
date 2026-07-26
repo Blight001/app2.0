@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const crypto = require('crypto');
 const os = require('os');
 const path = require('path');
 const asar = require('@electron/asar');
@@ -23,6 +24,25 @@ const REQUIRED_WATCHDOG_FILES = [
   'transport.js',
   'worker.js',
 ];
+
+function verifyChromiumIntegrityManifest(chromiumDir) {
+  const manifestPath = path.join(chromiumDir, 'runtime-manifest.json');
+  assertFile(manifestPath, 64);
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  if (manifest?.schemaVersion !== 1 || !manifest.files || typeof manifest.files !== 'object') {
+    throw new Error(`Chromium 哈希清单格式无效: ${manifestPath}`);
+  }
+  for (const [relativePath, expected] of Object.entries(manifest.files)) {
+    const filePath = path.join(chromiumDir, relativePath);
+    assertFile(filePath, 1);
+    const stat = fs.statSync(filePath);
+    const actualHash = crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+    if (stat.size !== Number(expected.size)
+      || actualHash.toUpperCase() !== String(expected.sha256).toUpperCase()) {
+      throw new Error(`Chromium 关键文件与哈希清单不一致: ${relativePath}`);
+    }
+  }
+}
 
 function assertFile(filePath, minimumSize = 1) {
   let size = 0;
@@ -184,6 +204,7 @@ function verifyPackagedRuntime(options = {}) {
   assertStaticVCRuntime(nativeHostPath);
   assertPeX64(path.join(resourcesDir, 'chromium', 'ai-free-browser.exe'));
   assertFile(path.join(resourcesDir, 'chromium', 'chrome.dll'), 100 * 1024 * 1024);
+  verifyChromiumIntegrityManifest(path.join(resourcesDir, 'chromium'));
 
   const logoPath = path.join(resourcesDir, 'resource', 'logo.ico');
   assertFile(logoPath, 128);

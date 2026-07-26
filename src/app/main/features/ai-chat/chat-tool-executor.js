@@ -1,6 +1,13 @@
 'use strict';
 
 const { withBrowserRouteParam } = require('./chat-tool-context');
+const {
+  browserReference,
+  normalizeToolError,
+  resolveBrowserConnection,
+  resolveDispatchTimeout,
+  sanitizeBrowserRoutingArgs,
+} = require('../../services/automation-tool-contract');
 
 function parseToolArguments(call) {
   const raw = String(call?.function?.arguments || '{}');
@@ -15,26 +22,16 @@ function parseToolArguments(call) {
   }
 }
 
-function browserReference(args = {}) {
-  return String(args.change_browser ?? args.browser_id ?? args.browser_name ?? args.browser ?? '').trim();
-}
-
 function resolvePluginTarget(args, connections, findConnectionByRef, describeConnections, controlledConnectionId = '') {
-  const reference = browserReference(args);
-  if (reference) {
-    const found = findConnectionByRef(reference);
-    if (found?.ambiguous) {
-      return { error: `存在多个名为 ${JSON.stringify(reference)} 的浏览器，请在 change_browser 中传连接 ID：${describeConnections()}` };
-    }
-    if (!found) {
-      return { error: `未在当前 AI 已选且在线的浏览器中找到 ${JSON.stringify(reference)}。`
-        + `software_window 的 history_id/tab_id 不能代替 change_browser；可用浏览器：${describeConnections()}` };
-    }
-    return { connection: found };
+  const resolved = resolveBrowserConnection(connections, args, controlledConnectionId);
+  if (resolved.kind === 'found') return { connection: resolved.connection };
+  if (resolved.kind === 'ambiguous') {
+    return { error: `存在多个名为 ${JSON.stringify(resolved.reference)} 的浏览器，请在 change_browser 中传连接 ID：${describeConnections()}` };
   }
-  const controlled = connections.find((item) => String(item?.id || '') === String(controlledConnectionId || ''));
-  if (controlled) return { connection: controlled };
-  if (connections.length === 1) return { connection: connections[0] };
+  if (resolved.kind === 'not_found') {
+    return { error: `未在当前 AI 已选且在线的浏览器中找到 ${JSON.stringify(resolved.reference)}。`
+        + `software_window 的 history_id/tab_id 不能代替 change_browser；可用浏览器：${describeConnections()}` };
+  }
   return { error: `当前没有唯一的控制浏览器，请通过 change_browser 指定目标（连接 ID 或名称）：${describeConnections()}` };
 }
 
@@ -49,34 +46,31 @@ async function dispatchPluginTool(context, toolName, args) {
   if (target.error) {
     return { success: false, error: target.error, errorCode: 'BROWSER_ROUTE_NOT_FOUND', phase: 'tool_route', tool: toolName };
   }
-  const dispatchArgs = { ...args };
-  delete dispatchArgs.change_browser;
-  delete dispatchArgs.browser_id;
-  delete dispatchArgs.browser_name;
-  delete dispatchArgs.browser;
+  const dispatchArgs = sanitizeBrowserRoutingArgs(args);
   if (context.browserControl && context.browserControl.connectionId !== target.connection.id) {
     context.browserControl.connectionId = target.connection.id;
     context.emit?.({ type: 'browser_control_changed', connectionId: target.connection.id, name: target.connection.name || '' });
   }
-  const requestedSeconds = Number(args?.timeout_seconds || 0);
-  const isCardRun = toolName === 'manage_card'
-    && String(args?.action || '').trim().toLowerCase() === 'run';
-  const timeoutMs = requestedSeconds > 0
-    ? Math.min(1800, Math.max(1, requestedSeconds)) * 1000
-    : (isCardRun ? 900000 : 180000);
+  const timeoutMs = resolveDispatchTimeout(toolName, args);
   return context.waitForAbort(context.bridge.dispatch(target.connection.id, toolName, dispatchArgs, { timeoutMs }));
 }
 
 function normalizeToolFailure(error, toolName) {
-  const message = String(error?.message || error || '浏览器工具执行失败').trim();
+  const normalized = normalizeToolError(error, {
+    code: 'BROWSER_TOOL_FAILED',
+    message: '浏览器工具执行失败',
+    phase: 'tool_dispatch',
+    retryable: true,
+  });
   return {
     success: false,
-    error: message,
-    errorReason: message,
-    errorCode: String(error?.errorCode || error?.code || 'BROWSER_TOOL_FAILED'),
-    phase: String(error?.phase || 'tool_dispatch'),
+    error: normalized.message,
+    errorReason: normalized.message,
+    errorCode: normalized.code,
+    phase: normalized.phase,
+    recoverable: normalized.retryable,
     tool: String(error?.tool || toolName),
-    ...(Number(error?.timeoutMs || 0) > 0 ? { timeoutMs: Number(error.timeoutMs) } : {}),
+    ...(normalized.timeoutMs ? { timeoutMs: normalized.timeoutMs } : {}),
   };
 }
 

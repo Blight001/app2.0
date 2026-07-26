@@ -23,3 +23,27 @@ test('Chromium 诊断仅保留最近的有限输出并附加到失败消息', ()
   assert.ok(!error.message.includes('line-0'));
   assert.ok(error.message.includes('line-24'));
 });
+
+test('Chromium 退出码 3 说明其含义不唯一并给出独立日志位置', () => {
+  const diagnostics = createChromiumLaunchDiagnostics({
+    logFilePath: 'C:\\Users\\tester\\AppData\\Roaming\\AI-FREE\\logs\\chromium-runtime.log',
+  });
+
+  const error = createChromiumProcessFailure(diagnostics, { exitCode: 3 });
+
+  assert.match(error.message, /多种定义/);
+  assert.match(error.message, /不能仅凭此码判断根因/);
+  assert.match(error.message, /Code Integrity\/AppLocker/);
+  assert.match(error.message, /chromium-runtime\.log/);
+  assert.equal(error.logFilePath, diagnostics.logFilePath);
+});
+
+test('Chromium 进程失败时附加自动生成的脱敏诊断包路径', () => {
+  const diagnostics = createChromiumLaunchDiagnostics();
+  diagnostics.createBundle = () => 'C:\\AI-FREE\\diagnostics\\chromium-failure.json';
+
+  const error = createChromiumProcessFailure(diagnostics, { exitCode: 3 });
+
+  assert.match(error.message, /脱敏诊断包/);
+  assert.equal(error.diagnosticBundlePath, 'C:\\AI-FREE\\diagnostics\\chromium-failure.json');
+});

@@ -131,6 +131,10 @@ test('未知工具返回 task:error，注册拒绝后会自动重新登录', asy
   await socket.serverEmit('task:dispatch', { taskId: 'task-bad', tool: 'aifree.missing', args: {} });
   await tick();
   assert.match(socket.sent.find((entry) => entry.event === 'task:error').payload.error, /未知或当前不可用/);
+  const taskError = socket.sent.find((entry) => entry.event === 'task:error').payload;
+  assert.equal(taskError.errorCode, 'MCP_TOOL_FAILED');
+  assert.equal(taskError.phase, 'heysure_task');
+  assert.equal(taskError.retryable, false);
 
   await socket.serverEmit('device:register_rejected', { reason: 'token expired' });
   await tick();

@@ -148,6 +148,9 @@ AI 对话和 HeySure 设备端都会发现当前所有已连接浏览器的工�
 - HeySure 设备工具注册由 [`ai-server-device-service.js`](../src/app/main/features/ai-chat/ai-server-device-service.js) 负责，内部名称会转换为 `aifree.<工具名>`。
 - 外部调用目录由 [`browser-automation-external-gateway.js`](../src/app/main/services/browser-automation-external-gateway.js) 汇总，并执行会员权限、浏览器路由和敏感参数限制。
 - 只有服务器实时校验为有效会员时，软件才会向 HeySure 注册为在线设备并接受调用。
-- 浏览器连接建立或断开后，设备会自动刷新工具目录。因此 HeySure 端可见工具数量可能在 1 个和 7 个之间变化。
+- 浏览器连接建立或断开后，设备会自动刷新工具目录。因此 HeySure 端可见工具数量可能在 1 个和 8 个之间变化。
+- 本地 AI、Codex Bridge 和 HeySure adapter 共用
+  [`automation-tool-contract.js`](../src/app/main/services/automation-tool-contract.js)
+  中的 Schema、浏览器路由、超时、路由参数清理和错误规范化规则；三端仅保留各自的传输与鉴权适配。
 - `software_window_list/open/create/rename/close` 已停止公开注册，新调用统一使用 `software_window` 并传入对应 `action`；重命名使用 `action: "edit"` 和 `new_name`。
 - `write_card`、`get_status`、`run_card`、`capture_cookies` 仍保留为扩展内部的旧协议兼容别名，但不在当前公开 MCP 工具目录中，不应由新调用使用。

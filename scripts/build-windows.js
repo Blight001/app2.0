@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { build, Platform } = require('electron-builder');
 const { verifyPackagedRuntime } = require('./verify-packaged-runtime');
+const { writeChromiumRuntimeManifest } = require('./chromium-runtime-manifest');
 const { buildNativeHost } = require('./build-native-host');
 const { buildSource } = require('./build-source');
 
@@ -190,6 +191,7 @@ function resolvePackagedExtensions() {
 }
 
 async function main() {
+  writeChromiumRuntimeManifest(path.join(projectDir, 'resources', 'chromium'));
   buildSource();
   const packageJson = readJson(packagePath);
   const builderConfig = packageJson.build || {};
