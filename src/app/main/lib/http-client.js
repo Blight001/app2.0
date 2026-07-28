@@ -184,7 +184,7 @@ class HttpClient {
         const base = this._getPreferredHttpBase();
         if (!base) {
             results.httpError = 'HTTP服务器地址未配置';
-            results.recommendations.push('尚未获取到服务器地址，请先完成卡密验证');
+            results.recommendations.push('尚未获取到服务器地址，请先登录账号');
             return results;
         }
 
@@ -213,15 +213,22 @@ class HttpClient {
         return results;
     }
 
-    /**
-     * 验证卡密
-     */
-    async validateKey(key, deviceId) {
+    /** Validate the signed-in account session. */
+    async validateSession(sessionToken, deviceId) {
         return this._request({
-            actionLabel: 'validateKey',
-            path: '/api/validate_key',
+            actionLabel: 'validateSession',
+            path: '/api/account/session',
             method: 'POST',
-            data: { key, device_id: deviceId },
+            data: { session_token: sessionToken, device_id: deviceId },
+        });
+    }
+
+    async logoutAccount(sessionToken) {
+        return this._request({
+            actionLabel: 'logoutAccount',
+            path: '/api/account/logout',
+            method: 'POST',
+            data: { session_token: sessionToken },
         });
     }
 
@@ -239,35 +246,35 @@ class HttpClient {
     /**
      * 获取Cookie
      */
-    async fetchCookie(key, platform, deviceId) {
+    async fetchCookie(sessionToken, platform, deviceId) {
         return this._request({
             actionLabel: 'fetchCookie',
             path: '/api/fetch_cookie',
             method: 'POST',
-            data: { key, platform, device_id: deviceId },
+            data: { session_token: sessionToken, platform, device_id: deviceId },
         });
     }
 
     /**
      * 自助解绑设备
      */
-    async unbindDevice(key, deviceId) {
+    async unbindDevice(sessionToken, deviceId) {
         return this._request({
             actionLabel: 'unbindDevice',
             path: '/api/unbind_device',
             method: 'POST',
-            data: { key, device_id: deviceId, deviceId },
+            data: { session_token: sessionToken, device_id: deviceId, deviceId },
         });
     }
 
     /**
      * 获取客户端配置
-     * @param {string} key - 卡密
+     * @param {string} sessionToken - 账号会话
      * @param {string} deviceId - 设备号
      */
-    async getClientConfig(key, deviceId) {
+    async getClientConfig(sessionToken, deviceId) {
         const qs = new URLSearchParams({
-            key: String(key || ''),
+            session_token: String(sessionToken || ''),
             device_id: String(deviceId || ''),
         }).toString();
         const requestTimeoutMs = Math.max(NETWORK_DIAG_CONFIG.REQUEST_TIMEOUT * 4, 20000);
@@ -282,7 +289,7 @@ class HttpClient {
                 label: 'HTTP POST body',
                 method: 'POST',
                 path: '/api/client/config',
-                data: { key, device_id: deviceId },
+                data: { session_token: sessionToken, device_id: deviceId },
             },
         ];
 
@@ -330,30 +337,30 @@ class HttpClient {
         });
     }
 
-    async getPacConfig(key, deviceId) {
+    async getPacConfig(sessionToken, deviceId) {
         return this._request({
             actionLabel: 'getPacConfig',
             path: '/api/get_pac_config',
             method: 'POST',
-            data: { key, device_id: deviceId },
+            data: { session_token: sessionToken, device_id: deviceId },
         });
     }
 
-    async controlProxy(key, deviceId, action) {
+    async controlProxy(sessionToken, deviceId, action) {
         return this._request({
             actionLabel: 'controlProxy',
             path: '/api/control_proxy',
             method: 'POST',
-            data: { key, device_id: deviceId, action },
+            data: { session_token: sessionToken, device_id: deviceId, action },
         });
     }
 
-    async getAIControlModels(key, deviceId) {
+    async getAIControlModels(sessionToken, deviceId) {
         const primary = await this._request({
             actionLabel: 'getAIControlModels',
             path: '/api/ai-control/models',
             method: 'POST',
-            data: { key, device_id: deviceId },
+            data: { session_token: sessionToken, device_id: deviceId },
         });
         if (primary?.ok) return primary;
 
@@ -366,7 +373,7 @@ class HttpClient {
                 postJson,
                 path: '/api/ai-control/models',
                 method: 'POST',
-                data: { key, device_id: deviceId },
+                data: { session_token: sessionToken, device_id: deviceId },
                 timeoutMs: NETWORK_DIAG_CONFIG.REQUEST_TIMEOUT,
             }).catch((error) => ({
                 ok: false,
@@ -383,57 +390,57 @@ class HttpClient {
             : primary;
     }
 
-    async redeemAIControlGiftCode(key, deviceId, code) {
+    async redeemAIControlGiftCode(sessionToken, deviceId, code) {
         return this._request({
             actionLabel: 'redeemAIControlGiftCode',
             path: '/api/ai-control/gift-codes/redeem',
             method: 'POST',
-            data: { key, device_id: deviceId, code },
+            data: { session_token: sessionToken, device_id: deviceId, code },
         });
     }
 
-    async redeemWoolGiftCode(key, deviceId, code) {
+    async redeemWoolGiftCode(sessionToken, deviceId, code) {
         return this._request({
             actionLabel: 'redeemWoolGiftCode',
             path: '/api/wool-gift-codes/redeem',
             method: 'POST',
-            data: { key, device_id: deviceId, code },
+            data: { session_token: sessionToken, device_id: deviceId, code },
         });
     }
 
-    async redeemVipGiftCode(key, deviceId, code) {
+    async redeemVipGiftCode(sessionToken, deviceId, code) {
         return this._request({
             actionLabel: 'redeemVipGiftCode',
             path: '/api/vip-gift-codes/redeem',
             method: 'POST',
-            data: { key, device_id: deviceId, code },
+            data: { session_token: sessionToken, device_id: deviceId, code },
         });
     }
 
-    async getVipPlans(key, deviceId) {
+    async getVipPlans(sessionToken, deviceId) {
         return this._request({
             actionLabel: 'getVipPlans',
             path: '/api/vip/plans',
             method: 'POST',
-            data: { key, device_id: deviceId },
+            data: { session_token: sessionToken, device_id: deviceId },
         });
     }
 
-    async getProxyTrafficQuota(key, deviceId) {
+    async getProxyTrafficQuota(sessionToken, deviceId) {
         return this._request({
             actionLabel: 'getProxyTrafficQuota',
             path: '/api/proxy/client/quota',
             method: 'POST',
-            data: { key, device_id: deviceId },
+            data: { session_token: sessionToken, device_id: deviceId },
         });
     }
 
-    async createProxyTrafficSession(key, deviceId) {
+    async createProxyTrafficSession(sessionToken, deviceId) {
         return this._request({
             actionLabel: 'createProxyTrafficSession',
             path: '/api/proxy/client/session',
             method: 'POST',
-            data: { key, device_id: deviceId },
+            data: { session_token: sessionToken, device_id: deviceId },
         });
     }
 
@@ -447,22 +454,22 @@ class HttpClient {
         });
     }
 
-    async redeemProxyTrafficGiftCode(key, deviceId, code) {
+    async redeemProxyTrafficGiftCode(sessionToken, deviceId, code) {
         return this._request({
             actionLabel: 'redeemProxyTrafficGiftCode',
             path: '/api/proxy/gift-codes/redeem',
             method: 'POST',
-            data: { key, device_id: deviceId, code },
+            data: { session_token: sessionToken, device_id: deviceId, code },
         });
     }
 
-    async sendAIControlMessage(key, deviceId, modelId, messages, options = {}) {
+    async sendAIControlMessage(sessionToken, deviceId, modelId, messages, options = {}) {
         return this._request({
             actionLabel: 'sendAIControlMessage',
             path: '/api/ai-control/chat',
             method: 'POST',
             data: {
-                key,
+                session_token: sessionToken,
                 device_id: deviceId,
                 model_id: modelId,
                 messages,
@@ -473,13 +480,13 @@ class HttpClient {
         });
     }
 
-    async streamAIControlMessage(key, deviceId, modelId, messages, options = {}, onEvent) {
+    async streamAIControlMessage(sessionToken, deviceId, modelId, messages, options = {}, onEvent) {
         const base = this._getPreferredHttpBase();
         if (!base) return { ok: false, message: 'HTTP服务器地址未配置' };
         const url = `${base.replace(/\/+$/, '')}/api/ai-control/chat/stream`;
         try {
             return await postEventStream(url, {
-                key,
+                session_token: sessionToken,
                 device_id: deviceId,
                 model_id: modelId,
                 messages,
@@ -504,9 +511,6 @@ let globalHttpClient = null;
 
 // Update the shared HTTP client options.
 function updateGlobalHttpClientOptions(opts = {}) {
-    if (!globalHttpClient || !opts || typeof opts !== 'object') {
-        return;
-    }
     const optionRecord = /** @type {Record<string, any>} */ (opts);
     if (Object.prototype.hasOwnProperty.call(optionRecord, 'mainWindow')) {
         globalHttpClient.mainWindow = optionRecord.mainWindow;

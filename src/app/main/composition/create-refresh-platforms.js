@@ -63,23 +63,6 @@ function notifyPlatformLists(deps, config) {
   deps.sendToSide('wool-platforms-updated', { woolPlatforms: config.woolPlatforms });
 }
 
-function notifyLicenseRecordUpdate(deps, currentKey, platformName) {
-  const window = deps.appRuntime.getLicenseWindow();
-  if (!window || window.isDestroyed()) return;
-  window.webContents.send('license-records-updated', { keyValue: currentKey, platformName });
-}
-
-function updatePlatformLicenseRecord(deps, platformName) {
-  try {
-    const currentKey = String(deps.licenseCache?.getCredentials?.().key || '').trim();
-    if (!currentKey || typeof deps.updateLicenseRecordPlatform !== 'function') return;
-    const updated = deps.updateLicenseRecordPlatform({ keyValue: currentKey, platformName });
-    if (updated) notifyLicenseRecordUpdate(deps, currentKey, platformName);
-  } catch (error) {
-    console.warn('[启动] 回填卡密平台失败:', error?.message || error);
-  }
-}
-
 async function performPlatformRefresh(deps) {
   const config = readPlatformRuntimeConfig(deps);
   if (isEmptyPlatformConfig(config)) return;
@@ -88,7 +71,6 @@ async function performPlatformRefresh(deps) {
   syncPlatformTargetUrl(deps, config.targetUrl);
   await syncPlatformTutorialUrl(deps, config.tutorialUrl);
   notifyPlatformLists(deps, config);
-  updatePlatformLicenseRecord(deps, config.platformName);
   console.log('[启动] 平台名称已刷新并通知侧边栏:', config.platformName);
 }
 

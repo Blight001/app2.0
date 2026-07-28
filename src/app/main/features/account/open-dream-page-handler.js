@@ -284,7 +284,7 @@ async function createDreamTab(deps, state, restoreProfile) {
 async function openDreamPage(deps, payload) {
   try {
     const state = normalizeRequest(deps, payload);
-    if (!state.key) throw new Error('缺少卡密');
+    if (!state.key) throw new Error('缺少登录状态');
     if (state.launchOnly) return await openUrlOnlyPlatform(deps, state);
     const sourceIsPermanent = deps.support.isPermanentDreamAccount(
       state.requestedAccountId,

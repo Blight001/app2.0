@@ -6,7 +6,6 @@ const assert = require('node:assert/strict');
 const {
   createLicenseService,
   createVipSession,
-  shouldClearSavedKey,
 } = require('../../../src/app/main/features/account/license-service');
 
 function fixture(overrides = {}) {
@@ -15,7 +14,7 @@ function fixture(overrides = {}) {
   const events = [];
   const store = {
     userCredentials: {
-      authType: 'account', username: 'alice', key: 'key', deviceId: 'stale-device',
+      authType: 'account', username: 'alice', sessionToken: 'key', deviceId: 'stale-device',
       serverBase: 'https://service.example', serverMode: 'remote', platformName: 'default',
       account: {}, validation: {},
     },
@@ -46,7 +45,7 @@ test('VIP 礼品码每次读取可信设备号，兑换后持久化并发布会�
   const data = fixture({
     getGlobalHttpClient: () => ({
       redeemVipGiftCode: async (...args) => { calls.push(args); return { ok: true, vip_tier: 'svip' }; },
-      validateKey: async () => ({ valid: true, is_vip: true, vip_active: true, vip_tier: 'svip' }),
+      validateSession: async () => ({ valid: true, is_vip: true, vip_active: true, vip_tier: 'svip' }),
     }),
   });
   const result = await createLicenseService(data.context).redeemVipGiftCode({ code: ' gift ' });
@@ -67,7 +66,7 @@ test('羊毛礼品码服务失败不写缓存，验证成功才刷新平台', as
   const success = fixture({
     getGlobalHttpClient: () => ({
       redeemWoolGiftCode: async () => ({ ok: true }),
-      validateKey: async () => ({ valid: true, allowed_platforms: ['one'] }),
+      validateSession: async () => ({ valid: true, allowed_platforms: ['one'] }),
     }),
     refreshAllowedPlatformsAndNotify: () => { refreshes += 1; },
   });
@@ -75,18 +74,7 @@ test('羊毛礼品码服务失败不写缓存，验证成功才刷新平台', as
   assert.equal(refreshes, 1);
 });
 
-test('删除当前卡密同时清除账号保存键，未知记录保持原数据', () => {
-  const data = fixture();
-  const service = createLicenseService(data.context);
-  assert.deepEqual(service.deleteRecord({ id: 'missing' }), { ok: false, error: '未找到要删除的卡密' });
-  const result = service.deleteRecord({ id: 'one' });
-  assert.deepEqual(result, { ok: true, removed: 1 });
-  assert.deepEqual(data.recordWrites.at(-1), [{ id: 'two', keyValue: 'other' }]);
-  assert.equal(data.writes.at(-1).userCredentials.key, '');
-  assert.deepEqual(data.context.licenseCache.credentials, { key: '' });
-});
-
-test('VIP session and saved-key rules normalize expiry and remaining records', () => {
+test('VIP session normalizes expiry and publishes authenticated state', () => {
   const session = createVipSession({ userCredentials: { keep: true } }, {
     username: 'alice', key: 'key', deviceId: 'device', platformName: 'fixture',
     serverBase: 'https://service.example', serverMode: 'remote', account: { id: 1 },
@@ -94,10 +82,6 @@ test('VIP session and saved-key rules normalize expiry and remaining records', (
   assert.equal(session.account.is_vip, true);
   assert.equal(session.account.vip_tier, 'gold');
   assert.equal(session.publicSession.authenticated, true);
-  assert.equal(shouldClearSavedKey('', 'key', []), false);
-  assert.equal(shouldClearSavedKey('key', 'key', [{ keyValue: 'key' }]), true);
-  assert.equal(shouldClearSavedKey('key', 'other', [{ key: 'key' }]), false);
-  assert.equal(shouldClearSavedKey('key', 'other', [{ key: 'another' }]), true);
 });
 
 test('VIP plan lookup validates login, client capability and catches failures', async () => {
@@ -109,6 +93,8 @@ test('VIP plan lookup validates login, client capability and catches failures', 
   assert.equal((await createLicenseService(ready.context).getVipPlans()).ok, true);
   const broken = fixture({ readStoreConfigSafe: () => { throw new Error('store failed'); } });
   assert.equal((await createLicenseService(broken.context).getVipPlans()).message, 'store failed');
+  assert.equal((await createLicenseService(broken.context).redeemVipGiftCode({ code: 'x' })).message, 'store failed');
+  assert.equal((await createLicenseService(broken.context).redeemWoolGiftCode({ code: 'x' })).message, 'store failed');
 });
 
 test('gift-code validation covers missing inputs, unavailable clients and rejected redemptions', async () => {
@@ -133,7 +119,7 @@ test('wool redemption returns validation failures without updating runtime state
   const data = fixture({
     getGlobalHttpClient: () => ({
       redeemWoolGiftCode: async () => ({ ok: true, reward: 1 }),
-      validateKey: async () => ({ ok: false, message: 'still invalid' }),
+      validateSession: async () => ({ ok: false, message: 'still invalid' }),
     }),
     refreshAllowedPlatformsAndNotify: () => { refreshes += 1; },
   });
@@ -141,25 +127,4 @@ test('wool redemption returns validation failures without updating runtime state
   assert.equal(result.ok, true);
   assert.equal(result.validation.ok, false);
   assert.equal(refreshes, 0);
-});
-
-test('saved keys and record operations tolerate cache, storage and write failures', () => {
-  const cached = fixture();
-  cached.context.licenseCache.getCredentials = () => ({ key: ' cached ' });
-  assert.equal(createLicenseService(cached.context).getSavedKey(), 'cached');
-  const fromRecord = fixture();
-  assert.equal(createLicenseService(fromRecord.context).getSavedKey(), 'key');
-  const brokenRead = fixture({ readLicenseRecordsSafe: () => { throw new Error('records failed'); } });
-  assert.equal(createLicenseService(brokenRead.context).getSavedKey(), '');
-  assert.equal(createLicenseService(brokenRead.context).getRecords().ok, false);
-  const records = createLicenseService(fixture().context).getRecords();
-  assert.equal(records.ok, true);
-  assert.equal(records.currentPlatformName, 'default');
-  const clearOk = fixture();
-  assert.deepEqual(createLicenseService(clearOk.context).clearRecords(), { ok: true });
-  const clearBad = fixture({ writeLicenseRecordsSafe: () => { throw new Error('write failed'); } });
-  assert.deepEqual(createLicenseService(clearBad.context).clearRecords(), { ok: false, error: 'write failed' });
-  assert.deepEqual(createLicenseService(fixture().context).deleteRecord({}), { ok: false, error: '缺少要删除的卡密' });
-  const deleteBad = fixture({ readLicenseRecordsSafe: () => { throw new Error('delete failed'); } });
-  assert.deepEqual(createLicenseService(deleteBad.context).deleteRecord({ id: 'one' }), { ok: false, error: 'delete failed' });
 });

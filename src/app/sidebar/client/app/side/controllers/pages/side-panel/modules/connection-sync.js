@@ -1,5 +1,5 @@
 // 侧边栏功能可用性与运行时值同步。
-// TCP 连接状态展示已移除：功能按钮不再依赖“是否连接成功”，仅由卡密验证状态驱动。
+// TCP 连接状态展示已移除：功能按钮只由账号登录状态驱动。
 
 let currentRemainingUsageText = '';
 const woolPlatformQuotaText = new Map();
@@ -72,7 +72,7 @@ function setButtonsDisabled(selector, disabled) {
 
 // 设置/更新/持久化：setLicenseRequiredButtonsDisabled的具体业务逻辑。
 function setLicenseRequiredButtonsDisabled(disabled) {
-  // 羊毛资源主入口不再依赖隐藏的卡密按钮状态。未登录点击时由入口处理器
+  // 羊毛资源主入口不再依赖隐藏的许可证按钮。未登录点击时由入口处理器
   // 跳转个人中心；登录后仅由服务器下发的平台额度决定是否可用。
   document.querySelectorAll('.open-wool-platform-btn').forEach((button) => {
     if (button.dataset.busy !== '1') {
@@ -93,10 +93,8 @@ function setAccountTabDisabled(disabled) {
 
 // 处理：isLicenseValidated的具体业务逻辑。
 function isLicenseValidated() {
-  const validateBtn = safeGetEl('validate-key-btn');
   const accountSession = safeGetEl('sidebar-account-session');
-  return accountSession?.dataset.authenticated === 'true'
-    || !!(validateBtn && validateBtn.classList.contains('validated'));
+  return accountSession?.dataset.authenticated === 'true';
 }
 
 // 未登录时，受保护的主入口仍保持可点击；真正的点击处理器会在任何
@@ -268,9 +266,9 @@ function setTargetUrl(nextTargetUrl) {
   }
 }
 
-// 设置/更新/持久化：根据卡密验证状态刷新功能按钮可用性。
+// 设置/更新/持久化：根据账号登录状态刷新功能按钮可用性。
 // 参数保留以兼容既有调用点；语义为“服务可用”（HTTP 通信下恒为可用），
-// 实际是否放开功能仍取决于卡密是否已验证。
+// 实际是否放开功能取决于账号是否已登录。
 function updateButtonStatesBasedOnConnection(available) {
   if (available) {
     if (isLicenseValidated()) {
@@ -283,21 +281,12 @@ function updateButtonStatesBasedOnConnection(available) {
       applyFeatureAvailability();
     }
   } else {
-    const validateBtn = safeGetEl('validate-key-btn');
     applyFeatureAvailability({
       licenseRequiredDisabled: true,
       vpnDisabled: !isLicenseValidated(),
       accountTabDisabled: true,
     });
 
-    if (!hasValidatedInSession) {
-      if (validateBtn) {
-        validateBtn.classList.remove('validated');
-        validateBtn.disabled = false;
-        validateBtn.textContent = '验证';
-        validateBtn.title = '请手动点击验证';
-      }
-    }
   }
 }
 
@@ -309,7 +298,7 @@ function enableAllLicenseRequiredButtons() {
   syncLatencyButtonState();
 }
 
-// 渲染/刷新：根据卡密验证状态刷新功能可用性（替代原“获取 TCP 连接状态”逻辑）。
+// 渲染/刷新：根据账号登录状态刷新功能可用性。
 function refreshFeatureAvailability() {
   updateButtonStatesBasedOnConnection(true);
 }
@@ -359,7 +348,7 @@ async function refreshTargetUrl() {
   }
 }
 
-// 兼容旧调用名：不再查询连接状态，仅按卡密验证状态刷新功能按钮。
+// 兼容旧调用名：不再查询连接状态，仅按账号登录状态刷新功能按钮。
 async function refreshConnectionState() {
   refreshFeatureAvailability();
   return null;
@@ -408,7 +397,7 @@ function bindRuntimeValueListeners() {
 }
 
 // 获取/读取/解析：loadInitialConnectionState的具体业务逻辑。
-// 保留函数名以兼容初始化流程；现仅按卡密验证状态刷新功能可用性。
+// 保留函数名以兼容初始化流程；现仅按账号登录状态刷新功能可用性。
 function loadInitialConnectionState() {
   setTimeout(() => {
     refreshFeatureAvailability();

@@ -196,8 +196,8 @@ function observeNetworkMagicTask(task) {
   return task;
 }
 
-// 自动开启网络魔法的统一入口（面板初始化恢复 / 卡密验证通过 / 恢复登录态共用）。
-// 满足以下条件才会启动：卡密已验证、用户开启了“自动启动”记忆、核心未在运行、
+// 自动开启网络魔法的统一入口（面板初始化恢复 / 登录成功 / 恢复登录态共用）。
+// 满足以下条件才会启动：账号已登录、用户开启了“自动启动”记忆、核心未在运行、
 // 且用户没有正在手动操作开关。key/deviceId 缺省时由预热流程自行解析。
 async function autoStartNetworkMagicIfEligible({ startBtn, vpnBtn, key = '', deviceId = '' } = {}) {
   if (!canAutoStartNetworkMagic(vpnBtn)) return;

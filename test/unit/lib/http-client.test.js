@@ -68,7 +68,8 @@ test('request wrappers preserve endpoint, payload, timeout and transport mode', 
   base = 'http://127.0.0.1:59000';
   client.runtimeServerBase = '';
   const operations = [
-    ['validateKey', ['key', 'device'], '/api/validate_key'],
+    ['validateSession', ['afs_test', 'device'], '/api/account/session'],
+    ['logoutAccount', ['afs_test'], '/api/account/logout'],
     ['getTutorialUrl', [], '/api/get_tutorial_url'],
     ['fetchCookie', ['key', 'dream', 'device'], '/api/fetch_cookie'],
     ['unbindDevice', ['key', 'device'], '/api/unbind_device'],
@@ -111,7 +112,7 @@ test('request failures, diagnostics and client config fallback return stable res
     throw new Error('network down');
   };
   assert.equal((await client.diagnoseConnection()).httpConnection, true);
-  const failed = await client.validateKey('key', 'device');
+  const failed = await client.validateSession('afs_test', 'device');
   assert.equal(failed.ok, false);
   assert.equal(failed.status, 0);
   assert.equal(failed.transportMode, 'http');
@@ -124,13 +125,18 @@ test('request failures, diagnostics and client config fallback return stable res
   const config = await client.getClientConfig('key value', 'device');
   assert.equal(config.ok, true);
   assert.equal(config.transportMode, 'http');
-  assert.match(calls.at(-2).path, /key=key\+value/);
+  assert.match(calls.at(-2).path, /session_token=key\+value/);
   assert.equal(calls.at(-1).method, 'POST');
 
   requestHandler = async () => ({ ok: false, error: 'rejected' });
   const rejected = await client.getClientConfig('key', 'device');
   assert.equal(rejected.ok, false);
   assert.equal(rejected.transportMode, 'http');
+
+  requestHandler = async () => { throw new Error('config offline'); };
+  const offline = await client.getClientConfig('key', 'device');
+  assert.equal(offline.ok, false);
+  assert.match(offline.error, /config offline/);
 });
 
 test('AI models use client-gateway fallback and stream requests forward cancellation', async () => {

@@ -35,7 +35,7 @@ function buildAuthenticationFailure(authenticated) {
 
 function getAuthenticatedDataError(data) {
   if (!data.username) return '登录响应缺少账号信息';
-  if (!data.key) return '登录响应缺少内部凭据';
+  if (!data.sessionToken) return '登录响应缺少账号会话';
   if (!isServerBaseAllowedForMode(data.resolved.serverBase)) {
     const modeText = getServerMode() === 'local' ? '本地调试' : '正式远程';
     return `账号服务返回的服务器地址与${modeText}模式不匹配`;
@@ -66,19 +66,19 @@ function resolveAuthenticatedPayload(authenticated, username) {
     account,
     resolved,
     username: firstText(authenticated.account && authenticated.account.username, username).trim(),
-    key: firstText(authenticated.credential).trim(),
+    sessionToken: firstText(authenticated.session_token, authenticated.sessionToken).trim(),
   };
 }
 
 function persistAuthenticatedSession(context, data, deviceId) {
   const { readStoreConfigSafe, writeStoreConfigSafe, licenseCache, getGlobalHttpClient } = context;
   context.applyResolvedConfigToStore({ resolved: data.resolved });
-  saveLicenseCredentialsSafe({ readStoreConfigSafe, writeStoreConfigSafe, licenseCache }, data.key, deviceId);
+  saveLicenseCredentialsSafe({ readStoreConfigSafe, writeStoreConfigSafe, licenseCache }, data.sessionToken, deviceId);
   const currentStore = readStoreConfigSafe();
   const storedSession = buildStoredAccountSession({
     current: currentStore?.userCredentials || {},
     username: data.username,
-    key: data.key,
+    sessionToken: data.sessionToken,
     deviceId,
     platformName: String(data.resolved.platformName || '').trim(),
     serverBase: String(data.resolved.serverBase || '').trim(),
@@ -88,7 +88,7 @@ function persistAuthenticatedSession(context, data, deviceId) {
   });
   writeStoreConfigSafe({ ...currentStore, userCredentials: storedSession });
   callOptional(licenseCache, 'setValidationState', {
-    key: data.key,
+    key: data.sessionToken,
     deviceId,
     validated: true,
     bound: true,
@@ -120,7 +120,7 @@ function notifyAuthenticatedSession(context, data, deviceId) {
   });
   const validation = callOptional(licenseCache, 'getValidationState') || data.resolved;
   callOptional(context, 'sendToSide', 'license-credentials-updated', {
-    key: data.key,
+    key: data.sessionToken,
     deviceId,
     username: data.username,
     account: data.account,
@@ -171,6 +171,15 @@ async function authenticate(context, input = {}) {
 
 async function logout(context) {
   const currentStore = context.readStoreConfigSafe() || {};
+  const session = normalizeAccountSession(currentStore.userCredentials || {});
+  const httpClient = callOptional(context, 'getGlobalHttpClient');
+  if (session.key && typeof httpClient?.logoutAccount === 'function') {
+    try {
+      await httpClient.logoutAccount(session.key);
+    } catch (error) {
+      callOptional(context.logger, 'warn', '[账号] 服务端退出失败:', firstText(error && error.message, error));
+    }
+  }
   const nextStore = { ...currentStore };
   delete nextStore.userCredentials;
   context.writeStoreConfigSafe(nextStore);
@@ -181,7 +190,6 @@ async function logout(context) {
   });
   callOptional(context, 'setRuntimeServerBase', '');
   callOptional(context, 'setRuntimeTcpConfig', null);
-  const httpClient = callOptional(context, 'getGlobalHttpClient');
   if (httpClient && Object.prototype.hasOwnProperty.call(httpClient, 'runtimeServerBase')) httpClient.runtimeServerBase = '';
   try {
     await callOptional(context, 'stopProxy', { sendToSide: context.sendToSide });

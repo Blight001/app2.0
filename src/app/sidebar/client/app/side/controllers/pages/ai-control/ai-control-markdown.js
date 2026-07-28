@@ -222,7 +222,7 @@
     stats: '数据统计',
     proxy: '代理',
     account: 'AI 账号',
-    member: '卡密',
+    member: '会员',
   });
 
   const TOOL_OPERATION_NAMES = Object.freeze({

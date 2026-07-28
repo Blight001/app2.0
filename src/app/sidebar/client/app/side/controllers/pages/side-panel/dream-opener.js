@@ -41,7 +41,7 @@
   });
 
   function readDreamLaunchCredentials() {
-    const keyInput = getEl('key-input');
+    const keyInput = getEl('session-token');
     const deviceInput = getEl('device-id');
     return {
       key: String((keyInput && keyInput.value) || '').trim(),
@@ -109,7 +109,6 @@
       if (window.redirectToSidebarAccountLogin?.()) return;
       const task = withBusyButton(clickedButton, () => openDreamPlatform(clickedButton, container), {
         companions: [
-          document.getElementById('validate-key-btn'),
           document.getElementById('VPN-switch'),
         ],
         onError: (err) => {

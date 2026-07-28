@@ -100,7 +100,7 @@ class AnnouncementPoller {
     if (!key || !deviceId || typeof this.postJson !== 'function') return null;
     return Promise.resolve().then(async () => {
       const response = await this.postJson(
-        `${base}/api/client/heartbeat`, { key, device_id: deviceId }, this.timeoutMs,
+        `${base}/api/client/heartbeat`, { session_token: key, device_id: deviceId }, this.timeoutMs,
       );
       const body = response?.body ?? response;
       if (!body || body.success !== true) {

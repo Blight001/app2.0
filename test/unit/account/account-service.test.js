@@ -14,7 +14,7 @@ function successfulContext(overrides = {}) {
     context: {
       authenticateAccount: async () => ({
         ok: true,
-        credential: 'internal-key',
+        session_token: 'afs_internal-session',
         account: { username: 'alice' },
         validation: {},
         serverBase: 'https://account.example',
@@ -44,7 +44,7 @@ test('认证只提交主进程计算的设备号并忽略渲染层伪造值', as
       calls.push(input);
       return {
         ok: true,
-        credential: 'internal-key',
+        session_token: 'afs_internal-session',
         account: { username: 'alice' },
         validation: {},
         serverBase: 'https://account.example',
@@ -103,14 +103,14 @@ test('认证输入、设备号和失败响应在持久化前被完整校验', as
   assert.deepEqual(await service.authenticate({ username: 'a', password: 'b' }), { ok: false, message: '账号验证失败', error: 'denied' });
 });
 
-test('认证拒绝缺少账号、内部凭据和与运行模式不匹配的服务器', async () => {
+test('认证拒绝缺少账号、账号会话和与运行模式不匹配的服务器', async () => {
   const fixture = successfulContext();
   const service = createAccountService(fixture.context);
-  fixture.context.authenticateAccount = async () => ({ ok: true, credential: 'key', account: {}, validation: {}, serverBase: 'https://account.example' });
+  fixture.context.authenticateAccount = async () => ({ ok: true, session_token: 'afs_test', account: {}, validation: {}, serverBase: 'https://account.example' });
   assert.equal((await service.authenticate({ username: '', password: '', mode: 'device' })).message, '登录响应缺少账号信息');
   fixture.context.authenticateAccount = async () => ({ ok: true, account: { username: 'alice' }, validation: {}, serverBase: 'https://account.example' });
-  assert.equal((await service.authenticate({ username: 'alice', password: 'pw' })).message, '登录响应缺少内部凭据');
-  fixture.context.authenticateAccount = async () => ({ ok: true, credential: 'key', account: { username: 'alice' }, validation: {}, serverBase: 'http://127.0.0.1:3000' });
+  assert.equal((await service.authenticate({ username: 'alice', password: 'pw' })).message, '登录响应缺少账号会话');
+  fixture.context.authenticateAccount = async () => ({ ok: true, session_token: 'afs_test', account: { username: 'alice' }, validation: {}, serverBase: 'http://127.0.0.1:3000' });
   assert.match((await service.authenticate({ username: 'alice', password: 'pw' })).message, /模式不匹配/);
 });
 
@@ -118,7 +118,7 @@ test('注册和设备登录返回对应消息并兼容响应字段别名', async
   const fixture = successfulContext({
     authenticateAccount: async ({ mode }) => ({
       ok: true,
-      credential: 'key',
+      session_token: 'afs_test',
       account: { username: mode === 'device' ? 'device-user' : 'register-user' },
       validation: { addressHttp: 'https://account.example', platformName: 'fixture' },
     }),
@@ -145,7 +145,7 @@ test('公告、平台刷新与退出代理失败只记录警告', async () => {
 test('session view only authenticates records matching current server mode', () => {
   const fixture = successfulContext();
   fixture.stored.push({ userCredentials: {
-    authType: 'account', authenticated: true, username: 'alice', key: 'key', deviceId: 'device',
+    authType: 'account', authenticated: true, username: 'alice', sessionToken: 'afs_test', deviceId: 'device',
     serverMode: 'remote', serverBase: 'https://account.example', platformName: 'fixture', account: {}, validation: {},
   } });
   const session = createAccountService(fixture.context).getSession();

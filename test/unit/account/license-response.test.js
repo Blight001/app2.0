@@ -46,10 +46,10 @@ test('validation success and user-facing failures cover boolean and state respon
   assert.equal(response.isValidationSuccess(null), false);
 
   assert.equal(response.getValidationFailureMessage({ message: 'server detail' }), 'server detail');
-  assert.equal(response.getValidationFailureMessage({ state: 'not_found' }), '卡密不存在');
-  assert.equal(response.getValidationFailureMessage({ state: 'expired' }), '卡密已过期');
-  assert.equal(response.getValidationFailureMessage({ state: 'disabled' }), '卡密已被禁用');
-  assert.equal(response.getValidationFailureMessage({ state: 'pending' }), '卡密暂未生效');
+  assert.equal(response.getValidationFailureMessage({ state: 'not_found' }), '账号不存在');
+  assert.equal(response.getValidationFailureMessage({ state: 'expired' }), '账号会话已过期，请重新登录');
+  assert.equal(response.getValidationFailureMessage({ state: 'disabled' }), '账号已被禁用');
+  assert.equal(response.getValidationFailureMessage({ state: 'pending' }), '账号暂未生效');
   assert.equal(response.getValidationFailureMessage({ ok: false }, 'fallback'), 'fallback');
   assert.equal(response.getValidationFailureMessage({}, 'fallback'), 'fallback');
 });

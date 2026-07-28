@@ -24,7 +24,7 @@ async function resolveClashMiniCredentialsSnapshot({ key = '', deviceId = '' } =
 
 function fillMissingClashCredentials(key, deviceId, credentials) {
   return {
-    key: key || firstClashCredential(safeGetEl('key-input')?.value, credentials.key, globalCurrentKey),
+    key: key || firstClashCredential(safeGetEl('session-token')?.value, credentials.key, globalCurrentKey),
     deviceId: deviceId || firstClashCredential(safeGetEl('device-id')?.value, credentials.deviceId, globalCurrentDeviceId),
   };
 }

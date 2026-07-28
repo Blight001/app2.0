@@ -105,7 +105,7 @@ async function logoutSidebarAccount() {
 }
 
 function resetLoggedOutLicenseInputs() {
-  const inputs = [safeGetEl('key-input'), safeGetEl('device-id')];
+  const inputs = [safeGetEl('session-token'), safeGetEl('device-id')];
   inputs.forEach((input) => { if (input) input.value = ''; });
   if (typeof resetLicenseStateToValidate === 'function') resetLicenseStateToValidate();
   if (typeof applyFeatureAvailability === 'function') applyFeatureAvailability();

@@ -36,7 +36,6 @@ function registerLicenseIPC(ctx) {
 
   ipc.handle('refresh-wool-platforms', handlers.refreshWoolPlatforms);
   ipc.handle('refresh-tutorial-url', handlers.refreshTutorialUrl);
-  ipc.handle('validate-key', handlers.validateKey);
   ipc.handle('unbind-device', handlers.unbindDevice);
   ipc.handle('refresh-subscription-url', handlers.refreshSubscriptionUrl);
 }

@@ -21,7 +21,7 @@ function createVipSession(currentStore, credentials, redeemed, validation) {
   const storedSession = buildStoredAccountSession({
     current: currentStore.userCredentials || {},
     username: credentials.username,
-    key: credentials.key,
+    sessionToken: credentials.key,
     deviceId: credentials.deviceId,
     platformName: credentials.platformName,
     serverBase: credentials.serverBase,
@@ -42,12 +42,6 @@ function createVipSession(currentStore, credentials, redeemed, validation) {
   };
 }
 
-function shouldClearSavedKey(currentKey, targetKey, records) {
-  if (!currentKey) return false;
-  if (currentKey === targetKey) return true;
-  return records.every((item) => String(item?.keyValue || item?.key || '').trim() !== currentKey);
-}
-
 function getClient(deps) {
   return callOptional(deps, 'getGlobalHttpClient');
 }
@@ -60,15 +54,15 @@ async function refreshVipValidation(client, credentials, redeemed) {
     vip_tier: firstText(redeemed.vip_tier, 'vip'),
     vip_expiry_date: redeemed.vip_expiry_date || null,
   });
-  if (typeof client.validateKey !== 'function') return validation;
-  const refreshed = await client.validateKey(credentials.key, credentials.deviceId);
+  if (typeof client.validateSession !== 'function') return validation;
+  const refreshed = await client.validateSession(credentials.key, credentials.deviceId);
   if (refreshed && refreshed.valid === true) validation = markVipServerVerified(refreshed);
   return validation;
 }
 
 async function refreshWoolValidation(deps, client, key, deviceId, redeemed) {
-  if (typeof client.validateKey !== 'function') return null;
-  const validation = await client.validateKey(key, deviceId);
+  if (typeof client.validateSession !== 'function') return null;
+  const validation = await client.validateSession(key, deviceId);
   const valid = validation && (validation.valid === true || validation.ok === true);
   if (!valid) return validation;
   setLicenseRuntimeConfig(deps.licenseCache, normalizeValidationRuntimeConfig(validation));
@@ -127,7 +121,7 @@ async function redeemVipGiftCode(deps, input = {}) {
 async function redeemWoolGiftCode(deps, input = {}) {
     try {
       const store = deps.readStoreConfigSafe();
-      const credentials = store && store.userCredentials ? store.userCredentials : {};
+      const credentials = normalizeAccountSession(store?.userCredentials || {});
       const key = firstText(credentials.key).trim();
       const deviceId = firstText(await deps.computeDeviceId()).trim();
       const code = firstText(input.code).trim();
@@ -144,74 +138,13 @@ async function redeemWoolGiftCode(deps, input = {}) {
     }
 }
 
-function getSavedKey(deps) {
-    const cachedCredentials = callOptional(deps.licenseCache, 'getCredentials') || {};
-    const cached = firstText(cachedCredentials.key).trim();
-    if (cached) return cached;
-    try {
-      const records = deps.readLicenseRecordsSafe?.() || [];
-      const firstRecord = records[0] || {};
-      const store = deps.readStoreConfigSafe();
-      const credentials = store && store.userCredentials ? store.userCredentials : {};
-      return firstText(firstRecord.keyValue, firstRecord.key, credentials.key).trim();
-    } catch (_) {
-      return '';
-    }
-}
-
-function getRecords(deps) {
-    try {
-      return { ok: true, records: deps.readLicenseRecordsSafe(), currentPlatformName: deps.getCurrentPlatformLabel() };
-    } catch (error) {
-      return { ok: false, error: error?.message || String(error), records: [], currentPlatformName: deps.getCurrentPlatformLabel() };
-    }
-}
-
-function clearRecords(deps) {
-    try { deps.writeLicenseRecordsSafe([]); return { ok: true }; } catch (error) {
-      return { ok: false, error: error?.message || String(error) };
-    }
-}
-
-function deleteRecord(deps, input = {}) {
-    try {
-      const targetKey = firstText(input.keyValue).trim();
-      const targetId = firstText(input.id).trim();
-      if (!targetKey && !targetId) return { ok: false, error: '缺少要删除的卡密' };
-      const records = deps.readLicenseRecordsSafe();
-      const nextRecords = records.filter((item) => {
-        const itemKey = firstText(item && item.keyValue, item && item.key).trim();
-        const itemId = firstText(item && item.id).trim();
-        return !((targetId && itemId === targetId) || (targetKey && itemKey === targetKey));
-      });
-      if (nextRecords.length === records.length) return { ok: false, error: '未找到要删除的卡密' };
-      deps.writeLicenseRecordsSafe(nextRecords);
-      const currentStore = deps.readStoreConfigSafe() || {};
-      const currentKey = firstText(currentStore.userCredentials && currentStore.userCredentials.key).trim();
-      if (shouldClearSavedKey(currentKey, targetKey, nextRecords)) {
-        deps.writeStoreConfigSafe({
-          ...currentStore,
-          userCredentials: { ...(currentStore.userCredentials || {}), key: '' },
-        });
-        callOptional(deps.licenseCache, 'setCredentials', { key: '' });
-      }
-      return { ok: true, removed: records.length - nextRecords.length };
-    } catch (error) {
-      return { ok: false, error: error?.message || String(error) };
-    }
-}
-
 function createLicenseService(deps = {}) {
   return {
-    clearRecords: () => clearRecords(deps),
-    deleteRecord: (input) => deleteRecord(deps, input),
     getDeviceId: deps.computeDeviceId,
-    getRecords: () => getRecords(deps),
-    getSavedKey: () => getSavedKey(deps),
     getVipPlans: () => getVipPlans(deps),
     redeemVipGiftCode: (input) => redeemVipGiftCode(deps, input),
     redeemWoolGiftCode: (input) => redeemWoolGiftCode(deps, input),
   };
 }
 
-module.exports = { createLicenseService, createVipSession, shouldClearSavedKey };
+module.exports = { createLicenseService, createVipSession };

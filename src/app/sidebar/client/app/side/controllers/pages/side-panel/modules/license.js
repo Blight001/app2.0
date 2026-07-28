@@ -64,9 +64,6 @@ function captureLicenseState(payload, { key = '', deviceId = '', bound = true } 
 
 // 设置/更新/持久化：applyValidateButtonState的具体业务逻辑。
 function applyValidateButtonState(state) {
-  const validateBtn = safeGetEl('validate-key-btn');
-  if (!validateBtn) return;
-
   currentLicenseState = {
     ...currentLicenseState,
     ...state,
@@ -74,20 +71,6 @@ function applyValidateButtonState(state) {
     deviceId: state && Object.prototype.hasOwnProperty.call(state, 'deviceId') ? String(state.deviceId || '') : currentLicenseState.deviceId,
     bound: !!(state && state.bound),
   };
-
-  validateBtn.classList.remove('loading');
-  validateBtn.disabled = false;
-  validateBtn.dataset.licenseState = currentLicenseState.bound ? 'bound' : 'unbound';
-
-  if (currentLicenseState.bound) {
-    validateBtn.classList.add('validated');
-    validateBtn.textContent = '解绑';
-    validateBtn.title = '点击解绑';
-  } else {
-    validateBtn.classList.remove('validated');
-    validateBtn.textContent = '验证';
-    validateBtn.title = '请手动点击验证';
-  }
 }
 
 // 创建/初始化：createBoundLicenseSnapshot的具体业务逻辑。
@@ -125,7 +108,7 @@ function applyValidatedLicenseResult(payload, { key, deviceId } = {}) {
 
 // 设置/更新/持久化：applyLicenseCredentialsToInput的具体业务逻辑。
 function applyLicenseCredentialsToInput({ key = '', deviceId = '' } = {}) {
-  const keyInput = safeGetEl('key-input');
+  const keyInput = safeGetEl('session-token');
   const deviceIdInput = safeGetEl('device-id');
   const normalizedKey = String(key || '').trim();
   const normalizedDeviceId = String(deviceId || '').trim();
@@ -215,7 +198,7 @@ function bindServerAccountCookieListener() {
 }
 
 function getServerCookieCredentials(data) {
-  const keyInput = document.getElementById('key-input');
+  const keyInput = document.getElementById('session-token');
   const deviceIdInput = document.getElementById('device-id');
   if (!keyInput || !deviceIdInput) return null;
   return {
@@ -261,11 +244,11 @@ async function handleServerAccountCookie(data) {
       if (!data.autoProcess) return;
       const credentials = getServerCookieCredentials(data);
       if (!credentials) {
-        console.error('[侧边栏] 找不到卡密或设备号输入框');
+        console.error('[侧边栏] 找不到账号会话或设备号');
         return;
       }
       if (!hasValidatedInSession && !credentials.key) {
-        console.warn('[侧边栏] 当前会话未验证且没有有效卡密，无法自动处理账号cookie');
+        console.warn('[侧边栏] 当前账号会话无效，无法自动处理账号 Cookie');
         return;
       }
       await openServerPushedAccount(data, credentials);
@@ -288,7 +271,7 @@ function bindLicenseCredentialsListener() {
     const usernameEl = safeGetEl('account-username-display');
     if (usernameEl) usernameEl.value = String(data.username || '');
     if (data.loggedOut === true) {
-      const keyInput = safeGetEl('key-input');
+      const keyInput = safeGetEl('session-token');
       const deviceIdInput = safeGetEl('device-id');
       if (keyInput) keyInput.value = '';
       if (deviceIdInput) deviceIdInput.value = '';
@@ -313,7 +296,7 @@ function bindLicenseCredentialsListener() {
         enableAllLicenseRequiredButtons();
       }
     } catch (error) {
-      console.warn('[侧边栏] 处理卡密回填失败:', error?.message || error);
+      console.warn('[侧边栏] 处理账号会话同步失败:', error?.message || error);
     }
   });
 }

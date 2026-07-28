@@ -168,9 +168,9 @@ test('已打开账号窗口被切换并导航，不重复创建 Chromium 标签'
   assert.equal(navigated[0].url, 'https://dream.example');
 });
 
-test('入口拒绝缺少卡密，运行连接配置兼容 HTTP 与 TCP 字段别名', async () => {
+test('入口拒绝缺少登录状态，运行连接配置兼容 HTTP 与 TCP 字段别名', async () => {
   const data = fixture();
-  assert.deepEqual(await data.handler(null, {}), { ok: false, message: '缺少卡密' });
+  assert.deepEqual(await data.handler(null, {}), { ok: false, message: '缺少登录状态' });
   assert.deepEqual(resolveRuntimeConnectionConfig({
     address_HTTP: ' https://account.example ',
     address_TCP: 'tcp://127.0.0.1:9443',

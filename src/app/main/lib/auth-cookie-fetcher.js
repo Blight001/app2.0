@@ -65,21 +65,19 @@ function normalizeServerCookies(raw, getTargetUrl) {
   });
 }
 
-function logSuccessReport({ account, cookies, currentAccountTypeInfo, fallback, key, platform, getPlatform }) {
+function logSuccessReport({ account, cookies, currentAccountTypeInfo, fallback, platform, getPlatform }) {
   try {
     const resolvedPlatform = platform || getPlatform();
-    const maskedKey = key.length >= 4 ? `${key.substring(0, 4)}***` : key;
     const typeLabel = currentAccountTypeInfo.currentAccountTypeLabel;
     const typeSuffix = typeLabel ? ` | 类型:${typeLabel}` : '';
     const fallbackSuffix = fallback ? '(HTTP降级)' : '';
-    console.log(`[fetchCookieFromServerForDream] Cookie获取成功${fallbackSuffix} | 平台:${resolvedPlatform} | 账号:${account}${typeSuffix} | 卡密:${maskedKey} | Cookie数量:${cookies.length}`);
+    console.log(`[fetchCookieFromServerForDream] Cookie获取成功${fallbackSuffix} | 平台:${resolvedPlatform} | 账号:${account}${typeSuffix} | Cookie数量:${cookies.length}`);
   } catch (error) {
     console.warn('[fetchCookieFromServerForDream] 生成报告消息失败:', error.message);
     try {
-      const maskedKey = key.length >= 4 ? `${key.substring(0, 4)}***` : key;
       const resolvedPlatform = fallback ? getPlatform() : '即梦';
       const fallbackSuffix = fallback ? '(HTTP降级)' : '';
-      console.log(`[fetchCookieFromServerForDream] 平台=${resolvedPlatform} 已获取Cookie${fallbackSuffix} 给卡密=${maskedKey}`);
+      console.log(`[fetchCookieFromServerForDream] 平台=${resolvedPlatform} 已获取账号Cookie${fallbackSuffix}`);
     } catch (fallbackError) {
       console.warn('[fetchCookieFromServerForDream] 降级报告也失败:', fallbackError.message);
     }
@@ -144,7 +142,7 @@ async function fetchFromClient(deps, request) {
   const { httpClient, getTargetUrl, getPlatform, saveLicenseUsageSnapshot } = deps;
   const { key, deviceId, requestedPlatform, requestedTargetUrl } = request;
   console.log('[fetchCookieFromServerForDream] 使用HTTP获取Cookie');
-  console.log(`[fetchCookieFromServerForDream] 发送请求参数: key=${key.substring(0, 4)}***, platform=${requestedPlatform}, deviceId=${deviceId.substring(0, 8)}***`);
+  console.log(`[fetchCookieFromServerForDream] 发送账号请求: platform=${requestedPlatform}, deviceId=${deviceId.substring(0, 8)}***`);
   const response = await httpClient.fetchCookie(key, requestedPlatform, deviceId);
   console.log(`[fetchCookieFromServerForDream] HTTP响应接收完成，响应类型: ${typeof response}`);
   logPrimaryResponse(response);
@@ -164,7 +162,7 @@ async function fetchFromClient(deps, request) {
   }
   const account = extractReportedAccount(response);
   const currentAccountTypeInfo = extractCurrentAccountTypeInfo(response);
-  logSuccessReport({ account, cookies, currentAccountTypeInfo, fallback: false, key, platform: response.platform || '即梦', getPlatform });
+  logSuccessReport({ account, cookies, currentAccountTypeInfo, fallback: false, platform: response.platform || '即梦', getPlatform });
   saveLicenseUsageSnapshot({ key, deviceId, source: response });
   return buildResult({ source: response, cookies, account, platform: requestedPlatform, requestedTargetUrl });
 }
@@ -184,7 +182,7 @@ async function fetchFromFallback(deps, request) {
   if (!serverBase) throw new Error('HTTP服务器地址未配置');
   console.log('[fetchCookieFromServerForDream] HTTP降级获取Cookie');
   const response = await postJson(`${serverBase}/api/fetch_cookie`, {
-    key,
+    session_token: key,
     device_id: deviceId,
     platform: requestedPlatform,
   });
@@ -196,7 +194,7 @@ async function fetchFromFallback(deps, request) {
   if (!cookies.length) throw createBusinessError('服务器未返回可用账号信息', 'ACCOUNT_EMPTY');
   const account = extractReportedAccount(body, '(HTTP降级)');
   const currentAccountTypeInfo = extractCurrentAccountTypeInfo(body);
-  logSuccessReport({ account, cookies, currentAccountTypeInfo, fallback: true, key, platform: body.platform, getPlatform });
+  logSuccessReport({ account, cookies, currentAccountTypeInfo, fallback: true, platform: body.platform, getPlatform });
   saveLicenseUsageSnapshot({ key, deviceId, source: body });
   return buildResult({ source: body, cookies, account, platform: requestedPlatform || '', requestedTargetUrl });
 }

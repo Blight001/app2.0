@@ -32,7 +32,7 @@ function normalizeAccountSession(input = {}) {
   const session = {
     authType,
     username: String(value(['username'])).trim(),
-    key: String(value(['key', 'credential'])).trim(),
+    sessionToken: String(value(['sessionToken', 'session_token'])).trim(),
     deviceId: String(value(['deviceId', 'device_id'])).trim(),
     platformName: String(value(['platformName', 'platform_name'])).trim(),
     serverBase,
@@ -48,18 +48,19 @@ function normalizeAccountSession(input = {}) {
   session.authenticated = Boolean(
     session.authType === ACCOUNT_AUTH_TYPE
     && session.username
-    && session.key
+    && session.sessionToken
     && session.deviceId
     && session.serverBase
     && !hasLegacyTenant
   );
+  session.key = session.sessionToken;
   return session;
 }
 
 function buildStoredAccountSession({
   current = {},
   username = '',
-  key = '',
+  sessionToken = '',
   deviceId = '',
   platformName = '',
   serverBase = '',
@@ -72,7 +73,7 @@ function buildStoredAccountSession({
     ...(current && typeof current === 'object' ? current : {}),
     authType: ACCOUNT_AUTH_TYPE,
     username,
-    key,
+    sessionToken,
     deviceId,
     platformName,
     serverBase,
@@ -86,7 +87,7 @@ function buildStoredAccountSession({
 function serializeAccountSession(input = {}) {
   const session = normalizeAccountSession(input);
   if (!session.authenticated) return {};
-  const { authenticated: _authenticated, ...stored } = session;
+  const { authenticated: _authenticated, key: _runtimeAlias, ...stored } = session;
   return stored;
 }
 

@@ -51,17 +51,17 @@ function isValidationSuccess(resp) {
   return extractValidationState(resp) === 'active';
 }
 
-function getValidationFailureMessage(resp, fallback = '卡密无效或已过期') {
+function getValidationFailureMessage(resp, fallback = '账号会话无效或已过期，请重新登录') {
   const message = extractNestedText(resp);
   if (message) return message;
 
   const state = extractValidationState(resp);
   const stateMessages = {
-    not_found: '卡密不存在',
-    expired: '卡密已过期',
-    disabled: '卡密已被禁用',
-    revoked: '卡密已被撤销',
-    pending: '卡密暂未生效',
+    not_found: '账号不存在',
+    expired: '账号会话已过期，请重新登录',
+    disabled: '账号已被禁用',
+    revoked: '账号会话已失效，请重新登录',
+    pending: '账号暂未生效',
     active: '',
   };
   if (Object.prototype.hasOwnProperty.call(stateMessages, state) && stateMessages[state]) {

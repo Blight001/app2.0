@@ -96,12 +96,8 @@ test('account domain methods bind fixed channels and migrated account modules st
 
 test('license methods expose named operations without caller-provided channels', async () => {
   const { calls, exposed } = loadPreloadApi();
-  await exposed.aiFree.license.validateKey({ key: 'fixture', device_id: 'device' });
-  await exposed.aiFree.license.saveUserCredentials({ key: 'fixture' });
-  assert.deepEqual(calls, [
-    ['invoke', 'validate-key', { key: 'fixture', device_id: 'device' }],
-    ['invoke', 'save-user-credentials', { key: 'fixture' }],
-  ]);
+  await exposed.aiFree.license.getVipPlans();
+  assert.deepEqual(calls, [['invoke', 'get-vip-plans', undefined]]);
   assert.equal('invoke' in exposed.aiFree.license, false);
   assert.equal('send' in exposed.aiFree.license, false);
   assert.equal('on' in exposed.aiFree.license, false);

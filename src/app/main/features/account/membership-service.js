@@ -16,8 +16,8 @@ async function validateMembership(deps, credentials) {
   if (client && Object.prototype.hasOwnProperty.call(client, 'runtimeServerBase')) {
     client.runtimeServerBase = firstText(credentials.serverBase).trim().replace(/\/+$/, '');
   }
-  if (!client || typeof client.validateKey !== 'function') return null;
-  return client.validateKey(credentials.key, credentials.deviceId);
+  if (!client || typeof client.validateSession !== 'function') return null;
+  return client.validateSession(credentials.key, credentials.deviceId);
 }
 
 function resolveMembershipState(credentials, response) {
@@ -42,7 +42,7 @@ function persistMembership(deps, credentials, state) {
   const storedSession = buildStoredAccountSession({
     current: currentStore?.userCredentials || {},
     username: credentials.username,
-    key: credentials.key,
+    sessionToken: credentials.key,
     deviceId: credentials.deviceId,
     platformName: credentials.platformName,
     serverBase: credentials.serverBase,

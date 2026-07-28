@@ -126,12 +126,11 @@ test('AI 服务器设备登录 schema 限制连接字段形状', () => {
   );
 });
 
-test('账号认证、礼品码和许可证记录 schema 限制边界字段类型', () => {
+test('账号认证和礼品码 schema 限制边界字段类型', () => {
   assert.deepEqual(
     validateIpcPayload('account-authenticate', { mode: 'login', username: 'alice', password: 'secret' }),
     { mode: 'login', username: 'alice', password: 'secret' },
   );
   assert.throws(() => validateIpcPayload('account-authenticate', { password: 123 }), IpcPayloadError);
   assert.throws(() => validateIpcPayload('redeem-vip-gift-code', { code: false }), IpcPayloadError);
-  assert.throws(() => validateIpcPayload('license-delete-record', { id: [] }), IpcPayloadError);
 });

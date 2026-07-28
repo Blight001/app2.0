@@ -14,7 +14,7 @@ function fixture(overrides = {}) {
   const credentials = {
     authType: 'account',
     username: 'alice',
-    key: 'license-key',
+    sessionToken: 'license-key',
     deviceId: 'trusted-device',
     serverBase: 'https://service.example',
     serverMode: 'remote',
@@ -27,7 +27,7 @@ function fixture(overrides = {}) {
     writeStoreConfigSafe: (value) => { writes.push(value); return true; },
     getGlobalHttpClient: () => ({
       runtimeServerBase: '',
-      validateKey: async () => ({
+      validateSession: async () => ({
         valid: true,
         is_vip: true,
         vip_active: true,
@@ -75,7 +75,7 @@ test('启动恢复会先创建全局 HTTP 客户端，避免把有效 VIP 误判
     calls.push(['create', options]);
     return {
       runtimeServerBase: '',
-      validateKey: async () => ({ valid: true, is_vip: true, vip_active: true, vip_tier: 'svip' }),
+      validateSession: async () => ({ valid: true, is_vip: true, vip_active: true, vip_tier: 'svip' }),
     };
   };
   data.context.setGlobalHttpClient = (value) => {
@@ -93,7 +93,7 @@ test('启动恢复会先创建全局 HTTP 客户端，避免把有效 VIP 误判
 
 test('在线验证失败时关闭本地 VIP，周期刷新向渲染层发布安全降级状态', async () => {
   const data = fixture({
-    getGlobalHttpClient: () => ({ runtimeServerBase: '', validateKey: async () => ({ valid: false, message: 'offline' }) }),
+    getGlobalHttpClient: () => ({ runtimeServerBase: '', validateSession: async () => ({ valid: false, message: 'offline' }) }),
   });
   const result = await createMembershipService(data.context).refresh(data.credentials, 'periodic');
   assert.equal(result.verified, false);
@@ -109,7 +109,7 @@ test('并发会员刷新复用同一个服务器请求并在完成后允许重�
   const data = fixture({
     getGlobalHttpClient: () => ({
       runtimeServerBase: '',
-      validateKey: async () => { calls += 1; await pending; return { valid: true, is_vip: true }; },
+      validateSession: async () => { calls += 1; await pending; return { valid: true, is_vip: true }; },
     }),
   });
   const service = createMembershipService(data.context);

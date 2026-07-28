@@ -212,12 +212,6 @@ const IPC_PAYLOAD_SCHEMAS = Object.freeze({
     numberLikeField(channel, input, 'mcpCallLimit');
     return input;
   },
-  'license.record-delete': (channel, payload) => {
-    const input = objectPayload(channel, payload, { optional: true });
-    stringField(channel, input, 'keyValue', { maxLength: 4096 });
-    stringField(channel, input, 'id');
-    return input;
-  },
   'ui.window-close-behavior': (channel, payload) => {
     const input = objectPayload(channel, payload);
     stringField(channel, input, 'behavior', { required: true, maxLength: 8 });

@@ -1,7 +1,6 @@
 const { BrowserWindow } = require('electron');
 const {
   readStoreConfigSafe,
-  saveLicenseCredentialsSafe,
   toFiniteNumber,
   writeStoreConfigSafe,
 } = require('./store-utils');
@@ -124,32 +123,6 @@ function registerCredentialSettingsIpc(ipc, ctx) {
       } };
     } catch (error) {
       console.error('[IPC] 获取用户凭证失败:', error);
-      return { ok: false, error: error.message };
-    }
-  });
-  ipc.handle('consume-auto-validate-flag', async () => {
-    try {
-      const runtimeConfig = licenseCache?.getRuntimeConfig?.() || {};
-      const snapshot = licenseCache?.getSnapshot?.() || { key: '', deviceId: '' };
-      const pending = runtimeConfig.autoValidatePending === true;
-      if (pending) licenseCache?.setRuntimeConfig?.({ autoValidatePending: false });
-      return {
-        ok: true, pending, key: String(snapshot.key || '').trim(), deviceId: String(snapshot.deviceId || '').trim(),
-        validated: snapshot.validated === true || snapshot.licenseValidated === true,
-        bound: snapshot.bound === true, validation: snapshot,
-      };
-    } catch (error) {
-      console.error('[IPC] 消费自动验证标记失败:', error);
-      return { ok: false, error: error.message, pending: false, key: '', deviceId: '' };
-    }
-  });
-  ipc.handle('save-user-credentials', async (_event, { key, deviceId }) => {
-    try {
-      saveLicenseCredentialsSafe({ readStoreConfigSafe, writeStoreConfigSafe, licenseCache }, key, deviceId);
-      console.log('[IPC] 用户凭证已保存到运行时缓存');
-      return { ok: true };
-    } catch (error) {
-      console.error('[IPC] 保存用户凭证失败:', error);
       return { ok: false, error: error.message };
     }
   });

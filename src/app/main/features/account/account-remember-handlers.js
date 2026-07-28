@@ -135,7 +135,7 @@ function createCredentialHandlers(deps) {
     async saveGlobalCredentials(_event, payload) {
       try {
         const { key, deviceId } = payload;
-        if (!key) return { ok: false, error: '卡密不能为空' };
+        if (!key) return { ok: false, error: '账号会话不能为空' };
         if (deps.licenseCache && typeof deps.licenseCache.setCredentials === 'function') {
           deps.licenseCache.setCredentials({ key, deviceId });
         }
@@ -177,7 +177,7 @@ function cookieResponse(fetchResult) {
 async function fetchCookies(deps, _event, payload) {
   try {
     const deviceId = await resolveDeviceId(deps, payload.deviceId);
-    if (!payload.key || !deviceId) return { ok: false, error: '缺少卡密或设备号' };
+    if (!payload.key || !deviceId) return { ok: false, error: '缺少账号会话或设备号' };
     if (!deps.httpClient) {
       return { ok: false, degraded: true, error: '网络客户端不可用，无法获取账号信息，请重启应用' };
     }
@@ -239,7 +239,7 @@ async function saveAccount(deps, _event, payload) {
       key: snapshot.key || '',
       deviceId: await resolveDeviceId(deps, snapshot.deviceId),
     };
-    if (!credentials.key || !credentials.deviceId) return { ok: false, error: '请先设置卡密' };
+    if (!credentials.key || !credentials.deviceId) return { ok: false, error: '请先登录账号' };
     let data;
     try {
       data = await resolveSaveAccountData(deps, payload.cookies, credentials);

@@ -376,8 +376,7 @@
 
             <div hidden aria-hidden="true">
               <input type="text" id="device-id" value="" readonly>
-              <input type="password" id="key-input" value="" tabindex="-1" autocomplete="off">
-              <button id="validate-key-btn" type="button" tabindex="-1">同步账号状态</button>
+              <input type="password" id="session-token" value="" tabindex="-1" autocomplete="off">
             </div>
           </div>
 
@@ -564,11 +563,6 @@
     </div>
   </div>
 
-  <!-- 自定义粘贴菜单（针对 key-input） -->
-  <div id="key-paste-menu" class="context-menu" role="menu" aria-hidden="true">
-    <button id="key-paste-btn" type="button" role="menuitem">粘贴</button>
-  </div>
-
   <script src="./client/scripts/logo-assets.js"></script>
   <script src="./client/scripts/control-panel.js"></script>
 
@@ -588,9 +582,6 @@
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-data-loaders.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-composer.js"></script>
   <script src="./client/app/side/controllers/pages/ai-control/ai-control-bootstrap.js"></script>
-
-  <!-- 针对 key-input 的左/右键弹出粘贴菜单逻辑 -->
-  <script src="./client/app/side/controllers/pages/side-panel/context-menu.js"></script>
 
   <!-- 共享控制器工具 -->
   <script src="../renderer/controllers/shared/controller-utils.js"></script>

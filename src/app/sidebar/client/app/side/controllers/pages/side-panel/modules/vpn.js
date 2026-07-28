@@ -96,7 +96,7 @@ function applyVpnActionAvailability() {
 
 // 测速/后台选路期间锁定网络工具面板。
 // “一键启动 XX”羊毛平台按钮不参与锁定：测速只影响代理节点切换，
-// 不应阻塞用户正常打开平台页面（其可用性仍由卡密验证与额度状态控制）。
+// 不应阻塞用户正常打开平台页面（其可用性仍由登录与额度状态控制）。
 function lockSidePanelButtons() {
   if (sideButtonLockSnapshot) return;
   const panel = document.querySelector('.settings-network-tools') || document.getElementById('side-panel');

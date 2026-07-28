@@ -17,7 +17,7 @@ function fixture(overrides = {}) {
     buildAccountCleanupOptions: () => ({}),
     getServerBase: () => 'https://account.example',
     httpClient: {
-      validateKey: async () => ({ ok: true, valid: true, woolPlatforms: ['Dream'] }),
+      validateSession: async () => ({ ok: true, valid: true, woolPlatforms: ['Dream'] }),
       getTutorialUrl: async () => ({ ok: true, tutorialUrl: 'https://docs.example' }),
       getClientConfig: async () => ({ ok: true, proxy_subscription_url: 'https://proxy.example/sub' }),
       unbindDevice: async () => ({ ok: true, remaining_unbind_times: 1 }),
@@ -40,7 +40,7 @@ test('并发刷新羊毛平台共享一次验证请求并只更新对应缓存',
   const pending = new Promise((resolve) => { release = resolve; });
   const data = fixture({
     httpClient: {
-      validateKey: async () => {
+      validateSession: async () => {
         calls += 1;
         await pending;
         return {
@@ -59,6 +59,9 @@ test('并发刷新羊毛平台共享一次验证请求并只更新对应缓存',
     name: 'Dream',
     platform: 'Dream',
     targetUrl: 'https://dream.example',
+    subUrls: [],
+    launchOnly: false,
+    permissionGranted: false,
     quota: null,
   }];
   assert.deepEqual(await first, { ok: true, woolPlatforms: expected });
@@ -72,7 +75,7 @@ test('教程刷新优先使用公开接口，未登录时也不触发卡密验�
   const data = fixture({
     httpClient: {
       getTutorialUrl: async () => ({ ok: true, tutorial_url: 'https://docs.example/new' }),
-      validateKey: async () => { validations += 1; return { ok: false }; },
+      validateSession: async () => { validations += 1; return { ok: false }; },
     },
     licenseCache: {
       getCredentials: () => ({}),
@@ -85,22 +88,11 @@ test('教程刷新优先使用公开接口，未登录时也不触发卡密验�
   assert.equal(validations, 0);
 });
 
-test('卡密验证失败保留服务器结果和稳定用户消息', async () => {
-  const response = { ok: false, valid: false, message: 'license expired' };
-  const data = fixture({ httpClient: { validateKey: async () => response } });
-  const result = await data.handlers.validateKey(null, { key: 'key', device_id: 'device' });
-
-  assert.equal(result.ok, false);
-  assert.equal(result.status, 200);
-  assert.equal(result.error, 'license expired');
-  assert.equal(result.result, response);
-});
-
 test('设备解绑校验输入并在成功后同步运行时解绑状态', async () => {
   const data = fixture();
   assert.deepEqual(await data.handlers.unbindDevice(null, { key: '', device_id: '' }), {
     ok: false,
-    message: '缺少卡密',
+    message: '缺少登录状态',
   });
   const result = await data.handlers.unbindDevice(null, { key: ' key ', deviceId: ' device ' });
 
