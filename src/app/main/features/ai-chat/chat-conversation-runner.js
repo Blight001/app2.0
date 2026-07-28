@@ -134,7 +134,7 @@ function isIdentityFailure(result) {
   const status = Number(result?.status || 0);
   const message = String(result?.message || result?.error || '').trim();
   return [401, 403].includes(status)
-    && /卡密不存在|设备未绑定|请先登录|未登录|登录凭据/.test(message);
+    && /登录状态.*(?:无效|失效|过期)|当前设备不匹配|设备未绑定|请先登录|未登录|登录凭据/.test(message);
 }
 
 async function recoverAndRetryModelRound(state, round, result) {

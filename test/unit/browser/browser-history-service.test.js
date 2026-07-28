@@ -50,6 +50,7 @@ test('history reader normalizes records and migrates legacy account partitions',
   assert.equal(records[0].accountId, 'account-1');
   assert.equal(records[0].profileId, 'account-1');
   assert.equal(records[0].url, 'https://account.test');
+  assert.equal(records[0].hideToolbar, true);
   assert.equal('partition' in records[0], false);
   assert.equal(store.keep, 'value');
   assert.equal(store.browserHistory[0].accountId, 'account-1');
@@ -76,6 +77,7 @@ test('open tabs create and update durable history records', () => {
     requestedUrl: 'https://new.test',
     browserSettings: { proxy: { mode: 'default' } },
     isTutorialTab: true,
+    hideBrowserToolbar: true,
   };
   const existingTab = {
     id: 'profile-account',
@@ -91,7 +93,9 @@ test('open tabs create and update durable history records', () => {
   assert.equal(newTab.browserHistoryId.startsWith('browser-'), true);
   assert.equal(existingTab.browserHistoryId, 'existing');
   assert.equal(records.find((item) => item.id === 'existing').url, 'https://live-account.test');
-  assert.equal(records.find((item) => item.id === newTab.browserHistoryId).kind, 'tutorial');
+  const created = records.find((item) => item.id === newTab.browserHistoryId);
+  assert.equal(created.kind, 'tutorial');
+  assert.equal(created.hideToolbar, true);
   assert.equal(updates, 1);
 });
 
@@ -123,7 +127,8 @@ test('serialization adds account and live tab state then sorts recent records', 
 test('open and edit reuse active tabs, persist settings, or restore closed profiles', async () => {
   store.browserHistory = [
     { id: 'open', name: 'Open', url: 'https://open.test', profileId: 'profile-open', settings: {}, createdAt: 1, lastOpenedAt: 1 },
-    { id: 'closed', name: 'Closed', url: '', accountId: 'account-1', settings: {}, createdAt: 2, lastOpenedAt: 2 },
+    { id: 'closed', name: 'Closed', url: '', accountId: 'account-1', hideToolbar: true, settings: {}, createdAt: 2, lastOpenedAt: 2 },
+    { id: 'ordinary', name: 'Ordinary', url: 'https://ordinary.test', profileId: 'profile-ordinary', hideToolbar: false, settings: {}, createdAt: 3, lastOpenedAt: 3 },
   ];
   const switched = [];
   const renamed = [];
@@ -145,6 +150,10 @@ test('open and edit reuse active tabs, persist settings, or restore closed profi
   assert.equal(restored.alreadyOpen, false);
   assert.equal(added[0][0], 'about:blank');
   assert.equal(added[0][1].accountId, 'account-1');
+  assert.equal(added[0][1].hideBrowserToolbar, true);
+  await historyService.openBrowserHistoryRecord(ui, 'ordinary');
+  assert.equal(added[1][0], 'https://ordinary.test');
+  assert.equal(added[1][1].hideBrowserToolbar, false);
   const rename = historyService.renameBrowserHistoryRecord(ui, 'open', 'Renamed');
   assert.equal(rename.name, 'Renamed');
   assert.deepEqual(renamed, [['profile-open', 'Renamed']]);
@@ -153,7 +162,7 @@ test('open and edit reuse active tabs, persist settings, or restore closed profi
   });
   assert.equal(edited.settings.proxy.mode, 'none');
   assert.equal(store.browserHistory.find((item) => item.id === 'open').settings.timezone.value, 'UTC');
-  assert.equal(events.length, 4);
+  assert.equal(events.length, 5);
   assert.throws(() => historyService.renameBrowserHistoryRecord(ui, 'missing', 'x'), /不存在/);
   await assert.rejects(historyService.openBrowserHistoryRecord(ui, 'missing'), /不存在/);
 });

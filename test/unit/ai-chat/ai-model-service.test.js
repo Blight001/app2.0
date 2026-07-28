@@ -46,7 +46,7 @@ test('model service handles missing credentials and unavailable clients', async 
 });
 
 test('model service merges remote models and degrades remote errors to custom-only', async () => {
-  const store = { ...customStore, userCredentials: { key: 'license', deviceId: 'device' } };
+  const store = { ...customStore, userCredentials: { sessionToken: 'license', deviceId: 'device' } };
   let response = { ok: true, models: [{ id: 'remote' }], quota: 8 };
   const calls = [];
   const service = createAiModelService({
@@ -63,7 +63,7 @@ test('model service merges remote models and degrades remote errors to custom-on
   assert.equal(degraded.remoteError, 'gateway down');
 
   const noCustom = createAiModelService({
-    readStoreConfigSafe: () => ({ userCredentials: { key: 'k', deviceId: 'd' } }),
+    readStoreConfigSafe: () => ({ userCredentials: { sessionToken: 'k', deviceId: 'd' } }),
     getGlobalHttpClient: () => ({ getAIControlModels: async () => ({ ok: false, message: 'denied' }) }),
   });
   assert.deepEqual(await noCustom.getModels(), { ok: false, message: 'denied' });

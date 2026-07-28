@@ -186,6 +186,7 @@ class BrowserTabLauncher {
       runtimeUrl: urls.target && urls.target !== 'about:blank' ? urls.target : '',
       runtimeType: 'chromium',
       runtimeStatus: 'starting',
+      hideBrowserToolbar: options.hideBrowserToolbar === true,
       networkMagicApplied: proxy.useMagic && proxy.value?.enabled === true,
       browserProfile: null,
       browserSettings,

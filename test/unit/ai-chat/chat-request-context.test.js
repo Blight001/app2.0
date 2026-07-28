@@ -25,6 +25,12 @@ test('额度边界和旧多选输入被归一化为单一控制浏览器', () =>
 test('内置模型要求登录和服务可用，自定义模型同时要求 VIP 与完整配置', () => {
   const base = { readStoreConfigSafe: () => ({}), getGlobalHttpClient: () => null, licenseCache: { getSnapshot: () => ({}) } };
   assert.match(resolveChatAccess(base, { modelId: 'builtin' }).error.message, /登录/);
+  const signedIn = {
+    ...base,
+    readStoreConfigSafe: () => ({ userCredentials: { sessionToken: 'afs_session', deviceId: 'device' } }),
+    getGlobalHttpClient: () => ({ sendAIControlMessage() {} }),
+  };
+  assert.equal(resolveChatAccess(signedIn, { modelId: 'builtin' }).key, 'afs_session');
   assert.equal(resolveChatAccess(base, { modelId: '__custom_openai_api__' }).error.code, 'VIP_REQUIRED');
   const vip = { ...base, licenseCache: { getSnapshot: () => ({ is_vip: true, vip_active: true, vip_server_verified: true, vip_verified_at: new Date().toISOString() }) } };
   assert.match(resolveChatAccess(vip, { modelId: '__custom_openai_api__' }).error.message, /尚未配置完整/);
@@ -55,11 +61,11 @@ test('流式事件仅发送到仍存活的原请求窗口', () => {
 });
 
 test('设备登录恢复器只在认证成功后返回最新持久化凭据', async () => {
-  let current = { key: 'old', deviceId: 'device' };
+  let current = { sessionToken: 'old', deviceId: 'device' };
   const recovery = createIdentityRecovery({
     accountService: {
       authenticate: async () => {
-        current = { key: 'new', deviceId: 'device' };
+        current = { sessionToken: 'new', deviceId: 'device' };
         return { ok: true };
       },
     },

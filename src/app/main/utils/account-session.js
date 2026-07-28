@@ -48,7 +48,7 @@ function normalizeAccountSession(input = {}) {
   session.authenticated = Boolean(
     session.authType === ACCOUNT_AUTH_TYPE
     && session.username
-    && session.sessionToken
+    && session.sessionToken.startsWith('afs_')
     && session.deviceId
     && session.serverBase
     && !hasLegacyTenant

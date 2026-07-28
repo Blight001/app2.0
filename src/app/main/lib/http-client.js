@@ -296,7 +296,7 @@ class HttpClient {
         let lastError = null;
         for (const attempt of attempts) {
             try {
-                console.log(`[HTTP] getClientConfig 尝试${attempt.label}: ${attempt.path}`);
+                console.log(`[HTTP] getClientConfig 尝试${attempt.label}`);
                 const result = await this._executeHttpRequest({
                     path: attempt.path,
                     method: attempt.method,

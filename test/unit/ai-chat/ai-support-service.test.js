@@ -38,7 +38,7 @@ test('远端模型服务不可用时仍向已验证 VIP 返回本地自定义模
 test('AI 礼品码兑换每次重新读取本机设备号且不信任存储旧值', async () => {
   const calls = [];
   const service = createAiSupportService({
-    readStoreConfigSafe: () => ({ userCredentials: { key: 'account-key', deviceId: 'stale-device' } }),
+    readStoreConfigSafe: () => ({ userCredentials: { sessionToken: 'account-key', deviceId: 'stale-device' } }),
     computeDeviceId: async () => 'current-device',
     getGlobalHttpClient: () => ({
       redeemAIControlGiftCode: async (...args) => {

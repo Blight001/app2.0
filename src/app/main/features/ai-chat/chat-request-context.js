@@ -6,6 +6,7 @@ const {
   isCustomAiModelId,
 } = require('../../utils/ai-control-settings');
 const { createVipRequiredResult, resolveVipAccess } = require('../../utils/vip-access');
+const { normalizeAccountSession } = require('../../utils/account-session');
 const { enrichBrowserConnectionNames } = require('./connection-names');
 const { buildChatToolContext } = require('./chat-tool-context');
 
@@ -31,7 +32,7 @@ function resolveCustomAccess(deps, store, modelId) {
 }
 
 function resolveBuiltinAccess(deps, store, input, modelId) {
-  const credentials = store?.userCredentials || {};
+  const credentials = normalizeAccountSession(store?.userCredentials || {});
   const key = String(credentials.key || '').trim();
   const deviceId = String(credentials.deviceId || '').trim();
   if (!key || !deviceId) return { error: { ok: false, message: '请先在个人中心登录账号' } };
@@ -58,7 +59,7 @@ function createIdentityRecovery(deps) {
   return async () => {
     const refreshed = await deps.accountService.authenticate({ mode: 'device' });
     if (refreshed?.ok !== true) return null;
-    const credentials = deps.readStoreConfigSafe()?.userCredentials || {};
+    const credentials = normalizeAccountSession(deps.readStoreConfigSafe()?.userCredentials || {});
     const key = String(credentials.key || '').trim();
     const deviceId = String(credentials.deviceId || '').trim();
     return key && deviceId ? { key, deviceId } : null;

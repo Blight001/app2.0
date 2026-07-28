@@ -14,7 +14,7 @@ function fixture(overrides = {}) {
   const credentials = {
     authType: 'account',
     username: 'alice',
-    sessionToken: 'license-key',
+    sessionToken: 'afs_license-key',
     deviceId: 'trusted-device',
     serverBase: 'https://service.example',
     serverMode: 'remote',
@@ -61,7 +61,7 @@ test('启动恢复先在线验证会员、持久化服务端状态并安排五�
   assert.equal(result.restored, true);
   assert.equal(data.writes.length, 1);
   assert.equal(data.writes[0].userCredentials.validation.vip_server_verified, true);
-  assert.deepEqual(data.context.licenseCache.credentials, { key: 'license-key', deviceId: 'trusted-device' });
+  assert.deepEqual(data.context.licenseCache.credentials, { key: 'afs_license-key', deviceId: 'trusted-device' });
   assert.equal(data.timers[0].interval, 5 * 60 * 1000);
   assert.equal(data.timers[0].unrefCalled, true);
 });

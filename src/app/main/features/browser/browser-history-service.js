@@ -21,18 +21,27 @@ function text(...values) {
   return firstText(...values).trim();
 }
 
+function resolveHistoryHideToolbar(item, accountId) {
+  const hasPreference = Object.prototype.hasOwnProperty.call(item, 'hideToolbar')
+    || Object.prototype.hasOwnProperty.call(item, 'hideBrowserToolbar');
+  if (hasPreference) return item.hideToolbar === true || item.hideBrowserToolbar === true;
+  return Boolean(accountId);
+}
+
 function normalizeBrowserHistoryItem(value) {
   const item = value && typeof value === 'object' ? value : {};
   const partition = text(item.partition);
+  const accountId = text(item.accountId);
   return {
     ...item,
     id: text(item.id),
     name: text(item.name, DEFAULT_BROWSER_WINDOW_NAME) || DEFAULT_BROWSER_WINDOW_NAME,
     url: text(item.url),
     profileId: text(item.profileId),
-    accountId: text(item.accountId),
+    accountId,
     ...(partition ? { partition } : {}),
     runtimeType: 'chromium',
+    hideToolbar: resolveHistoryHideToolbar(item, accountId),
     lastError: text(item.lastError),
     settings: normalizeAiFreeBrowserSettings(item.settings || {}),
     createdAt: Number(item.createdAt || 0) || Date.now(),
@@ -62,6 +71,7 @@ function migrateBrowserHistoryAccounts(history, summaries) {
         const account = result && result.ok ? result.account : null;
         if (!record.profileId) record.profileId = accountId;
         record.accountId = accountId;
+        record.hideToolbar = true;
         if (!record.url && account && account.currentUrl) record.url = text(account.currentUrl);
         changed = true;
       }
@@ -78,7 +88,12 @@ function readBrowserHistorySafe() {
   const store = readStoreConfigSafe();
   const source = store && Array.isArray(store.browserHistory) ? store.browserHistory : [];
   const history = source.map(normalizeBrowserHistoryItem).filter((item) => item.id);
-  let changed = source.some((item) => text(item && item.runtimeType) !== 'chromium');
+  let changed = source.some((item) => (
+    text(item && item.runtimeType) !== 'chromium'
+    || (text(item && item.accountId)
+      && !Object.prototype.hasOwnProperty.call(item, 'hideToolbar')
+      && !Object.prototype.hasOwnProperty.call(item, 'hideBrowserToolbar'))
+  ));
   try {
     const summaries = typeof accountStorage.getAllAccounts === 'function'
       ? accountStorage.getAllAccounts()
@@ -156,6 +171,7 @@ function createHistoryRecord(history, tab, match) {
     profileId: match.profileId,
     accountId: match.accountId,
     runtimeType: 'chromium',
+    hideToolbar: tab && tab.hideBrowserToolbar === true,
     settings: normalizeAiFreeBrowserSettings(tab && tab.browserSettings || {}),
     createdAt: Date.now(),
     lastOpenedAt: Date.now(),
@@ -167,7 +183,11 @@ function createHistoryRecord(history, tab, match) {
 function updateHistoryRecord(tab, match) {
   const record = match.record;
   const liveUrl = getManagedTabUrl(tab);
-  const updates = { profileId: match.profileId, accountId: match.accountId };
+  const updates = {
+    profileId: match.profileId,
+    accountId: match.accountId,
+    hideToolbar: tab && tab.hideBrowserToolbar === true,
+  };
   if (liveUrl) updates.url = liveUrl;
   if (tab && tab.isTutorialTab === true) updates.kind = 'tutorial';
   let changed = false;
@@ -278,6 +298,7 @@ async function openBrowserHistoryRecord(ui, historyIdInput) {
       browserHistoryId: record.id,
       runtimeType: 'chromium',
       browserSettings: record.settings,
+      hideBrowserToolbar: record.hideToolbar === true,
       resolveProfileInBackground: true,
       showLoadingPage: true,
       restoreLastSession: true,

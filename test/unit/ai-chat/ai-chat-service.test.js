@@ -27,7 +27,7 @@ function eventFixture(id = 1) {
 
 function createService(client, overrides = {}) {
   return createAiChatService({
-    readStoreConfigSafe: () => ({ userCredentials: { key: 'key', deviceId: 'device' } }),
+    readStoreConfigSafe: () => ({ userCredentials: { sessionToken: 'key', deviceId: 'device' } }),
     getGlobalHttpClient: () => client,
     licenseCache: { getSnapshot: () => ({}) },
     logger: { warn() {} },
@@ -120,14 +120,14 @@ test('额度耗尽时不调用模型服务', async () => {
 });
 
 test('身份失效时通过已绑定设备刷新凭据并只重试当前模型请求', async () => {
-  const credentials = { key: 'old-key', deviceId: 'device' };
+  const credentials = { sessionToken: 'old-key', deviceId: 'device' };
   const calls = [];
   let recoveryCalls = 0;
   const client = {
     sendAIControlMessage: async (key, deviceId) => {
       calls.push([key, deviceId]);
       return calls.length === 1
-        ? { ok: false, status: 403, message: '卡密不存在' }
+        ? { ok: false, status: 403, message: '登录状态无效，请重新登录' }
         : { ok: true, message: { role: 'assistant', content: '已恢复' } };
     },
   };
@@ -137,7 +137,7 @@ test('身份失效时通过已绑定设备刷新凭据并只重试当前模型�
       authenticate: async ({ mode }) => {
         assert.equal(mode, 'device');
         recoveryCalls += 1;
-        credentials.key = 'new-key';
+        credentials.sessionToken = 'new-key';
         return { ok: true };
       },
     },

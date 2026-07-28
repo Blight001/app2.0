@@ -14,7 +14,7 @@ function fixture(overrides = {}) {
   const events = [];
   const store = {
     userCredentials: {
-      authType: 'account', username: 'alice', sessionToken: 'key', deviceId: 'stale-device',
+      authType: 'account', username: 'alice', sessionToken: 'afs_key', deviceId: 'stale-device',
       serverBase: 'https://service.example', serverMode: 'remote', platformName: 'default',
       account: {}, validation: {},
     },
@@ -49,7 +49,7 @@ test('VIP 礼品码每次读取可信设备号，兑换后持久化并发布会�
     }),
   });
   const result = await createLicenseService(data.context).redeemVipGiftCode({ code: ' gift ' });
-  assert.deepEqual(calls, [['key', 'trusted-device', 'gift']]);
+  assert.deepEqual(calls, [['afs_key', 'trusted-device', 'gift']]);
   assert.equal(result.ok, true);
   assert.equal(data.writes.at(-1).userCredentials.deviceId, 'trusted-device');
   assert.equal(data.events.at(-1).channel, 'account-session-updated');
@@ -76,7 +76,7 @@ test('羊毛礼品码服务失败不写缓存，验证成功才刷新平台', as
 
 test('VIP session normalizes expiry and publishes authenticated state', () => {
   const session = createVipSession({ userCredentials: { keep: true } }, {
-    username: 'alice', key: 'key', deviceId: 'device', platformName: 'fixture',
+    username: 'alice', key: 'afs_key', deviceId: 'device', platformName: 'fixture',
     serverBase: 'https://service.example', serverMode: 'remote', account: { id: 1 },
   }, { vip_tier: 'gold', vip_expiry_date: '2030-01-01' }, {});
   assert.equal(session.account.is_vip, true);

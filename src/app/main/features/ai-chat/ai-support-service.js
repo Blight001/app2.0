@@ -3,6 +3,7 @@
 const { createAiModelService } = require('./ai-model-service');
 const { createAutomationCardService } = require('./automation-card-service');
 const { enrichBrowserConnectionNames } = require('./connection-names');
+const { normalizeAccountSession } = require('../../utils/account-session');
 
 function createAiSupportService(deps = {}) {
   const modelService = createAiModelService(deps);
@@ -20,7 +21,7 @@ function createAiSupportService(deps = {}) {
   }
 
   async function redeemGiftCode(input = {}) {
-    const credentials = deps.readStoreConfigSafe()?.userCredentials || {};
+    const credentials = normalizeAccountSession(deps.readStoreConfigSafe()?.userCredentials || {});
     const key = String(credentials.key || '').trim();
     const deviceId = String(await deps.computeDeviceId() || '').trim();
     const code = String(input.code || '').trim();

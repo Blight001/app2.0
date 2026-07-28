@@ -36,6 +36,7 @@ function buildAuthenticationFailure(authenticated) {
 function getAuthenticatedDataError(data) {
   if (!data.username) return '登录响应缺少账号信息';
   if (!data.sessionToken) return '登录响应缺少账号会话';
+  if (!data.sessionToken.startsWith('afs_')) return '账号服务返回了无效会话，请更新服务端后重新登录';
   if (!isServerBaseAllowedForMode(data.resolved.serverBase)) {
     const modeText = getServerMode() === 'local' ? '本地调试' : '正式远程';
     return `账号服务返回的服务器地址与${modeText}模式不匹配`;

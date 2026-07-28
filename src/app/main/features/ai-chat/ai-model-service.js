@@ -6,6 +6,7 @@ const {
   isCustomAiApiConfigured,
 } = require('../../utils/ai-control-settings');
 const { resolveVipAccess } = require('../../utils/vip-access');
+const { normalizeAccountSession } = require('../../utils/account-session');
 const { callOptional, firstText } = require('../../../shared/safe-values');
 
 function createCustomModel(store, licenseCache) {
@@ -32,7 +33,7 @@ function createAiModelService(deps = {}) {
   const { readStoreConfigSafe, licenseCache, getGlobalHttpClient } = deps;
   async function getModels() {
     const store = readStoreConfigSafe();
-    const credentials = store && store.userCredentials ? store.userCredentials : {};
+    const credentials = normalizeAccountSession(store?.userCredentials || {});
     const key = firstText(credentials.key).trim();
     const deviceId = firstText(credentials.deviceId).trim();
     const customModel = createCustomModel(store, licenseCache);
