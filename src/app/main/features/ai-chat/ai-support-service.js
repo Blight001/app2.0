@@ -52,7 +52,9 @@ function createAiSupportService(deps = {}) {
     getAutomationCards: cardService.getAutomationCards,
     getBrowserConnections,
     getModels: modelService.getModels,
+    manageAutomationCard: cardService.manageAutomationCard,
     redeemGiftCode,
+    saveAutomationSession: cardService.saveAutomationSession,
     selectAutomationCard: cardService.selectAutomationCard,
   };
 }

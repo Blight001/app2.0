@@ -33,6 +33,22 @@ function registerAiSupportIpc({ ipc, service }) {
     }
   });
 
+  ipc.handle('ai-control-manage-automation-card', async (_event, input = {}) => {
+    try {
+      return await service.manageAutomationCard(input);
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error) };
+    }
+  });
+
+  ipc.handle('ai-control-save-automation-session', async (_event, input = {}) => {
+    try {
+      return await service.saveAutomationSession(input);
+    } catch (error) {
+      return { ok: false, message: error?.message || String(error) };
+    }
+  });
+
   ipc.on('ai-control-browser-selection-changed', (_event, input = {}) => {
     service.broadcastBrowserSelection(input);
   });

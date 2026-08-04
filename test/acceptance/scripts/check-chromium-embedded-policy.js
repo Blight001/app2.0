@@ -196,23 +196,13 @@ assert(!nativeFocus.includes('SetForegroundWindow(root)'),
 assert(tabManagerRuntime.includes('options.focusBrowser === true'),
   'showing or switching an embedded browser must require explicit focus opt-in');
 
-const automationManifest = JSON.parse(fs.readFileSync(
-  path.join(root, 'src', 'assets', 'extensions', 'browser_automation', 'manifest.json'),
-  'utf8',
-));
-assert(automationManifest.permissions.includes('tabs'));
-const browserTools = fs.readFileSync(
-  path.join(
-    root,
-    'src',
-    'assets',
-    'extensions',
-    'browser_automation',
-    'background',
-    '10_browser_tools.js',
-  ),
+assert(!fs.existsSync(path.join(root, 'src', 'assets', 'extensions', 'browser_automation')),
+  'legacy browser automation extension directory must stay deleted');
+const nativeAutomation = fs.readFileSync(
+  path.join(root, 'src', 'app', 'main', 'services', 'native-browser-automation.js'),
   'utf8',
 );
-assert(browserTools.includes('chrome.tabs.create('));
+assert(nativeAutomation.includes("runtimeCommand(connection, 'observe-page'"));
+assert(nativeAutomation.includes("runtimeCommand(connection, 'perform-action'"));
 
 console.log('chromium embedded window policy checks passed');

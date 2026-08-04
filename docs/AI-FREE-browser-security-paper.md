@@ -456,8 +456,8 @@ AI-FREE 当前安全架构的关键价值，是把自动化从“一个拥有全
 10. [外部 MCP 网关](../src/app/main/services/browser-automation-external-gateway.js)
 11. [AI 下载服务](../src/app/main/services/browser-download-service.js)
 12. [下载网络与 SSRF 策略](../src/app/main/services/browser-download-network-policy.js)
-13. [扩展权限清单](../src/assets/extensions/browser_automation/manifest.json)
-14. [扩展安全模式说明](../src/assets/extensions/browser_automation/README.md)
+13. [原生自动化工具定义](../src/app/main/services/native-browser-tool-definitions.js)
+14. [原生卡片执行服务](../src/app/main/services/native-automation-card-service.js)
 15. [Chromium 补丁队列](../native/chromium-fork/patches/series)
 
 ### 外部基础资料

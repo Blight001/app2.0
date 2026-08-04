@@ -42,7 +42,7 @@ flowchart LR
     C --> E["一次性文件选择请求"]
     C --> F["下载目录覆盖"]
     B --> G["Chromium 默认网页与安全约束"]
-    H["browser_automation 扩展"] -->|"仅触发网页交互，不拦截浏览器 UI"| G
+    A -->|"软件内置自动化工作台"| G
 ```
 
 ## 3. 生效门槛
@@ -302,8 +302,8 @@ chrome/browser/ui/views/frame/ai_free_runtime_bridge_win.cc
 src/app/main/browser-runtime/chromium-command-client.js
 src/app/main/browser-runtime/runtime-file-selection.js
 src/app/main/services/browser-automation-bridge.js
-src/assets/extensions/browser_automation/background/09_agent_{protocol,transport}.js
-src/assets/extensions/browser_automation/background/10_browser_tools.js
+src/app/main/services/native-browser-automation.js
+src/app/main/services/native-automation-card-service.js
 对应 unit/integration tests
 ```
 

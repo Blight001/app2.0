@@ -7,16 +7,21 @@ function initSidePanelBindings() {
   }
   sidePanelBindingsInitialized = true;
 
+  const browserSettingsPage = document.documentElement.classList.contains('browser-settings-page');
+  if (browserSettingsPage) {
+    initSidebarUiListeners();
+    bindClashMiniControls();
+    bindRuntimeValueListeners();
+    return;
+  }
+
   initAnnouncementListener();
   initSidebarUiListeners();
   initSidebarAnimationListener();
   initSidebarInputRouting();
-  initPluginSwitches();
-  bindClashMiniControls();
   bindLicenseValidationControls();
   bindServerAccountCookieListener();
   bindSidebarAccountAuth();
   bindTutorialLink();
   bindSecondaryEntryButtons();
-  bindRuntimeValueListeners();
 }

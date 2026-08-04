@@ -4,9 +4,8 @@
 document.addEventListener('DOMContentLoaded', () => {
   const tabs = document.querySelectorAll('.tab-button');
   const panels = document.querySelectorAll('.panel');
+  const dedicatedBrowserSettingsPage = document.documentElement.classList.contains('browser-settings-page');
   let woolPlatformRefreshInFlight = null;
-
-  if (!tabs.length || !panels.length) return;
 
   const refreshWoolPlatformsFromServer = async () => {
     if (woolPlatformRefreshInFlight) return woolPlatformRefreshInFlight;
@@ -33,6 +32,26 @@ document.addEventListener('DOMContentLoaded', () => {
     return woolPlatformRefreshInFlight;
   };
 
+  if (dedicatedBrowserSettingsPage) {
+    document.getElementById('ai-free-settings-panel')?.classList.add('active');
+    const createButton = document.getElementById('browser-settings-create-browser');
+    createButton?.addEventListener('click', async () => {
+      if (createButton.disabled) return;
+      createButton.disabled = true;
+      try {
+        const result = await window.aiFree?.shell?.createIndependentBrowser?.({ name: '新建窗口' });
+        if (!result?.ok) throw new Error(result?.error || '新建浏览器失败');
+      } catch (error) {
+        window.MessageModal?.showErrorMessage?.(error?.message || String(error));
+        createButton.disabled = false;
+      }
+    });
+    void refreshWoolPlatformsFromServer();
+    return;
+  }
+
+  if (!tabs.length || !panels.length) return;
+
   const activateTab = (tab) => {
     if (!tab || tab.getAttribute('aria-disabled') === 'true') return false;
     const panelId = tab.getAttribute('data-tab');
@@ -51,9 +70,6 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   tabs.forEach((tab) => tab.addEventListener('click', () => activateTab(tab)));
-  if (document.getElementById('ai-free-settings-panel')?.classList.contains('active')) {
-    void refreshWoolPlatformsFromServer();
-  }
   window.activateSidebarPanel = (panelId) => activateTab(
     document.querySelector(`.tab-button[data-tab="${String(panelId || '')}"]`),
   );

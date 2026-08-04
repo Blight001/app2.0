@@ -97,10 +97,31 @@ function selectAutomationCard(bridge, input = {}) {
   };
 }
 
+async function manageAutomationCard(bridge, input = {}) {
+  if (!bridge || typeof bridge.manageCard !== 'function') throw new Error('软件卡片库不可用');
+  const args = { .../** @type {Record<string, any>} */ (input) };
+  const connectionId = args.connectionId;
+  delete args.connectionId;
+  const data = await bridge.manageCard(connectionId, args, { timeoutMs: 30 * 60 * 1000 });
+  return { ok: true, data };
+}
+
+async function saveAutomationSession(bridge, input = {}) {
+  if (!bridge || typeof bridge.saveBrowserSession !== 'function') throw new Error('浏览器会话保存功能不可用');
+  const connectionId = firstText(input && input.connectionId);
+  if (!connectionId) throw new Error('请先选择已连接的浏览器窗口');
+  const data = await bridge.saveBrowserSession(connectionId, {
+    format: firstText(input && input.format, 'json'),
+  }, { timeoutMs: 120000 });
+  return { ok: true, data };
+}
+
 function createAutomationCardService({ bridge, now = Date.now, logger = console }) {
   const context = { bridge, now, logger, state: { lastAttemptAt: 0 } };
   return {
     getAutomationCards: () => getAutomationCards(context),
+    manageAutomationCard: (input) => manageAutomationCard(bridge, input),
+    saveAutomationSession: (input) => saveAutomationSession(bridge, input),
     selectAutomationCard: (input) => selectAutomationCard(bridge, input),
   };
 }

@@ -40,12 +40,18 @@
       });
   });
 
-  function readDreamLaunchCredentials() {
+  async function readDreamLaunchCredentials() {
     const keyInput = getEl('session-token');
     const deviceInput = getEl('device-id');
-    return {
+    const local = {
       key: String((keyInput && keyInput.value) || '').trim(),
       deviceId: String((deviceInput && deviceInput.value) || '').trim(),
+    };
+    if (local.key) return local;
+    const result = await window.aiFree?.license?.getUserCredentials?.().catch(() => null);
+    return {
+      key: String(result?.credentials?.key || '').trim(),
+      deviceId: String(result?.credentials?.deviceId || '').trim(),
     };
   }
 
@@ -78,7 +84,7 @@
   }
 
   async function openDreamPlatform(clickedButton, container) {
-    const { key, deviceId } = readDreamLaunchCredentials();
+    const { key, deviceId } = await readDreamLaunchCredentials();
     if (!key) throw new Error('请先登录账号');
     const contentApi = window.aiFree && window.aiFree.content;
     if (!contentApi || typeof contentApi.openDreamPage !== 'function') {
@@ -103,10 +109,10 @@
     const container = getEl('wool-platform-buttons');
     if (!container || container.dataset.bound === '1') return;
 
-    container.addEventListener('click', (e) => {
+    container.addEventListener('click', async (e) => {
       const clickedButton = e.target && e.target.closest ? e.target.closest('.open-wool-platform-btn') : null;
       if (!clickedButton || !container.contains(clickedButton) || clickedButton.disabled) return;
-      if (window.redirectToSidebarAccountLogin?.()) return;
+      if (await window.redirectToSidebarAccountLogin?.()) return;
       const task = withBusyButton(clickedButton, () => openDreamPlatform(clickedButton, container), {
         companions: [
           document.getElementById('VPN-switch'),

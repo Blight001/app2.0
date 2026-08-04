@@ -141,8 +141,8 @@
     if (selectedIds.length) state.browserSelectionExplicitlyDisabled = false;
     syncBrowserSessionSelection();
     select.title = connections.length
-      ? `已连接 ${connections.length} 个浏览器插件，AI 同时只控制当前选中的一个`
-      : '未发现浏览器插件，请确认扩展和 AI-FREE 已启动';
+      ? `已连接 ${connections.length} 个 Chromium 原生控制通道，AI 同时只控制当前选中的一个`
+      : '未发现可用的 Chromium 原生控制通道，请先打开 AI-FREE 浏览器';
     syncSelectUi(select);
     notifyBrowserSelection();
     if (selectionChanged && !currentMessages().length) renderWelcome();
@@ -150,7 +150,7 @@
 
   function clearBrowserConnections(select, errorMessage) {
     const selectionChanged = Boolean(state.currentBrowserIds.length);
-    select.innerHTML = '<option value="">未发现浏览器插件</option>';
+    select.innerHTML = '<option value="">未发现原生浏览器连接</option>';
     state.currentBrowserIds = [];
     state.availableBrowserIds = [];
     state.browserConnectionsInitialized = false;

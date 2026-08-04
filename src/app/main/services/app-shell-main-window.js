@@ -22,7 +22,7 @@ function createWindowInstance(deps, windowStateController) {
       preload: deps.path.join(__dirname, '../preload.js'),
     },
   });
-  if (windowStateController.shouldMaximize()) mainWindow.maximize();
+  mainWindow.maximize();
   windowStateController.bindWindow(mainWindow);
   return mainWindow;
 }
@@ -60,6 +60,26 @@ function createSidebarView(deps, mainWindow) {
   });
   try { deps.resolveAuth()?.applyZhHantRequestPrefs(sideView.webContents.session, sideView.webContents); } catch (_) {}
   return sideView;
+}
+
+function createBrowserSettingsView(deps, mainWindow) {
+  const settingsView = new deps.WebContentsView({
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false,
+      backgroundThrottling: false,
+      preload: deps.path.join(__dirname, '../preload.js'),
+    },
+  });
+  deps.setBrowserSettingsView?.(settingsView);
+  mainWindow.contentView.addChildView(settingsView);
+  const settingsPath = deps.resolveControlPanelHtmlPath();
+  if (settingsPath) {
+    settingsView.webContents.loadFile(settingsPath, { query: { page: 'browser-settings' } })
+      .catch((error) => deps.logger.error?.('[启动] 浏览器配置页加载失败:', error?.message || error));
+  }
+  return settingsView;
 }
 
 function relaySidebarConsole(deps, details) {
@@ -127,6 +147,7 @@ function resolveLayout(deps, mainWindow, sideView) {
     currentWidth: sideView?.getBounds?.().width,
     normalWindowWidth: mainWindow.getNormalBounds?.().width,
   });
+  const settingsContentWidth = width - (isSidebarVisible ? sideViewWidth : 0);
   const activeTab = deps.resolveTabs().get(deps.resolveActiveTabId());
   return {
     width,
@@ -134,6 +155,7 @@ function resolveLayout(deps, mainWindow, sideView) {
     tabContentHeight: height - tabBarHeight,
     isSidebarVisible,
     sideViewWidth,
+    settingsBounds: { x: 0, y: tabBarHeight, width: settingsContentWidth, height: height - tabBarHeight },
     activeTab,
     chromiumBounds: activeTab?.runtimeType === 'chromium'
       ? { x: 0, y: tabBarHeight, width: width - sideViewWidth, height: height - tabBarHeight }
@@ -143,6 +165,7 @@ function resolveLayout(deps, mainWindow, sideView) {
 
 function updateMainWindowLayout(deps, mainWindow) {
   const sideView = deps.getSideView?.();
+  const settingsView = deps.getBrowserSettingsView?.();
   const layout = resolveLayout(deps, mainWindow, sideView);
   if (sideView && layout.isSidebarVisible) {
     sideView.setBounds({
@@ -153,6 +176,8 @@ function updateMainWindowLayout(deps, mainWindow) {
     });
   }
   sideView?.setVisible?.(layout.isSidebarVisible);
+  settingsView?.setBounds?.(layout.settingsBounds);
+  settingsView?.setVisible?.(deps.getBrowserSettingsPageVisible?.() !== false);
   if (!layout.activeTab || !layout.chromiumBounds) return;
   void deps.browserRuntimeManager?.resize(layout.activeTab.id, 'chromium', layout.chromiumBounds)
     .then(() => deps.updateTabs?.())
@@ -166,6 +191,7 @@ function handleMainWindowClosed(deps) {
     if (panel && !panel.isDestroyed()) panel.close();
   } catch (_) {}
   deps.setMainWindow?.(null);
+  deps.setBrowserSettingsView?.(null);
 }
 
 function bindMainWindowEvents(deps, mainWindow) {
@@ -199,6 +225,7 @@ function createMainWindow(deps, backgroundController, windowStateController) {
   configureWindowMenu(deps, mainWindow);
   mainWindow.setTitle(deps.APP_DISPLAY_NAME);
   bindMainWindowEvents(deps, mainWindow);
+  createBrowserSettingsView(deps, mainWindow);
   const sideView = createSidebarView(deps, mainWindow);
   bindSidebarEvents(deps, sideView, mainWindow);
   loadSidebar(deps, sideView);
@@ -220,11 +247,31 @@ function revealMainWindow(deps) {
 }
 
 function createAppShellMainWindowController(deps = {}) {
+  let browserSettingsView = null;
+  let browserSettingsPageVisible = true;
+  const getBrowserSettingsView = typeof deps.getBrowserSettingsView === 'function'
+    ? deps.getBrowserSettingsView
+    : () => browserSettingsView;
+  const setBrowserSettingsView = (view) => {
+    browserSettingsView = view;
+    deps.setBrowserSettingsView?.(view);
+  };
+  const controllerDeps = {
+    ...deps,
+    getBrowserSettingsView,
+    setBrowserSettingsView,
+    getBrowserSettingsPageVisible: () => browserSettingsPageVisible,
+  };
   const backgroundController = createWindowBackgroundController(deps);
   const windowStateController = createAppShellWindowStateController(deps);
   return {
-    createMainWindow: () => createMainWindow(deps, backgroundController, windowStateController),
+    createMainWindow: () => createMainWindow(controllerDeps, backgroundController, windowStateController),
     revealMainWindow: () => backgroundController.revealWindow() || revealMainWindow(deps),
+    setBrowserSettingsPageVisible: (visible) => {
+      browserSettingsPageVisible = visible === true;
+      const mainWindow = deps.resolveMainWindow?.();
+      if (mainWindow && !mainWindow.isDestroyed?.()) updateMainWindowLayout(controllerDeps, mainWindow);
+    },
   };
 }
 

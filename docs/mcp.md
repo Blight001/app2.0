@@ -9,7 +9,7 @@
 | 工具组 | 数量 | 可用条件 | 代码真源 |
 | --- | ---: | --- | --- |
 | 软件窗口 | 1 | 软件运行期间始终可用 | [`ai-browser-window-tools.js`](../src/app/main/services/ai-browser-window-tools.js) |
-| 浏览器自动化 | 7 | 至少有一个内置浏览器 MCP 连接 | [`09_agent_protocol.js`](../src/assets/extensions/browser_automation/background/09_agent_protocol.js) |
+| 浏览器自动化 | 7 | 至少有一个已完成 Runtime Bridge 握手的内置 Chromium | [`native-browser-tool-definitions.js`](../src/app/main/services/native-browser-tool-definitions.js) |
 
 AI-FREE 本地 AI 对话使用下表中的“内部名称”。连接 HeySure 后，设备向服务器注册时会统一添加 `aifree.` 前缀。
 
@@ -85,9 +85,9 @@ Cookie 属于登录会话数据，不属于 `software_window.settings` 的可编
 
 ### `browser_tab`
 
-- 作用：管理当前浏览器窗口内的标签页。
-- `action`：必填，可用值为 `list`、`switch`、`replace`、`navigate`、`close`、`back`、`forward`。
-- 参数：`url`、`tab_id`；同时兼容 `tabId` 和 `id` 作为标签页 ID 别名。
+- 作用：通过当前受管 Chromium Profile 管理页面导航与焦点。
+- `action`：必填，可用值为 `list`、`switch`、`replace`、`navigate`、`reload`。
+- `replace` 原生覆盖当前页，`navigate` 原生打开新标签，`switch` 聚焦当前受管浏览器。
 
 ### `browser_observe`
 
@@ -102,12 +102,9 @@ Cookie 属于登录会话数据，不属于 `software_window.settings` 的可编
 
 ### `browser_screenshot`
 
-- 作用：截图并返回 base64 `dataUrl`；默认截取当前标签页可视区。
-- 精确截图：`full_page` 截整页；`selector`/`text` 截元素；`clip` 或 `x`、`y`、`width`、`height` 截区域。
-- 图片参数：`format`、`quality`、`scale`、`max_area`、`max_data_url_chars`、`allow_large_data_url`。
-- 稳定性参数：`retries`、`timeout_ms`。
-- 展示与交付：`screenshot_fx`、`send_to_user`、`save_to_server`。
-- 路由参数：`tab_id`。所有截图模式均使用 `captureVisibleTab`；整页、元素和区域通过滚动分片拼接，不申请 `debugger` 权限，也不会显示浏览器调试提示。
+- 作用：从 Chromium RenderWidget Surface 截图并返回 PNG base64 `dataUrl`。
+- 精确截图：可用 `x`、`y`、`width`、`height` 截取当前视口区域；当前原生协议不公开扩展曾提供的分片整页截图。
+- 展示与交付：`send_to_user`。截图不申请 `debugger` 权限，也不会显示浏览器调试提示。
 
 ### `browser_action`
 
@@ -137,11 +134,11 @@ AI 对话和 HeySure 设备端都会发现当前所有已连接浏览器的工�
 
 软件内 AI 会按当前实际工具目录动态注入 MCP 使用提示：同一时间最多控制一个浏览器；需要操作其他连接时先通过 `change_browser` 切换；页面导航、标签页切换或页面状态变化后重新执行 `browser_observe`，不跨窗口或跨页面复用旧元素引用，并以工具的实际返回结果判断任务是否完成。
 
-`software_window list` 返回的 `history_id`、`tab_id` 和窗口 `name` 属于软件窗口管理层。聚焦已有窗口应调用 `software_window` 的 `open`；`history_id` 和 `tab_id` 不能用于 `change_browser`，窗口名称只有同时出现在 MCP 连接列表时才能用于切换。窗口显示为已打开不代表其扩展 MCP 已在线。
+`software_window list` 返回的 `history_id`、`tab_id` 和窗口 `name` 属于软件窗口管理层。聚焦已有窗口应调用 `software_window` 的 `open`；`history_id` 和 `tab_id` 不能用于 `change_browser`，窗口名称只有同时出现在 MCP 连接列表时才能用于切换。窗口显示为已打开不代表其原生 Runtime Bridge 已就绪。
 
 `software_window` 的 `open`、`create`、`edit` 和 `close` 返回值包含 `browser_total`、`browser_open_count`、`browser_names`、`open_browser_names` 和 `active_browser`。打开已有窗口或创建新窗口时会请求将该窗口设为控制目标；新窗口的 MCP 连接建立后，AI 控制栏会自动切换到它。关闭当前控制窗口后会回退到仍在线的一个连接。
 
-`open` 和 `create` 使用两阶段完成条件：先完成 Chromium 窗口打开，再等待对应窗口内的 AI 自动化插件连接到 Automation Bridge（默认最多等待 20 秒）。只有返回 `success: true`、`mcp_connected: true` 和 `control_browser_id` 才表示该窗口已经可以继续调用 `browser_tab` 等页面工具。超时会返回 `success: false`、`mcp_connected: false`，同时明确说明窗口已经打开但暂时不可控。同一轮对话会在连接就绪后动态补入新连接及其工具定义，无需等待下一次用户消息。
+`open` 和 `create` 使用两阶段完成条件：先完成 Chromium 窗口打开，再等待对应窗口的认证 Runtime Bridge 握手（默认最多等待 20 秒）。只有返回 `success: true`、`mcp_connected: true` 和 `control_browser_id` 才表示该窗口已经可以继续调用 `browser_tab` 等页面工具。超时会返回 `success: false`、`mcp_connected: false`，同时明确说明窗口已经打开但原生控制通道暂未就绪。同一轮对话会在连接就绪后动态补入新连接及其工具定义，无需等待下一次用户消息。
 
 ## HeySure 注册与可用性
 

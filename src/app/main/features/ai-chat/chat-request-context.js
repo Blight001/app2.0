@@ -93,7 +93,7 @@ function resolveConnections(deps, options) {
   const controlledConnectionId = options.connectionIds[0];
   const publicConnections = deps.browserAutomationBridge?.listConnections?.() || [];
   if (!publicConnections.some((item) => String(item?.id || '') === controlledConnectionId)) {
-    return { error: { ok: false, message: '当前控制浏览器插件已离线，请刷新后重新选择' } };
+    return { error: { ok: false, message: '当前 Chromium 原生控制连接已离线，请刷新后重新选择' } };
   }
   const connections = publicConnections
     .map((item) => deps.browserAutomationBridge?.getConnection?.(item.id))

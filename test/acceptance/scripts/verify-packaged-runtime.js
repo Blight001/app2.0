@@ -116,20 +116,34 @@ function assertDirectoryMirror(sourceDir, targetDir, label) {
 function configuredPackagedExtensions(projectDir) {
   const configPath = path.join(projectDir, 'platforms-config.json');
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  if (!Array.isArray(config.packagedExtensions) || !config.packagedExtensions.length) {
+  if (!Array.isArray(config.packagedExtensions)) {
     throw new Error('platforms-config.json 未配置 packagedExtensions');
   }
   return config.packagedExtensions;
 }
 
+function verifyExcludedPackagedExtensions(projectDir, unpackedRoot, selected) {
+  const extensionsRoot = path.join(projectDir, 'src', 'assets', 'extensions');
+  const selectedNames = new Set(selected);
+  const available = fs.readdirSync(extensionsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+  for (const name of available) {
+    if (name === 'clash-mini' || selectedNames.has(name)) continue;
+    const packagedManifest = path.join(unpackedRoot, 'assets', 'extensions', name, 'manifest.json');
+    if (fs.existsSync(packagedManifest)) throw new Error(`未选中的浏览器扩展仍被打包: ${name}`);
+  }
+}
+
 function verifyUnpackedRuntimeFiles(projectDir, resourcesDir, extractDir) {
   const unpackedRoot = path.join(resourcesDir, 'app.asar.unpacked', 'src');
-  for (const name of configuredPackagedExtensions(projectDir)) {
+  const packagedExtensions = configuredPackagedExtensions(projectDir);
+  for (const name of packagedExtensions) {
     const relative = path.join('assets', 'extensions', name, 'manifest.json');
     assertFile(path.join(projectDir, 'src', relative), 20);
     assertFile(path.join(unpackedRoot, relative), 20);
     assertFile(path.join(extractDir, 'src', relative), 20);
   }
+  verifyExcludedPackagedExtensions(projectDir, unpackedRoot, packagedExtensions);
   for (const name of REQUIRED_WATCHDOG_FILES) {
     const watchdogRelative = path.join('app', 'main', 'runtime', 'crash-watchdog', name);
     assertFile(path.join(unpackedRoot, watchdogRelative), 128);
@@ -177,7 +191,7 @@ function verifyAsarIntegrity(projectDir, appOutDir) {
     const sidebar = fs.readFileSync(sidebarPath, 'utf8');
     const appShell = fs.readFileSync(appShellPath, 'utf8');
     const logoResolver = fs.readFileSync(logoResolverPath, 'utf8');
-    if ((sidebar.match(/<img[^>]*data-app-logo/g) || []).length !== 2
+    if ((sidebar.match(/<img[^>]*data-app-logo/g) || []).length !== 3
       || !sidebar.includes('<script src="./client/scripts/logo-assets.js"></script>')
       || !logoResolver.includes("const PACKAGED_LOGO_PATH = '../../../../resource/logo.ico';")) {
       throw new Error('侧边栏 Logo 未通过运行时解析器指向打包后的外置资源');

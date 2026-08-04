@@ -16,9 +16,11 @@ function syncVpnNodeSelectorState() {
   applyVpnActionAvailability();
   if (!enabled) {
     setVpnNodeSelectorOpen(false);
-    vpnNodeSelectorPanel.hidden = true;
+    scheduleVpnNodeSelectorRender({ forceFull: true });
     return;
   }
+
+  setVpnNodeSelectorOpen(true);
 
   if (vpnNodeSelectorGroup) {
     vpnNodeSelectorGroup.textContent = String(clashMiniProxyState.groupName || '节点选择').trim() || '节点选择';
@@ -98,7 +100,7 @@ function applyClashMiniLatencyProgress(payload) {
   if (!Array.isArray(clashMiniProxyState.proxies)) clashMiniProxyState.proxies = [];
 
   if (payload.phase === 'done' && Array.isArray(payload.entries) && payload.entries.length > 0) {
-    clashMiniProxyState.proxies = normalizeProxyEntries(payload.entries, nextBestName || clashMiniProxyState.current);
+    applyLatencyResultEntries(payload.entries);
     syncVpnNodeSelectorState();
     scheduleVpnNodeSelectorRender({ forceFull: true });
     return;
@@ -109,6 +111,12 @@ function applyClashMiniLatencyProgress(payload) {
 
   syncVpnNodeSelectorState();
   scheduleVpnNodeSelectorRender();
+}
+
+function applyLatencyResultEntries(entries) {
+  const updates = new Map(normalizeProxyEntries(entries, clashMiniProxyState.current)
+    .map((item) => [item.name, item]));
+  clashMiniProxyState.proxies = clashMiniProxyState.proxies.map((item) => updates.get(item.name) || item);
 }
 
 function isLatencyProgressForCurrentGroup(payload) {
@@ -146,11 +154,21 @@ async function loadVpnNodeSelectorOptions({ force = false, probeDelays = true } 
   if (typeof window.aiFree?.network?.getClashProxyOptions !== 'function') return null;
   if (!force && !isVpnEnabled) return null;
   if (vpnNodeSelectorBusy) return null;
+  if (vpnNodeOptionsLoadPromise) return vpnNodeOptionsLoadPromise;
 
+  const task = fetchVpnNodeSelectorOptions(probeDelays);
+  vpnNodeOptionsLoadPromise = task;
   try {
-    const result = await window.aiFree.network.getClashProxyOptions( {
-      includeDelays: probeDelays === true,
-    });
+    return await task;
+  } finally {
+    if (vpnNodeOptionsLoadPromise === task) vpnNodeOptionsLoadPromise = null;
+  }
+}
+
+async function fetchVpnNodeSelectorOptions(probeDelays) {
+  try {
+    // 先读取组和历史延时并立即渲染，不能让节点列表等待整批测速结束。
+    const result = await window.aiFree.network.getClashProxyOptions({ includeDelays: false });
     if (!result || result.ok !== true) {
       clashMiniProxyState = emptyClashMiniProxyState(result);
       syncVpnNodeSelectorState();
@@ -158,15 +176,24 @@ async function loadVpnNodeSelectorOptions({ force = false, probeDelays = true } 
       return result;
     }
 
-    clashMiniProxyState = buildClashMiniProxyState(result, probeDelays, clashMiniProxyState.proxies);
+    clashMiniProxyState = buildClashMiniProxyState(result, false, clashMiniProxyState.proxies);
 
     syncVpnNodeSelectorState();
     scheduleVpnNodeSelectorRender({ forceFull: true });
+    if (probeDelays === true) await probeUnmeasuredVpnNodes(result.proxies);
     return result;
   } catch (error) {
     console.warn('[侧边栏] 获取节点列表失败:', error?.message || error);
     return null;
   }
+}
+
+async function probeUnmeasuredVpnNodes(proxies) {
+  const names = (Array.isArray(proxies) ? proxies : [])
+    .filter((item) => !(Number.isFinite(Number(item?.delay)) && Number(item.delay) > 0))
+    .map((item) => String(item?.name || '').trim())
+    .filter(Boolean);
+  if (names.length > 0) await retestVpnNodes(names);
 }
 
 function emptyClashMiniProxyState(result) {
@@ -194,15 +221,6 @@ function resolveProxyResultNames(result) {
 // 供外部模块（connection-sync 等）在批量启停按钮后调用，收敛选路按钮状态。
 function syncLatencyButtonState() {
   if (!testLatencyBtn) return;
-  if (sideButtonLockSnapshot) {
-    // 面板锁定期间外部批量启用不得生效，把快照内按钮重新压回禁用。
-    reassertSidePanelLock();
-    return;
-  }
-  if (testLatencyBtn.dataset.busy === '1' && canUseVpnFeatures()) {
-    // withBusyButton 正在接管测速按钮，等它收尾后再统一恢复。
-    return;
-  }
   applyVpnActionAvailability();
   syncVpnNodeSelectorState();
 }
@@ -250,7 +268,7 @@ function updateClashVpnButton(button, { enabled, isBusy }) {
 
 function handleClashStatusTransition(wasRunning, enabled, loadProxyOptions) {
   if (enabled && !wasRunning && loadProxyOptions) {
-    loadVpnNodeSelectorOptions({ force: true, probeDelays: false }).catch(() => {});
+    loadVpnNodeSelectorOptions({ force: true, probeDelays: true }).catch(() => {});
     return;
   }
   if (enabled || !wasRunning) return;
@@ -258,7 +276,3 @@ function handleClashStatusTransition(wasRunning, enabled, loadProxyOptions) {
   syncVpnNodeSelectorState();
   scheduleVpnNodeSelectorRender({ forceFull: true });
 }
-
-// 启动成功后调度后台自动选路。必须在创建定时器之前同步置位
-// backgroundBestRouteSelectionPending：状态事件和按钮 busy 收尾即使随后到达，
-// applyVpnActionAvailability 也不会产生一帧可点击的空窗。

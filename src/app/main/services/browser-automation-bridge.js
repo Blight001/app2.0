@@ -1,14 +1,11 @@
 const crypto = require('crypto');
-const fs = require('fs');
 const http = require('http');
-const path = require('path');
+const { CARD_CACHE_FILE_NAME, createCardCacheStore } = require('./automation-card-store');
 const { createBrowserAutomationExternalGateway } = require('./browser-automation-external-gateway');
+const { createNativeAutomationCardService } = require('./native-automation-card-service');
+const { createNativeBrowserAutomation } = require('./native-browser-automation');
 const { handleBrowserDownloadRequest } = require('./browser-download-route');
-const {
-  APP_BROWSER_PID_HEADER,
-  jsonResponse,
-  readJson,
-} = require('./browser-automation-http');
+const { APP_BROWSER_PID_HEADER, jsonResponse, readJson } = require('./browser-automation-http');
 const {
   normalizeBrowserToolOutcome,
   normalizeCardCacheState,
@@ -19,8 +16,6 @@ const DEFAULT_PORT = 18765;
 // Keep two full 20-second wake intervals plus scheduling jitter before declaring
 // the browser gone; authenticated requests still refresh lastSeenAt immediately.
 const CONNECTION_TTL_MS = 45000;
-const CARD_CACHE_SCHEMA_VERSION = 1;
-const CARD_CACHE_FILE_NAME = 'automation-cards.json';
 
 function createBrowserToolError(message, details = {}) {
   /** @type {Error & {errorCode?: string, phase?: string, tool?: string, timeoutMs?: number}} */
@@ -32,41 +27,6 @@ function createBrowserToolError(message, details = {}) {
   return error;
 }
 
-function createCardCacheStore(options = {}) {
-  const dataDir = path.resolve(String(options.dataDir || path.join(process.cwd(), 'extensions', 'browser_automation')));
-  const filePath = path.join(dataDir, CARD_CACHE_FILE_NAME);
-
-  function read() {
-    if (!fs.existsSync(filePath)) {
-      return { exists: false, state: { items: [], selectedId: '' } };
-    }
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8') || '{}');
-    return { exists: true, state: normalizeCardCacheState(parsed) };
-  }
-
-  function write(source = {}) {
-    const state = normalizeCardCacheState(source);
-    fs.mkdirSync(dataDir, { recursive: true });
-    const payload = {
-      schemaVersion: CARD_CACHE_SCHEMA_VERSION,
-      updatedAt: new Date().toISOString(),
-      ...state,
-    };
-    const tempPath = `${filePath}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-    try {
-      fs.writeFileSync(tempPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-      fs.renameSync(tempPath, filePath);
-    } finally {
-      try {
-        if (fs.existsSync(tempPath)) fs.rmSync(tempPath, { force: true });
-      } catch (_) {}
-    }
-    return state;
-  }
-
-  return { dataDir, filePath, read, write };
-}
-
 class BrowserAutomationBridgeRuntime {
   constructor(options = {}) {
     this.logger = options.logger || console;
@@ -75,14 +35,20 @@ class BrowserAutomationBridgeRuntime {
     this.connections = new Map();
     this.pendingTasks = new Map();
     this.cardCacheStore = createCardCacheStore({ dataDir: options.cardCacheDir });
+    this.nativeCardService = createNativeAutomationCardService({
+      read: () => this.cardCacheStore.read(), write: (state) => this.cardCacheStore.write(state),
+    });
+    this.nativeAutomation = createNativeBrowserAutomation({
+      browserRuntimeManager: options.browserRuntimeManager, browserDownloadService: options.browserDownloadService,
+      cardService: this.nativeCardService, getTabs: options.getTabs,
+    });
+    this.useNativeAutomation = Boolean(options.browserRuntimeManager);
     this.connectionTtlMs = Math.max(1000, Number(options.connectionTtlMs) || CONNECTION_TTL_MS);
     this.isAllowedBrowserProcess = typeof options.isAllowedBrowserProcess === 'function'
       ? options.isAllowedBrowserProcess
       : null;
     this.dispatchRuntimeInput = typeof options.dispatchRuntimeInput === 'function' ? options.dispatchRuntimeInput : null;
-    this.dispatchRuntimeAutomation = typeof options.dispatchRuntimeAutomation === 'function'
-      ? options.dispatchRuntimeAutomation
-      : null;
+    this.dispatchRuntimeAutomation = typeof options.dispatchRuntimeAutomation === 'function' ? options.dispatchRuntimeAutomation : null;
     this.dispatchRuntimeFileSelection = typeof options.dispatchRuntimeFileSelection === 'function'
       ? options.dispatchRuntimeFileSelection
       : null;
@@ -196,6 +162,12 @@ class BrowserAutomationBridgeRuntime {
         service: 'ai-free-browser-automation-bridge',
         connections: this.connections.size,
       });
+      return true;
+    }
+    if (this.useNativeAutomation && [
+      'POST /v1/register', 'POST /v1/runtime-input', 'POST /v1/runtime-file-selection',
+    ].includes(route)) {
+      jsonResponse(res, 410, { ok: false, message: '浏览器扩展自动化入口已停用，请使用 Chromium 原生控制通道' });
       return true;
     }
     if (route === 'POST /v1/register') {
@@ -401,7 +373,7 @@ class BrowserAutomationBridgeRuntime {
       });
     });
     this.publishExternalMcp();
-    this.logger.log?.(`[AutomationBridge] 本机浏览器插件桥接已启动: http://${this.host}:${this.port}`);
+    this.logger.log?.(`[AutomationBridge] Chromium 原生自动化网关已启动: http://${this.host}:${this.port}`);
     return { host: this.host, port: this.port };
   }
 
@@ -414,11 +386,13 @@ class BrowserAutomationBridgeRuntime {
   }
 
   listConnections() {
+    if (this.useNativeAutomation) return this.nativeAutomation.listConnections();
     this.cleanup();
     return Array.from(this.connections.values()).map((connection) => this.publicConnection(connection));
   }
 
   getConnection(id) {
+    if (this.useNativeAutomation) return this.nativeAutomation.getConnection(id);
     this.cleanup();
     const connection = this.connections.get(String(id || '').trim());
     return connection ? { ...this.publicConnection(connection), tools: connection.tools } : null;
@@ -442,13 +416,29 @@ class BrowserAutomationBridgeRuntime {
     return { state, item };
   }
 
+  manageCard(connectionId, args = {}, options = {}) {
+    const action = String(args?.action || '').trim().toLowerCase();
+    if (action === 'run') return this.dispatch(connectionId, 'manage_card', args, options);
+    return this.nativeCardService.execute(args, { timeoutMs: options.timeoutMs });
+  }
+
+  saveBrowserSession(connectionId, args = {}, options = {}) {
+    return this.dispatch(connectionId, 'browser_download', {
+      ...args,
+      action: 'save_session',
+    }, options);
+  }
+
   dispatch(connectionId, tool, args = {}, options = {}) {
+    if (this.useNativeAutomation) return this.nativeAutomation.dispatch(connectionId, tool, args, options);
+    return this.dispatchLegacyExtension(connectionId, tool, args, options);
+  }
+
+  dispatchLegacyExtension(connectionId, tool, args = {}, options = {}) {
     this.cleanup();
     const connection = this.connections.get(String(connectionId || '').trim());
     if (!connection) return Promise.reject(createBrowserToolError('所选浏览器插件已离线，请刷新连接列表', {
-      errorCode: 'BROWSER_CONNECTION_NOT_FOUND',
-      phase: 'bridge_dispatch',
-      tool,
+      errorCode: 'BROWSER_CONNECTION_NOT_FOUND', phase: 'bridge_dispatch', tool,
     }));
     const taskId = crypto.randomUUID();
     const timeoutMs = Math.max(1000, Math.min(30 * 60 * 1000, Number(options.timeoutMs) || 180000));
@@ -457,18 +447,11 @@ class BrowserAutomationBridgeRuntime {
       const timer = setTimeout(() => {
         this.pendingTasks.delete(taskId);
         reject(createBrowserToolError(`浏览器工具 ${tool} 在 ${timeoutMs}ms 内未返回结果`, {
-          errorCode: 'BROWSER_TOOL_TIMEOUT',
-          phase: 'bridge_wait_result',
-          tool,
-          timeoutMs,
+          errorCode: 'BROWSER_TOOL_TIMEOUT', phase: 'bridge_wait_result', tool, timeoutMs,
         }));
       }, timeoutMs);
       this.pendingTasks.set(taskId, {
-        connectionId: connection.id,
-        tool: String(tool || ''),
-        resolve,
-        reject,
-        timer,
+        connectionId: connection.id, tool: String(tool || ''), resolve, reject, timer,
       });
     });
   }
@@ -516,6 +499,8 @@ function createBrowserAutomationBridge(options = {}) {
     getCardCacheState: () => runtime.getCardCacheState(),
     listConnections: () => runtime.listConnections(),
     listExternalMcpTools: () => runtime.listExternalMcpTools(),
+    manageCard: (...args) => runtime.manageCard(...args),
+    saveBrowserSession: (...args) => runtime.saveBrowserSession(...args),
     selectCard: (...args) => runtime.selectCard(...args),
     setCardCacheState: (...args) => runtime.setCardCacheState(...args),
     refreshExternalMcpAccess: () => runtime.refreshExternalMcpAccess(),

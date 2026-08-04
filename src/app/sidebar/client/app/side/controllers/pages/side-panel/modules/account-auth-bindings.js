@@ -71,6 +71,7 @@ function subscribeAccountApi(api, method, handler) {
 function bindAccountApiEvents() {
   const rootApi = window.aiFree || {};
   subscribeAccountApi(rootApi.account, 'onSessionUpdated', handleAccountSessionUpdate);
+  subscribeAccountApi(rootApi.ui, 'onOpenAccountCenter', openAccountCenterPanel);
   subscribeAccountApi(rootApi.license, 'onVipAccessRequired', openVipAccountCenter);
   subscribeAccountApi(rootApi.license, 'onOpenVipPlans', handleOpenVipPlans);
 }

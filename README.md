@@ -116,13 +116,11 @@ Common development environment variables:
 
 ## Bundled Extensions
 
-The current `packagedExtensions` configuration contains:
-
-- `browser_automation`: automation cards and flow graphs, Cookie/Storage capture, and the local AI browser-tool bridge. See the [extension guide](src/assets/extensions/browser_automation/README.md).
+The current `packagedExtensions` configuration is empty. AI automation is provided by the authenticated Chromium Runtime Bridge and is not packaged as a browser extension.
 - `remove_watermark`: browser copy and media-processing helpers.
 - `transform`: web page, input, image, PDF, and video-subtitle translation.
 
-The main process injects these extensions into Chromium profiles and exposes their toggles in the sidebar. The build script excludes unselected extensions according to `packagedExtensions`; Clash Mini is a separate runtime resource and is always packaged.
+The build script excludes unselected extensions according to `packagedExtensions`; Clash Mini is a separate runtime resource and is always packaged. AI automation tools are published by the main process and dispatched directly to managed Chromium profiles.
 
 ## Building the Windows Installer
 
@@ -226,7 +224,7 @@ app2.1/
 - [Clash Mini Geo localization specification](docs/clash-mini-geo-localization-spec.md)
 - [Chromium Fork build guide](native/chromium-fork/README.md)
 - [Native browser host](native/browser-host/README.md)
-- [AI automation extension](src/assets/extensions/browser_automation/README.md)
+- [AI automation and MCP tools](docs/mcp.md)
 
 ## Security and Data
 

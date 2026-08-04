@@ -94,14 +94,14 @@ function setAccountTabDisabled(disabled) {
 // 处理：isLicenseValidated的具体业务逻辑。
 function isLicenseValidated() {
   const accountSession = safeGetEl('sidebar-account-session');
-  return accountSession?.dataset.authenticated === 'true';
+  if (accountSession) return accountSession.dataset.authenticated === 'true';
+  return document.documentElement.dataset.accountAuthenticated === 'true';
 }
 
 // 未登录时，受保护的主入口仍保持可点击；真正的点击处理器会在任何
 // IPC/网络操作前跳转到登录。测速和手动选路不是登录入口，继续禁用。
 function syncLoggedOutProtectedEntryAvailability() {
-  const accountSession = safeGetEl('sidebar-account-session');
-  const authenticated = accountSession?.dataset.authenticated === 'true';
+  const authenticated = isLicenseValidated();
 
   const restoreAuthenticatedTitle = (button) => {
     if (!button?.hasAttribute('data-authenticated-title')) return;
@@ -118,7 +118,7 @@ function syncLoggedOutProtectedEntryAvailability() {
     });
     const vpnButton = safeGetEl('VPN-switch');
     restoreAuthenticatedTitle(vpnButton);
-    if (vpnButton && vpnButton.dataset.busy !== '1' && !sideButtonLockSnapshot) {
+    if (vpnButton && vpnButton.dataset.busy !== '1') {
       vpnButton.disabled = false;
     }
     return;

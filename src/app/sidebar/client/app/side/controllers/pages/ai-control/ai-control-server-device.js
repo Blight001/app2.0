@@ -130,6 +130,7 @@ async function logoutAiServerDevice() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  if (document.documentElement.classList.contains('browser-settings-page')) return;
   document.querySelectorAll('[data-ai-config-page]').forEach((button) => {
     button.addEventListener('click', () => showAiConfigPage(button.dataset.aiConfigPage));
   });

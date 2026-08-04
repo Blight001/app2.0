@@ -25,7 +25,7 @@
       if (namespace && operation) return `${namespace}${operation}`;
       if (namespace) return `${namespace}工具`;
     }
-    return '扩展工具';
+    return '浏览器原生工具';
   }
 
   function getDetailsContentAnimationStart(wasOpen, contentStyle) {

@@ -72,7 +72,7 @@ function resolveChromiumExtensionPaths(browserSettings = {}, extensionManager = 
   return Array.from(new Set(
     [...managedExtensionPaths, ...configuredExtensionPaths]
       .map((item) => String(item || '').trim())
-      .filter(Boolean),
+      .filter((item) => item && !/[\\/]browser_automation(?:[\\/]|$)/i.test(item)),
   ));
 }
 

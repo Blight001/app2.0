@@ -67,3 +67,22 @@ test('missing bridge and empty legacy results return an empty stable response', 
   const service = createAutomationCardService({ bridge: null, now: () => 20000 });
   assert.deepEqual(await service.getAutomationCards(), { ok: true, selectedId: '', cards: [] });
 });
+
+test('workbench manages cards and saves sessions through native bridge capabilities', async () => {
+  const calls = [];
+  const bridge = {
+    manageCard: async (...args) => { calls.push(['card', ...args]); return { success: true, item: { id: 'card-1' } }; },
+    saveBrowserSession: async (...args) => { calls.push(['session', ...args]); return { success: true, filePath: 'session.json' }; },
+  };
+  const service = createAutomationCardService({ bridge });
+  assert.deepEqual(await service.manageAutomationCard({ action: 'get', id: 'card-1' }), {
+    ok: true, data: { success: true, item: { id: 'card-1' } },
+  });
+  assert.deepEqual(await service.saveAutomationSession({ connectionId: 'native:p1' }), {
+    ok: true, data: { success: true, filePath: 'session.json' },
+  });
+  assert.equal(calls[0][1], undefined);
+  assert.deepEqual(calls[0][2], { action: 'get', id: 'card-1' });
+  assert.equal(calls[1][1], 'native:p1');
+  await assert.rejects(service.saveAutomationSession({}), /请先选择已连接的浏览器窗口/);
+});

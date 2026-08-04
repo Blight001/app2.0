@@ -164,6 +164,7 @@
   });
 
   document.addEventListener('DOMContentLoaded', () => {
+    if (document.documentElement.classList.contains('browser-settings-page')) return;
     initCustomSelects();
     bindAiHeaderEvents();
     bindBrowserSelection();

@@ -83,10 +83,12 @@
     const status = String(activeTab?.runtimeStatus || '').trim().toLowerCase();
     visible = status !== 'ready' && status !== 'hidden';
     home.hidden = !visible;
+    window.aiFree?.ui?.setBrowserSettingsPageVisible?.(visible);
     if (visible) void refresh();
   }
 
   function bind() {
+    window.aiFree?.ui?.setBrowserSettingsPageVisible?.(true);
     element('shell-home-create-browser')?.addEventListener('click', () => {
       void window.AppShellBrowserActions?.createIndependentBrowser?.();
     });

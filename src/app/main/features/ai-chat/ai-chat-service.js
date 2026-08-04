@@ -44,7 +44,7 @@ function createAiChatService(deps = {}) {
     const chatRuns = createChatRunRegistry();
     let lastPromptRequest = null;
 
-    // 软件端默认的"外层"浏览器窗口控制工具：不依赖任何浏览器插件连接，
+    // 软件端默认的“外层”浏览器窗口控制工具与 Chromium 原生连接分别管理窗口和页面，
     // 每次对话都会注入，让 AI 能列出/打开/新建/重命名/关闭软件的浏览器窗口。
     let aiBrowserWindowTools = null;
     const getAiBrowserWindowTools = () => {

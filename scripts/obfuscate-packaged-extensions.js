@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const JavaScriptObfuscator = require('javascript-obfuscator');
+const { packagedExtensions = [] } = require('../platforms-config.json');
 
 const SKIPPED_DIRS = new Set(['node_modules', 'vendor']);
 const EXECUTE_SCRIPT_PATTERN = /chrome\s*\.\s*scripting\s*\.\s*executeScript\s*\(/;
@@ -64,6 +65,10 @@ function resolveExtensionsRoot(appOutDir) {
 exports.default = async function obfuscatePackagedExtensions(context) {
   const extensionsRoot = resolveExtensionsRoot(context.appOutDir);
   if (!extensionsRoot) {
+    if (Array.isArray(packagedExtensions) && packagedExtensions.length === 0) {
+      console.log('[extensions-protection] 未配置打包插件，跳过混淆');
+      return;
+    }
     throw new Error(`未找到打包后的 extensions 目录: ${context.appOutDir}`);
   }
 

@@ -1,39 +1,3 @@
-function scheduleBestRouteSelection() {
-  if (backgroundBestRouteSelectionPending) return;
-  backgroundBestRouteSelectionPending = true;
-  applyVpnActionAvailability();
-  // setTimeout(0)：等启动按钮 withBusyButton 的收尾（微任务）先执行完，
-  // 再对面板做整体快照锁定，否则快照会把“忙碌中”的禁用状态当成原始状态。
-  setTimeout(() => {
-    void runBackgroundBestRouteSelection();
-  }, 0);
-}
-
-// 后台自动选路：从准备阶段起锁定网络工具面板（开关、手动选路、测速均不可操作，
-// “一键启动”平台按钮除外），结束后统一解锁并恢复各按钮应有状态。
-async function runBackgroundBestRouteSelection() {
-  lockSidePanelButtons();
-  try {
-    // 给刚完成重启的 Chromium 留出短暂稳定时间；等待期间按钮保持锁定。
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    await loadVpnNodeSelectorOptions({ force: true, probeDelays: false }).catch(() => {});
-    setVpnNodeSelectorBusy(true);
-    await runBestRouteSelection({
-      keepPanelOpen: true,
-      showPanel: true,
-      refreshOptions: false,
-      concurrency: 4,
-      reportProgress: true,
-    });
-  } catch (error) {
-    console.warn('[侧边栏][Clash] 后台自动选路失败，保留当前节点:', error?.message || error);
-  } finally {
-    setVpnNodeSelectorBusy(false);
-    backgroundBestRouteSelectionPending = false;
-    unlockSidePanelButtons();
-  }
-}
-
 // 获取/读取/解析：getNetworkMagicAutoStartEnabled的具体业务逻辑。
 async function getNetworkMagicAutoStartEnabled() {
   if (typeof window.aiFree?.network?.getAutoStartEnabled !== 'function') {
@@ -75,7 +39,7 @@ async function stopClashMiniFlow({ startBtn, vpnBtn } = {}) {
 //  2. 拉取并导入服务器最新 Clash 配置（手动开启时强制刷新）；
 //  3. 启动核心、应用浏览器代理；
 //  4. 记忆“自动启动”偏好；
-//  5. 调度后台自动选路（不阻塞“启动中”按钮，最慢节点的超时不占用开关）；
+//  5. 获取节点；主进程复用已有测速记录，只补测没有记录的节点；
 //  6. 把最终状态应用到按钮 UI。
 async function startClashMiniFlowOnce({ startBtn, vpnBtn, fetchConfig = true, key = '', deviceId = '' } = {}) {
   if (typeof window.aiFree.network.startClash !== 'function') {
@@ -92,8 +56,8 @@ async function startClashMiniFlowOnce({ startBtn, vpnBtn, fetchConfig = true, ke
   assertClashStarted(result);
 
   await persistNetworkMagicAutoStartEnabled(true).catch(() => {});
-  scheduleBestRouteSelection();
   applyClashMiniStatus(result, { startBtn, vpnBtn, loadProxyOptions: false });
+  void loadVpnNodeSelectorOptions({ force: true, probeDelays: true });
   return '关闭网络魔法';
 }
 
@@ -133,8 +97,7 @@ function startClashMiniFlow(options = {}) {
     if (clashMiniStartFlowPromise === sharedPromise) {
       clashMiniStartFlowPromise = null;
     }
-    // 流程结束后重新收敛：成功时 backgroundBestRouteSelectionPending 已接棒
-    // 继续禁用，失败时回落到“未开启”状态（canUseVpnFeatures 为 false）。
+    // 流程结束后重新收敛，失败时回落到“未开启”状态。
     applyVpnActionAvailability();
   });
   clashMiniStartFlowPromise = sharedPromise;
@@ -251,9 +214,7 @@ async function isNetworkMagicRunning() {
 function bindClashMiniControls() {
   const controls = resolveClashMiniControls();
   bindClashToggleButtons(controls);
-  bindClashLatencyButton(controls);
-  bindVpnNodeSelectorToggle();
-  bindVpnNodeSelectorDismissal();
+  bindClashLatencyButton();
   bindClashStatusHandlers(controls);
   bindAppClosingGuard();
   loadInitialClashStatus(controls);
@@ -266,7 +227,7 @@ function resolveClashMiniControls() {
     vpnBtn: safeGetEl('VPN-switch'),
     dreamBtn: safeGetEl('open-dream-page-btn'),
   };
-  testLatencyBtn = safeGetEl('test-min-latency-btn');
+  testLatencyBtn = safeGetEl('vpn-node-retest-all-btn');
   vpnNodeSelectorToggleBtn = safeGetEl('vpn-node-selector-toggle-btn');
   vpnNodeSelectorPanel = safeGetEl('vpn-node-selector-panel');
   vpnNodeSelectorGrid = safeGetEl('vpn-node-selector-grid');
@@ -285,8 +246,8 @@ function bindClashToggleButtons({ startBtn, vpnBtn, dreamBtn }) {
     startBtn.dataset.bound = '1';
   }
   if (vpnBtn && vpnBtn.dataset.bound !== '1') {
-    vpnBtn.addEventListener('click', () => {
-      if (window.redirectToSidebarAccountLogin?.()) return;
+    vpnBtn.addEventListener('click', async () => {
+      if (await window.redirectToSidebarAccountLogin?.()) return;
       observeNetworkMagicTask(withBusyButton(vpnBtn, [startBtn, dreamBtn], () => toggleClashMini({ startBtn, vpnBtn }), {
         preserveTextAfterResolve: true,
       }));
@@ -295,57 +256,13 @@ function bindClashToggleButtons({ startBtn, vpnBtn, dreamBtn }) {
   }
 }
 
-function bindClashLatencyButton({ vpnBtn }) {
+function bindClashLatencyButton() {
   if (!testLatencyBtn || testLatencyBtn.dataset.bound === '1') return;
-  testLatencyBtn.dataset.loadingText = '测试中...';
   testLatencyBtn.addEventListener('click', () => {
-    if (testLatencyBtn.disabled || sideButtonLockSnapshot || isNetworkMagicStartFlowActive()) return;
-    lockSidePanelButtons();
-    withBusyButton(testLatencyBtn, [vpnBtn], runManualBestRouteSelection);
+    if (testLatencyBtn.disabled || isNetworkMagicStartFlowActive()) return;
+    void retestVpnNodes();
   });
   testLatencyBtn.dataset.bound = '1';
-}
-
-async function runManualBestRouteSelection() {
-  try {
-    const result = await runBestRouteSelection({ keepPanelOpen: false });
-    showBestRouteSelectionResult(result);
-  } finally {
-    unlockSidePanelButtons();
-  }
-}
-
-function showBestRouteSelectionResult({ bestName, bestDelay }) {
-  if (typeof window.MessageModal?.showSuccessMessage !== 'function') return;
-  const delay = Number.isFinite(bestDelay) ? ` (${bestDelay}ms)` : '';
-  window.MessageModal.showSuccessMessage(
-    bestName ? `已切换到最低延时节点：${bestName}${delay}` : '最低延时测试完成',
-  );
-}
-
-function bindVpnNodeSelectorToggle() {
-  if (!vpnNodeSelectorToggleBtn || vpnNodeSelectorToggleBtn.dataset.bound === '1') return;
-  vpnNodeSelectorToggleBtn.addEventListener('click', async () => {
-    if (vpnNodeSelectorToggleBtn.disabled || sideButtonLockSnapshot || isNetworkMagicStartFlowActive()) return;
-    const shouldOpen = !vpnNodeSelectorPanel?.classList.contains('is-open');
-    const needsOptions = shouldOpen && (!Array.isArray(clashMiniProxyState.names) || !clashMiniProxyState.names.length);
-    if (needsOptions) await loadVpnNodeSelectorOptions({ force: true, probeDelays: false });
-    setVpnNodeSelectorOpen(shouldOpen);
-  });
-  vpnNodeSelectorToggleBtn.dataset.bound = '1';
-}
-
-function bindVpnNodeSelectorDismissal() {
-  if (window.__vpnNodeSelectorBound) return;
-  window.__vpnNodeSelectorBound = true;
-  document.addEventListener('click', (event) => {
-    const controls = [vpnNodeSelectorPanel, testLatencyBtn, vpnNodeSelectorToggleBtn].filter(Boolean);
-    if (!event.target || controls.some((element) => element.contains(event.target))) return;
-    setVpnNodeSelectorOpen(false);
-  });
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') setVpnNodeSelectorOpen(false);
-  });
 }
 
 function bindClashStatusHandlers({ startBtn, vpnBtn }) {

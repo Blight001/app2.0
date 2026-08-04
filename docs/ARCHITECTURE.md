@@ -12,7 +12,7 @@
 main/entry → main/composition → main/features → injected platform/repository
                                       ↑
 renderer/sidebar → preload → contracts/IPC adapters
-browser extension ↔ AutomationBridge ↔ Chromium runtime
+AI/Codex/HeySure → AutomationBridge → authenticated Chromium Runtime Bridge
 ```
 
 - `main/entry` 只负责启动入口。
@@ -33,7 +33,7 @@ HeySure Socket.IO device adapter ────┘             │
                                                     ├→ software_window / sandbox_files
                                                     └→ AutomationBridge.dispatch
                                                             ↓
-                                                  browser_automation extension
+                                             authenticated Chromium Runtime Bridge
                                                             ↓
                                                    AI-FREE Chromium Fork
 ```
@@ -60,11 +60,20 @@ HeySure Socket.IO device adapter ────┘             │
 
 ## 浏览器连接和路由
 
-- Automation Bridge 可以维护多个在线连接，但每个调用只派发到一个连接。
+- Automation Bridge 从受管 Chromium Runtime 状态枚举多个在线原生连接，但每个调用只派发到一个连接。
 - `change_browser` 接受连接 ID 或唯一窗口名称；同名连接必须使用 ID。
 - 未显式切换时沿用调用会话的当前控制连接；没有唯一目标时调用失败。
 - 工具目录是所有在线连接工具的去重并集；执行前仍会校验目标连接实际支持该工具。
-- `software_window open/create` 需要等待扩展接入后才返回可控连接 ID。
+- `software_window open/create` 需要等待 Chromium 完成认证 Runtime Bridge 握手后才返回可控连接 ID。
+
+## 原生浏览器控制
+
+- AI 页面工具目录由主进程提供，不再由浏览器自动化扩展注册。
+- `browser_observe`、`browser_screenshot`、`browser_action`、`browser_wait` 直接调用 Chromium Runtime Bridge。
+- `browser_tab` 通过受管 Profile 的原生导航、打开标签、刷新和焦点能力执行。
+- `browser_download`、`manage_card` 的数据与编排留在主进程；其中页面步骤仍只通过原生 Runtime Bridge 执行。
+- 自动化卡片工作台显示在软件首页下方，通过窄 preload/IPC 读写、导入导出、运行卡片和保存会话。
+- 旧自动化扩展源码已删除，且不会加入 Chromium `--load-extension` 参数。普通非自动化扩展仍按扩展管理契约加载。
 
 ## 兼容边界
 

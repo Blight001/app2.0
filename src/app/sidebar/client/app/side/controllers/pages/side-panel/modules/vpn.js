@@ -1,6 +1,5 @@
 // 侧边栏 VPN / Clash Mini 相关逻辑
 let proxyTrafficQuotaSnapshot = null;
-let backgroundBestRouteSelectionPending = false;
 
 function formatProxyTrafficBytes(value) {
   const bytes = Math.max(0, Number(value) || 0);
@@ -22,30 +21,12 @@ function renderProxyTrafficQuota(quota) {
   }
 }
 // 设置/更新/持久化：setVpnNodeSelectorOpen的具体业务逻辑。
-function setVpnNodeSelectorOpen(open, { force = false } = {}) {
-  const triggerBtn = vpnNodeSelectorToggleBtn;
-  if (!triggerBtn || !vpnNodeSelectorPanel) return;
-  const shouldOpen = !!open && (force || !triggerBtn.disabled);
-  if (shouldOpen) {
-    if (vpnNodeSelectorHideTimer) {
-      clearTimeout(vpnNodeSelectorHideTimer);
-      vpnNodeSelectorHideTimer = null;
-    }
-    vpnNodeSelectorPanel.hidden = false;
-    requestAnimationFrame(() => {
-      vpnNodeSelectorPanel.classList.add('is-open');
-    });
-    triggerBtn.setAttribute('aria-expanded', 'true');
-    return;
-  }
-
-  triggerBtn.setAttribute('aria-expanded', 'false');
-  vpnNodeSelectorPanel.classList.remove('is-open');
-  vpnNodeSelectorHideTimer = setTimeout(() => {
-    if (vpnNodeSelectorPanel && !vpnNodeSelectorPanel.classList.contains('is-open')) {
-      vpnNodeSelectorPanel.hidden = true;
-    }
-  }, 220);
+function setVpnNodeSelectorOpen() {
+  if (!vpnNodeSelectorPanel) return;
+  if (vpnNodeSelectorHideTimer) clearTimeout(vpnNodeSelectorHideTimer);
+  vpnNodeSelectorHideTimer = null;
+  vpnNodeSelectorPanel.hidden = false;
+  vpnNodeSelectorPanel.classList.add('is-open');
 }
 
 function setVpnNodeSelectorButtonsDisabled(disabled) {
@@ -69,18 +50,12 @@ function canUseVpnFeatures() {
 // 纳入判定，这个窗口里选路按钮会被放开一瞬，用户点击就会干扰启动。
 function isNetworkMagicStartFlowActive() {
   return clashMiniStartFlowPromise !== null
-    || backgroundBestRouteSelectionPending
     || autoStartClashMiniInFlight;
 }
 
-// “检测最优路线 / 手动选择路线”可用性的唯一出口：所有状态事件、
+// 节点选择和重新测速可用性的唯一出口：所有状态事件、
 // 外部批量启停按钮之后都应经由本函数收敛，不要在别处直接改 disabled。
 function applyVpnActionAvailability() {
-  if (sideButtonLockSnapshot) {
-    // 面板整体锁定期间强制禁用，防止外部 setButtonsDisabled('.VPN-btn', false) 穿透锁。
-    setVpnNodeSelectorButtonsDisabled(true);
-    return;
-  }
   const canUse = canUseVpnFeatures();
   const disabled = !canUse || vpnNodeSelectorBusy || isNetworkMagicStartFlowActive();
   setVpnNodeSelectorButtonsDisabled(disabled);
@@ -90,50 +65,8 @@ function applyVpnActionAvailability() {
       ? '请先完成验证'
       : !isVpnEnabled
         ? '请先开启网络魔法'
-        : '测试并切换到最低延时节点';
+        : '重新测试全部节点延时';
   }
-}
-
-// 测速/后台选路期间锁定网络工具面板。
-// “一键启动 XX”羊毛平台按钮不参与锁定：测速只影响代理节点切换，
-// 不应阻塞用户正常打开平台页面（其可用性仍由登录与额度状态控制）。
-function lockSidePanelButtons() {
-  if (sideButtonLockSnapshot) return;
-  const panel = document.querySelector('.settings-network-tools') || document.getElementById('side-panel');
-  if (!panel) return;
-  const buttons = Array.from(panel.querySelectorAll('button'))
-    .filter((button) => !button.classList.contains('open-wool-platform-btn'));
-  sideButtonLockSnapshot = buttons.map((button) => ({
-    button,
-    disabled: button.disabled,
-  }));
-  buttons.forEach((button) => {
-    button.disabled = true;
-  });
-}
-
-// 锁定期间其他模块可能批量启用按钮（如验证通过后的 enableAllLicenseRequiredButtons
-// 会放开所有 .VPN-btn），用快照把锁重新压回去，避免锁被穿透。
-function reassertSidePanelLock() {
-  if (!sideButtonLockSnapshot) return;
-  sideButtonLockSnapshot.forEach((entry) => {
-    if (entry?.button) {
-      entry.button.disabled = true;
-    }
-  });
-}
-
-// 处理：unlockSidePanelButtons的具体业务逻辑。
-function unlockSidePanelButtons() {
-  if (!sideButtonLockSnapshot) return;
-  sideButtonLockSnapshot.forEach((entry) => {
-    if (entry?.button) {
-      entry.button.disabled = entry.disabled;
-    }
-  });
-  sideButtonLockSnapshot = null;
-  syncLatencyButtonState();
-  syncVpnNodeSelectorState();
 }
 
 // 格式化/规范化：normalizeProxyEntries的具体业务逻辑。
@@ -277,10 +210,9 @@ function updateVpnNodeSelectorButton(button, name, index, proxyItem, selectedNam
 
   button.className = `vpn-node-option${isSelected ? ' is-selected' : ''}`;
   // 测速/选路期间面板会被重建或增量渲染，新按钮也要继承禁用状态。
-  button.disabled = vpnNodeSelectorBusy === true || backgroundBestRouteSelectionPending === true;
+  button.disabled = vpnNodeSelectorBusy === true;
   button.setAttribute('role', 'radio');
   button.setAttribute('aria-checked', isSelected ? 'true' : 'false');
-  button.style.animationDelay = `${Math.min(index, 8) * 45}ms`;
   button.dataset.nodeName = name;
   button.style.setProperty('--vpn-delay-bg', delayBackground.background);
   button.style.setProperty('--vpn-delay-bg-selected', delayBackground.backgroundSelected);
@@ -290,6 +222,9 @@ function updateVpnNodeSelectorButton(button, name, index, proxyItem, selectedNam
     metaEl.className = 'vpn-node-option-meta';
     metaEl.style.color = delayColor;
     metaEl.textContent = delayText;
+    metaEl.title = `重新测试 ${name} 的延时`;
+    metaEl.setAttribute('role', 'button');
+    metaEl.setAttribute('tabindex', '0');
   }
 }
 
@@ -312,7 +247,19 @@ function buildVpnNodeSelectorButton(name, index, proxyItem, selectedName) {
   checkEl.setAttribute('aria-hidden', 'true');
   button.append(main, checkEl);
 
-  button.addEventListener('click', () => switchVpnNode(name));
+  button.addEventListener('click', (event) => {
+    if (event.target?.closest?.('.vpn-node-option-meta')) {
+      void retestVpnNodes([name]);
+      return;
+    }
+    switchVpnNode(name);
+  });
+  metaEl.addEventListener('keydown', (event) => {
+    if (!['Enter', ' '].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void retestVpnNodes([name]);
+  });
 
   return button;
 }
@@ -398,5 +345,7 @@ let vpnNodeSelectorRenderScheduled = false;
 let vpnNodeSelectorRenderRaf = null;
 let vpnNodeSelectorOptionNodes = new Map();
 let vpnNodeSelectorRenderedNamesKey = '';
+let vpnNodeOptionsLoadPromise = null;
+const vpnLatencyTestsInFlight = new Set();
 
 // 获取/读取/解析：getClashMiniConfigSignature的具体业务逻辑。

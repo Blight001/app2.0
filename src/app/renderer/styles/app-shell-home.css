@@ -1,8 +1,10 @@
 #browser-empty-state {
   position: absolute;
   inset: 0 30% 0 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
   overflow: auto;
   padding: 32px;
   box-sizing: border-box;
@@ -16,6 +18,7 @@
 
 .shell-home-card {
   width: min(620px, 100%);
+  flex: 0 0 auto;
   color: var(--shell-text);
   text-align: center;
 }

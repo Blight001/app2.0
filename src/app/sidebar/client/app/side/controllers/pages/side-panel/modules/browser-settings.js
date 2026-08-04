@@ -466,6 +466,7 @@
   async function extractProxy(){const response=await window.aiFree.browser.extractProxy({apiUrl:value('proxy-api-url')});if(response?.ok){setValue('proxy-protocol',response.proxy.protocol);setValue('proxy-host',response.proxy.host);setValue('proxy-port',response.proxy.port);setValue('proxy-username',response.proxy.username);setValue('proxy-password',response.proxy.password);setStatus('已从 API 提取代理。','success');}else setStatus(response?.error||'提取代理失败','error');}
 
   document.addEventListener('DOMContentLoaded',()=>{
+    if (!document.documentElement.classList.contains('browser-settings-page')) return;
     window.bindAiFreeBrowserSettingsEvents({
       closeBrowserSettingsDialog, deleteBrowserHistory, el, extractProxy,
       getBrowserHistory: () => browserHistory,

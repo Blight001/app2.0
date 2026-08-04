@@ -75,7 +75,6 @@
       },
       vpnNodeSelectorBusy: false,
       vpnNodeSelectorHideTimer: null,
-      sideButtonLockSnapshot: null,
     },
     announcements: {
       items: [],
@@ -260,9 +259,6 @@
   });
   defineWindowStateProxy('vpnNodeSelectorHideTimer', () => sidePanelState.vpn.vpnNodeSelectorHideTimer, (value) => {
     sidePanelState.vpn.vpnNodeSelectorHideTimer = value || null;
-  });
-  defineWindowStateProxy('sideButtonLockSnapshot', () => sidePanelState.vpn.sideButtonLockSnapshot, (value) => {
-    sidePanelState.vpn.sideButtonLockSnapshot = value || null;
   });
   defineWindowStateProxy('announcements', () => sidePanelState.announcements.items, (value) => {
     sidePanelState.announcements.items = Array.isArray(value) ? value : [];

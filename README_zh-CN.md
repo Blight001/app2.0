@@ -116,13 +116,11 @@ npm install
 
 ## 内置扩展
 
-当前 `packagedExtensions` 配置包含：
-
-- `browser_automation`：自动化卡片、流程图、Cookie/Storage 抓取，以及 AI 浏览器工具桥接。详见 [扩展说明](src/assets/extensions/browser_automation/README.md)。
+当前 `packagedExtensions` 配置为空。AI 自动化由认证的 Chromium Runtime Bridge 提供，不再作为浏览器扩展打包。
 - `remove_watermark`：网页复制与媒体处理相关能力。
 - `transform`：网页、输入框、图片、PDF 和视频字幕翻译能力。
 
-扩展由主进程注入 Chromium Profile，并在侧边栏中统一开关。打包脚本会根据 `packagedExtensions` 排除未选中的扩展；Clash Mini 作为独立运行资源始终打包。
+打包脚本会根据 `packagedExtensions` 排除未选中的扩展；Clash Mini 作为独立运行资源始终打包。AI 自动化工具由主进程发布，并直接派发到受管 Chromium Profile。
 
 ## 构建 Windows 安装包
 
@@ -226,7 +224,7 @@ app2.1/
 - [Clash Mini Geo 本地化规格](docs/clash-mini-geo-localization-spec.md)
 - [Chromium Fork 构建说明](native/chromium-fork/README.md)
 - [原生浏览器宿主说明](native/browser-host/README.md)
-- [AI 自动化扩展说明](src/assets/extensions/browser_automation/README.md)
+- [AI 自动化与 MCP 工具](docs/mcp.md)
 
 ## 安全与数据说明
 

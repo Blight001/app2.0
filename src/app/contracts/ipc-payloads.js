@@ -9,6 +9,10 @@ const { getRequestSchema } = require('./ipc-channels');
 const MAX_ID_LENGTH = 512;
 const MAX_TEXT_LENGTH = 2 * 1024 * 1024;
 const MAX_LIST_LENGTH = 128;
+const AUTOMATION_CARD_ACTIONS = new Set([
+  'rules', 'list', 'get', 'write', 'patch_step', 'insert_step',
+  'delete_step', 'move_step', 'delete', 'run',
+]);
 
 class IpcPayloadError extends AppError {
   constructor(channel, path, reason) {
@@ -218,6 +222,26 @@ const IPC_PAYLOAD_SCHEMAS = Object.freeze({
     if (!['ask', 'hide', 'quit'].includes(input.behavior)) {
       fail(channel, 'behavior', '必须是 ask、hide 或 quit');
     }
+    return input;
+  },
+  'ai.automation-card-operation': (channel, payload) => {
+    const input = objectPayload(channel, payload, { optional: true });
+    stringField(channel, input, 'action', { required: true, maxLength: 32 });
+    if (!AUTOMATION_CARD_ACTIONS.has(input.action)) fail(channel, 'action', '不是受支持的卡片操作');
+    for (const key of ['connectionId', 'id', 'card_name']) stringField(channel, input, key);
+    for (const key of ['cardData', 'stepData', 'stepPatch', 'inputs']) {
+      if (input[key] !== undefined && !isPlainObject(input[key]) && !Array.isArray(input[key])) {
+        fail(channel, key, '必须是对象或数组');
+      }
+    }
+    for (const key of ['step_index', 'to_step_index', 'start_step']) numberLikeField(channel, input, key);
+    booleanField(channel, input, 'replace');
+    return input;
+  },
+  'ai.automation-session': (channel, payload) => {
+    const input = objectPayload(channel, payload, { optional: true });
+    stringField(channel, input, 'connectionId');
+    stringField(channel, input, 'format', { maxLength: 16 });
     return input;
   },
 });

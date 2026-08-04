@@ -41,10 +41,14 @@ test('window.aiFree AI methods bind fixed channels and subscriptions return disp
 
   await exposed.aiFree.ai.chat({ requestId: 'request-1' });
   await exposed.aiFree.ai.getPromptDiagnostics({ modelId: 'model-1' });
+  await exposed.aiFree.ai.manageAutomationCard({ action: 'list' });
+  await exposed.aiFree.ai.saveAutomationSession({ connectionId: 'native:p1' });
   exposed.aiFree.ai.emitBrowserSelectionChanged({ ids: ['browser-1'] });
   assert.deepEqual(calls, [
     ['invoke', 'ai-control-chat', { requestId: 'request-1' }],
     ['invoke', 'ai-control-get-prompt-diagnostics', { modelId: 'model-1' }],
+    ['invoke', 'ai-control-manage-automation-card', { action: 'list' }],
+    ['invoke', 'ai-control-save-automation-session', { connectionId: 'native:p1' }],
     ['send', 'ai-control-browser-selection-changed', { ids: ['browser-1'] }],
   ]);
 
@@ -110,12 +114,16 @@ test('browser, network, content, extension and update operations bind fixed chan
   await exposed.aiFree.content.refreshTutorialUrl();
   await exposed.aiFree.extensions.setEnabled({ id: 'extension-a', enabled: true });
   await exposed.aiFree.updates.start({ version: '2.7.0' });
+  exposed.aiFree.ui.setBrowserSettingsPageVisible(true);
+  exposed.aiFree.ui.requestAccountCenter();
   assert.deepEqual(calls, [
     ['invoke', 'get-ai-free-browser-settings', { historyId: 'history-1' }],
     ['invoke', 'switch-clash-mini-proxy', { name: 'node-a' }],
     ['invoke', 'refresh-tutorial-url', undefined],
     ['invoke', 'set-extension-enabled', { id: 'extension-a', enabled: true }],
     ['invoke', 'start-app-update', { version: '2.7.0' }],
+    ['send', 'set-browser-settings-page-visible', true],
+    ['send', 'request-account-center', undefined],
   ]);
   for (const domain of ['browser', 'network', 'content', 'extensions', 'updates', 'ui']) {
     assert.equal(Object.isFrozen(exposed.aiFree[domain]), true);

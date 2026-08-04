@@ -103,6 +103,8 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
     logger: console,
     cardCacheDir: resolveAutomationCardCacheDir(app),
     browserDownloadService: createBrowserDownloadService({ sandboxDir: aiSandboxDir }),
+    browserRuntimeManager,
+    getTabs: () => tabs,
     externalMcpDescriptorPath: path.join(app.getPath('userData'), 'ai-free-mcp-bridge.json'),
     getExternalMcpAccess: () => resolveVipAccess(licenseCache.getSnapshot()),
     isAllowedBrowserProcess: (processId) => browserRuntimeManager.isManagedBrowserProcess(processId),
@@ -133,6 +135,7 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
 
   const uiBridge = createUiBridge({
     getSideView: appRuntime.getSideView,
+    getBrowserSettingsView: appRuntime.getBrowserSettingsView,
     getControlPanelWindow: appRuntime.getControlPanelWindow,
     getConsoleWindow: appRuntime.getConsoleWindow,
   });

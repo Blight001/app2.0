@@ -1,6 +1,5 @@
 const fs = require('fs');
 const {
-  collectClashMiniProxyDelays,
   emitClashMiniLog,
   fetchClashMiniProxyNames,
   getClashMiniManualGroupName,
@@ -15,16 +14,10 @@ const {
   waitForClashMiniControlApi,
   invokeClashMiniControl,
 } = require('./clash-mini-core');
-
-function resolveLatencyConcurrency(totalCount, requestedConcurrency) {
-  const total = Math.max(1, Math.floor(Number(totalCount) || 0));
-  // Mihomo 每个测速任务都会建立真实网络连接。过高并发会同时挤占 CPU、
-  // DNS 和 socket，反而拖慢主界面；默认保持温和，手动传值也限制上限。
-  const defaultConcurrency = total >= 80 ? 8 : total >= 24 ? 6 : total >= 12 ? 4 : 3;
-  const requested = Number(requestedConcurrency);
-  const base = Number.isFinite(requested) && requested > 0 ? Math.floor(requested) : defaultConcurrency;
-  return Math.max(1, Math.min(total, 12, base));
-}
+const {
+  getClashMiniProxyGroupOptions,
+  resolveLatencyConcurrency,
+} = require('./clash-mini-proxy-options');
 
 // 读取一批节点当前最新一条 delay history（时间戳 + 延迟）。
 // 批量测速期间靠对比时间戳变化识别“该节点已出结果”，实现增量进度。
@@ -204,23 +197,29 @@ function createLatencyProgressReporter(ui, context, enabled) {
   return (payload = {}) => {
     if (!enabled) return;
     try {
+      const selection = context.selectBest === false
+        ? { ...payload, bestName: '', bestDelay: null }
+        : payload;
       ui?.sendToSide?.('clash-mini-latency-progress', {
         groupName: context.groupName,
         url: context.latencyUrl,
         timeout: context.timeout,
         total: context.uniqueNames.length,
-        ...payload,
+        ...selection,
       });
     } catch (_) {}
   };
 }
 
 async function runLatencyProbes(ui, options, context, reportProgress) {
-  emitClashMiniLog(ui, 'info', `参与测试的节点数量: ${context.uniqueNames.length}，优先使用内核批量测速`);
-  let entries = await runGroupBatchLatencyTest({ ...context, reportProgress, ui });
-  if (entries) return entries;
+  const requestedSubset = Array.isArray(options.names) && options.names.length > 0;
+  emitClashMiniLog(ui, 'info', `参与测试的节点数量: ${context.uniqueNames.length}`);
+  if (!requestedSubset) {
+    const entries = await runGroupBatchLatencyTest({ ...context, reportProgress, ui });
+    if (entries) return entries;
+  }
   const concurrency = resolveLatencyConcurrency(context.uniqueNames.length, options.concurrency);
-  emitClashMiniLog(ui, 'info', `回退逐节点测速，并发度: ${concurrency}`);
+  emitClashMiniLog(ui, 'info', `逐节点测速，并发度: ${concurrency}`);
   return runPerNodeLatencyTest({ ...context, concurrency, reportProgress });
 }
 
@@ -258,7 +257,7 @@ async function testClashMiniLowestLatency(ui, options = {}) {
     return { ok: false, error: `分组 ${groupName} 中没有可测试的节点` };
   }
 
-  const context = { coreDir, groupName, uniqueNames, latencyUrl, timeout };
+  const context = { coreDir, groupName, uniqueNames, latencyUrl, timeout, selectBest: options.selectBest !== false };
   const reportProgress = createLatencyProgressReporter(ui, context, options.reportProgress !== false);
 
   reportProgress({ phase: 'start' });
@@ -277,21 +276,23 @@ async function testClashMiniLowestLatency(ui, options = {}) {
     };
   }
 
-  await invokeClashMiniControl(coreDir, 'put', `/proxies/${encodeURIComponent(groupName)}`, {
-    data: { name: best.name },
-    timeoutMs: 10000,
-  });
+  const selectBest = options.selectBest !== false;
+  if (selectBest) {
+    await invokeClashMiniControl(coreDir, 'put', `/proxies/${encodeURIComponent(groupName)}`, {
+      data: { name: best.name },
+      timeoutMs: 10000,
+    });
+    await refreshBrowserAfterProxyChange(ui, '最低延时节点切换后刷新浏览器地区失败');
+  }
 
-  // 核心刚启动时默认节点可能尚未连通，浏览器会暂时得到国内直连地区。
-  // 自动选路完成后按最终节点重新检测出口，并应用新的语言和时区。
-  await refreshBrowserAfterProxyChange(ui, '最低延时节点切换后刷新浏览器地区失败');
-
-  emitClashMiniLog(ui, 'info', `最低延时节点已选中: ${best.name} (${best.delay}ms)`);
+  emitClashMiniLog(ui, 'info', selectBest
+    ? `最低延时节点已选中: ${best.name} (${best.delay}ms)`
+    : `节点测速完成，最低延时: ${best.name} (${best.delay}ms)`);
   reportProgress({
     phase: 'done',
     entries,
-    bestName: best.name,
-    bestDelay: best.delay,
+    bestName: selectBest ? best.name : '',
+    bestDelay: selectBest ? best.delay : null,
   });
 
   return {
@@ -304,73 +305,6 @@ async function testClashMiniLowestLatency(ui, options = {}) {
     bestName: best.name,
     bestDelay: best.delay,
     running: true,
-  };
-}
-
-function markSelectedProxy(proxies, current) {
-  const selectedName = String(current || '').trim();
-  return proxies.map((item) => ({ ...item, selected: item.name === selectedName }));
-}
-
-function createUnmeasuredProxies(names, current, delayText) {
-  const selectedName = String(current || '').trim();
-  return names.map((name) => ({ name, delay: null, delayText, ok: false, selected: name === selectedName }));
-}
-
-async function resolveProxyGroupData(coreDir, options) {
-  const groupName = String(options.groupName || getClashMiniManualGroupName(coreDir)).trim() || '节点选择';
-  const apiReady = await waitForClashMiniControlApi(coreDir, 15000);
-  if (!apiReady) return { error: { ok: false, error: 'Clash Mini 控制接口未就绪', running: true, groupName, names: [], current: '' } };
-  const groupInfo = await fetchClashMiniProxyNames(coreDir, groupName);
-  const candidates = Array.isArray(options.names) && options.names.length ? options.names : groupInfo.names;
-  const names = Array.from(new Set(candidates.map((item) => String(item || '').trim()).filter(Boolean)));
-  return { groupName, groupInfo, names };
-}
-
-async function loadProxyDelayOptions(coreDir, names, current, options) {
-  const settings = /** @type {Record<string, any>} */ (readClashProbeSettings() || {});
-  const latencyUrl = normalizeProbeUrl(options.url || settings.latencyUrl, 'https://www.gstatic.com/generate_204');
-  const timeout = normalizeProbeTimeout(options.timeout || settings.latencyTimeoutMs, 5000);
-  if (options.includeDelays === false) {
-    return { latencyUrl, timeout, proxies: createUnmeasuredProxies(names, current, '测速中...') };
-  }
-  const concurrency = resolveLatencyConcurrency(names.length, options.concurrency);
-  const measured = await collectClashMiniProxyDelays(coreDir, names, latencyUrl, timeout, concurrency);
-  return { latencyUrl, timeout, proxies: measured.length ? markSelectedProxy(measured, current) : createUnmeasuredProxies(names, current, '超时') };
-}
-
-async function getClashMiniProxyGroupOptions(ui, options = {}) {
-  const status = getClashMiniStatus();
-  if (!status.running) {
-    return {
-      ok: false,
-      error: 'Clash Mini 未运行',
-      running: false,
-      groupName: String(options.groupName || getClashMiniManualGroupName(getClashMiniRuntimeRoot())).trim() || '节点选择',
-      names: [],
-      current: '',
-    };
-  }
-
-  const coreDir = status.coreDir || getClashMiniRuntimeRoot();
-  if (!coreDir || !fs.existsSync(coreDir)) {
-    return { ok: false, error: 'Clash Mini 运行目录不存在', running: false, names: [], current: '' };
-  }
-
-  const groupData = await resolveProxyGroupData(coreDir, options);
-  if (groupData.error) return groupData.error;
-  const { groupName, groupInfo, names } = groupData;
-  const delayOptions = await loadProxyDelayOptions(coreDir, names, groupInfo.current, options);
-
-  return {
-    ok: true,
-    running: true,
-    groupName,
-    current: groupInfo.current || '',
-    names,
-    url: delayOptions.latencyUrl,
-    timeout: delayOptions.timeout,
-    proxies: delayOptions.proxies,
   };
 }
 

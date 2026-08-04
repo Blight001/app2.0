@@ -141,71 +141,49 @@ async function ensureClashMiniConfigPreheated(options = {}) {
   }
 }
 
-// 启动/打开/显示：runBestRouteSelection的具体业务逻辑。
-async function runBestRouteSelection({
-  keepPanelOpen = false,
-  showPanel = true,
-  refreshOptions = true,
-  concurrency,
-  reportProgress = true,
-} = {}) {
-  assertBestRouteSelectionAvailable();
-  await prepareBestRouteSelection(refreshOptions, showPanel);
-
-  const result = await invokeBestRouteSelection(concurrency, reportProgress);
-  const { bestName, bestDelay } = resolveBestRouteResult(result);
-  if (bestName) applyBestRouteResult(result, bestName, bestDelay);
-  settleBestRoutePanel(keepPanelOpen, showPanel);
-
-  return { bestName, bestDelay, result };
+function markVpnNodesTesting(names) {
+  const requested = new Set(names);
+  clashMiniProxyState.proxies = clashMiniProxyState.proxies.map((item) => (
+    requested.has(item.name) ? { ...item, delay: null, delayText: '测速中...' } : item
+  ));
+  scheduleVpnNodeSelectorRender();
 }
 
-async function invokeBestRouteSelection(concurrency, reportProgress) {
-  const result = await window.aiFree.network.testMinLatency({
-    names: Array.isArray(clashMiniProxyState.names) ? clashMiniProxyState.names : [],
-    concurrency,
-    reportProgress,
-  });
-  if (result?.ok !== true) throw new Error(result?.error || result?.message || '最低延时测试失败');
+async function retestVpnNodes(names = null) {
+  if (typeof window.aiFree?.network?.testMinLatency !== 'function' || !isVpnEnabled) return null;
+  const requestedNames = normalizeVpnLatencyNames(names);
+  const taskKey = requestedNames.length ? requestedNames.join('\u0001') : '*';
+  if (vpnLatencyTestsInFlight.has(taskKey)) return null;
+
+  vpnLatencyTestsInFlight.add(taskKey);
+  const affectedNames = requestedNames.length ? requestedNames : getVpnNodeSelectorNames();
+  markVpnNodesTesting(affectedNames);
+  testLatencyBtn?.setAttribute('aria-busy', 'true');
+  try {
+    return await invokeVpnLatencyTest(requestedNames);
+  } catch (error) {
+    console.warn('[侧边栏][Clash] 节点测速失败:', error?.message || error);
+    return null;
+  } finally {
+    vpnLatencyTestsInFlight.delete(taskKey);
+    if (vpnLatencyTestsInFlight.size === 0) testLatencyBtn?.removeAttribute('aria-busy');
+  }
+}
+
+function normalizeVpnLatencyNames(names) {
+  if (!Array.isArray(names)) return [];
+  return Array.from(new Set(names.map((name) => String(name || '').trim()).filter(Boolean)));
+}
+
+async function invokeVpnLatencyTest(requestedNames) {
+  const options = { selectBest: false, reportProgress: true };
+  if (requestedNames.length) options.names = requestedNames;
+  const result = await window.aiFree.network.testMinLatency(options);
+  if (Array.isArray(result?.entries)) {
+    applyLatencyResultEntries(result.entries);
+    syncVpnNodeSelectorState();
+    scheduleVpnNodeSelectorRender({ forceFull: true });
+  }
+  if (result?.ok !== true) throw new Error(result?.error || result?.message || '节点测速失败');
   return result;
 }
-
-function resolveBestRouteResult(result) {
-  return {
-    bestName: String(result.bestName || result?.best?.name || '').trim(),
-    bestDelay: Number(result.bestDelay ?? result?.best?.delay),
-  };
-}
-
-function assertBestRouteSelectionAvailable() {
-  if (typeof window.aiFree?.network?.testMinLatency !== 'function') throw new Error('当前环境不支持最低延时测试');
-  if (!isVpnEnabled) throw new Error('请先开启网络魔法');
-}
-
-async function prepareBestRouteSelection(refreshOptions, showPanel) {
-  if (refreshOptions) await loadVpnNodeSelectorOptions({ force: true, probeDelays: false }).catch(() => {});
-  if (showPanel) setVpnNodeSelectorOpen(true, { force: true });
-}
-
-function applyBestRouteResult(result, bestName, bestDelay) {
-  clashMiniProxyState.current = bestName;
-  if (Array.isArray(result.entries)) {
-    clashMiniProxyState.names = Array.from(new Set(
-      result.entries.map((item) => String(item?.name || '').trim()).filter(Boolean),
-    ));
-  }
-  clashMiniProxyState.proxies = normalizeProxyEntries(result.entries, bestName);
-  const bestEntry = clashMiniProxyState.proxies.find((item) => item.name === bestName);
-  if (bestEntry && Number.isFinite(bestDelay) && bestDelay > 0) {
-    Object.assign(bestEntry, { delay: bestDelay, delayText: `${Math.round(bestDelay)}ms`, selected: true });
-  }
-  syncVpnNodeSelectorState();
-  scheduleVpnNodeSelectorRender({ forceFull: true });
-}
-
-function settleBestRoutePanel(keepPanelOpen, showPanel) {
-  if (keepPanelOpen && showPanel) setVpnNodeSelectorOpen(true);
-  else if (!showPanel) setVpnNodeSelectorOpen(false);
-}
-
-// 设置/更新/持久化：setVpnNodeSelectorBusy的具体业务逻辑。

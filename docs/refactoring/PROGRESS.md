@@ -49,7 +49,7 @@
 - [x] `ai-control.js` 拆分为 bootstrap/state/history/composer/renderer/tool/card/browser 等模块。
 - [x] 标签栏、账号认证、VPN、浏览器设置和消息弹窗拆分；修复 shell 脚本加载顺序导致主题/账号绑定失效的真实缺陷。
 - [x] 侧边栏 CSS 已按 layout、buttons、account-auth、ai-control、vpn、browser-settings、themes 等模块拆分。
-- [x] `browser_automation` background/content/popup 拆分，Manifest、卡片协议和桥接兼容验收通过。
+- [x] 旧自动化扩展曾完成拆分；现已将卡片工作台与页面控制完整迁入软件/Chromium 原生控制并删除扩展源码。
 
 ### 阶段 5：清理与正式切换
 

@@ -1,10 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const net = require('node:net');
-const os = require('node:os');
-const path = require('node:path');
 const test = require('node:test');
 
 const {
@@ -12,7 +9,6 @@ const {
   CONNECTION_TTL_MS,
   createBrowserAutomationBridge,
 } = require('../../src/app/main/services/browser-automation-bridge');
-const { createExtensionManager } = require('../../src/app/main/services/extension-manager');
 
 async function reserveFreePort() {
   const server = net.createServer();
@@ -77,51 +73,4 @@ test('automation bridge accepts browser extensions through the loopback port', a
     { method: 'POST', headers: { ...headers, 'X-Bridge-Token': 'wrong-token' } },
   );
   assert.equal(wrongConnection.status, 401);
-});
-
-test('automation extension manager returns the bundled source directory directly', async (t) => {
-  const root = path.join(__dirname, '..', '..');
-  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-direct-extension-'));
-  const beforeQuitHandlers = [];
-  t.after(() => {
-    beforeQuitHandlers.forEach((handler) => handler());
-    fs.rmSync(userData, { recursive: true, force: true });
-  });
-
-  const manager = createExtensionManager({
-    app: {
-      getPath: () => userData,
-      getAppPath: () => root,
-      once: (event, handler) => {
-        if (event === 'before-quit') beforeQuitHandlers.push(handler);
-      },
-    },
-    fs,
-    path,
-    logger: { log() {}, warn() {}, error() {} },
-    getStorePath: () => path.join(userData, 'store.json'),
-    getTranslateExtDir: () => path.join(root, 'src/assets/extensions/transform'),
-  });
-
-  await manager.initialize();
-  const expectedPath = path.join(root, 'src/assets/extensions/browser_automation');
-  const extensionPath = manager.getEnabledExtensionPaths()
-    .find((item) => path.basename(item).toLowerCase() === 'browser_automation');
-  assert.equal(path.resolve(extensionPath), path.resolve(expectedPath));
-  assert.equal(fs.existsSync(path.join(userData, 'protected-extension-runtime')), false);
-
-  const loadedPaths = [];
-  await manager.loadEnabledIntoSession({
-    extensions: {
-      getAllExtensions: () => [],
-      loadExtension: async (loadPath) => {
-        loadedPaths.push(loadPath);
-        return { id: `loaded-${loadedPaths.length}`, path: loadPath };
-      },
-    },
-  }, 'source path');
-  const loadedAutomationPath = loadedPaths.find(
-    (item) => path.basename(item).toLowerCase() === 'browser_automation',
-  );
-  assert.equal(path.resolve(loadedAutomationPath), path.resolve(expectedPath));
 });

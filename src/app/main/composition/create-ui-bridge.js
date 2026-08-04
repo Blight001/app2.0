@@ -2,8 +2,9 @@ const { createAppConsoleBridge } = require('../runtime/app-console');
 const { appContext } = require('../runtime/app-context');
 
 // 创建/初始化：createUiBridge的具体业务逻辑。
-function createUiBridge({ getSideView, getControlPanelWindow, getConsoleWindow }) {
+function createUiBridge({ getSideView, getBrowserSettingsView, getControlPanelWindow, getConsoleWindow }) {
   let sideView = null;
+  let browserSettingsView = null;
   let controlPanelWindow = null;
   let consoleWindow = null;
 
@@ -43,9 +44,14 @@ function createUiBridge({ getSideView, getControlPanelWindow, getConsoleWindow }
     try {
       let delivered = false;
       sideView = getSideView();
+      browserSettingsView = typeof getBrowserSettingsView === 'function' ? getBrowserSettingsView() : null;
       controlPanelWindow = typeof getControlPanelWindow === 'function' ? getControlPanelWindow() : null;
       if (sideView && sideView.webContents && !sideView.webContents.isDestroyed()) {
         sideView.webContents.send(channel, ...args);
+        delivered = true;
+      }
+      if (browserSettingsView?.webContents && !browserSettingsView.webContents.isDestroyed()) {
+        browserSettingsView.webContents.send(channel, ...args);
         delivered = true;
       }
       if (controlPanelWindow && controlPanelWindow.webContents && !controlPanelWindow.webContents.isDestroyed()) {

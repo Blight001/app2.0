@@ -7,6 +7,8 @@ function initSidePanelRuntime() {
   }
   sidePanelRuntimeInitialized = true;
 
+  if (!document.documentElement.classList.contains('browser-settings-page')) return;
+
   loadInitialConnectionState();
   loadInitialRuntimeValues();
   syncLatencyButtonState();

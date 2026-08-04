@@ -284,6 +284,16 @@ function registerUiUtilityIPC(ipc, ctx) {
   ));
   ipc.on('toggle-sidebar', () => ui.toggleSidebar());
   ipc.on('ensure-sidebar-visible', () => ui.ensureSidebarVisible?.());
+  ipc.on('request-account-center', () => {
+    try {
+      ui.ensureSidebarVisible?.();
+      const contents = ui.getSideView?.()?.webContents;
+      if (contents && !contents.isDestroyed?.()) contents.send('open-account-center');
+    } catch (_) {}
+  });
+  ipc.on('set-browser-settings-page-visible', (_event, visible) => (
+    ui.setBrowserSettingsPageVisible?.(visible === true)
+  ));
   ipc.handle('open-active-web-console', async () => {
     try {
       const contents = ui.getActiveWC?.();

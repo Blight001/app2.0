@@ -42,7 +42,7 @@
 ```
 
 路由参数 `change_browser`、`browser_id`、`browser_name` 和 `browser` 只供主进程选择连接，
-派发到浏览器扩展前必须删除。普通调用默认超时 180 秒；`manage_card action=run` 默认
+派发到 Chromium 原生 Runtime Bridge 前必须删除。普通调用默认超时 180 秒；`manage_card action=run` 默认
 15 分钟；显式 `timeout_seconds` 限制在 1～1800 秒。
 
 ## 工具结果与错误

@@ -67,11 +67,19 @@ test('sidebar logos use the runtime asset resolver in source and packaged apps',
   const aiControl = readAiControlSource();
 
   assert.ok(html.includes('<script src="./client/scripts/logo-assets.js"></script>'));
-  assert.equal((html.match(/<img[^>]*data-app-logo/g) || []).length, 2);
+  assert.equal((html.match(/<img[^>]*data-app-logo/g) || []).length, 3);
   assert.ok(logoResolver.includes("const SOURCE_LOGO_PATH = '../../assets/logo.ico';"));
   assert.ok(logoResolver.includes("const PACKAGED_LOGO_PATH = '../../../../resource/logo.ico';"));
   assert.ok(aiControl.includes('window.aiFreeLogoAssets?.url'));
   assert.equal(appShell.includes('id="account-center-btn"'), false);
   assert.match(html, /data-tab="account-center-panel"[\s\S]*?id="account-center-panel"/);
   assert.ok(appShell.includes('../sidebar/client/scripts/logo-assets.js'));
+  assert.equal(appShell.includes('id="automation-workbench"'), false);
+  assert.ok(html.includes('id="automation-workbench"'));
+  assert.ok(html.includes('id="automation-flow-canvas"'));
+  assert.ok(html.includes('id="automation-node-inspector"'));
+  assert.ok(html.includes('shell-automation-canvas.js'));
+  assert.ok(html.includes('shell-automation-workbench.js'));
+  assert.ok(html.includes('app-shell-automation-canvas.css'));
+  assert.ok(html.includes('app-shell-automation.css'));
 });

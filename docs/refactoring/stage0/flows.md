@@ -50,7 +50,7 @@
 
 - 内置扩展装载：`services/extension-manager.js`（1900 行）——发现、兼容副本、注入、刷新；状态 `get-extension-manager-state` / `extension-manager-state` 事件。
 - 自定义：`import-extension-plugin` / `remove-extension-plugin` / `set-extension-enabled`。
-- browser_automation 自研扩展：直接加载打包资源，经 loopback AutomationBridge(18765) 与主进程通信；注册后由桥接签发连接级 Token。
+- AI 自动化：工作台内置在软件首页，卡片与会话操作经 preload/IPC 到主进程，页面动作经受认证 Runtime Bridge 进入 Chromium Fork。
 
 ## 8. 更新与退出
 

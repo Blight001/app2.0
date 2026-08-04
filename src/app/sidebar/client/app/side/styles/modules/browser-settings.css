@@ -1,7 +1,7 @@
 .tab-nav {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0;
   margin: 6px max(12px, calc((100% - var(--content-max)) / 2)) 12px;
   padding: 0;
@@ -60,6 +60,25 @@
   padding: 0 8px 16px;
   color: #e8edf6;
 }
+
+html.browser-settings-page .tab-nav { display: none; }
+html.browser-settings-page .settings-container {
+  max-width: 920px;
+  padding-inline: 18px;
+}
+
+.browser-settings-home { display: none; }
+html.browser-settings-page .browser-settings-home {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  padding: 26px 18px 8px;
+}
+.browser-settings-home-logo { width: 84px; height: 84px; object-fit: contain; filter: drop-shadow(0 10px 22px rgba(0, 0, 0, .28)); }
+.browser-settings-create-browser { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 174px; padding: 11px 20px; border: 0; border-radius: 10px; color: #fff; background: var(--brand-grad); box-shadow: var(--brand-shadow); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.browser-settings-create-browser:disabled { opacity: .58; cursor: wait; }
+.browser-settings-create-browser svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-width: 2.2; }
 
 .settings-container { width: 100%; max-width: var(--content-max); margin: 0 auto; padding: 8px 2px 24px; box-sizing: border-box; }
 .browser-default-settings-btn { min-height: 32px; padding: 0 12px; border: 1px solid rgba(91, 116, 153, .52); border-radius: 9px; color: #c7d6e9; background: rgba(29, 38, 53, .8); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }

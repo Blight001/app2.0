@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
@@ -10,6 +11,7 @@ const JavaScriptObfuscator = require('javascript-obfuscator');
 const {
   buildObfuscationOptions,
 } = require('../../scripts/obfuscate-packaged-extensions');
+const obfuscatePackagedExtensions = require('../../scripts/obfuscate-packaged-extensions').default;
 
 test('executeScript host files keep serialized page functions self-contained', async () => {
   const source = `
@@ -47,17 +49,8 @@ test('executeScript host files keep serialized page functions self-contained', a
   assert.equal(await vm.runInContext('invokePage()', workerContext), 'observed-page-content');
 });
 
-test('browser automation hosts use the executeScript-safe production settings', () => {
-  const root = path.join(__dirname, '..', '..');
-  const browserTools = fs.readFileSync(
-    path.join(root, 'src/assets/extensions/browser_automation/background/10_browser_tools.js'),
-    'utf8',
-  );
-  const contentObserve = fs.readFileSync(
-    path.join(root, 'src/assets/extensions/browser_automation/content/observe.js'),
-    'utf8',
-  );
-
-  assert.equal(buildObfuscationOptions(browserTools).stringArray, false);
-  assert.equal(buildObfuscationOptions(contentObserve).stringArray, true);
+test('packaging without configured extensions accepts an absent extension directory', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-free-no-packaged-extensions-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  await assert.doesNotReject(obfuscatePackagedExtensions({ appOutDir: root }));
 });

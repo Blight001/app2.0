@@ -78,18 +78,30 @@ function closeSidebarAccountAuth() {
 }
 
 function openAccountCenterPanel() {
+  if (!safeGetEl('account-center-panel')) {
+    window.aiFree?.ui?.requestAccountCenter?.();
+    return;
+  }
   window.activateSidebarPanel?.('account-center-panel');
   if (!isSidebarAccountAuthenticated()) openSidebarAccountAuth('login');
 }
 
 function isSidebarAccountAuthenticated() {
-  return safeGetEl('sidebar-account-session')?.dataset.authenticated === 'true';
+  const profile = safeGetEl('sidebar-account-session');
+  if (profile) return profile.dataset.authenticated === 'true';
+  return document.documentElement.dataset.accountAuthenticated === 'true';
 }
 
 // 返回 true 表示本次操作已被登录门禁接管，只切换侧边栏栏目，
 // 不发起任何业务服务器请求。
-function redirectToSidebarAccountLogin() {
+async function redirectToSidebarAccountLogin() {
   if (isSidebarAccountAuthenticated()) return false;
+  if (!safeGetEl('sidebar-account-session')) {
+    const session = await window.aiFree?.account?.getSession?.().catch(() => null);
+    const authenticated = session?.authenticated === true;
+    document.documentElement.dataset.accountAuthenticated = String(authenticated);
+    if (authenticated) return false;
+  }
   openAccountCenterPanel();
   return true;
 }

@@ -272,6 +272,7 @@ class AppShellRuntime {
     });
     this.createMainWindow = mainController.createMainWindow;
     this.revealMainWindow = mainController.revealMainWindow;
+    this.setBrowserSettingsPageVisible = mainController.setBrowserSettingsPageVisible;
     this.bootstrapMainApp = this.createBootstrapMainApp();
   }
 
@@ -285,6 +286,7 @@ class AppShellRuntime {
       ensureAnnouncementPoller: this.ensureAnnouncementPoller.bind(this),
       isControlPanelOnlyModeEnabled: this.isControlPanelOnlyModeEnabled.bind(this),
       revealMainWindow: this.revealMainWindow,
+      setBrowserSettingsPageVisible: this.setBrowserSettingsPageVisible,
       resolveActiveTabId: this.resolveActiveTabId.bind(this),
       resolveAddTab: this.resolveAddTab.bind(this),
       resolveAuth: this.resolveAuth.bind(this),

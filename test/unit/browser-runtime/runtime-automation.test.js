@@ -49,16 +49,14 @@ test('routes native automation only to a live managed Chromium process', async (
   );
 });
 
-test('fork automation commands are allowlisted and the extension no longer injects on every page', () => {
+test('fork automation commands are allowlisted without an automation extension', () => {
   assert.equal(ALLOWED_COMMANDS.has('open-tabs'), true);
   for (const command of ['observe-page', 'capture-screenshot', 'perform-action', 'get-session-data']) {
     assert.equal(ALLOWED_COMMANDS.has(command), true);
   }
-  const manifestPath = path.join(
-    __dirname, '../../../src/assets/extensions/browser_automation/manifest.json',
-  );
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  assert.equal(Object.hasOwn(manifest, 'content_scripts'), false);
+  assert.equal(fs.existsSync(path.join(
+    __dirname, '../../../src/assets/extensions/browser_automation',
+  )), false);
 });
 
 test('fork click patch uses an event-transparent visible Chromium pointer', () => {
