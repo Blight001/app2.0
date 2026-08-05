@@ -59,8 +59,10 @@ async function main() {
     const card = document.getElementById('sidebar-account-session');
     return {
       active: !!panel && panel.classList.contains('active'),
-      sameColumn: document.getElementById('announcement-bar')?.parentElement === card
-        && document.querySelector('.personal-footer')?.parentElement === card,
+      sameColumn: document.getElementById('announcement-bar')?.parentElement === card,
+      footerPinnedToBottom: document.querySelector('.personal-footer')?.parentElement === panel,
+      woolResourceBelowRedeem: document.querySelector('.sidebar-quota-redeem')?.nextElementSibling
+        === document.querySelector('.account-wool-resource'),
       dialogShellRemoved: !document.getElementById('account-center-dialog')
         && !document.querySelector('.account-center-dialog-panel'),
     };

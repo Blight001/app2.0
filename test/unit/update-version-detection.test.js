@@ -138,6 +138,25 @@ test('公告轮询启动后立即拉取并下发，不等待首个定时间隔',
   assert.equal(requestCount, 1);
 });
 
+test('切换侧栏页面重新刷新时同一公告在本次软件运行中只展示一次', async () => {
+  let deliveryCount = 0;
+  const poller = createAnnouncementPoller({
+    getJson: async () => ({ success: true, data: [{ id: 10, content: '仅展示一次' }] }),
+    getServerBase: () => 'https://example.test',
+    shouldPoll: () => true,
+    sendToSide: (channel) => {
+      if (channel === 'server-message') deliveryCount += 1;
+      return true;
+    },
+    logger: { log() {}, warn() {} },
+  });
+
+  await poller.refreshNow();
+  await poller.refreshNow({ resetDelivery: true });
+
+  assert.equal(deliveryCount, 1);
+});
+
 test('主进程仅对高于当前版本的公告发出更新提醒', async () => {
   const events = [];
   const updater = createAppUpdater({

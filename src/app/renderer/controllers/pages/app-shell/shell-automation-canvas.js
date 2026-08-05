@@ -149,11 +149,11 @@
   function renderInspector() {
     const index = stepIndex(state.selectedNode);
     const step = state.card.steps[index];
+    const inspector = element('automation-node-inspector');
     const fields = element('automation-node-fields');
-    const empty = element('automation-node-empty');
-    if (!fields || !empty) return;
+    if (!inspector || !fields) return;
+    inspector.hidden = !step;
     fields.hidden = !step;
-    empty.hidden = Boolean(step);
     if (!step) return;
     element('automation-node-title').textContent = `节点 #${index + 1}`;
     for (const control of fields.querySelectorAll('[data-node-field]')) {
@@ -302,15 +302,36 @@
     state.x = 0; state.y = 0; state.scale = 1; notify(); render();
   }
 
-  function zoom(delta) {
-    state.scale = Math.min(2, Math.max(0.4, Math.round((state.scale + delta) * 10) / 10));
+  function setZoom(nextScale, anchor = null) {
+    const previousScale = state.scale;
+    state.scale = Math.min(2, Math.max(0.4, Math.round(nextScale * 10) / 10));
+    if (anchor && state.scale !== previousScale) {
+      const rect = element('automation-flow-canvas').getBoundingClientRect();
+      const localX = anchor.clientX - rect.left;
+      const localY = anchor.clientY - rect.top;
+      const contentX = (localX - state.x) / previousScale;
+      const contentY = (localY - state.y) / previousScale;
+      state.x = localX - contentX * state.scale;
+      state.y = localY - contentY * state.scale;
+    }
     applyTransform();
+  }
+
+  function zoom(delta) { setZoom(state.scale + delta); }
+
+  function zoomFromWheel(event) {
+    event.preventDefault();
+    if (event.deltaY === 0) return;
+    setZoom(state.scale + (event.deltaY < 0 ? 0.1 : -0.1), event);
   }
 
   function beginPan(event) {
     const canvas = element('automation-flow-canvas');
-    if (event.button !== 0 || ![canvas, element('automation-flow-viewport'), element('automation-flow-svg')].includes(event.target)) return;
-    event.preventDefault(); canvas.classList.add('is-panning');
+    const panTargets = [canvas, element('automation-flow-viewport'), element('automation-flow-svg'), element('automation-flow-nodes')];
+    if (event.button !== 0 || !panTargets.includes(event.target)) return;
+    event.preventDefault();
+    state.selectedNode = ''; state.selectedEdge = ''; render();
+    canvas.classList.add('is-panning');
     const start = { clientX: event.clientX, clientY: event.clientY, x: state.x, y: state.y };
     const move = (next) => { state.x = start.x + next.clientX - start.clientX; state.y = start.y + next.clientY - start.clientY; applyTransform(); };
     const up = () => {
@@ -354,6 +375,7 @@
       else moveSelected(button.dataset.nodeCommand === 'up' ? -1 : 1);
     }));
     element('automation-flow-canvas').addEventListener('pointerdown', beginPan);
+    element('automation-flow-canvas').addEventListener('wheel', zoomFromWheel, { passive: false });
     element('automation-flow-canvas').addEventListener('dragover', (event) => event.preventDefault());
     element('automation-flow-canvas').addEventListener('drop', (event) => {
       event.preventDefault();

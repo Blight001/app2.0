@@ -56,7 +56,6 @@ function createSidebarView(deps, mainWindow) {
     tabs: deps.resolveTabs(),
     activeTabId: deps.resolveActiveTabId(),
     refreshPage: deps.resolveRefreshActiveTab(),
-    rendererContextMenuSelector: '.browser-history-item, #browser-history-context-menu',
   });
   try { deps.resolveAuth()?.applyZhHantRequestPrefs(sideView.webContents.session, sideView.webContents); } catch (_) {}
   return sideView;
@@ -83,10 +82,9 @@ function loadSidebar(deps, sideView) {
 
 async function handleSidebarLoaded(deps, mainWindow) {
   deps.setSideAnnouncementReady(true);
-  const shouldRestoreAnnouncements = deps.finishInitialSidebarLoad();
   try {
     if (deps.canPollAnnouncements()) {
-      await deps.ensureAnnouncementPoller().refreshNow({ resetDelivery: shouldRestoreAnnouncements });
+      await deps.ensureAnnouncementPoller().refreshNow();
     }
   } catch (error) {
     deps.logger.warn?.('[公告轮询] 侧边栏加载完成后刷新失败:', error?.message || error);

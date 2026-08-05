@@ -5,24 +5,12 @@ constructor({
   el,
   getBrowserHistory,
   getBrowserProfileAudit,
-  getSelectedHistoryIds,
-  setSelectedHistoryIds,
   openBrowserHistory,
   selectBrowserHistory,
-  openSelectedBrowserHistory,
-  renameSelectedBrowserHistory,
-  deleteSelectedBrowserHistory,
 }) {
-    Object.assign(this, {
-      el, getBrowserHistory, getBrowserProfileAudit, getSelectedHistoryIds, setSelectedHistoryIds,
-      openBrowserHistory, selectBrowserHistory,
-      openSelectedBrowserHistory, renameSelectedBrowserHistory, deleteSelectedBrowserHistory,
-    });
-    this.contextHistoryIds = new Set();
+    Object.assign(this, { el, getBrowserHistory, getBrowserProfileAudit, openBrowserHistory, selectBrowserHistory });
     for (const name of [
-      'renderBrowserHistory', 'renderBrowserProfileAudit', 'getSelectedBrowserHistory',
-      'toggleBrowserHistorySelection', 'ensureBrowserHistoryContextMenu',
-      'hideBrowserHistoryContextMenu', 'showBrowserHistoryContextMenu', 'formatBrowserHistoryDateTime',
+      'renderBrowserHistory', 'renderBrowserProfileAudit', 'formatBrowserHistoryDateTime',
     ]) this[name] = this[name].bind(this);
   }
 
@@ -58,7 +46,6 @@ constructor({
     this.getBrowserHistory().forEach((item) => {
       const row = document.createElement('div');
       row.className = 'browser-history-item';
-      row.classList.toggle('is-selected', this.getSelectedHistoryIds().has(item.id));
       row.classList.toggle('is-open', item.isOpen === true);
       row.classList.toggle('is-active', item.isActive === true);
       row.classList.toggle('has-error', !!item.lastError);
@@ -67,48 +54,25 @@ constructor({
       const main = document.createElement('button');
       main.type = 'button';
       main.className = 'browser-history-main';
-      main.title = `${item.name || '未命名浏览器'}（单击选择，双击打开，右键批量操作）`;
-      main.setAttribute('aria-pressed', this.getSelectedHistoryIds().has(item.id) ? 'true' : 'false');
-      main.setAttribute('aria-label', `${item.name || '未命名浏览器'}，${item.isActive ? '当前浏览器' : (item.isOpen ? '已打开' : '已关闭')}，单击选择，双击打开`);
+      main.title = `${item.name || '未命名浏览器'}（单击打开）`;
+      main.setAttribute('aria-label', `${item.name || '未命名浏览器'}，${item.isActive ? '当前浏览器' : (item.isOpen ? '已打开' : '已关闭')}，单击打开`);
       const name = document.createElement('span');
       name.className = 'browser-history-name';
       name.textContent = item.name || '未命名浏览器';
       main.append(name);
       this.appendAccountMetadata(main, item);
-      main.addEventListener('click', (event) => {
-        if (event.button === 0) this.toggleBrowserHistorySelection(item.id);
-      });
-      main.addEventListener('dblclick', (event) => {
-        if (event.button !== 0) return;
-        event.preventDefault();
-        void this.openBrowserHistory(item.id);
-      });
+      main.addEventListener('click', () => void this.openBrowserHistory(item.id, main));
   
       const actions = document.createElement('div');
       actions.className = 'browser-history-actions';
-      const open = document.createElement('button');
-      open.type = 'button';
-      open.className = 'browser-history-action browser-history-open';
-      open.textContent = '打开';
-      open.title = '打开浏览器';
-      open.addEventListener('click', () => void this.openBrowserHistory(item.id, open));
       const edit = document.createElement('button');
       edit.type = 'button';
       edit.className = 'browser-history-action browser-history-edit';
       edit.textContent = '编辑';
       edit.title = '编辑名称、参数或删除浏览器';
       edit.addEventListener('click', () => void this.selectBrowserHistory(item.id, { openDialog: true }));
-      actions.append(open, edit);
+      actions.append(edit);
       row.append(main, actions);
-      row.addEventListener('contextmenu', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const selectedIds = this.getSelectedHistoryIds();
-        this.contextHistoryIds = selectedIds.has(item.id)
-          ? new Set(selectedIds)
-          : new Set([item.id]);
-        this.showBrowserHistoryContextMenu(event.clientX, event.clientY);
-      });
       list.appendChild(row);
     });
   }
@@ -122,74 +86,6 @@ constructor({
         ? `环境 ${totalCount}`
         : '';
     }
-  }
-  
-  getSelectedBrowserHistory() {
-    return this.getBrowserHistory().filter((item) => this.getSelectedHistoryIds().has(item.id));
-  }
-  
-  toggleBrowserHistorySelection(historyId) {
-    const id = String(historyId || '');
-    if (!id) return;
-    const next = new Set(this.getSelectedHistoryIds());
-    if (next.has(id)) next.delete(id); else next.add(id);
-    this.setSelectedHistoryIds(next);
-    this.hideBrowserHistoryContextMenu();
-    this.renderBrowserHistory();
-  }
-
-  ensureBrowserHistoryContextMenu() {
-    let menu = this.el('browser-history-context-menu');
-    if (menu) return menu;
-    menu = document.createElement('div');
-    menu.id = 'browser-history-context-menu';
-    menu.className = 'browser-history-context-menu';
-    menu.setAttribute('role', 'menu');
-    menu.setAttribute('aria-hidden', 'true');
-    menu.innerHTML = `
-      <div class="browser-history-context-summary"></div>
-      <button type="button" role="menuitem" data-browser-history-command="open">批量打开</button>
-      <button type="button" role="menuitem" data-browser-history-command="rename">批量重命名</button>
-      <button type="button" role="menuitem" class="is-danger" data-browser-history-command="delete">批量删除</button>
-    `;
-    menu.addEventListener('click', (event) => {
-      const command = event.target.closest('[data-browser-history-command]')?.dataset.browserHistoryCommand;
-      if (!command) return;
-      this.setSelectedHistoryIds(new Set(this.contextHistoryIds));
-      this.hideBrowserHistoryContextMenu();
-      if (command === 'open') void this.openSelectedBrowserHistory();
-      if (command === 'rename') this.renameSelectedBrowserHistory();
-      if (command === 'delete') this.deleteSelectedBrowserHistory();
-    });
-    document.body.appendChild(menu);
-    return menu;
-  }
-  
-  hideBrowserHistoryContextMenu() {
-    const menu = this.el('browser-history-context-menu');
-    if (!menu) return;
-    menu.classList.remove('is-visible');
-    menu.setAttribute('aria-hidden', 'true');
-    this.contextHistoryIds = new Set();
-  }
-  
-  showBrowserHistoryContextMenu(x, y) {
-    const items = this.getBrowserHistory().filter((item) => this.contextHistoryIds.has(item.id));
-    if (!items.length) return;
-    const menu = this.ensureBrowserHistoryContextMenu();
-    const summary = menu.querySelector('.browser-history-context-summary');
-    if (summary) summary.textContent = `已选择 ${items.length} 个浏览器`;
-    menu.querySelectorAll('[data-browser-history-command]').forEach((button) => {
-      const label = button.dataset.browserHistoryCommand === 'open'
-        ? '打开'
-        : button.dataset.browserHistoryCommand === 'rename' ? '重命名' : '删除';
-      button.textContent = `${label}选中项（${items.length}）`;
-    });
-    menu.classList.add('is-visible');
-    menu.setAttribute('aria-hidden', 'false');
-    const rect = menu.getBoundingClientRect();
-    menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - rect.width - 8))}px`;
-    menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))}px`;
   }
   
   formatBrowserHistoryDateTime(value) {

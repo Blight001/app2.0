@@ -20,8 +20,6 @@ function syncVpnNodeSelectorState() {
     return;
   }
 
-  setVpnNodeSelectorOpen(true);
-
   if (vpnNodeSelectorGroup) {
     vpnNodeSelectorGroup.textContent = String(clashMiniProxyState.groupName || '节点选择').trim() || '节点选择';
   }
@@ -180,7 +178,7 @@ async function fetchVpnNodeSelectorOptions(probeDelays) {
 
     syncVpnNodeSelectorState();
     scheduleVpnNodeSelectorRender({ forceFull: true });
-    if (probeDelays === true) await probeUnmeasuredVpnNodes(result.proxies);
+    if (probeDelays === true) void probeUnmeasuredVpnNodes(result.proxies);
     return result;
   } catch (error) {
     console.warn('[侧边栏] 获取节点列表失败:', error?.message || error);
@@ -261,9 +259,12 @@ function updateClashStartButton(button, { running, enabled, isBusy }) {
 
 function updateClashVpnButton(button, { enabled, isBusy }) {
   if (!button) return;
+  if (isBusy) {
+    button.disabled = true;
+    return;
+  }
   button.textContent = enabled ? '关闭网络魔法' : '开启网络魔法';
   button.title = enabled ? '点击关闭网络魔法' : '点击开启网络魔法';
-  if (isBusy) button.disabled = true;
 }
 
 function handleClashStatusTransition(wasRunning, enabled, loadProxyOptions) {

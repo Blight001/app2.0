@@ -74,28 +74,35 @@
               </div>
             </section>
 
-            <div class="wool-resource-inline" aria-label="羊毛资源">
-              <div id="wool-resource-title" class="settings-network-tools-subtitle wool-resource-title" hidden>羊毛资源</div>
-              <div id="wool-platform-buttons" class="wool-platform-buttons" hidden></div>
-            </div>
-
             <div class="settings-network-tools-subtitle settings-network-tools-proxy-title">内置代理</div>
             <div class="vpn-buttons-container">
               <button id="VPN-switch" class="main-button btn-large-purple VPN-btn" type="button" disabled>关闭网络魔法</button>
             </div>
 
             <div class="vpn-node-selector-shell">
-              <div id="vpn-node-selector-panel" class="vpn-node-selector-panel is-open">
+              <button id="vpn-node-selector-toggle-btn" class="vpn-node-selector-btn vpn-node-selector-btn-toggle" type="button" aria-expanded="false" aria-controls="vpn-node-selector-panel" disabled>
+                <span class="vpn-node-selector-toggle-text">切换节点</span>
+                <svg class="vpn-node-selector-toggle-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+              </button>
+              <div id="vpn-node-selector-panel" class="vpn-node-selector-panel" hidden>
                 <div class="vpn-node-selector-panel-head">
-                  <div class="vpn-node-selector-panel-heading">
-                    <span class="vpn-node-selector-panel-title">切换节点</span>
-                    <button id="vpn-node-retest-all-btn" class="vpn-node-retest-all" type="button" disabled>重新测速</button>
-                  </div>
                   <span id="vpn-node-selector-group" class="vpn-node-selector-panel-subtitle">节点选择</span>
+                  <button id="vpn-node-retest-all-btn" class="vpn-node-retest-all" type="button" disabled>重新测速</button>
                 </div>
                 <div id="vpn-node-selector-grid" class="vpn-node-selector-grid"></div>
               </div>
             </div>
+
+            <section class="automation-workbench-launcher" aria-label="原生 Chromium 控制">
+              <button id="automation-workbench-open" class="automation-workbench-open" type="button" aria-haspopup="dialog" aria-controls="automation-workbench-dialog" aria-expanded="false">
+                <span>
+                  <span class="automation-kicker">原生 Chromium 控制</span>
+                  <strong>AI 自动化工作台</strong>
+                  <small>管理并运行自动化卡片</small>
+                </span>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"></path></svg>
+              </button>
+            </section>
 
             <button id="start-clash-mini-btn" class="main-button btn-large-teal" type="button" data-loading-text="启动中..." hidden>启动 Clash Mini</button>
 
@@ -180,7 +187,9 @@
             </div>
           </section>
         </form>
-        <section id="automation-workbench" class="automation-workbench" aria-labelledby="automation-workbench-title">
+        <dialog id="automation-workbench-dialog" class="automation-workbench-dialog" aria-labelledby="automation-workbench-title">
+        <section id="automation-workbench" class="automation-workbench">
+          <button id="automation-workbench-close" class="automation-workbench-close" type="button" aria-label="关闭 AI 自动化工作台">×</button>
           <header class="automation-workbench-header">
             <div>
               <p class="automation-kicker">原生 Chromium 控制</p>
@@ -208,12 +217,7 @@
                 <input id="automation-import-file" type="file" accept="application/json,.json" hidden>
               </div>
             </aside>
-            <form id="automation-editor" class="automation-editor">
-              <div class="automation-fields">
-                <label>卡片名称<input id="automation-card-name" name="name" required maxlength="160"></label>
-                <label>目标网站<input id="automation-card-website" name="website" type="url" placeholder="https://example.com"></label>
-              </div>
-              <label>说明<textarea id="automation-card-description" name="description" rows="2"></textarea></label>
+            <form id="automation-editor" class="automation-editor" novalidate>
               <section class="automation-canvas-section" aria-labelledby="automation-canvas-title">
                 <header class="automation-canvas-header">
                   <div><strong id="automation-canvas-title">流程画布</strong><small>拖动节点与端点，编辑原生自动化流程</small></div>
@@ -243,7 +247,6 @@
                     <p id="automation-flow-empty" class="automation-flow-empty">暂无节点，请从上方添加步骤。</p>
                   </div>
                   <aside id="automation-node-inspector" class="automation-node-inspector" aria-label="节点设置">
-                    <p id="automation-node-empty">选择画布节点后编辑参数。</p>
                     <div id="automation-node-fields" hidden>
                       <div class="automation-node-heading">
                         <strong id="automation-node-title">节点设置</strong>
@@ -267,15 +270,35 @@
                 </div>
                 <p class="automation-canvas-hint">拖动节点调整位置；从右侧端点拖到目标节点左侧端点建立连线。判断节点提供 true / false 两个分支。点击连线后按 Delete 可移除。</p>
               </section>
-              <label class="automation-json-field">
-                <span>步骤 JSON <small>保留 flow、变量和全部扩展字段</small></span>
-                <textarea id="automation-card-steps" name="steps" rows="12" spellcheck="false"></textarea>
-              </label>
-              <label class="automation-json-field">
-                <span>运行输入 JSON <small>替换步骤中的 {变量名}</small></span>
-                <textarea id="automation-run-inputs" name="inputs" rows="4" spellcheck="false">{}</textarea>
-              </label>
+              <dialog id="automation-basic-info-dialog" class="automation-basic-info-dialog" aria-labelledby="automation-basic-info-title">
+                <header class="automation-basic-info-header">
+                  <div>
+                    <h3 id="automation-basic-info-title">基础信息</h3>
+                    <p>编辑卡片资料、步骤源码与运行输入。</p>
+                  </div>
+                  <button id="automation-basic-info-close" type="button" aria-label="关闭基础信息">×</button>
+                </header>
+                <div class="automation-basic-info-body">
+                  <div class="automation-fields">
+                    <label>卡片名称<input id="automation-card-name" name="name" maxlength="160"></label>
+                    <label>目标网站<input id="automation-card-website" name="website" type="url" placeholder="https://example.com"></label>
+                  </div>
+                  <label>说明<textarea id="automation-card-description" name="description" rows="2"></textarea></label>
+                  <label class="automation-json-field">
+                    <span>步骤 JSON <small>保留 flow、变量和全部扩展字段</small></span>
+                    <textarea id="automation-card-steps" name="steps" rows="12" spellcheck="false"></textarea>
+                  </label>
+                  <label class="automation-json-field">
+                    <span>运行输入 JSON <small>替换步骤中的 {变量名}</small></span>
+                    <textarea id="automation-run-inputs" name="inputs" rows="5" spellcheck="false">{}</textarea>
+                  </label>
+                </div>
+                <footer class="automation-basic-info-actions">
+                  <button id="automation-basic-info-done" class="automation-primary" type="button">完成</button>
+                </footer>
+              </dialog>
               <div class="automation-editor-actions">
+                <button id="automation-basic-info-open" type="button" aria-haspopup="dialog" aria-controls="automation-basic-info-dialog" aria-expanded="false">基础信息</button>
                 <button id="automation-save" type="submit">保存卡片</button>
                 <button id="automation-run" class="automation-primary" type="button">运行</button>
                 <button id="automation-save-session" type="button">保存当前会话</button>
@@ -285,6 +308,7 @@
             </form>
           </div>
         </section>
+        </dialog>
       </section>
       </main>
     </div>

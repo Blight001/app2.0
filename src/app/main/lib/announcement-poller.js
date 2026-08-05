@@ -16,7 +16,6 @@ class AnnouncementPoller {
     this.timer = null;
     this.inFlight = false;
     this.pendingPoll = false;
-    this.pendingDeliveryReset = false;
     this.lastServerBase = '';
     this.seenByServer = new Map();
   }
@@ -53,15 +52,14 @@ class AnnouncementPoller {
       : 'server-message';
   }
 
-  async pollOnce({ resetDelivery = false } = {}) {
+  async pollOnce() {
     if (this.inFlight) {
       this.pendingPoll = true;
-      this.pendingDeliveryReset = this.pendingDeliveryReset || resetDelivery;
       return;
     }
     this.inFlight = true;
     try {
-      await this.executePoll(resetDelivery);
+      await this.executePoll();
     } catch (error) {
       this.logger.warn?.('[公告轮询] 拉取公告失败:', error?.message || error);
     } finally {
@@ -69,7 +67,7 @@ class AnnouncementPoller {
     }
   }
 
-  async executePoll(resetDelivery) {
+  async executePoll() {
     if (typeof this.shouldPoll === 'function' && this.shouldPoll() !== true) return;
     const base = this.resolveServerBase();
     if (!base) return;
@@ -77,7 +75,6 @@ class AnnouncementPoller {
     const announcementRequest = this.getJson(`${base}/api/user_announcement`, this.timeoutMs);
     const heartbeatTask = this.startHeartbeat(base);
     const list = await this.readAnnouncements(announcementRequest);
-    if (resetDelivery) this.seenByServer.delete(base);
     await this.deliverAnnouncements(base, list);
     if (heartbeatTask) await heartbeatTask;
   }
@@ -154,11 +151,9 @@ class AnnouncementPoller {
 
   finishPoll() {
     this.inFlight = false;
-    if (!this.pendingPoll && !this.pendingDeliveryReset) return;
+    if (!this.pendingPoll) return;
     this.pendingPoll = false;
-    const resetDelivery = this.pendingDeliveryReset;
-    this.pendingDeliveryReset = false;
-    void this.pollOnce({ resetDelivery });
+    void this.pollOnce();
   }
 
   start() {
@@ -177,7 +172,7 @@ class AnnouncementPoller {
     return {
       start: () => this.start(),
       stop: () => this.stop(),
-      refreshNow: (options) => this.pollOnce(options),
+      refreshNow: () => this.pollOnce(),
     };
   }
 }

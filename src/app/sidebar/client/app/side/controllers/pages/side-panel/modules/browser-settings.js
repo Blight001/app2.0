@@ -4,7 +4,6 @@
   let browserHistory = [];
   let browserProfileAudit = null;
   let selectedHistoryId = '';
-  let selectedHistoryIds = new Set();
   let historyRefreshTimer = null;
   let browserHistoryRefreshCount = 0;
   let browserSettingsPreviousFocus = null;
@@ -85,24 +84,15 @@
   const {
     renderBrowserHistory,
     renderBrowserProfileAudit,
-    getSelectedBrowserHistory,
-    hideBrowserHistoryContextMenu,
     formatBrowserHistoryDateTime,
   } = window.createAiFreeBrowserHistoryView({
     el,
     getBrowserHistory: () => browserHistory,
     getBrowserProfileAudit: () => browserProfileAudit,
-    getSelectedHistoryIds: () => selectedHistoryIds,
-    setSelectedHistoryIds: (next) => { selectedHistoryIds = next; },
     openBrowserHistory,
     selectBrowserHistory,
-    openSelectedBrowserHistory,
-    renameSelectedBrowserHistory,
-    deleteSelectedBrowserHistory,
   });
   function updateBrowserHistorySelection(options) {
-    const availableIds = new Set(browserHistory.map((item) => item.id));
-    selectedHistoryIds = new Set([...selectedHistoryIds].filter((id) => availableIds.has(id)));
     const keepEmpty = !selectedHistoryId && (options.keepEmptySelection === true || editingDefaultSettings);
     const selectionStillValid = options.keepSelection === true
       && browserHistory.some((item) => item.id === selectedHistoryId);
@@ -213,7 +203,6 @@
         clearTimeout(historyRefreshTimer);
         await animateBrowserHistoryRemoval(item.id);
         if (selectedHistoryId === item.id) selectedHistoryId = '';
-        selectedHistoryIds.delete(item.id);
         await refreshBrowserHistory({ silent: true, animate: false });
         if (options.closeDialogOnSuccess === true) {
           closeBrowserSettingsDialog();
@@ -223,94 +212,6 @@
         setStatus(`已删除“${response.name || name}”`, 'success');
       } catch (error) {
         setStatus(error?.message || String(error), 'error');
-      }
-    }, null, 'warning');
-  }
-
-  async function openSelectedBrowserHistory() {
-    const items = getSelectedBrowserHistory();
-    if (!items.length) return;
-    setStatus(`正在打开 ${items.length} 个浏览器…`);
-    const failed = [];
-    for (const item of items) {
-      try {
-        const response = await window.aiFree.browser.openHistory( { historyId: item.id });
-        if (!response?.ok) throw new Error(response?.error || '打开失败');
-      } catch (error) {
-        failed.push(`${item.name}：${error?.message || String(error)}`);
-      }
-    }
-    await refreshBrowserHistory({ keepSelection: true, silent: true, animate: false });
-    if (failed.length) {
-      setStatus(`已打开 ${items.length - failed.length} 个，失败 ${failed.length} 个：${failed.join('；')}`, 'error');
-    } else {
-      setStatus(`已打开 ${items.length} 个浏览器`, 'success');
-    }
-  }
-
-  function renameSelectedBrowserHistory() {
-    const items = getSelectedBrowserHistory();
-    if (!items.length) return;
-    if (!window.MessageModal?.showPromptDialog) {
-      setStatus('软件重命名弹窗未就绪', 'error');
-      return;
-    }
-    const initialName = items.length === 1
-      ? items[0].name
-      : String(items[0].name || '新建窗口').replace(/\[\d+\]$/, '');
-    const message = items.length === 1
-      ? '请输入新的浏览器名称'
-      : `请输入名称前缀，${items.length} 个浏览器将依次命名为“名称[1]”到“名称[${items.length}]”`;
-    window.MessageModal.showPromptDialog(message, initialName, async (requestedName) => {
-      const baseName = String(requestedName || '').trim();
-      setStatus(`正在重命名 ${items.length} 个浏览器…`);
-      try {
-        const response = await window.aiFree.browser.renameHistoryBatch( {
-          historyIds: items.map((item) => item.id),
-          baseName,
-        });
-        if (!response?.ok) throw new Error(response?.error || '批量重命名失败');
-        await refreshBrowserHistory({ keepSelection: true, silent: true, animate: false });
-        setStatus(items.length === 1 ? `已重命名为“${baseName}”` : `已按“${baseName}[n]”重命名 ${items.length} 个浏览器`, 'success');
-      } catch (error) {
-        setStatus(error?.message || String(error), 'error');
-        throw error;
-      }
-    }, null, { title: items.length === 1 ? '重命名浏览器' : '批量重命名浏览器', confirmText: '保存', maxLength: 70 });
-  }
-
-  function deleteSelectedBrowserHistory() {
-    const items = getSelectedBrowserHistory();
-    if (!items.length) return;
-    if (!window.MessageModal?.showConfirmDialog) {
-      setStatus('软件确认弹窗未就绪', 'error');
-      return;
-    }
-    const openCount = items.filter((item) => item.isOpen).length;
-    const detail = openCount ? `，其中 ${openCount} 个已打开的窗口会先关闭` : '';
-    window.MessageModal.showConfirmDialog(`确认删除选中的 ${items.length} 条浏览器记录${detail}？`, async () => {
-      const failed = [];
-      const deletedIds = [];
-      setStatus(`正在删除 ${items.length} 个浏览器…`);
-      for (const item of items) {
-        try {
-          const response = await window.aiFree.browser.deleteHistory( { historyId: item.id });
-          if (!response?.ok) throw new Error(response?.error || '删除失败');
-          clearTimeout(historyRefreshTimer);
-          deletedIds.push(item.id);
-          selectedHistoryIds.delete(item.id);
-          if (selectedHistoryId === item.id) selectedHistoryId = '';
-        } catch (error) {
-          failed.push(`${item.name}：${error?.message || String(error)}`);
-        }
-      }
-      clearTimeout(historyRefreshTimer);
-      await animateBrowserHistoryRemoval(deletedIds);
-      await refreshBrowserHistory({ keepSelection: true, silent: true, animate: false });
-      if (failed.length) {
-        setStatus(`已删除 ${items.length - failed.length} 个，失败 ${failed.length} 个：${failed.join('；')}`, 'error');
-      } else {
-        setStatus(`已删除 ${items.length} 个浏览器`, 'success');
       }
     }, null, 'warning');
   }
@@ -471,7 +372,7 @@
       closeBrowserSettingsDialog, deleteBrowserHistory, el, extractProxy,
       getBrowserHistory: () => browserHistory,
       getSelectedHistoryId: () => selectedHistoryId,
-      hideBrowserHistoryContextMenu, loadSettings, openDefaultBrowserSettings,
+      loadSettings, openDefaultBrowserSettings,
       randomIdentity, refreshBrowserHistory, resetSettings, saveSettings,
       scheduleBrowserHistoryRefresh, setSegment, setValue, syncConditionalFields,
       testProxy,

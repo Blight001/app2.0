@@ -303,10 +303,11 @@ body.expanding {
   justify-content: space-between;
   gap: 12px;
   flex: 0 0 auto;
-  margin-top: auto;
-  padding-top: 12px;
-  padding-bottom: 2px;
+  width: min(430px, 100%);
+  margin: 0 auto;
+  padding: 10px 16px 2px;
   border-top: 1px solid rgba(120, 145, 185, 0.16);
+  box-sizing: border-box;
 }
 
 .personal-footer .footer-left {
@@ -446,6 +447,28 @@ html.theme-light .sidebar-quota-redeem-row input {
   text-overflow: ellipsis;
   color: #35526f;
   font-weight: 600;
+}
+
+.account-wool-resource {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(120, 145, 185, 0.16);
+}
+
+.account-wool-resource-title {
+  color: #8a9bb5;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.account-wool-resource-title[hidden] {
+  display: none !important;
+}
+
+html.theme-light .account-wool-resource {
+  border-color: rgba(86, 121, 165, 0.14);
 }
 
 .update-widget-ring {

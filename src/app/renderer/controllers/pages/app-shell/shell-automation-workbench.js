@@ -1,5 +1,5 @@
 (() => {
-  const state = { cards: [], connections: [], selectedId: '', cardData: null, busy: false };
+  const state = { cards: [], connections: [], selectedId: '', cardData: null, busy: false, initialized: false };
 
   function element(id) { return document.getElementById(id); }
 
@@ -19,10 +19,16 @@
   function cardDraft() {
     const steps = parseJson('automation-card-steps', []);
     if (!Array.isArray(steps)) throw new Error('步骤 JSON 必须是数组');
+    const name = String(element('automation-card-name')?.value || '').trim();
+    if (!name) throw new Error('请在基础信息中填写卡片名称');
+    const website = String(element('automation-card-website')?.value || '').trim();
+    if (website) {
+      try { new URL(website); } catch (_) { throw new Error('目标网站 URL 格式错误'); }
+    }
     return {
       ...(state.cardData || {}),
-      name: String(element('automation-card-name')?.value || '').trim(),
-      website: String(element('automation-card-website')?.value || '').trim(),
+      name,
+      website,
       description: String(element('automation-card-description')?.value || '').trim(),
       steps,
     };
@@ -106,7 +112,8 @@
       state.cardData = { ...(state.cardData || {}), steps };
       window.AppShellAutomationCanvas?.show?.(state.cardData);
       setStatus('步骤 JSON 已同步到流程画布。');
-    } catch (error) { setStatus(error.message); }
+      return true;
+    } catch (error) { setStatus(error.message); return false; }
   }
 
   async function loadCard(id) {
@@ -224,11 +231,75 @@
     } catch (error) { setStatus(error.message); }
   }
 
+  function bindDialog() {
+    const dialog = element('automation-workbench-dialog');
+    const opener = element('automation-workbench-open');
+    if (!dialog || !opener) return;
+    opener.addEventListener('click', () => {
+      if (typeof dialog.showModal === 'function') dialog.showModal();
+      else dialog.setAttribute('open', '');
+      opener.setAttribute('aria-expanded', 'true');
+      if (!state.initialized) {
+        state.initialized = true;
+        void refresh();
+      } else {
+        window.AppShellAutomationCanvas?.show?.(state.cardData || {});
+      }
+    });
+    element('automation-workbench-close')?.addEventListener('click', () => dialog.close());
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+    dialog.addEventListener('close', () => {
+      opener.setAttribute('aria-expanded', 'false');
+      opener.focus();
+    });
+  }
+
+  function setBasicInfoDialogOpen(open) {
+    const dialog = element('automation-basic-info-dialog');
+    const opener = element('automation-basic-info-open');
+    if (!dialog || !opener) return;
+    if (open) {
+      if (!dialog.open) {
+        if (typeof dialog.showModal === 'function') dialog.showModal();
+        else dialog.setAttribute('open', '');
+      }
+      opener.setAttribute('aria-expanded', 'true');
+      return;
+    }
+    if (dialog.open && typeof dialog.close === 'function') dialog.close();
+    else dialog.removeAttribute('open');
+  }
+
+  function bindBasicInfoDialog() {
+    const dialog = element('automation-basic-info-dialog');
+    const opener = element('automation-basic-info-open');
+    if (!dialog || !opener) return;
+    opener.addEventListener('click', () => setBasicInfoDialogOpen(true));
+    element('automation-basic-info-close')?.addEventListener('click', () => setBasicInfoDialogOpen(false));
+    element('automation-basic-info-done')?.addEventListener('click', () => {
+      if (syncStepsToCanvas()) setBasicInfoDialogOpen(false);
+    });
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) setBasicInfoDialogOpen(false);
+    });
+    dialog.addEventListener('close', () => {
+      opener.setAttribute('aria-expanded', 'false');
+      opener.focus();
+    });
+  }
+
   function bind() {
+    bindDialog();
+    bindBasicInfoDialog();
     window.AppShellAutomationCanvas?.configure?.({ onChange: acceptCanvasCard });
     element('automation-editor')?.addEventListener('submit', (event) => {
       event.preventDefault();
-      void saveCard().catch((error) => setStatus(error.message));
+      void saveCard().catch((error) => {
+        setStatus(error.message);
+        if (/基础信息|JSON|URL/.test(error.message)) setBasicInfoDialogOpen(true);
+      });
     });
     element('automation-new')?.addEventListener('click', () => newCard());
     element('automation-refresh')?.addEventListener('click', () => void refresh());
@@ -239,7 +310,6 @@
     element('automation-import-file')?.addEventListener('change', (event) => void importCard(event.target.files?.[0]));
     element('automation-save-session')?.addEventListener('click', () => void saveSession());
     element('automation-card-steps')?.addEventListener('change', syncStepsToCanvas);
-    void refresh();
   }
 
   window.AppShellAutomationWorkbench = Object.freeze({ bind, refresh });

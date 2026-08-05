@@ -10,7 +10,6 @@ class AppShellRuntime {
     this.controlPanelWindow = null;
     this.announcementPoller = null;
     this.sideAnnouncementReady = false;
-    this.hasFinishedInitialSidebarLoad = false;
     this.initializeControllers();
   }
 
@@ -245,12 +244,6 @@ class AppShellRuntime {
     }
   }
 
-  finishInitialSidebarLoad() {
-    const wasFinished = this.hasFinishedInitialSidebarLoad;
-    this.hasFinishedInitialSidebarLoad = true;
-    return wasFinished;
-  }
-
   initializeControllers() {
     const mainController = createAppShellMainWindowController({
       ...this.deps,
@@ -258,7 +251,6 @@ class AppShellRuntime {
       closeDevConsoleWindow: this.closeDevConsoleWindow.bind(this),
       createControlPanelWindow: this.createControlPanelWindow.bind(this),
       ensureAnnouncementPoller: this.ensureAnnouncementPoller.bind(this),
-      finishInitialSidebarLoad: this.finishInitialSidebarLoad.bind(this),
       isControlPanelModeEnabled: this.isControlPanelModeEnabled.bind(this),
       resolveActiveTabId: this.resolveActiveTabId.bind(this),
       resolveAddTab: this.resolveAddTab.bind(this),
@@ -308,8 +300,8 @@ class AppShellRuntime {
     });
   }
 
-  refreshAnnouncements(options = {}) {
-    return this.ensureAnnouncementPoller().refreshNow(options);
+  refreshAnnouncements() {
+    return this.ensureAnnouncementPoller().refreshNow();
   }
 }
 

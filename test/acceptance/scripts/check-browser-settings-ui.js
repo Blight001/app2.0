@@ -104,9 +104,7 @@ app.whenReady().then(async () => {
     show: !!process.env.AI_FREE_UI_CAPTURE,
     webPreferences: { contextIsolation: true, preload: path.join(__dirname, '../../../src/app/main/preload.js') },
   });
-  attachContextMenu(win.webContents, {
-    rendererContextMenuSelector: '.browser-history-item, #browser-history-context-menu',
-  });
+  attachContextMenu(win.webContents);
   await win.loadFile(path.join(__dirname, '../../../src/app/views/app-shell.html'));
   await new Promise((resolve) => setTimeout(resolve, 120));
   const firstSidebarReadyMs = Number(process.hrtime.bigint() - performanceProbeStartedAt) / 1e6;
@@ -128,11 +126,89 @@ app.whenReady().then(async () => {
     document.getElementById('vpn-node-selector-grid')?.appendChild(animationProbe);
     const nodeAnimationName = getComputedStyle(animationProbe).animationName;
     animationProbe.remove();
+    const vpnButton = document.getElementById('VPN-switch');
+    const vpnButtonOriginal = {
+      busy: vpnButton?.dataset.busy,
+      disabled: vpnButton?.disabled,
+      text: vpnButton?.textContent,
+    };
+    if (vpnButton) {
+      vpnButton.dataset.busy = '1';
+      vpnButton.disabled = true;
+      vpnButton.textContent = '正在开启魔法请稍等';
+    }
+    const vpnBusyStyle = vpnButton ? getComputedStyle(vpnButton) : null;
+    const vpnAutoStartBusyAppearance = vpnButton?.textContent === '正在开启魔法请稍等'
+      && vpnButton.disabled === true
+      && vpnBusyStyle?.backgroundImage === 'none'
+      && vpnBusyStyle?.cursor === 'wait';
+    if (vpnButton) {
+      if (vpnButtonOriginal.busy === undefined) delete vpnButton.dataset.busy;
+      else vpnButton.dataset.busy = vpnButtonOriginal.busy;
+      vpnButton.disabled = vpnButtonOriginal.disabled;
+      vpnButton.textContent = vpnButtonOriginal.text;
+    }
+    const nodeToggle = document.getElementById('vpn-node-selector-toggle-btn');
+    const nodePanel = document.getElementById('vpn-node-selector-panel');
+    const nodePanelCollapsedByDefault = nodePanel?.hidden === true
+      && nodeToggle?.getAttribute('aria-expanded') === 'false';
+    const nodeToggleWasDisabled = nodeToggle?.disabled === true;
+    if (nodeToggle) nodeToggle.disabled = false;
+    nodeToggle?.click();
+    const nodePanelOpenedByToggle = nodePanel?.hidden === false
+      && nodeToggle?.getAttribute('aria-expanded') === 'true';
+    if (nodeToggle) nodeToggle.disabled = nodeToggleWasDisabled;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const automationDialog = document.getElementById('automation-workbench-dialog');
+    const automationInitiallyClosed = automationDialog?.open === false
+      && document.getElementById('automation-workbench')?.getBoundingClientRect().width === 0;
+    document.getElementById('automation-workbench-open')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const flowCanvas = document.getElementById('automation-flow-canvas');
+    const canvasShell = document.querySelector('.automation-canvas-shell');
+    const nodeInspector = document.getElementById('automation-node-inspector');
+    const inspectorHiddenWithoutSelection = nodeInspector?.hidden === true
+      && Math.abs(flowCanvas.getBoundingClientRect().right - canvasShell.getBoundingClientRect().right) <= 2;
+    const basicInfoDialog = document.getElementById('automation-basic-info-dialog');
+    const basicInfoInitiallyClosed = basicInfoDialog?.open === false;
+    const basicFieldsMovedToDialog = document.getElementById('automation-card-name')?.closest('dialog') === basicInfoDialog
+      && document.getElementById('automation-card-steps')?.closest('dialog') === basicInfoDialog
+      && document.getElementById('automation-run-inputs')?.closest('dialog') === basicInfoDialog;
+    document.getElementById('automation-basic-info-open')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const basicInfoDialogVisible = basicInfoDialog?.open === true
+      && basicInfoDialog.getBoundingClientRect().width > 0;
+    document.getElementById('automation-basic-info-done')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const canvasBounds = flowCanvas.getBoundingClientRect();
+    const panTarget = document.getElementById('automation-flow-nodes');
+    panTarget?.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true, button: 0, clientX: canvasBounds.left + 20, clientY: canvasBounds.top + 20,
+    }));
+    document.dispatchEvent(new PointerEvent('pointermove', {
+      bubbles: true, button: 0, clientX: canvasBounds.left + 70, clientY: canvasBounds.top + 55,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0 }));
+    const canvasPansFromBlankArea = document.getElementById('automation-flow-viewport')
+      ?.style.transform.includes('translate(50px, 35px)') === true;
+    const wheelEvent = new WheelEvent('wheel', {
+      bubbles: true, cancelable: true, deltaY: -100,
+      clientX: canvasBounds.left + canvasBounds.width / 2,
+      clientY: canvasBounds.top + canvasBounds.height / 2,
+    });
+    const wheelDefaultPrevented = flowCanvas.dispatchEvent(wheelEvent) === false;
+    const canvasZoomsFromWheel = document.getElementById('automation-flow-viewport')
+      ?.style.transform.includes('scale(1.1)') === true
+      && document.getElementById('automation-canvas-zoom-reset')?.textContent === '110%'
+      && wheelDefaultPrevented;
+    document.getElementById('automation-canvas-zoom-reset')?.click();
     const initialCanvasNodeCount = document.querySelectorAll('.automation-flow-node').length;
     document.querySelector('[data-canvas-add="condition"]')?.click();
     await new Promise((resolve) => setTimeout(resolve, 20));
     const conditionNode = Array.from(document.querySelectorAll('.automation-flow-node')).at(-1);
     conditionNode?.click();
+    const inspectorVisibleForSelection = nodeInspector?.hidden === false
+      && nodeInspector.getBoundingClientRect().width > 0;
     const nodeName = document.querySelector('[data-node-field="name"]');
     nodeName.value = '验收判断节点';
     nodeName.dispatchEvent(new Event('change', { bubbles: true }));
@@ -160,8 +236,15 @@ app.whenReady().then(async () => {
       configHomeLogoVisible: !!document.querySelector('.browser-settings-home img[data-app-logo]')?.src,
       configHomeCreateVisible: document.getElementById('browser-settings-create-browser')
         ?.getBoundingClientRect().width > 0,
-      nodeToggleRemoved: !document.getElementById('vpn-node-selector-toggle-btn'),
-      nodePanelVisible: document.getElementById('vpn-node-selector-panel')?.hidden === false,
+      prominentStackedHome: document.querySelector('.browser-settings-home-logo')?.getBoundingClientRect().width >= 120
+        && document.getElementById('browser-settings-create-browser')?.getBoundingClientRect().top
+          > document.querySelector('.browser-settings-home-logo')?.getBoundingClientRect().bottom,
+      networkToolsUnboxed: getComputedStyle(document.querySelector('.settings-network-tools')).borderTopWidth === '0px'
+        && getComputedStyle(document.querySelector('.settings-network-tools')).boxShadow === 'none',
+      vpnAutoStartBusyAppearance,
+      nodeToggleVisible: nodeToggle?.getBoundingClientRect().width > 0,
+      nodePanelCollapsedByDefault,
+      nodePanelVisible: nodePanelOpenedByToggle,
       nodePanelStatic: getComputedStyle(document.getElementById('vpn-node-selector-panel')).position === 'relative',
       allNodesExpanded: getComputedStyle(document.getElementById('vpn-node-selector-grid')).maxHeight === 'none'
         && getComputedStyle(document.getElementById('vpn-node-selector-grid')).overflow === 'visible',
@@ -185,13 +268,29 @@ app.whenReady().then(async () => {
       accountHistoryRemoved: !document.getElementById('account-history-toggle-btn') && !document.getElementById('account-panel'),
       automationPluginSectionRemoved: !document.getElementById('extension-plugin-list')
         && !document.getElementById('import-extension-plugin'),
-      automationWorkbenchVisible: document.getElementById('automation-workbench')
+      woolResourceMovedOut: !document.getElementById('wool-platform-buttons')
+        && !document.getElementById('wool-resource-title'),
+      automationLauncherVisible: document.getElementById('automation-workbench-open')
         ?.getBoundingClientRect().width > 0,
-      automationWorkbenchBelowHome: document.getElementById('automation-workbench')
+      automationInitiallyClosed,
+      automationDialogVisible: automationDialog?.open === true
+        && document.getElementById('automation-workbench')?.getBoundingClientRect().width > 0,
+      automationWorkbenchBelowHome: document.querySelector('.automation-workbench-launcher')
         ?.getBoundingClientRect().top > document.querySelector('.browser-settings-home')?.getBoundingClientRect().bottom,
+      automationLauncherBelowProxy: document.querySelector('.automation-workbench-launcher')?.parentElement
+          === document.querySelector('.settings-network-tools')
+        && document.querySelector('.automation-workbench-launcher')?.getBoundingClientRect().top
+          > document.querySelector('.vpn-node-selector-shell')?.getBoundingClientRect().bottom,
       automationUsesNativeCopy: document.getElementById('automation-workbench')
         ?.textContent.includes('原生 Chromium 控制') === true,
-      canvasVisible: document.getElementById('automation-flow-canvas')?.getBoundingClientRect().height >= 400,
+      canvasVisible: flowCanvas?.getBoundingClientRect().height >= 550,
+      canvasPansFromBlankArea,
+      canvasZoomsFromWheel,
+      inspectorHiddenWithoutSelection,
+      inspectorVisibleForSelection,
+      basicInfoInitiallyClosed,
+      basicFieldsMovedToDialog,
+      basicInfoDialogVisible,
       canvasAddedNode: initialCanvasNodeCount === 1 && document.querySelectorAll('.automation-flow-node').length === 2,
       canvasConditionPorts: conditionNode?.querySelectorAll('.automation-flow-port.is-true, .automation-flow-port.is-false').length === 2,
       canvasEdgeVisible: document.querySelectorAll('.automation-flow-edge').length >= 1,
@@ -213,16 +312,31 @@ app.whenReady().then(async () => {
     || !result.sidebarNavigationRemoved
     || !result.configHomeLogoVisible
     || !result.configHomeCreateVisible
-    || !result.automationWorkbenchVisible
+    || !result.prominentStackedHome
+    || !result.networkToolsUnboxed
+    || !result.vpnAutoStartBusyAppearance
+    || !result.automationLauncherVisible
+    || !result.automationInitiallyClosed
+    || !result.automationDialogVisible
     || !result.automationWorkbenchBelowHome
+    || !result.automationLauncherBelowProxy
     || !result.automationUsesNativeCopy
+    || !result.woolResourceMovedOut
     || !result.canvasVisible
+    || !result.canvasPansFromBlankArea
+    || !result.canvasZoomsFromWheel
+    || !result.inspectorHiddenWithoutSelection
+    || !result.inspectorVisibleForSelection
+    || !result.basicInfoInitiallyClosed
+    || !result.basicFieldsMovedToDialog
+    || !result.basicInfoDialogVisible
     || !result.canvasAddedNode
     || !result.canvasConditionPorts
     || !result.canvasEdgeVisible
     || !result.canvasManualBranch
     || !result.canvasInspectorEdited
-    || !result.nodeToggleRemoved
+    || !result.nodeToggleVisible
+    || !result.nodePanelCollapsedByDefault
     || !result.nodePanelVisible
     || !result.nodePanelStatic
     || !result.allNodesExpanded
@@ -264,64 +378,35 @@ app.whenReady().then(async () => {
   const browserHistoryInteractionResult = await win.webContents.executeJavaScript(`(async () => {
     const getMain = () => document.querySelector('[data-history-id="shared-browser"] .browser-history-main');
     const initialMain = getMain();
+    const directOpenCopy = initialMain.title.includes('单击打开')
+      && initialMain.getAttribute('aria-label').includes('单击打开');
     initialMain.click();
-    const selectedRow = document.querySelector('[data-history-id="shared-browser"]');
-    const selectedBorderColor = getComputedStyle(selectedRow).borderColor;
-    const selectedAnimationName = getComputedStyle(selectedRow).animationName;
-    const selectedName = selectedRow.querySelector('.browser-history-name');
-    const selectedNameTransitionProperty = getComputedStyle(selectedName).transitionProperty;
-    getMain().click();
-    const rightClickTarget = getMain();
-    const rightClickBounds = rightClickTarget.getBoundingClientRect();
-    const contextPoint = {
-      x: Math.round(rightClickBounds.left + rightClickBounds.width / 2),
-      y: Math.round(rightClickBounds.top + rightClickBounds.height / 2),
-    };
-    rightClickTarget.dispatchEvent(new PointerEvent('pointerdown', {
-      bubbles: true, button: 2, clientX: contextPoint.x, clientY: contextPoint.y,
-    }));
-    rightClickTarget.dispatchEvent(new MouseEvent('contextmenu', {
-      bubbles: true, cancelable: true, button: 2, clientX: contextPoint.x, clientY: contextPoint.y,
-    }));
-    rightClickTarget.dispatchEvent(new MouseEvent('click', {
-      bubbles: true, button: 2, clientX: 40, clientY: 80,
-    }));
-    const contextMenuVisible = document.getElementById('browser-history-context-menu')
-      ?.classList.contains('is-visible') === true;
-    const contextTargetSelected = document.querySelector('[data-history-id="shared-browser"]')
-      ?.classList.contains('is-selected') === true;
-    getMain().dispatchEvent(new MouseEvent('dblclick', {
-      bubbles: true, cancelable: true, button: 0,
-    }));
     await new Promise((resolve) => setTimeout(resolve, 30));
+    const refreshedRow = document.querySelector('[data-history-id="shared-browser"]');
+    const refreshedMain = getMain();
+    const openButtonRemoved = document.querySelector('.browser-history-open') === null;
+    const batchSelectionRemoved = !refreshedRow.classList.contains('is-selected')
+      && !refreshedMain.hasAttribute('aria-pressed')
+      && document.getElementById('browser-history-context-menu') === null;
+    const editButtonVisible = refreshedRow.querySelector('.browser-history-edit')?.textContent.trim() === '编辑';
     document.getElementById('refresh-browser-history').click();
     await new Promise((resolve) => requestAnimationFrame(resolve));
     return {
-      contextMenuVisible,
-      contextTargetSelected,
-      contextPoint,
+      directOpenCopy,
+      openButtonRemoved,
+      batchSelectionRemoved,
+      editButtonVisible,
       refreshAnimationName: getComputedStyle(
         document.querySelector('[data-history-id="shared-browser"]'),
       ).animationName,
-      selectedAnimationName,
-      selectedNameTransitionProperty,
-      selectedBorderColor,
     };
   })()`);
-  win.webContents.emit('context-menu', {}, browserHistoryInteractionResult.contextPoint);
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  browserHistoryInteractionResult.contextMenuVisibleAfterMainRouting = await win.webContents.executeJavaScript(
-    `document.getElementById('browser-history-context-menu')?.classList.contains('is-visible') === true`,
-  );
   if (
-    browserHistoryInteractionResult.contextMenuVisible !== true
-    || browserHistoryInteractionResult.contextMenuVisibleAfterMainRouting !== true
-    || browserHistoryInteractionResult.contextTargetSelected !== false
+    browserHistoryInteractionResult.directOpenCopy !== true
+    || browserHistoryInteractionResult.openButtonRemoved !== true
+    || browserHistoryInteractionResult.batchSelectionRemoved !== true
+    || browserHistoryInteractionResult.editButtonVisible !== true
     || browserHistoryInteractionResult.refreshAnimationName !== 'none'
-    || browserHistoryInteractionResult.selectedAnimationName !== 'none'
-    || browserHistoryInteractionResult.selectedNameTransitionProperty.split(', ')
-      .includes('transform')
-    || browserHistoryInteractionResult.selectedBorderColor === 'rgb(240, 68, 68)'
     || browserHistoryOpenRequests !== 1
   ) {
     throw new Error(`浏览器记录交互校验失败: ${JSON.stringify({
@@ -405,8 +490,17 @@ app.whenReady().then(async () => {
         && !!panel.querySelector('#announcement-bar')
         && !!panel.querySelector('.personal-footer');
       const accountCard = panel.querySelector('#sidebar-account-session');
-      const sameColumn = panel.querySelector('#announcement-bar')?.parentElement === accountCard
-        && panel.querySelector('.personal-footer')?.parentElement === accountCard;
+      const footer = panel.querySelector('.personal-footer');
+      const sameColumn = panel.querySelector('#announcement-bar')?.parentElement === accountCard;
+      const footerParentIsPanel = footer?.parentElement === panel;
+      const footerAtPanelBottom = Math.abs(
+        footer?.getBoundingClientRect().bottom - panel.getBoundingClientRect().bottom,
+      ) <= 1;
+      const accountContentScrolls = getComputedStyle(panel.querySelector(':scope > .container')).overflowY === 'auto';
+      const woolResource = panel.querySelector('.account-wool-resource');
+      const woolResourceBelowRedeem = panel.querySelector('.sidebar-quota-redeem')?.nextElementSibling === woolResource
+        && woolResource?.parentElement === accountCard
+        && woolResource.querySelector('#wool-platform-buttons');
       const dialogShellRemoved = !document.getElementById('account-center-dialog')
         && !document.querySelector('.account-center-dialog-backdrop')
         && !document.querySelector('.account-center-dialog-panel');
@@ -432,6 +526,10 @@ app.whenReady().then(async () => {
         && panel.querySelector('.sidebar-auth-mode-arrow')?.textContent === '→';
       const closeBehaviorAsk = panel.querySelector('input[name="window-close-behavior"][value="ask"]');
       const closeBehaviorHide = panel.querySelector('input[name="window-close-behavior"][value="hide"]');
+      const closeBehaviorLabels = Array.from(panel.querySelectorAll('.account-close-behavior-options label'));
+      const compactCloseBehaviorUi = closeBehaviorLabels.length === 3
+        && new Set(closeBehaviorLabels.map((label) => Math.round(label.getBoundingClientRect().top))).size === 1
+        && !panel.querySelector('.account-close-behavior-options small');
       const closeBehaviorLoaded = closeBehaviorAsk?.checked === true;
       const nativeSelectRemoved = !panel.querySelector('select#window-close-behavior');
       closeBehaviorHide.click();
@@ -445,12 +543,17 @@ app.whenReady().then(async () => {
         active,
         profileVisible,
         sameColumn,
+        footerParentIsPanel,
+        footerAtPanelBottom,
+        accountContentScrolls,
+        woolResourceBelowRedeem: !!woolResourceBelowRedeem,
         dialogShellRemoved,
         inlineAuthVisible,
         emptyStatusSpaceCollapsed,
         registerModeWorks,
         loginModeWorks,
         closeBehaviorLoaded,
+        compactCloseBehaviorUi,
         nativeSelectRemoved,
         closeBehaviorSaved,
         closeBehaviorPersisted,

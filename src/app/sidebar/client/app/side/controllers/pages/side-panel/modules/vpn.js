@@ -21,21 +21,22 @@ function renderProxyTrafficQuota(quota) {
   }
 }
 // 设置/更新/持久化：setVpnNodeSelectorOpen的具体业务逻辑。
-function setVpnNodeSelectorOpen() {
+function setVpnNodeSelectorOpen(open) {
   if (!vpnNodeSelectorPanel) return;
   if (vpnNodeSelectorHideTimer) clearTimeout(vpnNodeSelectorHideTimer);
   vpnNodeSelectorHideTimer = null;
-  vpnNodeSelectorPanel.hidden = false;
-  vpnNodeSelectorPanel.classList.add('is-open');
+  const nextOpen = open === true;
+  vpnNodeSelectorPanel.hidden = !nextOpen;
+  vpnNodeSelectorPanel.classList.toggle('is-open', nextOpen);
+  vpnNodeSelectorToggleBtn?.setAttribute('aria-expanded', String(nextOpen));
 }
 
-function setVpnNodeSelectorButtonsDisabled(disabled) {
-  const nextDisabled = !!disabled;
+function setVpnNodeSelectorButtonsDisabled({ toggleDisabled, actionDisabled }) {
   if (testLatencyBtn) {
-    testLatencyBtn.disabled = nextDisabled;
+    testLatencyBtn.disabled = actionDisabled;
   }
   if (vpnNodeSelectorToggleBtn) {
-    vpnNodeSelectorToggleBtn.disabled = nextDisabled;
+    vpnNodeSelectorToggleBtn.disabled = toggleDisabled;
   }
 }
 
@@ -57,8 +58,10 @@ function isNetworkMagicStartFlowActive() {
 // 外部批量启停按钮之后都应经由本函数收敛，不要在别处直接改 disabled。
 function applyVpnActionAvailability() {
   const canUse = canUseVpnFeatures();
-  const disabled = !canUse || vpnNodeSelectorBusy || isNetworkMagicStartFlowActive();
-  setVpnNodeSelectorButtonsDisabled(disabled);
+  setVpnNodeSelectorButtonsDisabled({
+    toggleDisabled: !canUse,
+    actionDisabled: !canUse || vpnNodeSelectorBusy || isNetworkMagicStartFlowActive(),
+  });
 
   if (testLatencyBtn) {
     testLatencyBtn.title = !isLicenseValidated()

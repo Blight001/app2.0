@@ -37,7 +37,7 @@
 
       <section id="account-center-panel" class="account-center-panel panel active" aria-label="个人中心">
         <div class="container">
-          <div class="info-group account-profile-shell">
+          <div class="account-profile-shell">
             <section id="sidebar-account-session" class="account-profile-card" aria-label="账号资料卡" data-authenticated="false">
               <div class="account-profile-cover" aria-hidden="true">
                 <span>AI-FREE</span>
@@ -186,30 +186,34 @@
                 </div>
               </div>
 
+              <section class="account-wool-resource" aria-labelledby="wool-resource-title">
+                <div id="wool-resource-title" class="account-wool-resource-title" hidden>羊毛资源</div>
+                <div id="wool-platform-buttons" class="wool-platform-buttons" hidden></div>
+              </section>
+
               <section class="account-app-preferences" aria-labelledby="account-app-preferences-title">
-                <div>
+                <div class="account-app-preferences-heading">
                   <strong id="account-app-preferences-title">软件关闭方式</strong>
-                  <small>可随时恢复关闭窗口时询问</small>
+                  <p id="window-close-behavior-status" class="account-app-preferences-status" role="status" aria-live="polite"></p>
                 </div>
                 <fieldset id="window-close-behavior" class="account-close-behavior-options">
                   <legend>关闭主窗口时</legend>
                   <label>
                     <input type="radio" name="window-close-behavior" value="ask">
-                    <span><strong>每次询问</strong><small>关闭时让我选择后台运行或退出</small></span>
+                    <span>询问</span>
                   </label>
                   <label>
                     <input type="radio" name="window-close-behavior" value="hide">
-                    <span><strong>后台运行</strong><small>隐藏到系统托盘，任务继续运行</small></span>
+                    <span>后台</span>
                   </label>
                   <label>
                     <input type="radio" name="window-close-behavior" value="quit">
-                    <span><strong>直接退出</strong><small>关闭软件并结束浏览器和自动化任务</small></span>
+                    <span>退出</span>
                   </label>
                 </fieldset>
-                <p id="window-close-behavior-status" class="account-app-preferences-status" role="status" aria-live="polite"></p>
               </section>
 
-              <!-- 公告、教程与版本统一归入账号资料卡，紧随兑换码之后。 -->
+              <!-- 公告保留在账号资料卡中。 -->
               <div class="announcement-bar" id="announcement-bar">
                 <div class="announcement-header">
                   <div class="announcement-title-wrap">
@@ -222,14 +226,6 @@
                 </div>
               </div>
 
-              <div class="footer personal-footer">
-                <div class="footer-left">
-                  <a id="tutorial-link" target="_blank" rel="noopener noreferrer">使用教程</a>
-                </div>
-                <div class="footer-right">
-                  <span id="app-version">v2.5.1</span>
-                </div>
-              </div>
             </section>
 
             <div hidden aria-hidden="true">
@@ -239,6 +235,14 @@
           </div>
 
         </div>
+        <footer class="footer personal-footer">
+          <div class="footer-left">
+            <a id="tutorial-link" target="_blank" rel="noopener noreferrer">使用教程</a>
+          </div>
+          <div class="footer-right">
+            <span id="app-version">v2.5.1</span>
+          </div>
+        </footer>
       </section>
 
       <section id="vip-benefits-dialog" class="vip-benefits-dialog" role="dialog" aria-modal="true" aria-labelledby="vip-benefits-title" hidden>
@@ -346,4 +350,3 @@
   <script src="../renderer/controllers/pages/app-shell/shell-automation-workbench.js"></script>
 </body>
 </html>
-

@@ -159,32 +159,43 @@ function observeNetworkMagicTask(task) {
   return task;
 }
 
+function createVpnBusyButtonOptions(options = {}) {
+  return {
+    ...options,
+    preserveTextAfterResolve: true,
+    onRestore: (button) => updateClashVpnButton(button, {
+      enabled: isVpnEnabled,
+      isBusy: false,
+    }),
+  };
+}
+
 // 自动开启网络魔法的统一入口（面板初始化恢复 / 登录成功 / 恢复登录态共用）。
 // 满足以下条件才会启动：账号已登录、用户开启了“自动启动”记忆、核心未在运行、
 // 且用户没有正在手动操作开关。key/deviceId 缺省时由预热流程自行解析。
 async function autoStartNetworkMagicIfEligible({ startBtn, vpnBtn, key = '', deviceId = '' } = {}) {
-  if (!canAutoStartNetworkMagic(vpnBtn)) return;
+  if (!canAttemptNetworkMagicAutoStart(vpnBtn)) return;
 
   // 从条件评估阶段就置位“进行中”：预热启动（warmup）等并行流程推送的
   // 状态事件即使在评估期间到达，选路按钮也不会被放开一瞬。
   autoStartClashMiniInFlight = true;
   try {
-    const runAutoStart = async () => {
-      if (!await getNetworkMagicAutoStartEnabled()) return;
-      if (await isNetworkMagicRunning()) return;
+    if (!await getNetworkMagicAutoStartEnabled()) return;
+    const identity = await resolveNetworkMagicAutoStartIdentity(key, deviceId);
+    if (!identity.eligible || await isNetworkMagicRunning()) return;
 
-      console.log('[侧边栏][Clash] 满足自动启动条件，开始启用网络魔法');
-      await startClashMiniFlow({ startBtn, vpnBtn, fetchConfig: true, key, deviceId });
-    };
+    const runAutoStart = () => startClashMiniFlow({
+      startBtn,
+      vpnBtn,
+      fetchConfig: true,
+      key: identity.key,
+      deviceId: identity.deviceId,
+    });
+    console.log('[侧边栏][Clash] 检测到上次为开启状态，自动启用网络魔法');
     if (vpnBtn) {
-      await withBusyButton(vpnBtn, [startBtn], runAutoStart, {
+      await withBusyButton(vpnBtn, [startBtn], runAutoStart, createVpnBusyButtonOptions({
         loadingText: '正在开启魔法请稍等',
-        preserveTextAfterResolve: true,
-        onRestore: (button) => updateClashVpnButton(button, {
-          enabled: isVpnEnabled,
-          isBusy: false,
-        }),
-      });
+      }));
     } else {
       await runAutoStart();
     }
@@ -197,11 +208,28 @@ async function autoStartNetworkMagicIfEligible({ startBtn, vpnBtn, key = '', dev
   }
 }
 
-function canAutoStartNetworkMagic(vpnBtn) {
-  const isValidated = hasValidatedInSession || isLicenseValidated();
+function canAttemptNetworkMagicAutoStart(vpnBtn) {
   const buttonBusy = vpnBtn?.dataset?.busy === '1';
-  return Boolean(window.aiFree?.network) && isValidated
-    && !autoStartClashMiniInFlight && !buttonBusy;
+  return Boolean(window.aiFree?.network) && !autoStartClashMiniInFlight && !buttonBusy;
+}
+
+async function resolveNetworkMagicAutoStartIdentity(key = '', deviceId = '') {
+  if (hasValidatedInSession || isLicenseValidated()) {
+    return { eligible: true, key, deviceId };
+  }
+  const credentials = await readNetworkMagicSavedCredentials();
+  return {
+    eligible: credentials.validated === true && credentials.bound === true,
+    key: String(key || credentials.key || '').trim(),
+    deviceId: String(deviceId || credentials.deviceId || '').trim(),
+  };
+}
+
+async function readNetworkMagicSavedCredentials() {
+  const getter = window.aiFree?.license?.getUserCredentials;
+  if (typeof getter !== 'function') return {};
+  const response = await getter().catch(() => null);
+  return response?.ok === true && response.credentials ? response.credentials : {};
 }
 
 async function isNetworkMagicRunning() {
@@ -214,11 +242,22 @@ async function isNetworkMagicRunning() {
 function bindClashMiniControls() {
   const controls = resolveClashMiniControls();
   bindClashToggleButtons(controls);
+  bindVpnNodeSelectorToggle();
   bindClashLatencyButton();
   bindClashStatusHandlers(controls);
   bindAppClosingGuard();
   loadInitialClashStatus(controls);
   if (window.aiFree?.network) autoStartNetworkMagicIfEligible(controls).catch(() => {});
+}
+
+function bindVpnNodeSelectorToggle() {
+  if (!vpnNodeSelectorToggleBtn || vpnNodeSelectorToggleBtn.dataset.bound === '1') return;
+  vpnNodeSelectorToggleBtn.addEventListener('click', () => {
+    if (vpnNodeSelectorToggleBtn.disabled) return;
+    const open = vpnNodeSelectorToggleBtn.getAttribute('aria-expanded') !== 'true';
+    setVpnNodeSelectorOpen(open);
+  });
+  vpnNodeSelectorToggleBtn.dataset.bound = '1';
 }
 
 function resolveClashMiniControls() {
@@ -248,9 +287,12 @@ function bindClashToggleButtons({ startBtn, vpnBtn, dreamBtn }) {
   if (vpnBtn && vpnBtn.dataset.bound !== '1') {
     vpnBtn.addEventListener('click', async () => {
       if (await window.redirectToSidebarAccountLogin?.()) return;
-      observeNetworkMagicTask(withBusyButton(vpnBtn, [startBtn, dreamBtn], () => toggleClashMini({ startBtn, vpnBtn }), {
-        preserveTextAfterResolve: true,
-      }));
+      observeNetworkMagicTask(withBusyButton(
+        vpnBtn,
+        [startBtn, dreamBtn],
+        () => toggleClashMini({ startBtn, vpnBtn }),
+        createVpnBusyButtonOptions(),
+      ));
     });
     vpnBtn.dataset.bound = '1';
   }

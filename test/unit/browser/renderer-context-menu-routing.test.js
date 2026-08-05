@@ -6,7 +6,7 @@ const {
   isRendererContextMenuPoint,
 } = require('../../../src/app/main/utils/removeWatermark');
 
-test('浏览器记录区域由渲染层右键菜单独占，避免原生菜单抢焦点', async () => {
+test('指定区域可由渲染层右键菜单独占，避免原生菜单抢焦点', async () => {
   let executed = '';
   const webContents = {
     isDestroyed: () => false,
@@ -18,11 +18,11 @@ test('浏览器记录区域由渲染层右键菜单独占，避免原生菜单�
   const owned = await isRendererContextMenuPoint(
     webContents,
     { x: 45.4, y: 91.7 },
-    '.browser-history-item, #browser-history-context-menu',
+    '.custom-renderer-menu',
   );
   assert.equal(owned, true);
   assert.match(executed, /elementFromPoint\(45, 92\)/);
-  assert.match(executed, /browser-history-item/);
+  assert.match(executed, /custom-renderer-menu/);
 });
 
 test('普通区域继续使用现有原生右键菜单', async () => {

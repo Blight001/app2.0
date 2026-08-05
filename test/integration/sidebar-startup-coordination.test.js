@@ -22,6 +22,7 @@ function createButton(textContent = '') {
 
 test('自动开启网络魔法在配置获取完成前禁用主开关', async () => {
   let finishStart;
+  let startOptions = null;
   const startPending = new Promise((resolve) => { finishStart = resolve; });
   const vpnBtn = createButton('开启网络魔法');
   const startBtn = createButton('启动 Clash Mini');
@@ -35,12 +36,18 @@ test('自动开启网络魔法在配置获取完成前禁用主开关', async ()
           getAutoStartEnabled: async () => ({ ok: true, enabled: true }),
           getClashStatus: async () => ({ running: false }),
         },
+        license: {
+          getUserCredentials: async () => ({
+            ok: true,
+            credentials: { key: 'saved-key', deviceId: 'saved-device', validated: true, bound: true },
+          }),
+        },
       },
     },
     autoStartClashMiniInFlight: false,
-    hasValidatedInSession: true,
+    hasValidatedInSession: false,
     isVpnEnabled: false,
-    isLicenseValidated: () => true,
+    isLicenseValidated: () => false,
     applyVpnActionAvailability: () => {},
     updateClashVpnButton: (button, state) => {
       button.textContent = state.enabled ? '关闭网络魔法' : '开启网络魔法';
@@ -52,10 +59,14 @@ test('自动开启网络魔法在配置获取完成前禁用主开关', async ()
   );
   context.withBusyButton = context.window.RendererControllerUtils.withBusyButton;
   vm.runInContext(
+    readSource('src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/vpn-selector.js'),
+    context,
+  );
+  vm.runInContext(
     readSource('src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/vpn-lifecycle.js'),
     context,
   );
-  context.startClashMiniFlow = () => startPending;
+  context.startClashMiniFlow = (options) => { startOptions = options; return startPending; };
 
   const task = context.autoStartNetworkMagicIfEligible({ startBtn, vpnBtn });
   await new Promise((resolve) => setImmediate(resolve));
@@ -63,12 +74,44 @@ test('自动开启网络魔法在配置获取完成前禁用主开关', async ()
   assert.equal(vpnBtn.disabled, true);
   assert.equal(vpnBtn.dataset.busy, '1');
   assert.equal(vpnBtn.textContent, '正在开启魔法请稍等');
+  assert.equal(startOptions.key, 'saved-key');
+  assert.equal(startOptions.deviceId, 'saved-device');
+
+  context.updateClashVpnButton(vpnBtn, { enabled: false, isBusy: true });
+  assert.equal(vpnBtn.disabled, true);
+  assert.equal(vpnBtn.textContent, '正在开启魔法请稍等');
 
   finishStart();
   await task;
   assert.equal(vpnBtn.disabled, false);
   assert.equal(vpnBtn.dataset.busy, '0');
   assert.equal(vpnBtn.textContent, '开启网络魔法');
+});
+
+test('点击开启网络魔法成功后主开关恢复为关闭按钮', async () => {
+  const vpnBtn = createButton('开启网络魔法');
+  const context = vm.createContext({
+    console,
+    window: {},
+    isVpnEnabled: false,
+    updateClashVpnButton: (button, state) => {
+      button.textContent = state.enabled ? '关闭网络魔法' : '开启网络魔法';
+    },
+  });
+  vm.runInContext(readSource('src/app/renderer/controllers/shared/controller-utils.js'), context);
+  context.withBusyButton = context.window.RendererControllerUtils.withBusyButton;
+  vm.runInContext(
+    readSource('src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/vpn-lifecycle.js'),
+    context,
+  );
+
+  await context.withBusyButton(vpnBtn, [], async () => {
+    context.isVpnEnabled = true;
+  }, context.createVpnBusyButtonOptions());
+
+  assert.equal(vpnBtn.disabled, false);
+  assert.equal(vpnBtn.dataset.busy, '0');
+  assert.equal(vpnBtn.textContent, '关闭网络魔法');
 });
 
 test('侧边栏启动时主动读取并渲染浏览器记录', async () => {
@@ -99,8 +142,6 @@ test('侧边栏启动时主动读取并渲染浏览器记录', async () => {
       createAiFreeBrowserHistoryView: (deps) => ({
         renderBrowserHistory: () => { renderedHistory = deps.getBrowserHistory(); },
         renderBrowserProfileAudit: () => {},
-        getSelectedBrowserHistory: () => [],
-        hideBrowserHistoryContextMenu: () => {},
         formatBrowserHistoryDateTime: () => '',
       }),
       bindAiFreeBrowserSettingsEvents: () => {},
@@ -191,6 +232,32 @@ test('节点延时重新测速保持按钮可用且不请求自动切换', async
   assert.equal(context.clashMiniProxyState.current, 'A');
 });
 
+test('启动流程中切换节点可展开但测速操作保持禁用', () => {
+  const toggleButton = createButton('切换节点');
+  const retestButton = createButton('重新测速');
+  const context = vm.createContext({
+    console,
+    window: {},
+    isVpnEnabled: true,
+    vpnNodeSelectorBusy: false,
+    clashMiniStartFlowPromise: Promise.resolve(),
+    autoStartClashMiniInFlight: false,
+    isLicenseValidated: () => true,
+    testLatencyBtn: retestButton,
+    vpnNodeSelectorToggleBtn: toggleButton,
+  });
+  vm.runInContext(
+    readSource('src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/vpn.js'),
+    context,
+  );
+  vm.runInContext('clashMiniStartFlowPromise = Promise.resolve()', context);
+
+  context.applyVpnActionAvailability();
+
+  assert.equal(toggleButton.disabled, false);
+  assert.equal(retestButton.disabled, true);
+});
+
 test('启动测速前先加载并显示节点，只补测没有历史延时的节点', async () => {
   let finishTest;
   let optionsRequest = null;
@@ -247,8 +314,15 @@ test('启动测速前先加载并显示节点，只补测没有历史延时的�
     names: ['B'],
   });
 
+  const loaded = await Promise.race([
+    task.then(() => true),
+    new Promise((resolve) => setTimeout(() => resolve(false), 30)),
+  ]);
+  assert.equal(loaded, true, '节点列表加载不应等待后台测速完成');
+
   finishTest({ ok: true, entries: [{ name: 'B', delay: 42 }] });
-  await task;
+  await pending;
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(context.clashMiniProxyState.proxies[1].delay, 42);
 });
 

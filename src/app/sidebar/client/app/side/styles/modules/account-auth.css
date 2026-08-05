@@ -80,15 +80,23 @@
 .vip-use-gift-code { border: 0; color: #2a1d05; background: linear-gradient(135deg, #ffe59a, #dca83f); box-shadow: 0 7px 20px rgba(219, 161, 49, .2); }
 
 .account-center-panel {
-  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 14px 0;
+  overflow: hidden;
 }
 
 .account-center-panel .container {
   display: grid;
+  flex: 1 1 auto;
   gap: 0;
+  min-height: 0;
   width: 100%;
   max-width: 430px;
   margin: 0 auto;
+  padding-bottom: 12px;
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 
 .account-profile-card > .announcement-bar {
@@ -96,58 +104,84 @@
   border-radius: 10px;
 }
 
-.account-profile-card > .personal-footer {
-  margin: 0 16px;
-  padding: 12px 0 14px;
-}
-
 .account-app-preferences {
   display: grid;
-  gap: 10px;
+  gap: 7px;
   margin: 14px 16px 0;
-  padding: 13px;
+  padding: 10px 11px;
   border: 1px solid rgba(99, 137, 188, .22);
-  border-radius: 12px;
+  border-radius: 10px;
   background: rgba(12, 22, 35, .46);
 }
 
-.account-app-preferences > div,
-.account-app-preferences label {
-  display: grid;
-  gap: 4px;
+.account-app-preferences-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .account-app-preferences strong { color: #edf5ff; font-size: 12px; }
-.account-app-preferences small { color: rgba(220, 233, 250, .6); font-size: 10px; }
-.account-close-behavior-options { display: grid; gap: 7px; min-width: 0; margin: 0; padding: 0; border: 0; }
-.account-close-behavior-options legend { margin-bottom: 4px; color: rgba(220, 233, 250, .6); font-size: 10px; }
-.account-close-behavior-options label {
-  grid-template-columns: 16px minmax(0, 1fr);
-  align-items: center;
-  gap: 9px;
-  min-height: 44px;
-  padding: 8px 10px;
-  border: 1px solid rgba(99, 137, 188, .26);
+.account-close-behavior-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  min-width: 0;
+  margin: 0;
+  padding: 3px;
+  border: 1px solid rgba(99, 137, 188, .2);
   border-radius: 9px;
-  background: #111b29;
+  background: rgba(5, 12, 22, .42);
+}
+.account-close-behavior-options legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+.account-close-behavior-options label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  color: rgba(220, 233, 250, .68);
+  background: transparent;
   cursor: pointer;
 }
-.account-close-behavior-options label:has(input:checked) { border-color: var(--brand); background: rgba(72, 130, 216, .15); }
-.account-close-behavior-options input { width: 15px; height: 15px; margin: 0; accent-color: var(--brand); }
-.account-close-behavior-options label span { display: grid; gap: 2px; }
-.account-close-behavior-options label strong { font-size: 11px; }
-.account-close-behavior-options label small { line-height: 1.35; }
-.account-app-preferences-status { min-height: 14px; margin: 0; color: rgba(220, 233, 250, .62); font-size: 10px; }
+.account-close-behavior-options label:has(input:checked) {
+  color: #fff;
+  background: var(--brand);
+  box-shadow: 0 4px 12px rgba(40, 105, 196, .24);
+}
+.account-close-behavior-options label:has(input:focus-visible) {
+  outline: 2px solid rgba(110, 180, 255, .72);
+  outline-offset: 1px;
+}
+.account-close-behavior-options label:has(input:disabled) { cursor: wait; opacity: .58; }
+.account-close-behavior-options input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.account-close-behavior-options label span { overflow: hidden; font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.account-app-preferences-status { margin: 0; color: rgba(220, 233, 250, .62); font-size: 10px; }
+.account-app-preferences-status:empty { display: none; }
 .account-app-preferences-status[data-state="success"] { color: #74d9aa; }
 .account-app-preferences-status[data-state="error"] { color: #ff9a9a; }
+
+html.theme-light .account-app-preferences { border-color: rgba(86, 121, 165, .2); background: #f7faff; }
+html.theme-light .account-app-preferences strong { color: #294057; }
+html.theme-light .account-close-behavior-options { border-color: rgba(86, 121, 165, .18); background: #edf3fa; }
+html.theme-light .account-close-behavior-options label { color: #60758f; }
+html.theme-light .account-close-behavior-options label:has(input:checked) { color: #fff; }
 
 .account-profile-shell {
   overflow: hidden;
   padding: 0;
-  border: 1px solid rgba(80, 113, 160, .22);
-  border-radius: 18px;
-  background: #151d29;
-  box-shadow: 0 18px 42px rgba(3, 9, 18, .22);
 }
 
 .account-profile-card {
@@ -866,10 +900,10 @@
 .sidebar-auth-status[data-type='success'] { color: #64d99b; }
 
 html.theme-light .account-profile-shell {
-  border-color: rgba(72, 112, 164, .18);
-  background: #fff;
-  box-shadow: 0 16px 38px rgba(47, 75, 112, .13);
+  background: transparent;
 }
+
+html.theme-gold .account-profile-shell { background: transparent; }
 
 html.theme-light .account-profile-card {
   color: #24364b;
