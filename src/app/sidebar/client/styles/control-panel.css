@@ -186,26 +186,30 @@ html.theme-light .theme-toggle-btn:focus-visible {
 
 html.theme-light .main-wrapper,
 html.theme-light .panel,
-html.theme-light .side-panel {
+html.theme-light .side-panel,
+html.theme-light #browser-empty-state {
   scrollbar-color: rgba(117, 154, 211, 0.72) rgba(233, 239, 247, 0.65);
 }
 
 html.theme-light .main-wrapper::-webkit-scrollbar-track,
 html.theme-light .panel::-webkit-scrollbar-track,
-html.theme-light .side-panel::-webkit-scrollbar-track {
+html.theme-light .side-panel::-webkit-scrollbar-track,
+html.theme-light #browser-empty-state::-webkit-scrollbar-track {
   background: rgba(233, 239, 247, 0.7);
 }
 
 html.theme-light .main-wrapper::-webkit-scrollbar-thumb,
 html.theme-light .panel::-webkit-scrollbar-thumb,
-html.theme-light .side-panel::-webkit-scrollbar-thumb {
+html.theme-light .side-panel::-webkit-scrollbar-thumb,
+html.theme-light #browser-empty-state::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, rgba(129, 168, 225, 0.9), rgba(87, 130, 193, 0.92));
   border-color: rgba(233, 239, 247, 0.85);
 }
 
 html.theme-light .main-wrapper::-webkit-scrollbar-thumb:hover,
 html.theme-light .panel::-webkit-scrollbar-thumb:hover,
-html.theme-light .side-panel::-webkit-scrollbar-thumb:hover {
+html.theme-light .side-panel::-webkit-scrollbar-thumb:hover,
+html.theme-light #browser-empty-state::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, rgba(148, 184, 236, 1), rgba(99, 145, 212, 1));
 }
 

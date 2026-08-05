@@ -52,10 +52,16 @@
       <section id="ai-free-settings-panel" class="ai-free-settings-panel panel active" aria-label="AI-FREE 参数配置">
         <header class="browser-settings-home" aria-label="AI-FREE 首页">
           <img class="browser-settings-home-logo" data-app-logo alt="AI-FREE">
-          <button id="browser-settings-create-browser" class="browser-settings-create-browser" type="button">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
-            <span>新建浏览器</span>
-          </button>
+          <div class="browser-settings-home-actions">
+            <button id="browser-settings-create-browser" class="browser-settings-home-button browser-settings-create-browser" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+              <span>新建浏览器</span>
+            </button>
+            <button id="browser-settings-tutorial" class="browser-settings-home-button browser-settings-tutorial" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h10.5A3.5 3.5 0 0 1 19 8v11.5H8.5A3.5 3.5 0 0 1 5 16V4.5Z"></path><path d="M8.5 16H19M9 8h6M9 11h5"></path></svg>
+              <span>使用教程</span>
+            </button>
+          </div>
         </header>
         <form id="ai-free-settings-form" class="settings-container vb-form" autocomplete="off">
           <section class="settings-network-tools" aria-label="浏览器记录与网络魔法">
@@ -75,15 +81,14 @@
             </section>
 
             <div class="settings-network-tools-subtitle settings-network-tools-proxy-title">内置代理</div>
-            <div class="vpn-buttons-container">
-              <button id="VPN-switch" class="main-button btn-large-purple VPN-btn" type="button" disabled>关闭网络魔法</button>
-            </div>
-
             <div class="vpn-node-selector-shell">
-              <button id="vpn-node-selector-toggle-btn" class="vpn-node-selector-btn vpn-node-selector-btn-toggle" type="button" aria-expanded="false" aria-controls="vpn-node-selector-panel" disabled>
-                <span class="vpn-node-selector-toggle-text">切换节点</span>
-                <svg class="vpn-node-selector-toggle-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
-              </button>
+              <div class="vpn-node-selector-row">
+                <button id="VPN-switch" class="main-button btn-large-purple VPN-btn" type="button" disabled>关闭网络魔法</button>
+                <button id="vpn-node-selector-toggle-btn" class="vpn-node-selector-btn vpn-node-selector-btn-toggle" type="button" aria-expanded="false" aria-controls="vpn-node-selector-panel" disabled>
+                  <span class="vpn-node-selector-toggle-text">切换节点</span>
+                  <svg class="vpn-node-selector-toggle-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+                </button>
+              </div>
               <div id="vpn-node-selector-panel" class="vpn-node-selector-panel" hidden>
                 <div class="vpn-node-selector-panel-head">
                   <span id="vpn-node-selector-group" class="vpn-node-selector-panel-subtitle">节点选择</span>

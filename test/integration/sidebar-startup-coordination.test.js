@@ -20,6 +20,29 @@ function createButton(textContent = '') {
   };
 }
 
+function createDomElement() {
+  const element = {
+    children: [],
+    className: '',
+    dataset: {},
+    disabled: false,
+    style: { setProperty() {} },
+    addEventListener() {},
+    append(...children) { this.children.push(...children); },
+    setAttribute(name, value) { this[name] = String(value); },
+    querySelector(selector) {
+      const className = selector.startsWith('.') ? selector.slice(1) : '';
+      for (const child of this.children) {
+        if (String(child.className || '').split(/\s+/).includes(className)) return child;
+        const nested = child.querySelector?.(selector);
+        if (nested) return nested;
+      }
+      return null;
+    },
+  };
+  return element;
+}
+
 test('自动开启网络魔法在配置获取完成前禁用主开关', async () => {
   let finishStart;
   let startOptions = null;
@@ -256,6 +279,84 @@ test('启动流程中切换节点可展开但测速操作保持禁用', () => {
 
   assert.equal(toggleButton.disabled, false);
   assert.equal(retestButton.disabled, true);
+});
+
+test('节点完整重建后仍显示已测延时', () => {
+  const context = vm.createContext({
+    console,
+    document: { createElement: () => createDomElement() },
+    window: {},
+    vpnNodeSelectorBusy: false,
+  });
+  vm.runInContext(
+    readSource('src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/vpn.js'),
+    context,
+  );
+
+  const button = context.buildVpnNodeSelectorButton(
+    '节点 A',
+    0,
+    { name: '节点 A', delay: 88, delayText: '88ms' },
+    '节点 A',
+  );
+
+  assert.equal(button.querySelector('.vpn-node-option-meta').textContent, '88ms');
+  assert.equal(button['aria-checked'], 'true');
+});
+
+test('节点测速失败只显示简短 error 状态', () => {
+  const context = vm.createContext({
+    console,
+    window: {},
+    vpnNodeSelectorBusy: false,
+  });
+  vm.runInContext(
+    readSource('src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/vpn.js'),
+    context,
+  );
+
+  const entries = context.normalizeProxyEntries([{
+    name: '节点 A',
+    delay: null,
+    delayText: 'An error occurred in the delay test: request failed with a very long reason',
+    error: 'An error occurred in the delay test: request failed with a very long reason',
+  }], '');
+
+  assert.equal(entries[0].delayText, 'error');
+});
+
+test('设置页自动启动时同步账号会话并解除节点选择登录门禁', async () => {
+  let sessionUpdated = null;
+  let availabilitySyncs = 0;
+  const documentElement = { dataset: {} };
+  const context = vm.createContext({
+    console,
+    document: { documentElement },
+    window: {
+      aiFree: {
+        account: {
+          getSession: async () => ({ authenticated: true }),
+          onSessionUpdated: (listener) => { sessionUpdated = listener; },
+        },
+      },
+    },
+    syncLatencyButtonState: () => { availabilitySyncs += 1; },
+    syncLoggedOutProtectedEntryAvailability: () => {},
+  });
+  vm.runInContext(
+    readSource('src/app/sidebar/client/app/side/controllers/pages/side-panel/modules/vpn-lifecycle.js'),
+    context,
+  );
+
+  context.bindNetworkMagicAccountSession();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(documentElement.dataset.accountAuthenticated, 'true');
+  assert.equal(availabilitySyncs, 1);
+
+  sessionUpdated({ authenticated: false });
+  assert.equal(documentElement.dataset.accountAuthenticated, 'false');
+  assert.equal(availabilitySyncs, 2);
 });
 
 test('启动测速前先加载并显示节点，只补测没有历史延时的节点', async () => {

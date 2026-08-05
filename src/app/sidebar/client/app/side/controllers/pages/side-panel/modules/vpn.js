@@ -80,10 +80,13 @@ function normalizeProxyEntries(entries, currentName) {
     const name = String(item?.name || '').trim();
     const delay = Number(item?.delay);
     const hasDelay = Number.isFinite(delay) && delay > 0;
+    const hasError = Boolean(item?.error);
     return {
       name,
       delay: hasDelay ? delay : null,
-      delayText: String(item?.delayText || (item?.error ? '超时' : (hasDelay ? `${Math.round(delay)}ms` : '测速中...'))),
+      delayText: String(hasDelay
+        ? `${Math.round(delay)}ms`
+        : (hasError ? 'error' : (item?.delayText || '测速中...'))),
       selected: name === selectedName,
     };
   }).filter((item) => item.name);
@@ -105,8 +108,9 @@ function normalizeMergedProxyEntry(item, previous, currentName) {
   return {
     name,
     delay,
-    delayText: String(itemText || previousText
-      || (hasError ? '超时' : (delay !== null ? `${Math.round(delay)}ms` : '测速中...'))),
+    delayText: String(delay !== null
+      ? `${Math.round(delay)}ms`
+      : (hasError ? 'error' : (itemText || previousText || '测速中...'))),
     selected: name === String(currentName || '').trim(),
   };
 }
@@ -235,7 +239,6 @@ function updateVpnNodeSelectorButton(button, name, index, proxyItem, selectedNam
 function buildVpnNodeSelectorButton(name, index, proxyItem, selectedName) {
   const button = document.createElement('button');
   button.type = 'button';
-  updateVpnNodeSelectorButton(button, name, index, proxyItem, selectedName);
 
   const main = document.createElement('div');
   main.className = 'vpn-node-option-main';
@@ -249,6 +252,9 @@ function buildVpnNodeSelectorButton(name, index, proxyItem, selectedName) {
   checkEl.className = 'vpn-node-option-check';
   checkEl.setAttribute('aria-hidden', 'true');
   button.append(main, checkEl);
+  // 延时元素创建完成后再写入状态；否则完整重建节点列表时，
+  // update 找不到 meta 元素，测速结束后的延时数字会变空。
+  updateVpnNodeSelectorButton(button, name, index, proxyItem, selectedName);
 
   button.addEventListener('click', (event) => {
     if (event.target?.closest?.('.vpn-node-option-meta')) {

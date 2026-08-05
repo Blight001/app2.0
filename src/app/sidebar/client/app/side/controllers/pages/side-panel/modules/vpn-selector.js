@@ -135,7 +135,7 @@ function updateLatencyProgressEntry(payload, hasBest, bestName) {
   clashMiniProxyState.proxies[index] = {
     ...current,
     delay: hasDelay ? delay : null,
-    delayText: hasDelay ? `${Math.round(delay)}ms` : String(payload.error || current.delayText || '测速中...'),
+    delayText: hasDelay ? `${Math.round(delay)}ms` : (payload.error ? 'error' : String(current.delayText || '测速中...')),
     selected: hasBest && String(current.name || '').trim() === bestName,
   };
 }

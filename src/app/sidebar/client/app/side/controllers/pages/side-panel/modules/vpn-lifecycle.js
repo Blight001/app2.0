@@ -238,9 +238,44 @@ async function isNetworkMagicRunning() {
   return status?.running === true;
 }
 
+let networkMagicAccountSessionRevision = 0;
+
+function applyNetworkMagicAccountSession(session = {}) {
+  document.documentElement.dataset.accountAuthenticated = String(session?.authenticated === true);
+  if (typeof syncLatencyButtonState === 'function') syncLatencyButtonState();
+  if (typeof syncLoggedOutProtectedEntryAvailability === 'function') {
+    syncLoggedOutProtectedEntryAvailability();
+  }
+}
+
+// app-shell 设置页没有账号资料卡，也不会走账号中心的初始化分支。
+// 主进程自动恢复登录并不等于页面上的 accountAuthenticated 已同步；
+// 若网络魔法随后自动启动，节点选择按钮会一直被误判为“未登录”。
+function bindNetworkMagicAccountSession() {
+  const accountApi = window.aiFree?.account;
+  if (!accountApi || document.documentElement.dataset.networkMagicAccountBound === '1') return;
+  document.documentElement.dataset.networkMagicAccountBound = '1';
+
+  if (typeof accountApi.onSessionUpdated === 'function') {
+    accountApi.onSessionUpdated((session) => {
+      networkMagicAccountSessionRevision += 1;
+      applyNetworkMagicAccountSession(session);
+    });
+  }
+
+  if (typeof accountApi.getSession !== 'function') return;
+  const requestRevision = networkMagicAccountSessionRevision;
+  accountApi.getSession().then((session) => {
+    // 会话事件比初始读取更新时，不允许较旧的读取结果覆盖它。
+    if (requestRevision !== networkMagicAccountSessionRevision) return;
+    applyNetworkMagicAccountSession(session);
+  }).catch(() => {});
+}
+
 // 同步/连接：bindClashMiniControls的具体业务逻辑。
 function bindClashMiniControls() {
   const controls = resolveClashMiniControls();
+  bindNetworkMagicAccountSession();
   bindClashToggleButtons(controls);
   bindVpnNodeSelectorToggle();
   bindClashLatencyButton();

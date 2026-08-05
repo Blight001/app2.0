@@ -19,26 +19,30 @@ html.theme-gold .theme-toggle-btn:focus-visible {
 /* ---- 滚动条 ---- */
 html.theme-gold .main-wrapper,
 html.theme-gold .panel,
-html.theme-gold .side-panel {
+html.theme-gold .side-panel,
+html.theme-gold #browser-empty-state {
   scrollbar-color: rgba(212, 183, 118, .66) rgba(18, 15, 10, .72);
 }
 
 html.theme-gold .main-wrapper::-webkit-scrollbar-track,
 html.theme-gold .panel::-webkit-scrollbar-track,
-html.theme-gold .side-panel::-webkit-scrollbar-track {
+html.theme-gold .side-panel::-webkit-scrollbar-track,
+html.theme-gold #browser-empty-state::-webkit-scrollbar-track {
   background: rgba(18, 15, 10, .72);
 }
 
 html.theme-gold .main-wrapper::-webkit-scrollbar-thumb,
 html.theme-gold .panel::-webkit-scrollbar-thumb,
-html.theme-gold .side-panel::-webkit-scrollbar-thumb {
+html.theme-gold .side-panel::-webkit-scrollbar-thumb,
+html.theme-gold #browser-empty-state::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, rgba(214, 187, 124, .92), rgba(166, 136, 74, .92));
   border-color: rgba(18, 15, 10, .72);
 }
 
 html.theme-gold .main-wrapper::-webkit-scrollbar-thumb:hover,
 html.theme-gold .panel::-webkit-scrollbar-thumb:hover,
-html.theme-gold .side-panel::-webkit-scrollbar-thumb:hover {
+html.theme-gold .side-panel::-webkit-scrollbar-thumb:hover,
+html.theme-gold #browser-empty-state::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, rgba(230, 207, 154, 1), rgba(184, 152, 90, 1));
 }
 

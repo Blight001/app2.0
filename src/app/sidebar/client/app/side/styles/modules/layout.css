@@ -78,28 +78,32 @@ body.expanding {
 
 .main-wrapper,
 .panel,
-.side-panel {
+.side-panel,
+#browser-empty-state {
   scrollbar-width: thin;
   scrollbar-color: rgba(117, 154, 211, 0.72) rgba(233, 239, 247, 0.65);
 }
 
 .main-wrapper::-webkit-scrollbar,
 .panel::-webkit-scrollbar,
-.side-panel::-webkit-scrollbar {
+.side-panel::-webkit-scrollbar,
+#browser-empty-state::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
 .main-wrapper::-webkit-scrollbar-track,
 .panel::-webkit-scrollbar-track,
-.side-panel::-webkit-scrollbar-track {
+.side-panel::-webkit-scrollbar-track,
+#browser-empty-state::-webkit-scrollbar-track {
   background: rgba(233, 239, 247, 0.7);
   border-radius: 999px;
 }
 
 .main-wrapper::-webkit-scrollbar-thumb,
 .panel::-webkit-scrollbar-thumb,
-.side-panel::-webkit-scrollbar-thumb {
+.side-panel::-webkit-scrollbar-thumb,
+#browser-empty-state::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, rgba(129, 168, 225, 0.9), rgba(87, 130, 193, 0.92));
   border-radius: 999px;
   border: 2px solid rgba(233, 239, 247, 0.85);
@@ -108,13 +112,15 @@ body.expanding {
 
 .main-wrapper::-webkit-scrollbar-thumb:hover,
 .panel::-webkit-scrollbar-thumb:hover,
-.side-panel::-webkit-scrollbar-thumb:hover {
+.side-panel::-webkit-scrollbar-thumb:hover,
+#browser-empty-state::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, rgba(148, 184, 236, 1), rgba(99, 145, 212, 1));
 }
 
 .main-wrapper::-webkit-scrollbar-corner,
 .panel::-webkit-scrollbar-corner,
-.side-panel::-webkit-scrollbar-corner {
+.side-panel::-webkit-scrollbar-corner,
+#browser-empty-state::-webkit-scrollbar-corner {
   background: transparent;
 }
 

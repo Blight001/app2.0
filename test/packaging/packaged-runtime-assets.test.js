@@ -63,6 +63,14 @@ test('sidebar logos use the runtime asset resolver in source and packaged apps',
   const aiControlPage = fs.readFileSync(path.join(sidebarRoot, 'ai-control.html'), 'utf8');
   const accountCenterPage = fs.readFileSync(path.join(sidebarRoot, 'account-center.html'), 'utf8');
   const appShell = fs.readFileSync(path.join(__dirname, '../../src/app/views/app-shell.html'), 'utf8');
+  const accountAuthCss = fs.readFileSync(
+    path.join(sidebarRoot, 'client/app/side/styles/modules/account-auth.css'),
+    'utf8',
+  );
+  const layoutCss = fs.readFileSync(
+    path.join(sidebarRoot, 'client/app/side/styles/modules/layout.css'),
+    'utf8',
+  );
   const logoResolver = fs.readFileSync(
     path.join(__dirname, '../../src/app/sidebar/client/scripts/logo-assets.js'),
     'utf8',
@@ -83,6 +91,7 @@ test('sidebar logos use the runtime asset resolver in source and packaged apps',
   assert.ok(accountCenterPage.includes('id="account-center-panel"'));
   assert.ok(appShell.includes('../sidebar/client/scripts/logo-assets.js'));
   assert.ok(appShell.includes('id="ai-free-settings-panel"'));
+  assert.ok(appShell.includes('id="browser-settings-tutorial"'));
   assert.ok(appShell.includes('id="automation-workbench"'));
   assert.ok(appShell.includes('id="automation-flow-canvas"'));
   assert.ok(appShell.includes('id="automation-node-inspector"'));
@@ -90,4 +99,7 @@ test('sidebar logos use the runtime asset resolver in source and packaged apps',
   assert.ok(appShell.includes('shell-automation-workbench.js'));
   assert.ok(appShell.includes('app-shell-automation-canvas.css'));
   assert.ok(appShell.includes('app-shell-automation.css'));
+  assert.match(accountAuthCss, /\.account-center-panel\s*\{[^}]*overflow-y:\s*auto;/s);
+  assert.match(accountAuthCss, /\.account-center-panel \.container\s*\{[^}]*overflow:\s*visible;/s);
+  assert.match(layoutCss, /#browser-empty-state::\-webkit-scrollbar-thumb/);
 });

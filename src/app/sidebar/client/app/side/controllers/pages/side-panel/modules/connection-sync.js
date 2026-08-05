@@ -241,8 +241,8 @@ function renderWoolPlatformButtons(platforms) {
 // 设置/更新/持久化：setTutorialLinkHref的具体业务逻辑。
 function setTutorialLinkHref(tutorialUrl) {
   const normalized = String(tutorialUrl || '').trim();
-  const tutorialLink = safeGetEl('tutorial-link');
-  if (tutorialLink) {
+  const tutorialEntries = [safeGetEl('tutorial-link'), safeGetEl('browser-settings-tutorial')].filter(Boolean);
+  tutorialEntries.forEach((tutorialLink) => {
     if (normalized) {
       tutorialLink.setAttribute('href', normalized);
       tutorialLink.dataset.tutorialUrl = normalized;
@@ -254,7 +254,7 @@ function setTutorialLinkHref(tutorialUrl) {
       tutorialLink.setAttribute('aria-disabled', 'true');
       tutorialLink.title = '教程链接尚未同步';
     }
-  }
+  });
 }
 
 // 设置/更新/持久化：setTargetUrl的具体业务逻辑。

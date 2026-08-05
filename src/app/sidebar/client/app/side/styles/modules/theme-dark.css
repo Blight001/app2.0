@@ -48,26 +48,30 @@ body {
 
 .main-wrapper,
 .panel,
-.side-panel {
+.side-panel,
+#browser-empty-state {
   scrollbar-color: rgba(141, 169, 255, 0.82) rgba(12, 16, 25, 0.72);
 }
 
 .main-wrapper::-webkit-scrollbar-track,
 .panel::-webkit-scrollbar-track,
-.side-panel::-webkit-scrollbar-track {
+.side-panel::-webkit-scrollbar-track,
+#browser-empty-state::-webkit-scrollbar-track {
   background: rgba(12, 16, 25, 0.72);
 }
 
 .main-wrapper::-webkit-scrollbar-thumb,
 .panel::-webkit-scrollbar-thumb,
-.side-panel::-webkit-scrollbar-thumb {
+.side-panel::-webkit-scrollbar-thumb,
+#browser-empty-state::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, rgba(141, 169, 255, 0.96), rgba(104, 136, 236, 0.96));
   border-color: rgba(12, 16, 25, 0.72);
 }
 
 .main-wrapper::-webkit-scrollbar-thumb:hover,
 .panel::-webkit-scrollbar-thumb:hover,
-.side-panel::-webkit-scrollbar-thumb:hover {
+.side-panel::-webkit-scrollbar-thumb:hover,
+#browser-empty-state::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, rgba(164, 185, 255, 1), rgba(123, 151, 242, 1));
 }
 

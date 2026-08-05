@@ -10,6 +10,7 @@ function initSidePanelBindings() {
   const browserSettingsPage = document.documentElement.classList.contains('browser-settings-page');
   if (browserSettingsPage) {
     initSidebarUiListeners();
+    bindTutorialLink();
     bindClashMiniControls();
     bindRuntimeValueListeners();
     return;
