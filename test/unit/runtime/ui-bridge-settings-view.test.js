@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-test('侧边栏状态事件同时投递到独立浏览器配置页', () => {
+test('侧边栏状态事件同时投递到内嵌浏览器配置首页', () => {
   const consoleModulePath = require.resolve('../../../src/app/main/runtime/app-console');
   const bridgeModulePath = require.resolve('../../../src/app/main/composition/create-ui-bridge');
   const originalConsoleModule = require.cache[consoleModulePath];
@@ -28,7 +28,7 @@ test('侧边栏状态事件同时投递到独立浏览器配置页', () => {
   try {
     const { createUiBridge } = require(bridgeModulePath);
     const sidebarEvents = [];
-    const settingsEvents = [];
+    const mainEvents = [];
     const makeView = (events) => ({
       webContents: {
         isDestroyed: () => false,
@@ -36,15 +36,15 @@ test('侧边栏状态事件同时投递到独立浏览器配置页', () => {
       },
     });
     const bridge = createUiBridge({
+      getMainWindow: () => makeView(mainEvents),
       getSideView: () => makeView(sidebarEvents),
-      getBrowserSettingsView: () => makeView(settingsEvents),
       getControlPanelWindow: () => null,
       getConsoleWindow: () => null,
     });
 
     assert.equal(bridge.sendToSide('clash-mini-status', { running: true }), true);
     assert.deepEqual(sidebarEvents, [['clash-mini-status', { running: true }]]);
-    assert.deepEqual(settingsEvents, [['clash-mini-status', { running: true }]]);
+    assert.deepEqual(mainEvents, [['clash-mini-status', { running: true }]]);
   } finally {
     if (originalConsoleModule) require.cache[consoleModulePath] = originalConsoleModule;
     else delete require.cache[consoleModulePath];

@@ -58,7 +58,10 @@ test('native host has no external VC++ redistributable dependency', () => {
 });
 
 test('sidebar logos use the runtime asset resolver in source and packaged apps', () => {
-  const html = fs.readFileSync(path.join(__dirname, '../../src/app/sidebar/index.html'), 'utf8');
+  const sidebarRoot = path.join(__dirname, '../../src/app/sidebar');
+  const index = fs.readFileSync(path.join(sidebarRoot, 'index.html'), 'utf8');
+  const aiControlPage = fs.readFileSync(path.join(sidebarRoot, 'ai-control.html'), 'utf8');
+  const accountCenterPage = fs.readFileSync(path.join(sidebarRoot, 'account-center.html'), 'utf8');
   const appShell = fs.readFileSync(path.join(__dirname, '../../src/app/views/app-shell.html'), 'utf8');
   const logoResolver = fs.readFileSync(
     path.join(__dirname, '../../src/app/sidebar/client/scripts/logo-assets.js'),
@@ -66,20 +69,25 @@ test('sidebar logos use the runtime asset resolver in source and packaged apps',
   );
   const aiControl = readAiControlSource();
 
-  assert.ok(html.includes('<script src="./client/scripts/logo-assets.js"></script>'));
-  assert.equal((html.match(/<img[^>]*data-app-logo/g) || []).length, 3);
+  assert.ok(index.includes("location.replace('./ai-control.html')"));
+  for (const html of [aiControlPage, accountCenterPage]) {
+    assert.ok(html.includes('<script src="./client/scripts/logo-assets.js"></script>'));
+  }
+  assert.equal((aiControlPage.match(/<img[^>]*data-app-logo/g) || []).length, 1);
+  assert.equal((accountCenterPage.match(/<img[^>]*data-app-logo/g) || []).length, 1);
   assert.ok(logoResolver.includes("const SOURCE_LOGO_PATH = '../../assets/logo.ico';"));
   assert.ok(logoResolver.includes("const PACKAGED_LOGO_PATH = '../../../../resource/logo.ico';"));
   assert.ok(aiControl.includes('window.aiFreeLogoAssets?.url'));
   assert.equal(appShell.includes('id="account-center-btn"'), false);
-  assert.match(html, /data-tab="account-center-panel"[\s\S]*?id="account-center-panel"/);
+  assert.ok(aiControlPage.includes('data-tab="account-center-panel"'));
+  assert.ok(accountCenterPage.includes('id="account-center-panel"'));
   assert.ok(appShell.includes('../sidebar/client/scripts/logo-assets.js'));
-  assert.equal(appShell.includes('id="automation-workbench"'), false);
-  assert.ok(html.includes('id="automation-workbench"'));
-  assert.ok(html.includes('id="automation-flow-canvas"'));
-  assert.ok(html.includes('id="automation-node-inspector"'));
-  assert.ok(html.includes('shell-automation-canvas.js'));
-  assert.ok(html.includes('shell-automation-workbench.js'));
-  assert.ok(html.includes('app-shell-automation-canvas.css'));
-  assert.ok(html.includes('app-shell-automation.css'));
+  assert.ok(appShell.includes('id="ai-free-settings-panel"'));
+  assert.ok(appShell.includes('id="automation-workbench"'));
+  assert.ok(appShell.includes('id="automation-flow-canvas"'));
+  assert.ok(appShell.includes('id="automation-node-inspector"'));
+  assert.ok(appShell.includes('shell-automation-canvas.js'));
+  assert.ok(appShell.includes('shell-automation-workbench.js'));
+  assert.ok(appShell.includes('app-shell-automation-canvas.css'));
+  assert.ok(appShell.includes('app-shell-automation.css'));
 });

@@ -5,19 +5,19 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { createAppShellMainWindowController } = require('../../../src/app/main/services/app-shell-main-window');
 
-test('浏览器配置作为独立主内容页且不占用侧边栏栏目', () => {
+test('浏览器配置内嵌主窗口且只创建侧边栏子视图', () => {
   const views = [];
   let mainWindow = null;
   let sideView = null;
-  let browserSettingsView = null;
   let maximizeCalls = 0;
+  const loadedPages = [];
   class FakeView {
     constructor() {
       this.visible = true;
       this.bounds = null;
       this.webContents = {
         session: {},
-        loadFile: async () => {},
+        loadFile: async (file) => { loadedPages.push(file); },
         on: () => {},
       };
       views.push(this);
@@ -67,10 +67,8 @@ test('浏览器配置作为独立主内容页且不占用侧边栏栏目', () =>
     resolveAppIconPath: () => 'C:/app/logo.ico',
     attachContextMenu: () => {}, resolveAddTab: () => null, resolveTabs: () => new Map(),
     resolveActiveTabId: () => null, resolveRefreshActiveTab: () => null, resolveAuth: () => null,
-    resolveControlPanelHtmlPath: () => 'C:/app/sidebar/index.html',
+    resolveControlPanelHtmlPath: (fileName) => `C:/app/sidebar/${fileName}`,
     getSideView: () => sideView, setSideView: (view) => { sideView = view; },
-    getBrowserSettingsView: () => browserSettingsView,
-    setBrowserSettingsView: (view) => { browserSettingsView = view; },
     setMainWindow: (window) => { mainWindow = window; }, resolveMainWindow: () => mainWindow,
     resolveControlPanelWindow: () => null, closeDevConsoleWindow: () => {},
     getIsSidebarVisible: () => true, isControlPanelModeEnabled: () => false,
@@ -79,13 +77,9 @@ test('浏览器配置作为独立主内容页且不占用侧边栏栏目', () =>
   const window = controller.createMainWindow();
   assert.equal(maximizeCalls, 1);
   window.emit('ready-to-show');
-  assert.equal(views.length, 2);
-  assert.equal(browserSettingsView, views[0]);
-  assert.deepEqual(views[0].bounds, { x: 0, y: 41, width: 700, height: 659 });
-  assert.deepEqual(views[1].bounds, { x: 700, y: 41, width: 300, height: 659 });
-  controller.setBrowserSettingsPageVisible(false);
-  assert.equal(views[0].visible, false);
-  assert.equal(views[1].visible, true);
+  assert.equal(views.length, 1);
+  assert.deepEqual(loadedPages, ['C:/app/sidebar/ai-control.html']);
+  assert.deepEqual(views[0].bounds, { x: 700, y: 41, width: 300, height: 659 });
+  assert.equal(views[0].visible, true);
   window.emit('closed');
-  assert.equal(browserSettingsView, null);
 });

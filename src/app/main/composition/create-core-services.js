@@ -134,25 +134,14 @@ function createCoreServices({ app, fs, path, BrowserWindow, safeStorage, getTabM
   );
 
   const uiBridge = createUiBridge({
+    getMainWindow: appRuntime.getMainWindow,
     getSideView: appRuntime.getSideView,
-    getBrowserSettingsView: appRuntime.getBrowserSettingsView,
     getControlPanelWindow: appRuntime.getControlPanelWindow,
     getConsoleWindow: appRuntime.getConsoleWindow,
   });
   const { sendToSide, getAppConsoleHistory, getDebugConsoleHistory } = uiBridge;
 
-  // 更新事件同时投递侧边栏与主窗口
-  const sendUpdateUiEvent = (channel, ...args) => {
-    let delivered = sendToSide(channel, ...args);
-    try {
-      const mainWindow = appRuntime.getMainWindow();
-      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
-        mainWindow.webContents.send(channel, ...args);
-        delivered = true;
-      }
-    } catch (_) {}
-    return delivered;
-  };
+  const sendUpdateUiEvent = sendToSide;
   const appUpdater = createAppUpdater({
     app,
     fs,

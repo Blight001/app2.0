@@ -114,7 +114,6 @@ test('browser, network, content, extension and update operations bind fixed chan
   await exposed.aiFree.content.refreshTutorialUrl();
   await exposed.aiFree.extensions.setEnabled({ id: 'extension-a', enabled: true });
   await exposed.aiFree.updates.start({ version: '2.7.0' });
-  exposed.aiFree.ui.setBrowserSettingsPageVisible(true);
   exposed.aiFree.ui.requestAccountCenter();
   assert.deepEqual(calls, [
     ['invoke', 'get-ai-free-browser-settings', { historyId: 'history-1' }],
@@ -122,7 +121,6 @@ test('browser, network, content, extension and update operations bind fixed chan
     ['invoke', 'refresh-tutorial-url', undefined],
     ['invoke', 'set-extension-enabled', { id: 'extension-a', enabled: true }],
     ['invoke', 'start-app-update', { version: '2.7.0' }],
-    ['send', 'set-browser-settings-page-visible', true],
     ['send', 'request-account-center', undefined],
   ]);
   for (const domain of ['browser', 'network', 'content', 'extensions', 'updates', 'ui']) {

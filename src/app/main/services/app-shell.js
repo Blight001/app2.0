@@ -119,12 +119,12 @@ class AppShellRuntime {
       || this.hasEnabledEnvironmentValue('CONTROL_PANEL_ONLY');
   }
 
-  resolveControlPanelHtmlPath() {
+  resolveControlPanelHtmlPath(fileName = 'ai-control.html') {
     const { app, fs, path } = this.deps;
     const candidates = [
-      path.join(__dirname, '../../sidebar/index.html'),
-      path.join(app.getAppPath ? app.getAppPath() : '', 'src', 'app', 'sidebar', 'index.html'),
-      path.join(process.cwd(), 'src', 'app', 'sidebar', 'index.html'),
+      path.join(__dirname, '../../sidebar', fileName),
+      path.join(app.getAppPath ? app.getAppPath() : '', 'src', 'app', 'sidebar', fileName),
+      path.join(process.cwd(), 'src', 'app', 'sidebar', fileName),
     ].filter(Boolean);
     for (const candidate of candidates) {
       try { if (fs.existsSync(candidate)) return candidate; } catch (_) {}
@@ -224,7 +224,7 @@ class AppShellRuntime {
   }
 
   closeMissingControlPanel(window) {
-    this.deps.logger.warn?.('[启动] 未找到本地 src/app/sidebar/index.html，跳过控制页窗口加载');
+    this.deps.logger.warn?.('[启动] 未找到本地 src/app/sidebar/ai-control.html，跳过控制页窗口加载');
     try { window.close(); } catch (_) {}
     return null;
   }
@@ -272,7 +272,6 @@ class AppShellRuntime {
     });
     this.createMainWindow = mainController.createMainWindow;
     this.revealMainWindow = mainController.revealMainWindow;
-    this.setBrowserSettingsPageVisible = mainController.setBrowserSettingsPageVisible;
     this.bootstrapMainApp = this.createBootstrapMainApp();
   }
 
@@ -286,7 +285,6 @@ class AppShellRuntime {
       ensureAnnouncementPoller: this.ensureAnnouncementPoller.bind(this),
       isControlPanelOnlyModeEnabled: this.isControlPanelOnlyModeEnabled.bind(this),
       revealMainWindow: this.revealMainWindow,
-      setBrowserSettingsPageVisible: this.setBrowserSettingsPageVisible,
       resolveActiveTabId: this.resolveActiveTabId.bind(this),
       resolveAddTab: this.resolveAddTab.bind(this),
       resolveAuth: this.resolveAuth.bind(this),

@@ -129,7 +129,6 @@ const EVENT_CHANNELS = [
   { channel: 'reveal-cookie-import', kind: 'event', domain: 'account', registrar: 'src/app/main/ipc/register/ui.js' },
   { channel: 'server-account-cookie-received', kind: 'event', domain: 'account', registrar: 'src/app/main/ipc/register/settings.js' },
   { channel: 'set-zoom', kind: 'event', domain: 'browser', registrar: 'src/app/main/ipc/register/ui.js' },
-  { channel: 'set-browser-settings-page-visible', kind: 'event', domain: 'ui', registrar: 'src/app/main/ipc/register/ui.js' },
   { channel: 'smart-refresh-active-tab', kind: 'event', domain: 'browser', registrar: 'src/app/main/ipc/register/ui.js' },
   { channel: 'switch-tab', kind: 'event', domain: 'browser', registrar: 'src/app/main/ipc/register/ui.js' },
   { channel: 'toggle-sidebar', kind: 'event', domain: 'ui', registrar: 'src/app/main/ipc/register/ui.js' },

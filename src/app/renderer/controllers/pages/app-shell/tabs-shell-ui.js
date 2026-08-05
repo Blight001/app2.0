@@ -217,7 +217,7 @@ function setIndependentBrowserCreationPending(pending) {
     newBrowserWindowBtn.disabled = independentBrowserCreationPending;
     newBrowserWindowBtn.setAttribute('aria-busy', String(independentBrowserCreationPending));
   }
-  const homeCreateButton = document.getElementById('shell-home-create-browser');
+  const homeCreateButton = document.getElementById('browser-settings-create-browser');
   if (homeCreateButton) {
     homeCreateButton.disabled = independentBrowserCreationPending;
     homeCreateButton.setAttribute('aria-busy', String(independentBrowserCreationPending));

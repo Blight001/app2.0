@@ -164,7 +164,7 @@
   });
 
   document.addEventListener('DOMContentLoaded', () => {
-    if (document.documentElement.classList.contains('browser-settings-page')) return;
+    if (!document.getElementById('ai-control-panel')) return;
     initCustomSelects();
     bindAiHeaderEvents();
     bindBrowserSelection();

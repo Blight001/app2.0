@@ -112,6 +112,8 @@ class FakeElement {
     this.parentNode = null;
     this.className = '';
     this.textContent = '';
+    this.value = '';
+    this.dispatched = [];
   }
 
   append(...children) {
@@ -130,6 +132,15 @@ class FakeElement {
 
   addEventListener(type, listener) {
     this.listeners[type] = listener;
+  }
+
+  dispatchEvent(event) {
+    this.dispatched.push(event.type);
+    this.listeners[event.type]?.(event);
+  }
+
+  focus() {
+    this.focused = true;
   }
 
   remove() {
@@ -179,4 +190,30 @@ test('新对话空白页展示五条最近聊天并可点击切换', () => {
 
   list.children[0].listeners.click();
   assert.equal(selectedId, 'session-1');
+});
+
+test('新对话空白页展示任务入口且点击后只填入输入框', () => {
+  const messages = new FakeElement('div');
+  const input = new FakeElement('textarea');
+  const context = createControllerContext({
+    currentMessages: () => [],
+    renderRecentHistory() {},
+    updateSessionTitleUi() {},
+    selectedAutomationCard: () => null,
+  });
+  context.document.getElementById = (id) => ({
+    'ai-chat-messages': messages,
+    'ai-chat-input': input,
+  })[id] || null;
+  context.document.createElement = (tagName) => new FakeElement(tagName);
+  context.Event = class Event { constructor(type) { this.type = type; } };
+  runController(context, 'ai-control-messages.js');
+  vm.runInContext('state.currentBrowserIds = []; renderWelcome()', context);
+
+  const promptList = messages.querySelector('.ai-chat-prompt-list');
+  assert.equal(promptList.children.length, 3);
+  promptList.children[0].listeners.click();
+  assert.match(input.value, /梳理这个任务/);
+  assert.deepEqual(input.dispatched, ['input']);
+  assert.equal(input.focused, true);
 });

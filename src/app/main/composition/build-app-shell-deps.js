@@ -123,8 +123,6 @@ function buildAppShellDeps({
     setMainWindow: appRuntime.setMainWindow,
     getSideView: appRuntime.getSideView,
     setSideView: appRuntime.setSideView,
-    getBrowserSettingsView: appRuntime.getBrowserSettingsView,
-    setBrowserSettingsView: appRuntime.setBrowserSettingsView,
     getControlPanelWindow: appRuntime.getControlPanelWindow,
     setControlPanelWindow: appRuntime.setControlPanelWindow,
     getConsoleWindow: appRuntime.getConsoleWindow,

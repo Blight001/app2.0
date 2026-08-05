@@ -59,7 +59,6 @@ function createBootstrapUiDeps(deps) {
     getAppConsoleHistory: () => getConsoleHistory(deps),
     getDebugConsoleHistory: () => getConsoleHistory(deps, true),
     ensureSidebarVisible: () => { if (!deps.getIsSidebarVisible?.()) deps.toggleSidebar(); },
-    setBrowserSettingsPageVisible: deps.setBrowserSettingsPageVisible,
     purgeBrowserSessionData: typeof deps.purgeBrowserSessionData === 'function' ? deps.purgeBrowserSessionData : null,
     buildManagedTabPartitionName: typeof deps.buildManagedTabPartitionName === 'function' ? deps.buildManagedTabPartitionName : null,
     applyClashMiniBrowserProxy: typeof deps.applyClashMiniBrowserProxy === 'function' ? deps.applyClashMiniBrowserProxy : null,

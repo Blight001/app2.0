@@ -174,7 +174,9 @@ function verifyAsarIntegrity(projectDir, appOutDir) {
     // 缺失的文件都会在这里直接失败，禁止继续生成安装包。
     asar.extractAll(archivePath, extractDir);
     verifyUnpackedRuntimeFiles(projectDir, resourcesDir, extractDir);
-    const sidebarPath = path.join(extractDir, 'src', 'app', 'sidebar', 'index.html');
+    const sidebarRoot = path.join(extractDir, 'src', 'app', 'sidebar');
+    const sidebarPath = path.join(sidebarRoot, 'ai-control.html');
+    const accountPath = path.join(sidebarRoot, 'account-center.html');
     const appShellPath = path.join(extractDir, 'src', 'app', 'views', 'app-shell.html');
     const logoResolverPath = path.join(
       extractDir,
@@ -186,12 +188,15 @@ function verifyAsarIntegrity(projectDir, appOutDir) {
       'logo-assets.js',
     );
     assertFile(sidebarPath, 128);
+    assertFile(accountPath, 128);
     assertFile(appShellPath, 128);
     assertFile(logoResolverPath, 128);
     const sidebar = fs.readFileSync(sidebarPath, 'utf8');
+    const account = fs.readFileSync(accountPath, 'utf8');
     const appShell = fs.readFileSync(appShellPath, 'utf8');
     const logoResolver = fs.readFileSync(logoResolverPath, 'utf8');
-    if ((sidebar.match(/<img[^>]*data-app-logo/g) || []).length !== 3
+    if ((sidebar.match(/<img[^>]*data-app-logo/g) || []).length !== 1
+      || (account.match(/<img[^>]*data-app-logo/g) || []).length !== 1
       || !sidebar.includes('<script src="./client/scripts/logo-assets.js"></script>')
       || !logoResolver.includes("const PACKAGED_LOGO_PATH = '../../../../resource/logo.ico';")) {
       throw new Error('侧边栏 Logo 未通过运行时解析器指向打包后的外置资源');
@@ -199,9 +204,11 @@ function verifyAsarIntegrity(projectDir, appOutDir) {
     if (appShell.includes('id="account-center-btn"')
       || !appShell.includes('../sidebar/client/scripts/logo-assets.js')
       || (appShell.match(/<img[^>]*data-app-logo/g) || []).length !== 1
+      || !appShell.includes('id="ai-free-settings-panel"')
+      || !appShell.includes('id="automation-workbench"')
       || !sidebar.includes('data-tab="account-center-panel"')
-      || !sidebar.includes('id="account-center-panel"')) {
-      throw new Error('个人中心未内嵌到侧边栏栏目，或主窗口头像入口仍然存在');
+      || !account.includes('id="account-center-panel"')) {
+      throw new Error('独立个人中心页面缺失，或主窗口头像入口仍然存在');
     }
   } finally {
     fs.rmSync(extractDir, { recursive: true, force: true });

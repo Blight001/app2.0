@@ -291,9 +291,6 @@ function registerUiUtilityIPC(ipc, ctx) {
       if (contents && !contents.isDestroyed?.()) contents.send('open-account-center');
     } catch (_) {}
   });
-  ipc.on('set-browser-settings-page-visible', (_event, visible) => (
-    ui.setBrowserSettingsPageVisible?.(visible === true)
-  ));
   ipc.handle('open-active-web-console', async () => {
     try {
       const contents = ui.getActiveWC?.();

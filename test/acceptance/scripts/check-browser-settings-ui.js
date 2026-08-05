@@ -9,7 +9,6 @@ let homeSwitchRequests = 0;
 let independentBrowserCreateRequests = 0;
 let accountSessionRequests = 0;
 let accountCenterRequests = 0;
-let browserSettingsPageVisible = null;
 let windowCloseBehavior = 'ask';
 const automationOperations = [];
 ipcMain.handle('open-browser-history', (_event, payload = {}) => {
@@ -18,9 +17,6 @@ ipcMain.handle('open-browser-history', (_event, payload = {}) => {
 });
 ipcMain.on('switch-tab', (_event, tabId) => {
   if (tabId === null) homeSwitchRequests += 1;
-});
-ipcMain.on('set-browser-settings-page-visible', (_event, visible) => {
-  browserSettingsPageVisible = visible === true;
 });
 ipcMain.handle('create-independent-browser', () => {
   independentBrowserCreateRequests += 1;
@@ -111,9 +107,7 @@ app.whenReady().then(async () => {
   attachContextMenu(win.webContents, {
     rendererContextMenuSelector: '.browser-history-item, #browser-history-context-menu',
   });
-  await win.loadFile(path.join(__dirname, '../../../src/app/sidebar/index.html'), {
-    query: { page: 'browser-settings' },
-  });
+  await win.loadFile(path.join(__dirname, '../../../src/app/views/app-shell.html'));
   await new Promise((resolve) => setTimeout(resolve, 120));
   const firstSidebarReadyMs = Number(process.hrtime.bigint() - performanceProbeStartedAt) / 1e6;
   const result = await win.webContents.executeJavaScript(`(async () => {
@@ -205,7 +199,7 @@ app.whenReady().then(async () => {
         .some((label) => label.textContent === 'false'),
       canvasInspectorEdited: canvasSteps.some((step) => step.name === '验收判断节点' && step.type === 'condition'),
       removedNetworkHeading: !document.getElementById('network-tools-title') && !panel.querySelector('.settings-network-tools-hint'),
-      overflowY: getComputedStyle(document.querySelector('.main-wrapper')).overflowY,
+      overflowY: getComputedStyle(document.getElementById('browser-empty-state')).overflowY,
     };
   })()`);
   if (process.env.AI_FREE_BROWSER_SETTINGS_UI_CAPTURE) {
@@ -354,21 +348,47 @@ app.whenReady().then(async () => {
   if (promptResult !== '新名称') {
     throw new Error(`软件重命名弹窗校验失败: ${JSON.stringify(promptResult)}`);
   }
-  await win.loadFile(path.join(__dirname, '../../../src/app/sidebar/index.html'));
+  await win.loadFile(path.join(__dirname, '../../../src/app/sidebar/ai-control.html'));
   await new Promise((resolve) => setTimeout(resolve, 120));
-  const aiLoginTriggerResult = await win.webContents.executeJavaScript(`new Promise((resolve) => {
+  const aiWelcomeResult = await win.webContents.executeJavaScript(`(() => {
+    const prompts = Array.from(document.querySelectorAll('.ai-chat-prompt-item'));
+    const input = document.getElementById('ai-chat-input');
+    prompts[0]?.click();
+    return {
+      heroVisible: document.querySelector('.ai-chat-welcome-hero')?.getBoundingClientRect().height > 0,
+      promptCount: prompts.length,
+      promptFilledComposer: input?.value.includes('梳理这个任务') === true,
+      welcomeStillVisible: !!document.querySelector('.ai-chat-welcome'),
+    };
+  })()`);
+  if (!aiWelcomeResult.heroVisible
+    || aiWelcomeResult.promptCount !== 3
+    || !aiWelcomeResult.promptFilledComposer
+    || !aiWelcomeResult.welcomeStillVisible) {
+    throw new Error(`AI 新对话首页校验失败: ${JSON.stringify(aiWelcomeResult)}`);
+  }
+  if (process.env.AI_FREE_AI_WELCOME_CAPTURE) {
+    win.setSize(500, 850);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const image = await win.webContents.capturePage();
+    fs.writeFileSync(process.env.AI_FREE_AI_WELCOME_CAPTURE, image.toPNG());
+    win.setSize(805, 1200);
+  }
+  await win.webContents.executeJavaScript(`(() => {
     const input = document.getElementById('ai-chat-input');
     input.value = '测试未登录发送';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     document.getElementById('ai-chat-form').requestSubmit();
     window.openAccountCenterPanel();
-    setTimeout(() => resolve({
+    return true;
+  })()`);
+  await new Promise((resolve) => setTimeout(resolve, 220));
+  const aiLoginTriggerResult = await win.webContents.executeJavaScript(`(() => ({
       accountPanelActive: document.getElementById('account-center-panel').classList.contains('active'),
       authFormVisible: document.getElementById('sidebar-account-auth').hidden === false,
       authFormEmbedded: document.getElementById('sidebar-account-auth').parentElement
         === document.getElementById('sidebar-account-session'),
-    }), 80);
-  })`);
+    }))()`);
   if (
     aiLoginTriggerResult.accountPanelActive !== true
     || aiLoginTriggerResult.authFormVisible !== true
@@ -378,7 +398,6 @@ app.whenReady().then(async () => {
   }
   const accountCenterResult = await win.webContents.executeJavaScript(`new Promise((resolve) => {
     const panel = document.getElementById('account-center-panel');
-    document.querySelector('[data-tab="account-center-panel"]')?.click();
     setTimeout(async () => {
       const active = panel.classList.contains('active')
         && document.querySelector('[data-tab="account-center-panel"]')?.classList.contains('active');
@@ -462,7 +481,7 @@ app.whenReady().then(async () => {
     const theme = document.getElementById('theme-toggle-btn');
     const gear = document.getElementById('add-tab-btn');
     const createButton = document.getElementById('new-browser-window-btn');
-    const homeCreateButton = document.getElementById('shell-home-create-browser');
+    const homeCreateButton = document.getElementById('browser-settings-create-browser');
     const wasLight = document.documentElement.classList.contains('theme-light');
     theme?.click();
     createButton?.click();
@@ -476,13 +495,13 @@ app.whenReady().then(async () => {
       modernCreateIcon: !!createButton?.querySelector('svg.new-window-icon') && createButton.textContent.trim() === '',
       homeVisible: document.getElementById('browser-empty-state')?.hidden === false,
       homeLogoVisible: !!document.querySelector('#browser-empty-state img[data-app-logo]'),
-      recentBrowserVisible: document.getElementById('shell-home-recent-list')?.textContent.includes('平台 A') === true,
-      prominentHomeCreateButton: getComputedStyle(homeCreateButton).display === 'inline-flex',
+      recentBrowserVisible: document.getElementById('browser-history-list')?.textContent.includes('平台 A') === true,
+      prominentHomeCreateButton: homeCreateButton?.getBoundingClientRect().width > 0,
+      settingsEmbeddedInShell: !!document.querySelector('#browser-empty-state > #ai-free-settings-panel'),
     };
   })()`);
   shellAccountResult.topPlusOpenedHome = homeSwitchRequests === 1;
   shellAccountResult.homeCreateRequestedBrowser = independentBrowserCreateRequests === 1;
-  shellAccountResult.settingsPageVisibleByDefault = browserSettingsPageVisible === true;
   await new Promise((resolve) => setTimeout(resolve, 30));
   if (Object.values(shellAccountResult).some((value) => value !== true)) {
     throw new Error(`主窗口内置首页与控件校验失败: ${JSON.stringify(shellAccountResult)}`);

@@ -79,6 +79,11 @@ function closeSidebarAccountAuth() {
 
 function openAccountCenterPanel() {
   if (!safeGetEl('account-center-panel')) {
+    if (document.documentElement?.classList?.contains('ai-control-page')) {
+      try { sessionStorage.setItem('ai-free.account-center.open-login', 'true'); } catch (_) {}
+      location.assign('./account-center.html');
+      return;
+    }
     window.aiFree?.ui?.requestAccountCenter?.();
     return;
   }
@@ -109,6 +114,16 @@ async function redirectToSidebarAccountLogin() {
 window.openAccountCenterPanel = openAccountCenterPanel;
 window.isSidebarAccountAuthenticated = isSidebarAccountAuthenticated;
 window.redirectToSidebarAccountLogin = redirectToSidebarAccountLogin;
+
+document.addEventListener?.('DOMContentLoaded', () => {
+  if (!safeGetEl('account-center-panel')) return;
+  let shouldOpenLogin = false;
+  try {
+    shouldOpenLogin = sessionStorage.getItem('ai-free.account-center.open-login') === 'true';
+    sessionStorage.removeItem('ai-free.account-center.open-login');
+  } catch (_) {}
+  if (shouldOpenLogin && !isSidebarAccountAuthenticated()) openSidebarAccountAuth('login');
+});
 
 function collectSidebarVipSources(session) {
   const validation = session.validation && typeof session.validation === 'object' ? session.validation : {};

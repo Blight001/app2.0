@@ -218,6 +218,90 @@
     return row;
   }
 
+  function welcomePromptItems(hasBrowser) {
+    if (hasBrowser) {
+      return [
+        ['览', '总结当前页面', '总结当前页面的核心信息，并列出关键结论。'],
+        ['取', '提取页面数据', '提取当前页面中的关键数据，并整理成清晰的表格。'],
+        ['流', '规划自动化流程', '根据当前浏览器页面，帮我规划一套可执行的自动化流程。'],
+      ];
+    }
+    return [
+      ['梳', '梳理一个任务', '帮我梳理这个任务，明确目标、步骤和需要注意的风险：'],
+      ['写', '生成执行方案', '请根据我的目标，写一份清晰、可执行的方案：'],
+      ['析', '分析一段内容', '请分析并解释下面这段内容，提炼重点和结论：'],
+    ];
+  }
+
+  function applyWelcomePrompt(prompt) {
+    const input = el('ai-chat-input');
+    if (!input) return;
+    input.value = prompt;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
+  }
+
+  function createWelcomePrompts(hasBrowser) {
+    const section = document.createElement('section');
+    section.className = 'ai-chat-prompts';
+    section.setAttribute('aria-label', '推荐任务');
+    const heading = document.createElement('span');
+    heading.className = 'ai-chat-prompts-heading';
+    heading.textContent = '快速开始';
+    const list = document.createElement('div');
+    list.className = 'ai-chat-prompt-list';
+    welcomePromptItems(hasBrowser).forEach(([iconText, titleText, prompt]) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'ai-chat-prompt-item';
+      const icon = document.createElement('span');
+      icon.textContent = iconText;
+      const title = document.createElement('b');
+      title.textContent = titleText;
+      const arrow = document.createElement('i');
+      arrow.textContent = '→';
+      button.append(icon, title, arrow);
+      button.addEventListener('click', () => applyWelcomePrompt(prompt));
+      list.appendChild(button);
+    });
+    section.append(heading, list);
+    return section;
+  }
+
+  function createWelcomeHero(browserText, browserCount, logoUrl) {
+    const hero = document.createElement('div');
+    hero.className = 'ai-chat-welcome-hero';
+    const brand = document.createElement('div');
+    brand.className = 'ai-chat-welcome-brand';
+    const logoFrame = document.createElement('span');
+    logoFrame.className = 'ai-chat-welcome-logo';
+    const logo = document.createElement('img');
+    logo.className = 'ai-chat-welcome-icon';
+    logo.src = logoUrl;
+    logo.alt = '';
+    logo.setAttribute('aria-hidden', 'true');
+    logo.setAttribute('data-app-logo', '');
+    logoFrame.appendChild(logo);
+    const brandName = document.createElement('span');
+    brandName.textContent = 'AI-FREE COPILOT';
+    const status = document.createElement('span');
+    status.className = 'ai-chat-welcome-status';
+    const statusDot = document.createElement('i');
+    const statusText = document.createElement('span');
+    statusText.textContent = browserCount ? `${browserCount} 个浏览器已连接` : '普通对话模式';
+    status.append(statusDot, statusText);
+    brand.append(logoFrame, brandName, status);
+    const kicker = document.createElement('span');
+    kicker.className = 'ai-chat-welcome-kicker';
+    kicker.textContent = 'NEW CONVERSATION';
+    const title = document.createElement('strong');
+    title.textContent = '准备好一起完成什么？';
+    const summary = document.createElement('p');
+    summary.textContent = browserText;
+    hero.append(brand, kicker, title, summary);
+    return hero;
+  }
+
   function renderWelcome() {
     const container = el('ai-chat-messages');
     if (!container) return;
@@ -232,7 +316,10 @@
         ? `当前卡片为“${card.name}”，但未连接浏览器，将进行普通对话。`
         : '当前未连接浏览器，将进行普通对话。');
     const logoUrl = window.aiFreeLogoAssets?.url || '../../assets/logo.ico';
-    welcome.innerHTML = `<img class="ai-chat-welcome-icon" data-app-logo src="${logoUrl}" alt="" aria-hidden="true"><strong>有什么可以帮你？</strong><p>${browserText}</p>`;
+    welcome.append(
+      createWelcomeHero(browserText, browserCount, logoUrl),
+      createWelcomePrompts(browserCount > 0),
+    );
     container.appendChild(welcome);
     renderRecentHistory();
     updateSessionTitleUi();

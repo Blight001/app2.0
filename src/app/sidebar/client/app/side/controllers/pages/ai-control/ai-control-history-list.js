@@ -183,6 +183,12 @@
     button.type = 'button';
     button.className = 'ai-chat-recent-item';
 
+    const icon = document.createElement('span');
+    icon.className = 'ai-chat-recent-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = String(session.title || '聊').trim().slice(0, 1);
+    const copy = document.createElement('span');
+    copy.className = 'ai-chat-recent-copy';
     const title = document.createElement('span');
     title.className = 'ai-chat-recent-title';
     title.textContent = session.title || '新对话';
@@ -193,7 +199,12 @@
       .filter(Boolean)
       .join(' · ') || '历史对话';
 
-    button.append(title, meta);
+    const arrow = document.createElement('span');
+    arrow.className = 'ai-chat-recent-arrow';
+    arrow.setAttribute('aria-hidden', 'true');
+    arrow.textContent = '→';
+    copy.append(title, meta);
+    button.append(icon, copy, arrow);
     button.addEventListener('click', () => {
       if (!state.loading) void loadSessionById(session.id);
     });
@@ -217,7 +228,7 @@
     recent.setAttribute('aria-label', '最近聊天');
     const heading = document.createElement('span');
     heading.className = 'ai-chat-recent-heading';
-    heading.textContent = '最近聊天';
+    heading.innerHTML = '<small>RECENT</small>最近聊天';
     const list = document.createElement('div');
     list.className = 'ai-chat-recent-list';
     sessions.forEach((session) => list.appendChild(createRecentHistoryButton(session)));

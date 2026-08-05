@@ -17,7 +17,7 @@ async function main() {
       'src',
       'app',
       'sidebar',
-      'index.html',
+      'ai-control.html',
     );
   const appShellPath = process.env.SIDEBAR_HTML_PATH
     ? path.join(projectDir, 'src', 'app', 'views', 'app-shell.html')
@@ -47,13 +47,14 @@ async function main() {
       naturalHeight: image.naturalHeight,
     }));
   })()`);
-  if (logos.length !== 2 || logos.some((logo) => (
+  if (logos.length !== 1 || logos.some((logo) => (
     !logo.complete || logo.naturalWidth <= 0 || logo.naturalHeight <= 0
   ))) {
-    throw new Error('侧边栏头像或 AI 空白对话 Logo 无法加载');
+    throw new Error('AI 控制页 Logo 无法加载');
   }
+  const accountPath = path.join(path.dirname(sidebarPath), 'account-center.html');
+  await window.loadFile(accountPath);
   const accountPanel = await window.webContents.executeJavaScript(`(() => {
-    document.querySelector('[data-tab="account-center-panel"]')?.click();
     const panel = document.getElementById('account-center-panel');
     const card = document.getElementById('sidebar-account-session');
     return {
@@ -80,7 +81,7 @@ async function main() {
       modernCreateIcon: !!createButton?.querySelector('svg.new-window-icon') && createButton.textContent.trim() === '',
     };
   })()`);
-  console.log(JSON.stringify({ sidebarPath, logos, accountPanel, appShellPath, shellControls }));
+  console.log(JSON.stringify({ sidebarPath, accountPath, logos, accountPanel, appShellPath, shellControls }));
   if (Object.values(shellControls).some((value) => value !== true)) {
     throw new Error('主窗口顶部控件顺序、图标或个人中心头像移除异常');
   }
